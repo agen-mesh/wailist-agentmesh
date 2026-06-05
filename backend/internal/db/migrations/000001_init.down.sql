@@ -1,0 +1,6 @@
+DROP TABLE IF EXISTS run_logs;
+DROP TABLE IF EXISTS runs;
+DROP TABLE IF EXISTS tool_credentials;
+DROP TABLE IF EXISTS agent_wallets;
+DROP TABLE IF EXISTS workflows;
+DROP TABLE IF EXISTS users;
