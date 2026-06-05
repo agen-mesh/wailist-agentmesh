@@ -2,6 +2,7 @@ package models_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -30,5 +31,26 @@ func TestWorkflowGraphRoundtrip(t *testing.T) {
 	}
 	if g2.Nodes[1].SystemPrompt != "You are helpful" {
 		t.Fatal("systemPrompt lost")
+	}
+}
+
+func TestAgentWalletMnemonicNotSerialized(t *testing.T) {
+	w := models.AgentWallet{
+		ID:                "w1",
+		WorkflowID:        "wf1",
+		AgentNodeID:       "n1",
+		Address:           "ALGO123",
+		EncryptedMnemonic: "secret mnemonic words here",
+		Network:           "testnet",
+	}
+	b, err := json.Marshal(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "secret") {
+		t.Fatal("EncryptedMnemonic must not be serialized to JSON")
+	}
+	if strings.Contains(string(b), "encryptedMnemonic") {
+		t.Fatal("encryptedMnemonic field must not appear in JSON output")
 	}
 }
