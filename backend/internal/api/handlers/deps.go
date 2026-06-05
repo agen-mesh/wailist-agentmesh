@@ -28,6 +28,3 @@ func (d *Deps) GetRun(w http.ResponseWriter, r *http.Request)        { w.WriteHe
 func (d *Deps) StreamRun(w http.ResponseWriter, r *http.Request)     { w.WriteHeader(501) }
 func (d *Deps) PublicTrigger(w http.ResponseWriter, r *http.Request) { w.WriteHeader(501) }
 func (d *Deps) X402Quote(w http.ResponseWriter, r *http.Request)     { w.WriteHeader(501) }
-func (d *Deps) Deploy(w http.ResponseWriter, r *http.Request)        { w.WriteHeader(501) }
-func (d *Deps) AgentBalance(w http.ResponseWriter, r *http.Request)  { w.WriteHeader(501) }
-func (d *Deps) FundAgent(w http.ResponseWriter, r *http.Request)     { w.WriteHeader(501) }
