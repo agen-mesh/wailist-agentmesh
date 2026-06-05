@@ -42,8 +42,9 @@ func (d *Deps) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 
 func (d *Deps) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	userID := r.Context().Value(CtxUserID).(string)
 	wf, err := d.Store.GetWorkflow(r.Context(), id)
-	if err != nil {
+	if err != nil || wf.UserID != userID {
 		respond.Error(w, http.StatusNotFound, "workflow not found")
 		return
 	}
@@ -52,6 +53,12 @@ func (d *Deps) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 
 func (d *Deps) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	userID := r.Context().Value(CtxUserID).(string)
+	existing, err := d.Store.GetWorkflow(r.Context(), id)
+	if err != nil || existing.UserID != userID {
+		respond.Error(w, http.StatusNotFound, "workflow not found")
+		return
+	}
 	var body struct {
 		Name  string                `json:"name"`
 		Nodes []models.WorkflowNode `json:"nodes"`
@@ -69,6 +76,12 @@ func (d *Deps) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 
 func (d *Deps) DeleteWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	userID := r.Context().Value(CtxUserID).(string)
+	existing, err := d.Store.GetWorkflow(r.Context(), id)
+	if err != nil || existing.UserID != userID {
+		respond.Error(w, http.StatusNotFound, "workflow not found")
+		return
+	}
 	if err := d.Store.DeleteWorkflow(r.Context(), id); err != nil {
 		respond.Error(w, http.StatusInternalServerError, err.Error())
 		return
