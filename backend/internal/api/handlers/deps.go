@@ -22,10 +22,6 @@ type Deps struct {
 }
 
 // Stub handlers — replaced one by one as tasks complete
-func (d *Deps) SignUp(w http.ResponseWriter, r *http.Request)         { w.WriteHeader(501) }
-func (d *Deps) SignIn(w http.ResponseWriter, r *http.Request)         { w.WriteHeader(501) }
-func (d *Deps) SignOut(w http.ResponseWriter, r *http.Request)        { w.WriteHeader(501) }
-func (d *Deps) Me(w http.ResponseWriter, r *http.Request)             { w.WriteHeader(501) }
 func (d *Deps) ListWorkflows(w http.ResponseWriter, r *http.Request)  { w.WriteHeader(501) }
 func (d *Deps) CreateWorkflow(w http.ResponseWriter, r *http.Request) { w.WriteHeader(501) }
 func (d *Deps) GetWorkflow(w http.ResponseWriter, r *http.Request)    { w.WriteHeader(501) }
