@@ -15,9 +15,6 @@ type RunContexter interface {
 	Get(string) (any, bool)
 }
 
-func ExecuteTool(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
-	return rc.Message(), nil
-}
 func ExecuteTool402(ctx context.Context, node models.WorkflowNode, rc RunContexter, wallet models.AgentWallet, store *db.Store) (any, error) {
 	return rc.Message(), nil
 }
