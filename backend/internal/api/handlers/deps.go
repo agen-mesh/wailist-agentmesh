@@ -27,4 +27,3 @@ func (d *Deps) StopWorkflow(w http.ResponseWriter, r *http.Request)  { w.WriteHe
 func (d *Deps) GetRun(w http.ResponseWriter, r *http.Request)        { w.WriteHeader(501) }
 func (d *Deps) StreamRun(w http.ResponseWriter, r *http.Request)     { w.WriteHeader(501) }
 func (d *Deps) PublicTrigger(w http.ResponseWriter, r *http.Request) { w.WriteHeader(501) }
-func (d *Deps) X402Quote(w http.ResponseWriter, r *http.Request)     { w.WriteHeader(501) }

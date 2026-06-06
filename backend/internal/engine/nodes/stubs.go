@@ -3,7 +3,6 @@ package nodes
 import (
 	"context"
 
-	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/models"
 )
 
@@ -15,9 +14,6 @@ type RunContexter interface {
 	Get(string) (any, bool)
 }
 
-func ExecuteTool402(ctx context.Context, node models.WorkflowNode, rc RunContexter, wallet models.AgentWallet, store *db.Store) (any, error) {
-	return rc.Message(), nil
-}
 func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	return "logged", nil
 }
