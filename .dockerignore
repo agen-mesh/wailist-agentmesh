@@ -1,0 +1,11 @@
+**/.env
+**/.env.*
+!**/.env.example
+.git
+**/*.pem
+**/*.key
+**/credentials*
+**/node_modules
+frontend/.next
+frontend/out
+backend/server
