@@ -8,6 +8,7 @@ import (
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	pgxv5 "github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
@@ -17,7 +18,14 @@ import (
 var migrationsFS embed.FS
 
 func New(ctx context.Context, databaseURL string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	// PgBouncer transaction mode requires simple protocol (no prepared statements).
+	cfg.ConnConfig.DefaultQueryExecMode = pgxv5.QueryExecModeSimpleProtocol
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("pgxpool.New: %w", err)
 	}
@@ -37,6 +45,11 @@ func runMigrations(databaseURL string) error {
 	}
 	migURL := strings.Replace(databaseURL, "postgres://", "pgx5://", 1)
 	migURL = strings.Replace(migURL, "postgresql://", "pgx5://", 1)
+	if strings.Contains(migURL, "?") {
+		migURL += "&default_query_exec_mode=simple_protocol"
+	} else {
+		migURL += "?default_query_exec_mode=simple_protocol"
+	}
 	m, err := migrate.NewWithSourceInstance("iofs", d, migURL)
 	if err != nil {
 		return err
