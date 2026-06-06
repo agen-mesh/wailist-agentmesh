@@ -23,6 +23,9 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 }
 
 func callWebhook(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	if err := urlValidator(node.URL); err != nil {
+		return nil, err
+	}
 	payload := map[string]any{"output": rc.Message()}
 	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, node.URL, bytes.NewReader(body))
@@ -30,13 +33,13 @@ func callWebhook(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := toolHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		b, _ := io.ReadAll(resp.Body)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
 		return nil, fmt.Errorf("webhook returned %d: %s", resp.StatusCode, string(b))
 	}
 	return map[string]any{"status": resp.StatusCode}, nil
@@ -56,7 +59,7 @@ func sendEmail(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.resend.com/emails", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+node.URL)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := toolHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -15,21 +15,28 @@ import (
 
 func (d *Deps) TriggerRun(w http.ResponseWriter, r *http.Request) {
 	workflowID := chi.URLParam(r, "id")
-	d.startRun(w, r, workflowID, "manual")
+	d.startRun(w, r, workflowID, "manual", true)
 }
 
 func (d *Deps) PublicTrigger(w http.ResponseWriter, r *http.Request) {
 	workflowID := chi.URLParam(r, "workflowId")
-	d.startRun(w, r, workflowID, "webhook")
+	d.startRun(w, r, workflowID, "webhook", false)
 }
 
-func (d *Deps) startRun(w http.ResponseWriter, r *http.Request, workflowID, triggeredBy string) {
+func (d *Deps) startRun(w http.ResponseWriter, r *http.Request, workflowID, triggeredBy string, checkOwner bool) {
 	ctx := r.Context()
 
 	wf, err := d.Store.GetWorkflow(ctx, workflowID)
 	if err != nil {
 		respond.Error(w, http.StatusNotFound, "workflow not found")
 		return
+	}
+	if checkOwner {
+		userID, _ := ctx.Value(CtxUserID).(string)
+		if wf.UserID != userID {
+			respond.Error(w, http.StatusNotFound, "workflow not found")
+			return
+		}
 	}
 
 	var inputBody any
@@ -57,9 +64,15 @@ func (d *Deps) StopWorkflow(w http.ResponseWriter, r *http.Request) {
 func (d *Deps) GetRun(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runId")
 	ctx := r.Context()
+	userID, _ := ctx.Value(CtxUserID).(string)
 
 	run, err := d.Store.GetRun(ctx, runID)
 	if err != nil {
+		respond.Error(w, http.StatusNotFound, "run not found")
+		return
+	}
+	wf, err := d.Store.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil || wf.UserID != userID {
 		respond.Error(w, http.StatusNotFound, "run not found")
 		return
 	}
@@ -76,6 +89,20 @@ func (d *Deps) GetRun(w http.ResponseWriter, r *http.Request) {
 
 func (d *Deps) StreamRun(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runId")
+	ctx := r.Context()
+	userID, _ := ctx.Value(CtxUserID).(string)
+
+	run, err := d.Store.GetRun(ctx, runID)
+	if err != nil {
+		respond.Error(w, http.StatusNotFound, "run not found")
+		return
+	}
+	wf, err := d.Store.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil || wf.UserID != userID {
+		respond.Error(w, http.StatusNotFound, "run not found")
+		return
+	}
+	_ = wf
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
