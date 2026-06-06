@@ -12,9 +12,12 @@ import (
 	"github.com/agentmesh/backend/internal/models"
 )
 
-func QuoteX402(ctx context.Context, url string) (map[string]any, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	resp, err := http.DefaultClient.Do(req)
+func QuoteX402(ctx context.Context, rawURL string) (map[string]any, error) {
+	if err := urlValidator(rawURL); err != nil {
+		return nil, err
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	resp, err := toolHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -26,15 +29,18 @@ func QuoteX402(ctx context.Context, url string) (map[string]any, error) {
 }
 
 func ExecuteTool402(ctx context.Context, node models.WorkflowNode, rc RunContexter, wallet models.AgentWallet, store *db.Store) (any, error) {
+	if err := urlValidator(node.Endpoint); err != nil {
+		return nil, err
+	}
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, node.Endpoint, nil)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := toolHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusPaymentRequired {
-		b, _ := io.ReadAll(resp.Body)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
 		var result any
 		if json.Unmarshal(b, &result) == nil {
 			return result, nil

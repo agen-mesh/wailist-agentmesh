@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/agentmesh/backend/internal/engine/nodes"
@@ -18,7 +19,8 @@ func (d *Deps) X402Quote(w http.ResponseWriter, r *http.Request) {
 	}
 	quote, err := nodes.QuoteX402(r.Context(), body.URL)
 	if err != nil {
-		respond.Error(w, http.StatusBadGateway, err.Error())
+		log.Printf("x402 quote error: %v", err)
+		respond.Error(w, http.StatusBadGateway, "upstream fetch failed")
 		return
 	}
 	respond.JSON(w, http.StatusOK, quote)

@@ -11,6 +11,11 @@ import (
 	"github.com/agentmesh/backend/internal/models"
 )
 
+func init() {
+	// Allow localhost addresses for all nodes_test tests.
+	nodes.SetURLValidatorForTest(func(string) error { return nil })
+}
+
 func TestX402FreeEndpoint(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"data":"free response"}`))
