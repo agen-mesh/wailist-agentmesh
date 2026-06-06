@@ -15,9 +15,6 @@ type RunContexter interface {
 	Get(string) (any, bool)
 }
 
-func ExecuteAgent(ctx context.Context, node models.WorkflowNode, attach models.AttachConfig, rc RunContexter) (any, error) {
-	return rc.Message(), nil
-}
 func ExecuteTool(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	return rc.Message(), nil
 }
