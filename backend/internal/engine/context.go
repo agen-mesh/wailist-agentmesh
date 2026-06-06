@@ -1,0 +1,68 @@
+package engine
+
+import (
+	"encoding/json"
+	"sync"
+)
+
+type RunContext struct {
+	mu      sync.RWMutex
+	outputs map[string]any
+	input   any
+	runID   string
+}
+
+func NewRunContext(runID string, inputJSON []byte) *RunContext {
+	var input any
+	if len(inputJSON) > 0 {
+		json.Unmarshal(inputJSON, &input)
+	}
+	return &RunContext{
+		outputs: make(map[string]any),
+		input:   input,
+		runID:   runID,
+	}
+}
+
+func (rc *RunContext) Set(nodeID string, value any) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.outputs[nodeID] = value
+}
+
+func (rc *RunContext) Get(nodeID string) (any, bool) {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	v, ok := rc.outputs[nodeID]
+	return v, ok
+}
+
+// Message returns the most recent string output for use as LLM user message.
+func (rc *RunContext) Message() string {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if len(rc.outputs) == 0 {
+		return anyToString(rc.input)
+	}
+	var last any
+	for _, v := range rc.outputs {
+		last = v
+	}
+	return anyToString(last)
+}
+
+func anyToString(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	if m, ok := v.(map[string]any); ok {
+		if msg, ok := m["message"].(string); ok {
+			return msg
+		}
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
+}
