@@ -1,6 +1,5 @@
-FROM golang:1.23-alpine AS build
+FROM golang:1.25-alpine AS build
 WORKDIR /app
-ENV GOTOOLCHAIN=auto
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ .
