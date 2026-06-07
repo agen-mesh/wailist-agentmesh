@@ -1,8 +1,19 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Logo, IconArrow, Pill, Tag } from "@/components/ui";
 import { useAuth } from "@/hooks/useAuth";
+import { auth } from "@/lib/api";
+
+const OAUTH_ERRORS: Record<string, string> = {
+  invalid_state: "Login session expired. Please try again.",
+  no_code: "Provider did not return an authorization code.",
+  token_exchange: "Could not complete sign in with the provider.",
+  no_email: "Could not read a verified email from the provider.",
+  user_upsert: "Could not create your account. Please try again.",
+  token_issue: "Could not issue a session. Please try again.",
+  oauth: "Sign in was cancelled or failed.",
+};
 
 type Mode = "signin" | "signup";
 
@@ -19,6 +30,24 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
   const [org, setOrg] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Surface OAuth failures the backend redirected back with (?error=...).
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("error");
+    if (code) {
+      setError(OAUTH_ERRORS[code] ?? "Something went wrong. Please try again.");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
+  const handleOAuth = (provider: "github" | "google") => {
+    const url = auth.oauthURL(provider);
+    if (!url) {
+      setError("Social sign in is not configured.");
+      return;
+    }
+    window.location.href = url;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,10 +124,10 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                 <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
               </div>
 
-              <button type="button" style={ghostBtnStyle}>
+              <button type="button" onClick={() => handleOAuth("github")} style={ghostBtnStyle}>
                 <span style={{ fontFamily: "var(--font-mono)" }}>⌘</span> Continue with GitHub
               </button>
-              <button type="button" style={ghostBtnStyle}>
+              <button type="button" onClick={() => handleOAuth("google")} style={ghostBtnStyle}>
                 <span style={{ color: "var(--accent)" }}>⬡</span> Continue with Google
               </button>
             </form>

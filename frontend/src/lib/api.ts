@@ -8,24 +8,48 @@ const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 // -- Auth ------------------------------------------------------------------
 export const auth = {
-  // TODO: POST /auth/signin
-  signIn: async (email: string, _password: string): Promise<{ token: string }> => {
-    void email;
+  signIn: async (email: string, password: string): Promise<{ token: string }> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/auth/signin`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "sign in failed");
+      return data;
+    }
+    void email; void password;
     await delay(400);
     return { token: "mock-jwt-token" };
   },
 
-  // TODO: POST /auth/signup
-  signUp: async (email: string, _password: string, _org: string): Promise<{ token: string }> => {
-    void email;
+  signUp: async (email: string, password: string, org: string): Promise<{ token: string }> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/auth/signup`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, org }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "sign up failed");
+      return data;
+    }
+    void email; void password; void org;
     await delay(500);
     return { token: "mock-jwt-token" };
   },
 
-  // TODO: POST /auth/signout
   signOut: async (): Promise<void> => {
+    if (BASE) {
+      await fetch(`${BASE}/auth/signout`, { method: "POST", headers: authHeaders() });
+      return;
+    }
     await delay(100);
   },
+
+  // Full URL to kick off a backend OAuth flow. Empty string when no backend
+  // is configured (mock mode) — callers should guard on the http prefix.
+  oauthURL: (provider: "github" | "google"): string =>
+    BASE ? `${BASE}/auth/oauth/${provider}` : "",
 };
 
 // -- Workflows ------------------------------------------------------------

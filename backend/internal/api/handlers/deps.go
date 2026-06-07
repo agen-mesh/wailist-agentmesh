@@ -18,4 +18,10 @@ type Deps struct {
 	Engine    *engine.Runner
 	BaseURL   string
 	JWTSecret string
+
+	FrontendURL        string
+	GithubClientID     string
+	GithubClientSecret string
+	GoogleClientID     string
+	GoogleClientSecret string
 }

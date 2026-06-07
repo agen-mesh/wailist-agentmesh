@@ -315,6 +315,20 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (models.User, 
 	return u, err
 }
 
+// UpsertOAuthUser creates a user for an OAuth login, or returns the existing one.
+// OAuth users get an empty password_hash so they can never sign in via password
+// (bcrypt comparison against "" always fails).
+func (s *Store) UpsertOAuthUser(ctx context.Context, email string) (models.User, error) {
+	var u models.User
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO users (id, email, password_hash)
+		VALUES (gen_random_uuid()::text, $1, '')
+		ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
+		RETURNING id, email, password_hash, created_at
+	`, email).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt)
+	return u, err
+}
+
 // --- Waitlist methods ---
 
 func (s *Store) InsertWaitlistEmail(ctx context.Context, email string) error {
