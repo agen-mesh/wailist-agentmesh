@@ -10,8 +10,10 @@ const OAUTH_ERRORS: Record<string, string> = {
   no_code: "Provider did not return an authorization code.",
   token_exchange: "Could not complete sign in with the provider.",
   no_email: "Could not read a verified email from the provider.",
+  account_exists: "An account with this email already exists. Sign in with your email and password.",
   user_upsert: "Could not create your account. Please try again.",
   token_issue: "Could not issue a session. Please try again.",
+  internal: "Something went wrong. Please try again.",
   oauth: "Sign in was cancelled or failed.",
 };
 

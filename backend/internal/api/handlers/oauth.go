@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/respond"
 )
 
@@ -58,9 +60,13 @@ func (d *Deps) OAuthStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state := randHex(16)
+	state, err := randHex(16)
+	if err != nil {
+		d.redirectFail(w, r, "internal")
+		return
+	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     "oauth_state",
+		Name:     oauthStateCookie(name),
 		Value:    state,
 		Path:     "/",
 		MaxAge:   600,
@@ -89,11 +95,17 @@ func (d *Deps) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cookie, err := r.Cookie("oauth_state")
+	cookieName := oauthStateCookie(name)
+	cookie, err := r.Cookie(cookieName)
 	if err != nil || cookie.Value == "" || cookie.Value != r.URL.Query().Get("state") {
 		d.redirectFail(w, r, "invalid_state")
 		return
 	}
+	// One-time use: clear the state cookie so it cannot be replayed.
+	http.SetCookie(w, &http.Cookie{
+		Name: cookieName, Value: "", Path: "/", MaxAge: -1,
+		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+	})
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
@@ -113,7 +125,11 @@ func (d *Deps) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := d.Store.UpsertOAuthUser(r.Context(), strings.ToLower(strings.TrimSpace(email)))
+	user, err := d.Store.GetOrCreateOAuthUser(r.Context(), strings.ToLower(strings.TrimSpace(email)))
+	if errors.Is(err, db.ErrPasswordAccountExists) {
+		d.redirectFail(w, r, "account_exists")
+		return
+	}
 	if err != nil {
 		d.redirectFail(w, r, "user_upsert")
 		return
@@ -139,10 +155,16 @@ func (d *Deps) redirectFail(w http.ResponseWriter, r *http.Request, reason strin
 	http.Redirect(w, r, d.FrontendURL+"/signin?error="+url.QueryEscape(reason), http.StatusFound)
 }
 
-func randHex(n int) string {
+func oauthStateCookie(provider string) string {
+	return "oauth_state_" + provider
+}
+
+func randHex(n int) (string, error) {
 	b := make([]byte, n)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func exchangeCode(p oauthProvider, code, redirectURI string) (string, error) {
@@ -199,26 +221,20 @@ func fetchEmail(provider string, p oauthProvider, accessToken string) (string, e
 			return "", err
 		}
 		var info struct {
-			Email string `json:"email"`
+			Email         string `json:"email"`
+			VerifiedEmail bool   `json:"verified_email"`
 		}
 		json.Unmarshal(body, &info)
+		// Only trust an email Google has confirmed the user owns.
+		if info.Email == "" || !info.VerifiedEmail {
+			return "", fmt.Errorf("email not verified")
+		}
 		return info.Email, nil
 	}
 
-	// github: /user may omit a private email, so fall back to /user/emails.
-	body, err := get(p.userInfoURL)
-	if err != nil {
-		return "", err
-	}
-	var info struct {
-		Email string `json:"email"`
-	}
-	json.Unmarshal(body, &info)
-	if info.Email != "" {
-		return info.Email, nil
-	}
-
-	body, err = get("https://api.github.com/user/emails")
+	// github: ignore the (possibly unverified) profile email and require a
+	// primary, verified address from /user/emails.
+	body, err := get("https://api.github.com/user/emails")
 	if err != nil {
 		return "", err
 	}
