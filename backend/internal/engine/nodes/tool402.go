@@ -76,20 +76,23 @@ func ExecuteTool402(ctx context.Context, node models.WorkflowNode, rc RunContext
 		return nil, fmt.Errorf("x402 payment failed: %w", err)
 	}
 
+	algoAmount := fmt.Sprintf("%.6f", float64(microAlgo)/1e6)
+	explorerURL := "https://lora.algokit.io/testnet/transaction/" + txID
+
 	// Retry the original request with the payment proof header.
 	req2, _ := http.NewRequestWithContext(ctx, http.MethodGet, node.Endpoint, nil)
 	req2.Header.Set("X-Payment-Txid", txID)
 	resp2, err := toolHTTPClient.Do(req2)
 	if err != nil {
-		return map[string]any{"status": "payment_sent", "txId": txID, "error": "retry request failed: " + err.Error()}, nil
+		return map[string]any{"status": "payment_sent", "txId": txID, "amount": algoAmount, "explorerURL": explorerURL, "error": "retry request failed: " + err.Error()}, nil
 	}
 	defer resp2.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp2.Body, httpResponseLimit))
 	var retryResult any
 	if json.Unmarshal(b, &retryResult) == nil {
-		return map[string]any{"status": "payment_sent", "txId": txID, "response": retryResult}, nil
+		return map[string]any{"status": "payment_sent", "txId": txID, "amount": algoAmount, "explorerURL": explorerURL, "response": retryResult}, nil
 	}
-	return map[string]any{"status": "payment_sent", "txId": txID, "response": string(b)}, nil
+	return map[string]any{"status": "payment_sent", "txId": txID, "amount": algoAmount, "explorerURL": explorerURL, "response": string(b)}, nil
 }
 
 func parsePaymentHeader(resp *http.Response) map[string]any {

@@ -12,6 +12,18 @@ interface LogEvent {
   ts: string;
 }
 
+interface X402Payment {
+  txId: string;
+  amount?: string;
+  explorerURL?: string;
+  nodeName?: string;
+  nodeId?: string;
+}
+
+function isX402Payment(output: unknown): output is X402Payment {
+  return typeof output === "object" && output !== null && "txId" in output;
+}
+
 interface LogDrawerProps {
   open: boolean;
   onToggle: () => void;
@@ -122,6 +134,11 @@ export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: Log
   const outputPreview = (output: unknown): string => {
     if (output === null || output === undefined) return "—";
     if (typeof output === "string") return output.slice(0, 120) + (output.length > 120 ? "…" : "");
+    if (typeof output === "object" && output !== null) {
+      const m = output as Record<string, unknown>;
+      // Agent output with embedded x402 receipts — show just the LLM text
+      if (typeof m.message === "string") return m.message.slice(0, 120) + (m.message.length > 120 ? "…" : "");
+    }
     try { const s = JSON.stringify(output); return s.slice(0, 120) + (s.length > 120 ? "…" : ""); }
     catch { return String(output); }
   };
@@ -175,7 +192,29 @@ export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: Log
                 <span style={{ color: nodeTypeColor(l.nodeType) }}>{l.nodeType}</span>
                 {l.durationMs > 0 && <span style={{ color: "var(--fg-dim)" }}> · {l.durationMs}ms</span>}
               </span>
-              <span style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{outputPreview(l.output)}</span>
+              {isX402Payment(l.output) ? (
+                <span style={{ display: "flex", alignItems: "center", gap: 5, overflow: "hidden" }}>
+                  <span style={{ color: "var(--fg)" }}>
+                    {l.output.amount ? `${parseFloat(l.output.amount).toFixed(6)} ALGO` : "paid"}
+                  </span>
+                  {l.output.txId && l.output.explorerURL && (
+                    <>
+                      <span style={{ color: "var(--fg-dim)" }}>·</span>
+                      <a
+                        href={l.output.explorerURL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: "#E879F9", textDecoration: "underline", fontFamily: "var(--font-mono)", fontSize: 9.5, whiteSpace: "nowrap" }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {l.output.txId.slice(0, 8)}…
+                      </a>
+                    </>
+                  )}
+                </span>
+              ) : (
+                <span style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{outputPreview(l.output)}</span>
+              )}
             </div>
           ))}
           {done && (

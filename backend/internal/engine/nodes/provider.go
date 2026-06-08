@@ -181,7 +181,23 @@ func postJSON(ctx context.Context, apiURL string, headers map[string]string, pay
 
 const maxToolIterations = 15
 
-func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter) (string, error) {
+// collectX402Receipt builds a receipt map from a successful x402 tool result.
+func collectX402Receipt(funcName string, result map[string]any, tools []models.WorkflowNode) map[string]any {
+	txID, _ := result["txId"].(string)
+	amount, _ := result["amount"].(string)
+	explorerURL, _ := result["explorerURL"].(string)
+	receipt := map[string]any{"txId": txID, "amount": amount, "explorerURL": explorerURL}
+	for _, t := range tools {
+		if toolFuncName(t) == funcName {
+			receipt["nodeId"] = t.ID
+			receipt["nodeName"] = t.Name
+			break
+		}
+	}
+	return receipt
+}
+
+func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter) (any, error) {
 	model := provider.Model
 	if model == "" {
 		model = "gemini-2.5-flash"
@@ -204,18 +220,27 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 		payload["tools"] = []map[string]any{{"functionDeclarations": decls}}
 	}
 
+	var x402Payments []map[string]any
+
 	// Agentic loop — keep calling until the model returns text (no function call).
 	for iter := 0; iter < maxToolIterations; iter++ {
 		resp, err := postJSON(ctx, apiURL, apiHeaders, payload)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 
 		// Collect all function calls the model wants to make in this turn
 		// (Gemini can return multiple functionCall parts at once for parallel use).
 		calls := extractGeminiFunctionCalls(resp)
 		if len(calls) == 0 {
-			return extractGeminiText(resp)
+			text, textErr := extractGeminiText(resp)
+			if textErr != nil {
+				return nil, textErr
+			}
+			if len(x402Payments) > 0 {
+				return map[string]any{"message": text, "x402Payments": x402Payments}, nil
+			}
+			return text, nil
 		}
 
 		// Build the model turn (all function calls in one "model" message)
@@ -233,6 +258,11 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 			if execErr != nil {
 				resultStr = "error: " + execErr.Error()
 			} else {
+				if m, ok := result.(map[string]any); ok {
+					if _, hasTx := m["txId"]; hasTx {
+						x402Payments = append(x402Payments, collectX402Receipt(c.name, m, tools))
+					}
+				}
 				b, _ := json.Marshal(result)
 				resultStr = string(b)
 			}
@@ -249,7 +279,7 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 		payload["contents"] = contents
 	}
 
-	return "", fmt.Errorf("agent exceeded maximum tool call iterations (%d)", maxToolIterations)
+	return nil, fmt.Errorf("agent exceeded maximum tool call iterations (%d)", maxToolIterations)
 }
 
 func extractGeminiText(resp map[string]any) (string, error) {
@@ -296,7 +326,7 @@ func extractGeminiFunctionCalls(resp map[string]any) []geminiFuncCall {
 
 // ─── OpenAI / Groq / Mistral ──────────────────────────────────────────────────
 
-func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter) (string, error) {
+func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter) (any, error) {
 	baseURL := openAIBaseURL
 	switch provider.Template {
 	case "groq":
@@ -335,17 +365,19 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 
 	headers := map[string]string{"Authorization": "Bearer " + provider.APIKey}
 
+	var x402Payments []map[string]any
+
 	// Agentic loop — repeat until the model returns content with no tool calls.
 	for iter := 0; iter < maxToolIterations; iter++ {
 		payload["messages"] = messages
 		resp, err := postJSON(ctx, baseURL+"/v1/chat/completions", headers, payload)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 
 		choices, _ := resp["choices"].([]any)
 		if len(choices) == 0 {
-			return "", fmt.Errorf("empty choices from LLM")
+			return nil, fmt.Errorf("empty choices from LLM")
 		}
 		choice, _ := choices[0].(map[string]any)
 		msg, _ := choice["message"].(map[string]any)
@@ -354,6 +386,9 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 		if len(toolCalls) == 0 {
 			// No tool calls — return the final answer
 			content, _ := msg["content"].(string)
+			if len(x402Payments) > 0 {
+				return map[string]any{"message": content, "x402Payments": x402Payments}, nil
+			}
 			return content, nil
 		}
 
@@ -380,6 +415,11 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 			if toolErr != nil {
 				resultStr = "error: " + toolErr.Error()
 			} else {
+				if m, ok := toolResult.(map[string]any); ok {
+					if _, hasTx := m["txId"]; hasTx {
+						x402Payments = append(x402Payments, collectX402Receipt(tcName, m, tools))
+					}
+				}
 				b, _ := json.Marshal(toolResult)
 				resultStr = string(b)
 			}
@@ -392,7 +432,7 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 		}
 	}
 
-	return "", fmt.Errorf("agent exceeded maximum tool call iterations (%d)", maxToolIterations)
+	return nil, fmt.Errorf("agent exceeded maximum tool call iterations (%d)", maxToolIterations)
 }
 
 // ─── Anthropic ────────────────────────────────────────────────────────────────

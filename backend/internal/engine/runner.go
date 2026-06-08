@@ -142,6 +142,23 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run) {
 					DurationMs: dur,
 					Ts:         time.Now(),
 				})
+				// Publish a separate log event per x402 payment made inside the agent loop.
+				if m, ok := result.(map[string]any); ok {
+					if payments, ok := m["x402Payments"].([]map[string]any); ok {
+						for _, p := range payments {
+							nodeID, _ := p["nodeId"].(string)
+							r.broker.Publish(run.ID, models.LogEvent{
+								StepIndex:  idx,
+								NodeID:     nodeID,
+								NodeType:   models.NodeTypeTool402,
+								Status:     models.LogStatusSuccess,
+								Output:     p,
+								DurationMs: 0,
+								Ts:         time.Now(),
+							})
+						}
+					}
+				}
 			}(node, stepIdx)
 		}
 		wg.Wait()
