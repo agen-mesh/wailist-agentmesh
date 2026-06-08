@@ -65,13 +65,14 @@ func (d *Deps) OAuthStart(w http.ResponseWriter, r *http.Request) {
 		d.redirectFail(w, r, "internal")
 		return
 	}
+	secure := strings.HasPrefix(d.BaseURL, "https")
 	http.SetCookie(w, &http.Cookie{
 		Name:     oauthStateCookie(name),
 		Value:    state,
 		Path:     "/",
 		MaxAge:   600,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 
@@ -104,7 +105,7 @@ func (d *Deps) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// One-time use: clear the state cookie so it cannot be replayed.
 	http.SetCookie(w, &http.Cookie{
 		Name: cookieName, Value: "", Path: "/", MaxAge: -1,
-		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+		HttpOnly: true, Secure: strings.HasPrefix(d.BaseURL, "https"), SameSite: http.SameSiteLaxMode,
 	})
 
 	code := r.URL.Query().Get("code")

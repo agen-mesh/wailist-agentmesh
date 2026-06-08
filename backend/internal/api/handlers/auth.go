@@ -38,12 +38,19 @@ func (d *Deps) setAuthCookie(w http.ResponseWriter, token string) {
 }
 
 func (d *Deps) clearAuthCookie(w http.ResponseWriter) {
+	secure := strings.HasPrefix(os.Getenv("BASE_URL"), "https")
+	sameSite := http.SameSiteLaxMode
+	if secure {
+		sameSite = http.SameSiteNoneMode
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     authCookieName,
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   secure,
+		SameSite: sameSite,
 	})
 }
 
