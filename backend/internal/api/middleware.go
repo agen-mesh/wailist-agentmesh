@@ -35,6 +35,10 @@ func NewAuthMiddleware(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			// EventSource cannot set headers — allow token as query param fallback
+			if raw == "" {
+				raw = r.URL.Query().Get("token")
+			}
 			if raw == "" {
 				respond.Error(w, http.StatusUnauthorized, "missing token")
 				return

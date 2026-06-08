@@ -37,7 +37,26 @@ func (rc *RunContext) Get(nodeID string) (any, bool) {
 	return v, ok
 }
 
+// UserInput returns the original trigger input — always the human's message.
+func (rc *RunContext) UserInput() string {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	return anyToString(rc.input)
+}
+
+// ToolOutputs returns all outputs keyed by nodeID, excluding the trigger output.
+func (rc *RunContext) ToolOutputs() map[string]any {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	out := make(map[string]any, len(rc.outputs))
+	for k, v := range rc.outputs {
+		out[k] = v
+	}
+	return out
+}
+
 // Message returns the most recent string output for use as LLM user message.
+// Kept for backwards compatibility with non-agent nodes.
 func (rc *RunContext) Message() string {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
