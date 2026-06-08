@@ -14,7 +14,7 @@ import (
 )
 
 func corsMiddleware(next http.Handler) http.Handler {
-	origin := os.Getenv("CORS_ORIGIN")
+	origin := strings.TrimRight(os.Getenv("CORS_ORIGIN"), "/")
 	if origin == "" {
 		origin = "*"
 	}
