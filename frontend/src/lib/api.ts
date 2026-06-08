@@ -4,7 +4,10 @@
 import { Workflow } from "./types";
 import { WORKFLOWS, SAMPLE_WORKFLOW } from "./data";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
+// In the browser, always route through /api so the cookie stays same-site.
+// NEXT_PUBLIC_API_URL still controls mock vs real (empty = mock data).
+const _CONFIGURED = process.env.NEXT_PUBLIC_API_URL ?? "";
+const BASE = _CONFIGURED && typeof window !== "undefined" ? "/api" : _CONFIGURED;
 
 // -- Auth ------------------------------------------------------------------
 export const auth = {
