@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -50,14 +49,23 @@ func (d *Deps) startRun(w http.ResponseWriter, r *http.Request, workflowID, trig
 	}
 
 	d.Broker.Create(run.ID)
-	go d.Engine.Run(context.Background(), wf, run)
+	d.Engine.Start(wf, run)
 
 	respond.JSON(w, http.StatusAccepted, map[string]string{"runId": run.ID})
 }
 
 func (d *Deps) StopWorkflow(w http.ResponseWriter, r *http.Request) {
-	// Phase 1 stub — active run tracking deferred to Phase 2
-	_ = chi.URLParam(r, "id")
+	id := chi.URLParam(r, "id")
+	ctx := r.Context()
+	userID, _ := ctx.Value(CtxUserID).(string)
+
+	wf, err := d.Store.GetWorkflow(ctx, id)
+	if err != nil || wf.UserID != userID {
+		respond.Error(w, http.StatusNotFound, "workflow not found")
+		return
+	}
+
+	d.Engine.Stop(id)
 	w.WriteHeader(http.StatusNoContent)
 }
 

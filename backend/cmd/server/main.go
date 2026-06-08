@@ -36,7 +36,7 @@ func main() {
 		envOr("ALGORAND_NETWORK", "testnet"),
 	)
 
-	runner := engine.NewRunner(store, broker)
+	runner := engine.NewRunner(store, broker, walletSvc)
 
 	deps := &handlers.Deps{
 		Store:     store,

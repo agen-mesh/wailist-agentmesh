@@ -17,7 +17,7 @@ const maxFundAmount uint64 = 10_000_000 // 10 ALGO per call
 func (d *Deps) Deploy(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	ctx := r.Context()
-	userID := ctx.Value(CtxUserID).(string)
+	userID, _ := ctx.Value(CtxUserID).(string)
 
 	wf, err := d.Store.GetWorkflow(ctx, id)
 	if err != nil || wf.UserID != userID {
@@ -77,7 +77,7 @@ func (d *Deps) AgentBalance(w http.ResponseWriter, r *http.Request) {
 	workflowID := chi.URLParam(r, "id")
 	agentID := chi.URLParam(r, "agentId")
 	ctx := r.Context()
-	userID := ctx.Value(CtxUserID).(string)
+	userID, _ := ctx.Value(CtxUserID).(string)
 
 	wf, err := d.Store.GetWorkflow(ctx, workflowID)
 	if err != nil || wf.UserID != userID {
@@ -105,7 +105,7 @@ func (d *Deps) FundAgent(w http.ResponseWriter, r *http.Request) {
 	workflowID := chi.URLParam(r, "id")
 	agentID := chi.URLParam(r, "agentId")
 	ctx := r.Context()
-	userID := ctx.Value(CtxUserID).(string)
+	userID, _ := ctx.Value(CtxUserID).(string)
 
 	wf, err := d.Store.GetWorkflow(ctx, workflowID)
 	if err != nil || wf.UserID != userID {

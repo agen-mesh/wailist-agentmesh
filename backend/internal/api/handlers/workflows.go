@@ -11,7 +11,7 @@ import (
 )
 
 func (d *Deps) ListWorkflows(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(CtxUserID).(string)
+	userID, _ := r.Context().Value(CtxUserID).(string)
 	wfs, err := d.Store.ListWorkflows(r.Context(), userID)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, err.Error())
@@ -24,7 +24,7 @@ func (d *Deps) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Deps) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(CtxUserID).(string)
+	userID, _ := r.Context().Value(CtxUserID).(string)
 	var body struct {
 		Name string `json:"name"`
 	}
@@ -42,7 +42,7 @@ func (d *Deps) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 
 func (d *Deps) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	userID := r.Context().Value(CtxUserID).(string)
+	userID, _ := r.Context().Value(CtxUserID).(string)
 	wf, err := d.Store.GetWorkflow(r.Context(), id)
 	if err != nil || wf.UserID != userID {
 		respond.Error(w, http.StatusNotFound, "workflow not found")
@@ -53,7 +53,7 @@ func (d *Deps) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 
 func (d *Deps) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	userID := r.Context().Value(CtxUserID).(string)
+	userID, _ := r.Context().Value(CtxUserID).(string)
 	existing, err := d.Store.GetWorkflow(r.Context(), id)
 	if err != nil || existing.UserID != userID {
 		respond.Error(w, http.StatusNotFound, "workflow not found")
@@ -76,7 +76,7 @@ func (d *Deps) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 
 func (d *Deps) DeleteWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	userID := r.Context().Value(CtxUserID).(string)
+	userID, _ := r.Context().Value(CtxUserID).(string)
 	existing, err := d.Store.GetWorkflow(r.Context(), id)
 	if err != nil || existing.UserID != userID {
 		respond.Error(w, http.StatusNotFound, "workflow not found")
