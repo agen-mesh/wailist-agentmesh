@@ -1,18 +1,19 @@
 "use client";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { WorkflowNode } from "@/lib/types";
 import { PROVIDER_TEMPLATES, TOOL_TEMPLATES, TOOL402_TEMPLATES, TRIGGER_TEMPLATES, ACTION_TEMPLATES, END_TEMPLATES, AGENT_TEMPLATES } from "@/lib/data";
-import { Pill, IconClose, IconWallet } from "@/components/ui";
+import { Pill, IconClose } from "@/components/ui";
+import { agents as agentsApi, tools as toolsApi } from "@/lib/api";
 
 interface InspectorProps {
   selected: WorkflowNode | null;
   deployed: boolean;
+  workflowId: string;
   onUpdate: (n: WorkflowNode) => void;
   onDelete: () => void;
-  onFund: () => void;
 }
 
-export function Inspector({ selected, deployed, onUpdate, onDelete, onFund }: InspectorProps) {
+export function Inspector({ selected, deployed, workflowId, onUpdate, onDelete }: InspectorProps) {
   if (!selected) return <EmptyInspector />;
 
   const meta = nodeMeta(selected);
@@ -34,7 +35,7 @@ export function Inspector({ selected, deployed, onUpdate, onDelete, onFund }: In
       </div>
 
       <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 18 }}>
-        {selected.type === "agent"    && <AgentInspector    node={selected} deployed={deployed} onUpdate={onUpdate} onFund={onFund} />}
+        {selected.type === "agent"    && <AgentInspector    node={selected} deployed={deployed} workflowId={workflowId} onUpdate={onUpdate} />}
         {selected.type === "provider" && <ProviderInspector node={selected} onUpdate={onUpdate} />}
         {selected.type === "tool"     && <ToolInspector     node={selected} onUpdate={onUpdate} />}
         {selected.type === "tool402"  && <Tool402Inspector  node={selected} onUpdate={onUpdate} />}
@@ -95,6 +96,13 @@ function Field({ label, hint, children }: { label: string; hint?: React.ReactNod
   );
 }
 
+const iconBtnStyle: React.CSSProperties = {
+  width: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center",
+  background: "transparent", border: "1px solid var(--border-strong)", borderRadius: "var(--r-2)",
+  color: "var(--fg-muted)", cursor: "pointer", fontSize: 12, fontFamily: "var(--font-mono)",
+  flexShrink: 0,
+};
+
 const inputStyle: React.CSSProperties = {
   height: 36, padding: "0 10px", width: "100%",
   background: "var(--bg)", border: "1px solid var(--border)",
@@ -105,7 +113,35 @@ const inputStyle: React.CSSProperties = {
 const monoInputStyle: React.CSSProperties = { ...inputStyle, fontFamily: "var(--font-mono)", fontSize: 11 };
 
 // ── Agent Inspector ────────────────────────────────────────────────────────
-function AgentInspector({ node, deployed, onUpdate, onFund }: { node: WorkflowNode; deployed: boolean; onUpdate: (n: WorkflowNode) => void; onFund: () => void }) {
+function AgentInspector({ node, deployed, workflowId, onUpdate }: { node: WorkflowNode; deployed: boolean; workflowId: string; onUpdate: (n: WorkflowNode) => void }) {
+  const [copied, setCopied] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const copyAddress = useCallback(() => {
+    if (!node.wallet) return;
+    navigator.clipboard.writeText(node.wallet).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  }, [node.wallet]);
+
+  const refreshBalance = useCallback(async () => {
+    if (!node.wallet || !workflowId) return;
+    setRefreshing(true);
+    try {
+      const res = await agentsApi.balance(workflowId, node.id);
+      onUpdate({ ...node, balance: res.balance });
+    } catch {
+      // balance fetch failed silently — keep existing value
+    } finally {
+      setRefreshing(false);
+    }
+  }, [node, workflowId, onUpdate]);
+
+  const shortAddr = node.wallet
+    ? `${node.wallet.slice(0, 6)}…${node.wallet.slice(-4)}`
+    : "";
+
   return (
     <>
       <Section label="Identity">
@@ -117,26 +153,48 @@ function AgentInspector({ node, deployed, onUpdate, onFund }: { node: WorkflowNo
       <Section label="Wallet">
         {deployed && node.wallet ? (
           <div style={{ padding: 14, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--r-2)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-muted)" }}>{node.wallet}</span>
-              <Pill mono dot tone="ok">testnet</Pill>
-            </div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 12 }}>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 26, fontWeight: 500, color: "var(--accent)" }}>{node.balance ?? "0.000"}</span>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-muted)" }}>ALGO</span>
-            </div>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-dim)", marginTop: 4 }}>spent {node.spent ?? "0.000"} ALGO · last 24h</div>
-            <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
-              <button onClick={onFund} style={{ flex: 1, height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "var(--bg-elev-2)", border: "1px solid var(--border-strong)", borderRadius: "var(--r-2)", color: "var(--fg)", fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "var(--font-sans)" }}>
-                <IconWallet size={12} /> Fund · 5 ALGO
+            {/* Network badge + address header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <Pill mono dot tone="ok">algorand testnet</Pill>
+              <button onClick={copyAddress} title="Copy full address" style={iconBtnStyle}>
+                {copied ? "✓" : "⎘"}
               </button>
-              <button style={{ height: 32, padding: "0 10px", background: "transparent", border: "1px solid var(--border-strong)", borderRadius: "var(--r-2)", color: "var(--fg-muted)", fontSize: 12, cursor: "pointer", fontFamily: "var(--font-sans)" }}>View ↗</button>
+            </div>
+
+            {/* Full address — monospace, selectable, wrapped cleanly */}
+            <div style={{
+              fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-muted)",
+              background: "var(--bg-elev-2)", border: "1px solid var(--border)",
+              borderRadius: 6, padding: "8px 10px",
+              wordBreak: "break-all", lineHeight: 1.7,
+              userSelect: "text", cursor: "text",
+            }}>{node.wallet}</div>
+
+            {/* Balance row */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 28, fontWeight: 600, color: "var(--accent)", letterSpacing: "-0.02em" }}>{node.balance ?? "0.000000"}</span>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-muted)" }}>ALGO</span>
+              </div>
+              <button onClick={refreshBalance} disabled={refreshing} title="Refresh balance from chain" style={{ ...iconBtnStyle, fontSize: 16, width: 32, height: 32 }}>
+                <span style={{ display: "inline-block", transition: "transform 0.4s", transform: refreshing ? "rotate(360deg)" : "none" }}>↻</span>
+              </button>
+            </div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-dim)", marginTop: 2 }}>
+              spent {node.spent ?? "0.000000"} ALGO · last 24h
+            </div>
+
+            {/* Fund hint */}
+            <div style={{ marginTop: 12, padding: "8px 10px", background: "var(--bg-elev-2)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 11, color: "var(--fg-dim)", lineHeight: 1.55 }}>
+              Copy the address above and fund it via the{" "}
+              <a href="https://bank.testnet.algorand.network/" target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "none" }}>Algorand faucet</a>
+              {" "}or Lora testnet. Hit ↻ to see the updated balance.
             </div>
           </div>
         ) : (
           <div style={{ padding: 14, background: "var(--bg)", border: "1px dashed var(--border-strong)", borderRadius: "var(--r-2)", fontSize: 12, color: "var(--fg-muted)", lineHeight: 1.55 }}>
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-dim)", marginBottom: 8 }}>not yet deployed</div>
-            This agent will receive an Ed25519 keypair on Algorand testnet when you click <strong style={{ color: "var(--fg)" }}>Deploy</strong>. You'll fund it manually from this panel after deploy.
+            This agent will receive an Algorand keypair on testnet when you click <strong style={{ color: "var(--fg)" }}>Deploy</strong>.
           </div>
         )}
       </Section>
@@ -219,17 +277,32 @@ function Tool402Inspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n
   const tpl = TOOL402_TEMPLATES.find((t) => t.id === node.template);
   const [draft, setDraft] = useState(node.endpoint ?? "");
   const [probing, setProbing] = useState(false);
+  const [probeError, setProbeError] = useState<string | null>(null);
   const magenta = "#E879F9";
 
   const discover = async () => {
     if (!draft.trim()) return;
     setProbing(true);
-    onUpdate({ ...node, endpoint: draft.trim() });
-    await new Promise((r) => setTimeout(r, 800));
-    let host = draft;
-    try { host = new URL(draft).host; } catch {}
-    onUpdate({ ...node, endpoint: draft.trim(), price: "0.002", unit: "call", provider: host, priceLive: false });
-    setProbing(false);
+    setProbeError(null);
+    try {
+      const quote = await toolsApi.x402quote(draft.trim());
+      let host = draft;
+      try { host = new URL(draft).host; } catch { /* use raw draft */ }
+      onUpdate({
+        ...node,
+        endpoint: draft.trim(),
+        price: quote.price ?? "?",
+        unit: quote.unit ?? "call",
+        provider: host,
+        priceLive: true,
+      });
+    } catch (err: unknown) {
+      setProbeError(err instanceof Error ? err.message : "probe failed");
+      // Still save endpoint but no price
+      onUpdate({ ...node, endpoint: draft.trim(), priceLive: false });
+    } finally {
+      setProbing(false);
+    }
   };
 
   if (!node.custom) {
@@ -243,6 +316,14 @@ function Tool402Inspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n
               <span style={{ color: "var(--fg-muted)" }}>ALGO / {tpl?.unit}</span>
             </div>
           </div>
+        </Section>
+        <Section label="Tool description">
+          <Field label="What this tool does" hint="shown to agent">
+            <textarea style={{ ...inputStyle, height: "auto", padding: 10, resize: "vertical", lineHeight: 1.5 }} rows={3}
+              value={node.description ?? ""}
+              placeholder="Describe what this x402 endpoint provides so the agent knows when to use it…"
+              onChange={(e) => onUpdate({ ...node, description: e.target.value })} />
+          </Field>
         </Section>
         <Section label="Settlement">
           <Field label="Payer"><input style={monoInputStyle} value="parent agent wallet" readOnly /></Field>
@@ -266,8 +347,13 @@ function Tool402Inspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n
         </Field>
         <button onClick={discover} disabled={!draft.trim() || probing}
           style={{ height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", border: `1px solid ${magenta}`, background: "transparent", color: probing ? "var(--fg-dim)" : magenta, borderRadius: "var(--r-2)", fontSize: 12, cursor: "pointer", fontFamily: "var(--font-sans)", fontWeight: 500 }}>
-          {probing ? <><span className="pulse">●</span> Probing endpoint…</> : (node.price ? "Re-test & refresh price" : "Test endpoint & fetch price")}
+          {probing ? <>● fetching price…</> : (node.price ? "Re-test & refresh price" : "Test endpoint & fetch price")}
         </button>
+        {probeError && (
+          <div style={{ padding: "8px 10px", background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.3)", borderRadius: "var(--r-2)", fontFamily: "var(--font-mono)", fontSize: 11, color: "#F87171" }}>
+            {probeError}
+          </div>
+        )}
         {node.price && !probing && (
           <div style={{ padding: 14, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--r-2)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
             <div style={{ color: "var(--fg-muted)" }}>{node.provider}</div>
@@ -276,10 +362,18 @@ function Tool402Inspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n
               <span style={{ color: "var(--fg-muted)" }}>ALGO / {node.unit}</span>
             </div>
             <div style={{ marginTop: 8, color: node.priceLive ? "var(--accent)" : "var(--fg-dim)" }}>
-              {node.priceLive ? "● live · read from HTTP 402 response" : "simulated · endpoint not reachable from browser"}
+              {node.priceLive ? "● live · fetched from backend" : "● cached · endpoint unreachable"}
             </div>
           </div>
         )}
+      </Section>
+      <Section label="Tool description">
+        <Field label="What this tool does" hint="shown to agent">
+          <textarea style={{ ...inputStyle, height: "auto", padding: 10, resize: "vertical", lineHeight: 1.5 }} rows={3}
+            value={node.description ?? ""}
+            placeholder="Describe what this x402 endpoint provides so the agent knows when to use it…"
+            onChange={(e) => onUpdate({ ...node, description: e.target.value })} />
+        </Field>
       </Section>
     </>
   );

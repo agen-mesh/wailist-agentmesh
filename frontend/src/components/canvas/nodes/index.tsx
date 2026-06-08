@@ -141,28 +141,42 @@ function TriggerNode({ node, selected, onMouseDown, onPortHover, onPortLeave, on
 function AgentNode({ node, selected, deployed, onMouseDown, onPortHover, onPortLeave, onStartWire, attachedSummary }: NodeProps) {
   const t = NODE_TYPES.agent;
   const tpl = AGENT_TEMPLATES.find((x) => x.id === node.template) ?? AGENT_TEMPLATES[0];
+  const shortAddr = node.wallet ? `${node.wallet.slice(0, 6)}…${node.wallet.slice(-4)}` : null;
+
   return (
     <NodeShell node={node} selected={selected} onMouseDown={onMouseDown} W={t.w} H={t.h} accent="var(--accent)" strong>
+      {/* Header */}
       <div style={{ padding: "12px 14px 10px", display: "flex", alignItems: "center", gap: 10, borderBottom: "1px solid var(--border-soft)" }}>
         <span style={{ width: 26, height: 26, borderRadius: 6, background: "var(--accent-soft)", color: "var(--accent)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>{node.icon ?? tpl.icon}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.08em" }}>AI Agent</div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--fg)" }}>{node.name}</div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{node.name}</div>
         </div>
         {deployed && <Pill mono tone="ok" dot>live</Pill>}
       </div>
 
-      <div style={{ padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", fontFamily: "var(--font-mono)", fontSize: 11 }}>
-        {deployed && node.wallet ? (
+      {/* Wallet row — fully contained, no overflow */}
+      <div style={{ padding: "8px 14px 10px", display: "flex", alignItems: "center", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10, minWidth: 0, overflow: "hidden" }}>
+        {deployed && shortAddr ? (
           <>
-            <span style={{ color: "var(--fg-muted)" }}>{node.wallet}</span>
-            <span><span style={{ color: "var(--accent)" }}>{node.balance ?? "0.000"}</span><span style={{ color: "var(--fg-dim)" }}> ALGO</span></span>
+            {/* Address pill */}
+            <span style={{
+              flex: 1, minWidth: 0,
+              background: "var(--bg)", border: "1px solid var(--border)",
+              borderRadius: 4, padding: "3px 7px",
+              color: "var(--fg-muted)",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>{shortAddr}</span>
+            {/* Balance */}
+            <span style={{ flexShrink: 0, display: "flex", alignItems: "baseline", gap: 3 }}>
+              <span style={{ color: "var(--accent)", fontWeight: 600 }}>{node.balance ?? "0.00"}</span>
+              <span style={{ color: "var(--fg-dim)", fontSize: 9 }}>ALGO</span>
+            </span>
           </>
         ) : (
-          <>
-            <span style={{ color: "var(--fg-dim)" }}>wallet</span>
-            <span style={{ color: "var(--fg-dim)" }}>provisioned on deploy</span>
-          </>
+          <span style={{ color: "var(--fg-dim)", fontSize: 9.5 }}>
+            {deployed ? "wallet provisioned" : "deploy to provision wallet"}
+          </span>
         )}
       </div>
 
