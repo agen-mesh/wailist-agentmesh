@@ -8,8 +8,16 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setSignedIn(localStorage.getItem("agentmesh_signed_in") === "1");
-    setLoading(false);
+    const token = localStorage.getItem("agentmesh_token");
+    if (!token) { setLoading(false); return; }
+    auth.me()
+      .then(() => setSignedIn(true))
+      .catch(() => {
+        localStorage.removeItem("agentmesh_signed_in");
+        localStorage.removeItem("agentmesh_token");
+        setSignedIn(false);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
