@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -14,6 +15,37 @@ import (
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/respond"
 )
+
+const authCookieName = "agentmesh_token"
+
+func (d *Deps) setAuthCookie(w http.ResponseWriter, token string) {
+	secure := strings.HasPrefix(os.Getenv("BASE_URL"), "https")
+	sameSite := http.SameSiteLaxMode
+	if secure {
+		// SameSite=None is required for cross-site cookies (different subdomain
+		// frontend/backend); it must be paired with Secure.
+		sameSite = http.SameSiteNoneMode
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     authCookieName,
+		Value:    token,
+		Path:     "/",
+		MaxAge:   int(tokenTTL.Seconds()),
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: sameSite,
+	})
+}
+
+func (d *Deps) clearAuthCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     authCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+	})
+}
 
 // dummyHash is used in SignIn to keep response time constant even when the email doesn't exist.
 var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("dummy-password-agentmesh"), bcrypt.DefaultCost)
@@ -66,7 +98,8 @@ func (d *Deps) SignUp(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusInternalServerError, "could not issue token")
 		return
 	}
-	respond.JSON(w, http.StatusCreated, map[string]string{"token": token})
+	d.setAuthCookie(w, token)
+	respond.JSON(w, http.StatusCreated, map[string]any{})
 }
 
 func (d *Deps) SignIn(w http.ResponseWriter, r *http.Request) {
@@ -97,10 +130,12 @@ func (d *Deps) SignIn(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusInternalServerError, "could not issue token")
 		return
 	}
-	respond.JSON(w, http.StatusOK, map[string]string{"token": token})
+	d.setAuthCookie(w, token)
+	respond.JSON(w, http.StatusOK, map[string]any{})
 }
 
 func (d *Deps) SignOut(w http.ResponseWriter, r *http.Request) {
+	d.clearAuthCookie(w)
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -13,8 +13,13 @@ import (
 	"github.com/agentmesh/backend/internal/respond"
 )
 
+const authCookieName = "agentmesh_token"
+
 func corsMiddleware(next http.Handler) http.Handler {
 	origin := strings.TrimRight(os.Getenv("CORS_ORIGIN"), "/")
+	// When a specific origin is set, we can send credentials (cookies).
+	// Wildcard origins are incompatible with credentials; fall back to no-creds mode.
+	allowCreds := origin != "" && origin != "*"
 	if origin == "" {
 		origin = "*"
 	}
@@ -22,6 +27,9 @@ func corsMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if allowCreds {
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -35,9 +43,13 @@ func NewAuthMiddleware(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-			// EventSource cannot set headers — allow token as query param fallback
+			// EventSource with withCredentials sends cookies automatically.
+			// Cookie is the primary auth path; Authorization header is kept for
+			// non-browser clients (CLI tools, tests, etc.).
 			if raw == "" {
-				raw = r.URL.Query().Get("token")
+				if c, err := r.Cookie(authCookieName); err == nil {
+					raw = c.Value
+				}
 			}
 			if raw == "" {
 				respond.Error(w, http.StatusUnauthorized, "missing token")

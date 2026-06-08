@@ -22,11 +22,6 @@ interface LogDrawerProps {
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
-function authHeaders(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = localStorage.getItem("agentmesh_token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: LogDrawerProps) {
   const [logs, setLogs] = useState<LogEvent[]>([]);
@@ -56,10 +51,8 @@ export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: Log
 
     if (!url) return;
 
-    const headers = authHeaders();
-    // EventSource doesn't support custom headers natively — pass token as query param
-    const token = headers.Authorization?.replace("Bearer ", "") ?? "";
-    const es = new EventSource(`${url}?token=${encodeURIComponent(token)}`);
+    // withCredentials sends the HttpOnly auth cookie automatically.
+    const es = new EventSource(url, { withCredentials: true });
     esRef.current = es;
 
     es.addEventListener("log", (e) => {

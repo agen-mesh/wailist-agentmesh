@@ -8,39 +8,39 @@ const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 // -- Auth ------------------------------------------------------------------
 export const auth = {
-  signIn: async (email: string, password: string): Promise<{ token: string }> => {
+  signIn: async (email: string, password: string): Promise<void> => {
     if (BASE) {
       const res = await fetch(`${BASE}/auth/signin`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "sign in failed");
-      return data;
+      return;
     }
     void email; void password;
     await delay(400);
-    return { token: "mock-jwt-token" };
   },
 
-  signUp: async (email: string, password: string, org: string): Promise<{ token: string }> => {
+  signUp: async (email: string, password: string, org: string): Promise<void> => {
     if (BASE) {
       const res = await fetch(`${BASE}/auth/signup`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password, org }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "sign up failed");
-      return data;
+      return;
     }
     void email; void password; void org;
     await delay(500);
-    return { token: "mock-jwt-token" };
   },
 
   me: async (): Promise<{ id: string; email: string }> => {
     if (BASE) {
-      const res = await fetch(`${BASE}/auth/me`, { headers: authHeaders() });
+      const res = await fetch(`${BASE}/auth/me`, { credentials: "include" });
       if (!res.ok) throw new Error("unauthorized");
       return res.json();
     }
@@ -49,7 +49,7 @@ export const auth = {
 
   signOut: async (): Promise<void> => {
     if (BASE) {
-      await fetch(`${BASE}/auth/signout`, { method: "POST", headers: authHeaders() });
+      await fetch(`${BASE}/auth/signout`, { method: "POST", credentials: "include" });
       return;
     }
     await delay(100);
@@ -66,7 +66,7 @@ export const workflows = {
   // TODO: GET /workflows
   list: async (): Promise<Workflow[]> => {
     if (BASE) {
-      const res = await fetch(`${BASE}/workflows`, { headers: authHeaders() });
+      const res = await fetch(`${BASE}/workflows`, { credentials: "include" });
       return res.json();
     }
     await delay(200);
@@ -76,7 +76,7 @@ export const workflows = {
   // TODO: GET /workflows/:id
   get: async (id: string): Promise<Workflow> => {
     if (BASE) {
-      const res = await fetch(`${BASE}/workflows/${id}`, { headers: authHeaders() });
+      const res = await fetch(`${BASE}/workflows/${id}`, { credentials: "include" });
       return res.json();
     }
     await delay(150);
@@ -88,7 +88,8 @@ export const workflows = {
   create: async (name: string): Promise<Workflow> => {
     if (BASE) {
       const res = await fetch(`${BASE}/workflows`, {
-        method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" },
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
       return res.json();
@@ -101,7 +102,8 @@ export const workflows = {
   update: async (id: string, wf: Partial<Workflow>): Promise<Workflow> => {
     if (BASE) {
       const res = await fetch(`${BASE}/workflows/${id}`, {
-        method: "PUT", headers: { ...authHeaders(), "Content-Type": "application/json" },
+        method: "PUT", credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(wf),
       });
       return res.json();
@@ -114,7 +116,7 @@ export const workflows = {
   deploy: async (id: string): Promise<{ agents: { nodeId: string; address: string; network: string }[] }> => {
     if (BASE) {
       const res = await fetch(`${BASE}/workflows/${id}/deploy`, {
-        method: "POST", headers: authHeaders(),
+        method: "POST", credentials: "include",
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "deploy failed");
@@ -128,8 +130,8 @@ export const workflows = {
   run: async (id: string, input?: Record<string, unknown>): Promise<{ runId: string }> => {
     if (BASE) {
       const res = await fetch(`${BASE}/workflows/${id}/run`, {
-        method: "POST",
-        headers: { ...authHeaders(), ...(input ? { "Content-Type": "application/json" } : {}) },
+        method: "POST", credentials: "include",
+        headers: input ? { "Content-Type": "application/json" } : {},
         body: input ? JSON.stringify(input) : undefined,
       });
       return res.json();
@@ -141,7 +143,7 @@ export const workflows = {
   // TODO: POST /workflows/:id/stop
   stop: async (id: string): Promise<void> => {
     if (BASE) {
-      await fetch(`${BASE}/workflows/${id}/stop`, { method: "POST", headers: authHeaders() });
+      await fetch(`${BASE}/workflows/${id}/stop`, { method: "POST", credentials: "include" });
       return;
     }
     await delay(100);
@@ -153,7 +155,7 @@ export const agents = {
   // TODO: GET /workflows/:wfId/agents/:agentId/balance
   balance: async (wfId: string, agentId: string): Promise<{ address: string; balance: string; network: string }> => {
     if (BASE) {
-      const res = await fetch(`${BASE}/workflows/${wfId}/agents/${agentId}/balance`, { headers: authHeaders() });
+      const res = await fetch(`${BASE}/workflows/${wfId}/agents/${agentId}/balance`, { credentials: "include" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "balance fetch failed");
       return data;
@@ -166,7 +168,8 @@ export const agents = {
   fund: async (wfId: string, agentId: string, amount: number): Promise<{ txHash: string; balance: string }> => {
     if (BASE) {
       const res = await fetch(`${BASE}/workflows/${wfId}/agents/${agentId}/fund`, {
-        method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" },
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount }),
       });
       return res.json();
@@ -184,8 +187,8 @@ export const tools = {
   }> => {
     if (BASE) {
       const res = await fetch(`${BASE}/tools/x402/quote`, {
-        method: "POST",
-        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
       });
       const data = await res.json().catch(() => ({}));
@@ -216,10 +219,4 @@ export const waitlist = {
 // -- Helpers --------------------------------------------------------------
 function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
-}
-
-function authHeaders(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = localStorage.getItem("agentmesh_token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }
