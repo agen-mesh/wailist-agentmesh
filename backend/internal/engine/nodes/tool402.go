@@ -8,9 +8,14 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/models"
 )
+
+// WalletSigner signs and submits an Algorand payment transaction.
+// Satisfied by *wallet.Service.
+type WalletSigner interface {
+	SignAndSendPayment(ctx context.Context, encMnemonic, toAddress string, microAlgo uint64) (string, error)
+}
 
 func QuoteX402(ctx context.Context, rawURL string) (map[string]any, error) {
 	if err := urlValidator(rawURL); err != nil {
@@ -28,7 +33,7 @@ func QuoteX402(ctx context.Context, rawURL string) (map[string]any, error) {
 	return parsePaymentHeader(resp), nil
 }
 
-func ExecuteTool402(ctx context.Context, node models.WorkflowNode, rc RunContexter, wallet models.AgentWallet, store *db.Store) (any, error) {
+func ExecuteTool402(ctx context.Context, node models.WorkflowNode, rc RunContexter, wallet models.AgentWallet, signer WalletSigner) (any, error) {
 	if err := urlValidator(node.Endpoint); err != nil {
 		return nil, err
 	}
@@ -37,9 +42,9 @@ func ExecuteTool402(ctx context.Context, node models.WorkflowNode, rc RunContext
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusPaymentRequired {
+		defer resp.Body.Close()
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
 		var result any
 		if json.Unmarshal(b, &result) == nil {
@@ -49,18 +54,42 @@ func ExecuteTool402(ctx context.Context, node models.WorkflowNode, rc RunContext
 	}
 
 	quote := parsePaymentHeader(resp)
-	if wallet.EncryptedMnemonic == "" || store == nil {
-		return map[string]any{"error": "payment required but no agent wallet available", "quote": quote}, nil
+	resp.Body.Close() // done with the 402 response
+
+	if wallet.EncryptedMnemonic == "" || signer == nil {
+		return map[string]any{"error": "payment required but no agent wallet configured", "quote": quote}, nil
 	}
 
 	priceStr, _ := quote["price"].(string)
-	priceFloat, err := strconv.ParseFloat(priceStr, 64)
-	if err != nil {
-		return nil, fmt.Errorf("invalid price %q: %w", priceStr, err)
+	recipient, _ := quote["recipient"].(string)
+	if recipient == "" {
+		return nil, fmt.Errorf("x402: no recipient address in payment header")
 	}
-	_ = uint64(priceFloat * 1e6) // microAlgo — actual signing deferred to Phase 2
+	priceFloat, err := strconv.ParseFloat(priceStr, 64)
+	if err != nil || priceFloat <= 0 {
+		return nil, fmt.Errorf("x402: invalid price %q", priceStr)
+	}
+	microAlgo := uint64(priceFloat * 1e6)
 
-	return map[string]any{"status": "payment_sent", "pricePaid": priceStr, "quote": quote}, nil
+	txID, err := signer.SignAndSendPayment(ctx, wallet.EncryptedMnemonic, recipient, microAlgo)
+	if err != nil {
+		return nil, fmt.Errorf("x402 payment failed: %w", err)
+	}
+
+	// Retry the original request with the payment proof header.
+	req2, _ := http.NewRequestWithContext(ctx, http.MethodGet, node.Endpoint, nil)
+	req2.Header.Set("X-Payment-Txid", txID)
+	resp2, err := toolHTTPClient.Do(req2)
+	if err != nil {
+		return map[string]any{"status": "payment_sent", "txId": txID, "error": "retry request failed: " + err.Error()}, nil
+	}
+	defer resp2.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(resp2.Body, httpResponseLimit))
+	var retryResult any
+	if json.Unmarshal(b, &retryResult) == nil {
+		return map[string]any{"status": "payment_sent", "txId": txID, "response": retryResult}, nil
+	}
+	return map[string]any{"status": "payment_sent", "txId": txID, "response": string(b)}, nil
 }
 
 func parsePaymentHeader(resp *http.Response) map[string]any {
