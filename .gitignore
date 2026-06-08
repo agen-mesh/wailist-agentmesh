@@ -49,3 +49,13 @@ frontend/next-env.d.ts
 /backend/server
 /backend/*.env
 /backend/.env
+
+# test utilities (local dev only)
+/test-x402/
+
+# docs build artifacts
+/docs/whitepaper/*.docx
+/docs/whitepaper/*.py
+
+# root-level node_modules
+/node_modules/
