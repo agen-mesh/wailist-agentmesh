@@ -32,8 +32,17 @@ export interface WorkflowNode {
   unit?: string;
   provider?: string;
   priceLive?: boolean;
+  discoveredParams?: Array<{ name: string; type: string; required: boolean; description: string; default?: string }>;
+  paramDefaults?: Record<string, string>;
   // trigger-specific
   source?: string;
+  // email action-specific
+  emailTo?: string;
+  emailFrom?: string;
+  emailSubject?: string;
+  emailBody?: string;
+  emailApiKey?: string;
+  emailProvider?: string;
 }
 
 export interface WorkflowEdge {

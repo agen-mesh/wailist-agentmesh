@@ -207,12 +207,21 @@ function SubPortLabel({ label, x, filled, hint, nodeW }: { label: string; x: num
 function ProviderNode({ node, selected, onMouseDown, onPortHover, onPortLeave, onStartWire }: NodeProps) {
   const t = NODE_TYPES.provider;
   const tpl = PROVIDER_TEMPLATES.find((x) => x.id === node.template);
+  const hasKey = !!node.apiKey;
+  const maskedKey = hasKey ? `${node.apiKey!.slice(0, 4)}${"•".repeat(10)}` : null;
   return (
     <NodeShell node={node} selected={selected} onMouseDown={onMouseDown} W={t.w} H={t.h} accent="var(--accent)">
       <NodeHeader icon={node.icon ?? tpl?.icon ?? "+"} iconBg="var(--bg-elev-3)" iconColor="var(--accent)" kicker="ai provider" title={node.name ?? tpl?.name ?? "Provider"} sub={node.model ?? tpl?.model} />
-      <div style={{ padding: "6px 12px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-muted)" }}>
-        <span style={{ color: "var(--fg-dim)" }}>API key</span>
-        <span>{node.apiKey ?? "··· not set"}</span>
+      <div style={{ padding: "4px 12px 10px", display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--font-mono)", fontSize: 10 }}>
+        <span style={{ color: "var(--fg-dim)" }}>key</span>
+        {hasKey ? (
+          <>
+            <span style={{ flex: 1, color: "var(--fg-muted)", letterSpacing: "0.04em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{maskedKey}</span>
+            <span style={{ color: "#4ade80", fontSize: 9, flexShrink: 0 }}>✓</span>
+          </>
+        ) : (
+          <span style={{ color: "var(--fg-dim)", fontStyle: "italic" }}>not set</span>
+        )}
       </div>
       <TopPort color="var(--accent)" node={node} port="top" onHover={() => onPortHover("top")} onLeave={onPortLeave} onMouseDown={onStartWire} />
     </NodeShell>

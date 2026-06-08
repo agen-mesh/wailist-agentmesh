@@ -24,7 +24,7 @@ export const AGENT_TEMPLATES = [
 ];
 
 export const PROVIDER_TEMPLATES = [
-  { id: "gemini",    name: "Google Gemini", model: "gemini-1.5-pro",    icon: "G" },
+  { id: "gemini",    name: "Google Gemini", model: "gemini-2.5-flash",  icon: "G" },
   { id: "openai",    name: "OpenAI",        model: "gpt-4.1",           icon: "O" },
   { id: "anthropic", name: "Anthropic",     model: "claude-sonnet-4",   icon: "A" },
   { id: "mistral",   name: "Mistral",       model: "mistral-large",     icon: "M" },
@@ -61,25 +61,36 @@ export const END_TEMPLATES = [
 ];
 
 export const SAMPLE_WORKFLOW: Workflow = {
-  id: "wf-triage",
-  name: "Customer Support Triage",
+  id: "wf-weather",
+  name: "Weather Agent Test",
   nodes: [
-    { id: "n1", type: "trigger",  template: "chat",    x: 80,   y: 220, label: "When chat message received" },
-    { id: "n2", type: "agent",    template: "agent",   x: 360,  y: 200, name: "Support Agent",
-      systemPrompt: "You are a triage agent. Classify the user message, look up account details if relevant, draft a response." },
-    { id: "n3", type: "provider", template: "gemini",  x: 320,  y: 420, name: "Google Gemini Chat Model", apiKey: "AIza••••••5a3f" },
-    { id: "n4", type: "tool",     template: "http",    x: 480,  y: 420, name: "HTTP Request" },
-    { id: "n5", type: "tool402",  template: "alpaca",  x: 640,  y: 420, name: "AlpacaQuote" },
-    { id: "n6", type: "action",   template: "email",   x: 740,  y: 210, name: "Send Email" },
-    { id: "n7", type: "end",      template: "http",    x: 1020, y: 210, label: "Respond to Webhook" },
+    { id: "n1", type: "trigger",  template: "chat",   x: 80,  y: 220,
+      label: "Chat trigger" },
+    { id: "n2", type: "agent",    template: "agent",  x: 380, y: 200,
+      name: "Weather Agent",
+      systemPrompt: "You receive a message from the user. Use the x402 weather tool to get current weather for any city they mention, then return a clear, friendly summary of the conditions. If no city is mentioned, ask the user which city they want." },
+    { id: "n3", type: "provider", template: "gemini", x: 300, y: 430,
+      name: "Gemini 2.5 Flash", model: "gemini-2.5-flash" },
+    { id: "n4", type: "tool402",  custom: true,       x: 500, y: 430,
+      name: "x402 Weather",
+      description: "Real-time weather data — temperature, wind, conditions for any city worldwide. Accepts: city (string, required), units (celsius|fahrenheit, optional).",
+      endpoint: "http://localhost:4402/weather",
+      price: "0.065", unit: "call", priceLive: true,
+      discoveredParams: [
+        { name: "city",  type: "string", required: true,  description: "City name (e.g. London, Tokyo)" },
+        { name: "units", type: "string", required: false, description: "celsius or fahrenheit", default: "celsius" },
+      ],
+    },
+    { id: "n5", type: "action",   template: "email",  x: 700, y: 200,
+      name: "Send Result Email" },
+    { id: "n6", type: "end",      template: "done",   x: 960, y: 210 },
   ],
   edges: [
     { id: "e1", from: "n1", to: "n2", kind: "flow",   toPort: "in" },
     { id: "e2", from: "n3", to: "n2", kind: "attach", toPort: "model" },
     { id: "e3", from: "n4", to: "n2", kind: "attach", toPort: "tools" },
-    { id: "e4", from: "n5", to: "n2", kind: "attach", toPort: "tools" },
-    { id: "e5", from: "n2", to: "n6", kind: "flow",   toPort: "in" },
-    { id: "e6", from: "n6", to: "n7", kind: "flow",   toPort: "in" },
+    { id: "e4", from: "n2", to: "n5", kind: "flow",   toPort: "in" },
+    { id: "e5", from: "n5", to: "n6", kind: "flow",   toPort: "in" },
   ],
 };
 

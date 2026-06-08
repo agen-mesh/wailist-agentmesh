@@ -227,11 +227,46 @@ function ProviderInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (
         <Field label="Model">
           {node.custom
             ? <input style={monoInputStyle} value={node.model ?? ""} placeholder="e.g. llama-3.3-70b" onChange={(e) => onUpdate({ ...node, model: e.target.value })} />
-            : <select style={inputStyle} defaultValue={tpl?.model}>
-                <option>{tpl?.model}</option>
-                <option>gemini-1.5-flash</option>
-                <option>gemini-1.5-pro</option>
-              </select>}
+            : node.template === "gemini"
+              ? <select style={monoInputStyle} value={node.model ?? "gemini-2.5-flash"} onChange={(e) => onUpdate({ ...node, model: e.target.value })}>
+                  <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                  <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+                  <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+                  <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+                  <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+                </select>
+              : node.template === "openai"
+              ? <select style={monoInputStyle} value={node.model ?? "gpt-4.1"} onChange={(e) => onUpdate({ ...node, model: e.target.value })}>
+                  <option value="gpt-4.1">gpt-4.1</option>
+                  <option value="gpt-4o">gpt-4o</option>
+                  <option value="gpt-4o-mini">gpt-4o-mini</option>
+                  <option value="o3">o3</option>
+                  <option value="o4-mini">o4-mini</option>
+                </select>
+              : node.template === "anthropic"
+              ? <select style={monoInputStyle} value={node.model ?? "claude-sonnet-4-6"} onChange={(e) => onUpdate({ ...node, model: e.target.value })}>
+                  <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+                  <option value="claude-opus-4-8">claude-opus-4-8</option>
+                  <option value="claude-haiku-4-5">claude-haiku-4-5</option>
+                  <option value="claude-3-5-sonnet-20241022">claude-3-5-sonnet</option>
+                </select>
+              : node.template === "groq"
+              ? <select style={monoInputStyle} value={node.model ?? "llama-3.3-70b-versatile"} onChange={(e) => onUpdate({ ...node, model: e.target.value })}>
+                  <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+                  <option value="llama-3.1-8b-instant">llama-3.1-8b-instant</option>
+                  <option value="mixtral-8x7b-32768">mixtral-8x7b</option>
+                  <option value="gemma2-9b-it">gemma2-9b</option>
+                </select>
+              : node.template === "mistral"
+              ? <select style={monoInputStyle} value={node.model ?? "mistral-large-latest"} onChange={(e) => onUpdate({ ...node, model: e.target.value })}>
+                  <option value="mistral-large-latest">mistral-large</option>
+                  <option value="mistral-medium-latest">mistral-medium</option>
+                  <option value="mistral-small-latest">mistral-small</option>
+                  <option value="codestral-latest">codestral</option>
+                </select>
+              : <select style={monoInputStyle} value={node.model ?? tpl?.model ?? ""} onChange={(e) => onUpdate({ ...node, model: e.target.value })}>
+                  <option value={tpl?.model}>{tpl?.model}</option>
+                </select>}
         </Field>
       </Section>
       <Section label="Credentials">
@@ -295,10 +330,11 @@ function Tool402Inspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n
         unit: quote.unit ?? "call",
         provider: host,
         priceLive: true,
+        description: node.description || quote.description || "",
+        discoveredParams: quote.params ?? [],
       });
     } catch (err: unknown) {
       setProbeError(err instanceof Error ? err.message : "probe failed");
-      // Still save endpoint but no price
       onUpdate({ ...node, endpoint: draft.trim(), priceLive: false });
     } finally {
       setProbing(false);
@@ -367,6 +403,29 @@ function Tool402Inspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n
           </div>
         )}
       </Section>
+      {node.discoveredParams && node.discoveredParams.length > 0 && (
+        <Section label="Endpoint params">
+          <div style={{ fontSize: 11, color: "var(--fg-dim)", marginBottom: 6 }}>
+            Filled automatically by the agent at runtime.
+          </div>
+          <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--r-2)", overflow: "hidden" }}>
+            {node.discoveredParams.map((p, i) => (
+              <div key={p.name} style={{ padding: "8px 12px", borderBottom: i < node.discoveredParams!.length - 1 ? "1px solid var(--border)" : "none", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: magenta }}>{p.name}</span>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--fg-dim)", background: "var(--bg-elev-2)", padding: "1px 5px", borderRadius: 3 }}>{p.type}</span>
+                    {p.required
+                      ? <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "#F87171" }}>required</span>
+                      : <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--fg-dim)" }}>optional</span>}
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--fg-muted)", lineHeight: 1.4 }}>{p.description}{p.default ? ` · default: ${p.default}` : ""}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
       <Section label="Tool description">
         <Field label="What this tool does" hint="shown to agent">
           <textarea style={{ ...inputStyle, height: "auto", padding: 10, resize: "vertical", lineHeight: 1.5 }} rows={3}
@@ -397,14 +456,64 @@ function TriggerInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n
 // ── Action Inspector ───────────────────────────────────────────────────────
 function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n: WorkflowNode) => void }) {
   return (
-    <Section label="Action">
-      <Field label="Name"><input style={inputStyle} value={node.name ?? ""} onChange={(e) => onUpdate({ ...node, name: e.target.value })} /></Field>
-      {node.template === "email" && <>
-        <Field label="To"><input style={monoInputStyle} defaultValue="{{ trigger.email }}" /></Field>
-        <Field label="Subject"><input style={inputStyle} defaultValue="Your AgentMesh result" /></Field>
-      </>}
-      {node.template === "slack" && <Field label="Channel"><input style={monoInputStyle} defaultValue="#agent-output" /></Field>}
-    </Section>
+    <>
+      <Section label="Action">
+        <Field label="Name">
+          <input style={inputStyle} value={node.name ?? ""} onChange={(e) => onUpdate({ ...node, name: e.target.value })} />
+        </Field>
+      </Section>
+
+      {node.template === "email" && (
+        <Section label="Email config">
+          <Field label="Provider">
+            <select style={inputStyle} value={node.emailProvider ?? "resend"} onChange={(e) => onUpdate({ ...node, emailProvider: e.target.value })}>
+              <option value="resend">Resend</option>
+              <option value="postmark">Postmark</option>
+              <option value="sendgrid">SendGrid</option>
+            </select>
+          </Field>
+          <Field label="API Key" hint="encrypted at rest">
+            <input style={monoInputStyle} type="password"
+              value={node.emailApiKey ?? ""}
+              placeholder={node.emailProvider === "postmark" ? "your-postmark-server-token" : "re_xxxxxxxxxxxx"}
+              onChange={(e) => onUpdate({ ...node, emailApiKey: e.target.value })} />
+          </Field>
+          <Field label="From" hint="must be verified in your provider">
+            <input style={monoInputStyle}
+              value={node.emailFrom ?? ""}
+              placeholder="AgentMesh <you@yourdomain.com>"
+              onChange={(e) => onUpdate({ ...node, emailFrom: e.target.value })} />
+          </Field>
+          <Field label="To" hint="{{ variables }} supported">
+            <input style={monoInputStyle}
+              value={node.emailTo ?? ""}
+              placeholder="recipient@example.com"
+              onChange={(e) => onUpdate({ ...node, emailTo: e.target.value })} />
+          </Field>
+          <Field label="Subject">
+            <input style={inputStyle}
+              value={node.emailSubject ?? ""}
+              placeholder="Your AgentMesh result"
+              onChange={(e) => onUpdate({ ...node, emailSubject: e.target.value })} />
+          </Field>
+          <Field label="Body" hint="{{ result }} = agent output">
+            <textarea style={{ ...inputStyle, height: "auto", padding: 10, resize: "vertical", lineHeight: 1.6 }} rows={5}
+              value={node.emailBody ?? ""}
+              placeholder={"Hi,\n\nHere is your result:\n\n{{ result }}\n\n— AgentMesh"}
+              onChange={(e) => onUpdate({ ...node, emailBody: e.target.value })} />
+          </Field>
+        </Section>
+      )}
+
+      {node.template === "slack" && (
+        <Section label="Slack config">
+          <Field label="Channel">
+            <input style={monoInputStyle} value={node.source ?? ""} placeholder="#agent-output"
+              onChange={(e) => onUpdate({ ...node, source: e.target.value })} />
+          </Field>
+        </Section>
+      )}
+    </>
   );
 }
 
