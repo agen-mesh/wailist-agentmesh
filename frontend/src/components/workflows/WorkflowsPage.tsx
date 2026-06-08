@@ -1,10 +1,10 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Logo, Pill, Tag, Hairline, IconSearch, IconGrid } from "@/components/ui";
-import { WORKFLOWS } from "@/lib/data";
 import { Workflow } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
+import { workflows as workflowsApi } from "@/lib/api";
 
 export function WorkflowsPage() {
   const router = useRouter();
@@ -12,19 +12,42 @@ export function WorkflowsPage() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
   const [view, setView] = useState<"rows" | "grid">("rows");
+  const [wfList, setWfList] = useState<Workflow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    workflowsApi.list()
+      .then(setWfList)
+      .catch(() => setWfList([]))
+      .finally(() => setLoading(false));
+  }, []);
 
   const filtered = useMemo(() => {
-    return WORKFLOWS.filter((wf) => {
+    return wfList.filter((wf) => {
       const matchesQ = !q || wf.name?.toLowerCase().includes(q.toLowerCase()) || wf.tags?.join(" ").includes(q.toLowerCase());
       const matchesS = status === "all" || wf.status === status;
       return matchesQ && matchesS;
     });
-  }, [q, status]);
+  }, [wfList, q, status]);
+
+  const handleNewWorkflow = useCallback(async () => {
+    if (creating) return;
+    setCreating(true);
+    try {
+      const wf = await workflowsApi.create("Untitled workflow");
+      router.push(`/workflows/${wf.id}`);
+    } catch {
+      setCreating(false);
+    }
+  }, [creating, router]);
 
   const handleSignOut = async () => {
     await signOut();
     router.push("/");
   };
+
+  const activeCount = wfList.filter((w) => w.status === "active").length;
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)" }}>
@@ -56,16 +79,18 @@ export function WorkflowsPage() {
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button style={ghostBtn}>Import</button>
-              <button onClick={() => router.push("/workflows/new")} style={primaryBtn}>+ New workflow</button>
+              <button onClick={handleNewWorkflow} disabled={creating} style={{ ...primaryBtn, opacity: creating ? 0.6 : 1 }}>
+                {creating ? "Creating…" : "+ New workflow"}
+              </button>
             </div>
           </div>
 
           {/* KPI row */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
-            <KpiCard label="Active workflows" value={WORKFLOWS.filter((w) => w.status === "active").length} sub="of 6 total" />
-            <KpiCard label="Agents deployed" value="9" sub="across 3 workflows" />
-            <KpiCard label="Spend · 30d" value="8.708" unit="ALGO" sub="↑ 12% vs prior" />
-            <KpiCard label="Runs · 30d" value="2,739" sub="98.4% success" tone="ok" />
+            <KpiCard label="Active workflows" value={loading ? "…" : activeCount} sub={loading ? "" : `of ${wfList.length} total`} />
+            <KpiCard label="Agents deployed" value="—" sub="deploy a workflow" />
+            <KpiCard label="Spend · 30d" value="—" unit="ALGO" sub="run a workflow" />
+            <KpiCard label="Runs · 30d" value="—" sub="no runs yet" tone="ok" />
           </div>
 
           {/* Controls */}
@@ -96,15 +121,19 @@ export function WorkflowsPage() {
           </div>
 
           {/* List */}
-          {view === "rows" ? (
+          {loading ? (
+            <div style={{ padding: 48, textAlign: "center", color: "var(--fg-dim)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
+              loading workflows…
+            </div>
+          ) : view === "rows" ? (
             <WorkflowRows items={filtered} onOpen={(id) => router.push(`/workflows/${id}`)} />
           ) : (
             <WorkflowGrid items={filtered} onOpen={(id) => router.push(`/workflows/${id}`)} />
           )}
 
-          {filtered.length === 0 && (
+          {!loading && filtered.length === 0 && (
             <div style={{ padding: 48, textAlign: "center", border: "1px dashed var(--border)", borderRadius: "var(--r-3)", color: "var(--fg-dim)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
-              no workflows match
+              {wfList.length === 0 ? "no workflows yet — create one to get started" : "no workflows match"}
             </div>
           )}
         </div>
@@ -179,10 +208,10 @@ function WorkflowRows({ items, onOpen }: { items: Workflow[]; onOpen: (id: strin
             </div>
           </div>
           <StatusBadge status={wf.status} />
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{wf.agents}</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--fg-muted)" }}>{wf.runs?.toLocaleString()}</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--accent)" }}>{wf.spend}<span style={{ color: "var(--fg-dim)" }}> ALGO</span></span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-muted)" }}>{wf.updated}</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{wf.agents ?? wf.nodes?.filter(n => n.type === "agent").length ?? 0}</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--fg-muted)" }}>{wf.runs?.toLocaleString() ?? "—"}</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--accent)" }}>{wf.spend ?? "—"}{wf.spend && <span style={{ color: "var(--fg-dim)" }}> ALGO</span>}</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-muted)" }}>{fmtDate(wf.updatedAt ?? wf.updated)}</span>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 4 }}>
             <button style={ghostBtnSm} onClick={(e) => { e.stopPropagation(); onOpen(wf.id); }}>Open</button>
             <button style={{ ...ghostBtnSm, width: 28, padding: 0, justifyContent: "center" }} onClick={(e) => e.stopPropagation()}>⋯</button>
@@ -211,7 +240,7 @@ function WorkflowGrid({ items, onOpen }: { items: Workflow[]; onOpen: (id: strin
             {wf.tags?.map((t) => <span key={t} style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--fg-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>#{t}</span>)}
           </div>
           <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--border-soft)", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, fontFamily: "var(--font-mono)", fontSize: 11 }}>
-            {[{ label: "Agents", val: String(wf.agents) }, { label: "Runs", val: wf.runs?.toLocaleString() ?? "0" }, { label: "Spend", val: wf.spend, accent: true }].map((s) => (
+            {[{ label: "Agents", val: String(wf.agents ?? wf.nodes?.filter(n => n.type === "agent").length ?? 0) }, { label: "Runs", val: wf.runs?.toLocaleString() ?? "—" }, { label: "Spend", val: wf.spend ?? "—", accent: true }].map((s) => (
               <div key={s.label}>
                 <div style={{ color: "var(--fg-dim)", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</div>
                 <div style={{ color: s.accent ? "var(--accent)" : "var(--fg)", marginTop: 2 }}>{s.val}</div>
@@ -222,6 +251,15 @@ function WorkflowGrid({ items, onOpen }: { items: Workflow[]; onOpen: (id: strin
       ))}
     </div>
   );
+}
+
+function fmtDate(iso?: string): string {
+  if (!iso) return "—";
+  try {
+    return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
 }
 
 // Shared styles
