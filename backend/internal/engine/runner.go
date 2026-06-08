@@ -55,6 +55,16 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run) {
 		return
 	}
 
+	// Build set of tool/tool402 nodes that are ONLY connected via attach edges to
+	// agents. These must NOT be executed as standalone topology steps — the agent
+	// LLM drives them through function calling at runtime.
+	agentToolIDs := make(map[string]bool)
+	for _, e := range wf.Edges {
+		if e.Kind == models.EdgeKindAttach && e.ToPort == "tools" {
+			agentToolIDs[e.From] = true
+		}
+	}
+
 	// Pre-load all agent wallets for this workflow so tool402 nodes can resolve
 	// their parent agent's wallet without hitting the DB per-node.
 	walletByAgent := make(map[string]models.AgentWallet)
@@ -84,6 +94,10 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run) {
 			wg.Add(1)
 			go func(n models.WorkflowNode, idx int) {
 				defer wg.Done()
+				// Skip attached tools — the agent invokes them via function calling.
+				if agentToolIDs[n.ID] {
+					return
+				}
 				if atomic.LoadInt32(&failed) != 0 {
 					return
 				}
@@ -155,7 +169,8 @@ func (r *Runner) executeNode(
 	case models.NodeTypeEnd:
 		return rc.Message(), nil
 	case models.NodeTypeAgent:
-		return nodes.ExecuteAgent(ctx, node, attachMap[node.ID], rc)
+		aw := walletByAgent[node.ID]
+		return nodes.ExecuteAgent(ctx, node, attachMap[node.ID], aw, r.walletSvc, rc)
 	case models.NodeTypeProvider:
 		return rc.Message(), nil
 	case models.NodeTypeTool:

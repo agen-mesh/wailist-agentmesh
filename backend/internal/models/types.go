@@ -20,6 +20,14 @@ const (
 	EdgeKindAttach EdgeKind = "attach"
 )
 
+type ParamDef struct {
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Required    bool   `json:"required"`
+	Description string `json:"description"`
+	Default     string `json:"default,omitempty"`
+}
+
 type WorkflowNode struct {
 	ID           string   `json:"id"`
 	Type         NodeType `json:"type"`
@@ -41,6 +49,16 @@ type WorkflowNode struct {
 	Unit         string   `json:"unit,omitempty"`
 	Provider     string   `json:"provider,omitempty"`
 	Source       string   `json:"source,omitempty"`
+	// email action fields
+	EmailTo       string `json:"emailTo,omitempty"`
+	EmailFrom     string `json:"emailFrom,omitempty"`
+	EmailSubject  string `json:"emailSubject,omitempty"`
+	EmailBody     string `json:"emailBody,omitempty"`
+	EmailAPIKey   string `json:"emailApiKey,omitempty"`
+	EmailProvider string `json:"emailProvider,omitempty"`
+	// x402 tool discovered params (populated by frontend discover)
+	DiscoveredParams []ParamDef     `json:"discoveredParams,omitempty"`
+	Description      string         `json:"description,omitempty"`
 }
 
 type WorkflowEdge struct {
