@@ -22,7 +22,6 @@ interface LogDrawerProps {
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
-
 export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: LogDrawerProps) {
   const [logs, setLogs] = useState<LogEvent[]>([]);
   const [elapsed, setElapsed] = useState<number | null>(null);
