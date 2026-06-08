@@ -39,12 +39,13 @@ func main() {
 	runner := engine.NewRunner(store, broker, walletSvc)
 
 	deps := &handlers.Deps{
-		Store:     store,
-		Broker:    broker,
-		Wallet:    walletSvc,
-		Engine:    runner,
-		BaseURL:   envOr("BASE_URL", "http://localhost:8080"),
-		JWTSecret: mustEnv("JWT_SECRET"),
+		Store:         store,
+		Broker:        broker,
+		Wallet:        walletSvc,
+		Engine:        runner,
+		BaseURL:       envOr("BASE_URL", "http://localhost:8080"),
+		JWTSecret:     mustEnv("JWT_SECRET"),
+		EncryptionKey: mustEnv("ENCRYPTION_KEY"),
 
 		FrontendURL:        envOr("FRONTEND_URL", "http://localhost:3000"),
 		GithubClientID:     os.Getenv("GITHUB_CLIENT_ID"),

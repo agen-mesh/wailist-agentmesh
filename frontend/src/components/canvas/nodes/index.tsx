@@ -208,7 +208,9 @@ function ProviderNode({ node, selected, onMouseDown, onPortHover, onPortLeave, o
   const t = NODE_TYPES.provider;
   const tpl = PROVIDER_TEMPLATES.find((x) => x.id === node.template);
   const hasKey = !!node.apiKey;
-  const maskedKey = hasKey ? `${node.apiKey!.slice(0, 4)}${"•".repeat(10)}` : null;
+  const maskedKey = hasKey
+    ? (node.apiKey === "__enc__" ? "•".repeat(14) : `${node.apiKey!.slice(0, 4)}${"•".repeat(10)}`)
+    : null;
   return (
     <NodeShell node={node} selected={selected} onMouseDown={onMouseDown} W={t.w} H={t.h} accent="var(--accent)">
       <NodeHeader icon={node.icon ?? tpl?.icon ?? "+"} iconBg="var(--bg-elev-3)" iconColor="var(--accent)" kicker="ai provider" title={node.name ?? tpl?.name ?? "Provider"} sub={node.model ?? tpl?.model} />

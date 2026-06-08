@@ -20,6 +20,9 @@ func (d *Deps) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 	if wfs == nil {
 		wfs = []models.Workflow{}
 	}
+	for i := range wfs {
+		wfs[i].Nodes = maskNodes(wfs[i].Nodes)
+	}
 	respond.JSON(w, http.StatusOK, wfs)
 }
 
@@ -48,6 +51,7 @@ func (d *Deps) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusNotFound, "workflow not found")
 		return
 	}
+	wf.Nodes = maskNodes(wf.Nodes)
 	respond.JSON(w, http.StatusOK, wf)
 }
 
@@ -65,12 +69,14 @@ func (d *Deps) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		Edges []models.WorkflowEdge `json:"edges"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
-	graph := models.WorkflowGraph{Nodes: body.Nodes, Edges: body.Edges}
+	encryptedNodes := encryptNodes(body.Nodes, d.EncryptionKey, existing.Nodes)
+	graph := models.WorkflowGraph{Nodes: encryptedNodes, Edges: body.Edges}
 	wf, err := d.Store.UpdateWorkflow(r.Context(), id, body.Name, graph)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	wf.Nodes = maskNodes(wf.Nodes)
 	respond.JSON(w, http.StatusOK, wf)
 }
 

@@ -271,7 +271,13 @@ function ProviderInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (
       </Section>
       <Section label="Credentials">
         <Field label="API Key" hint="encrypted at rest">
-          <input style={monoInputStyle} type="password" value={node.apiKey ?? ""} placeholder="AIza···" onChange={(e) => onUpdate({ ...node, apiKey: e.target.value })} />
+          <input
+            style={monoInputStyle}
+            type="password"
+            value={node.apiKey === "__enc__" ? "" : (node.apiKey ?? "")}
+            placeholder={node.apiKey === "__enc__" ? "Key set — enter to replace" : "AIza···"}
+            onChange={(e) => onUpdate({ ...node, apiKey: e.target.value || (node.apiKey === "__enc__" ? "__enc__" : "") })}
+          />
         </Field>
       </Section>
       <Section label="Parameters">
@@ -474,9 +480,9 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
           </Field>
           <Field label="API Key" hint="encrypted at rest">
             <input style={monoInputStyle} type="password"
-              value={node.emailApiKey ?? ""}
-              placeholder={node.emailProvider === "postmark" ? "your-postmark-server-token" : "re_xxxxxxxxxxxx"}
-              onChange={(e) => onUpdate({ ...node, emailApiKey: e.target.value })} />
+              value={node.emailApiKey === "__enc__" ? "" : (node.emailApiKey ?? "")}
+              placeholder={node.emailApiKey === "__enc__" ? "Key set — enter to replace" : (node.emailProvider === "postmark" ? "your-postmark-server-token" : "re_xxxxxxxxxxxx")}
+              onChange={(e) => onUpdate({ ...node, emailApiKey: e.target.value || (node.emailApiKey === "__enc__" ? "__enc__" : "") })} />
           </Field>
           <Field label="From" hint="must be verified in your provider">
             <input style={monoInputStyle}
