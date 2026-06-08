@@ -237,4 +237,5 @@ go test ./...         # run tests
 
 - Algorand wallets use testnet by default. Set `ALGORAND_NETWORK=mainnet` with a real algod endpoint for production.
 - Both Railway and Vercel deploy from the `agentmesh-goa` branch. Auto-deploy on push must be enabled per project, or each push needs a manual redeploy.
-- See `docs/whats-left.md` for the remaining roadmap.
+- See `docs/whats-left.md` for remaining gaps and roadmap.
+- See `docs/backend-plan.md` for the full backend architecture reference.
