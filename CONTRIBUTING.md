@@ -277,13 +277,102 @@ Each run has a channel in the in-process SSE broker (`internal/sse`). The runner
 
 ---
 
+## Tests
+
+### Running the test suite
+
+```bash
+cd backend
+go test ./...           # run all tests
+go test ./... -cover    # with coverage percentages
+go test ./... -v        # verbose — see each test name pass/fail
+go test ./internal/engine/nodes/... -run TestX402  # run a specific test or pattern
+```
+
+### Current coverage by package
+
+| Package | Coverage | Notes |
+|---|---|---|
+| `internal/api` | 89% | Middleware, CORS, JWT, health check |
+| `internal/api/handlers` | 11% | Unit tests pass; most handler tests require a real DB and are skipped without `TEST_DATABASE_URL` |
+| `internal/engine` | 27% | Graph/topological sort fully covered; runner integration tests need DB |
+| `internal/engine/nodes` | — | Build error in `provider_test.go` (see below) |
+| `internal/sse` | 83% | Broker publish/subscribe fully covered |
+| `internal/wallet` | 37% | Keypair generation and AES-GCM encrypt/decrypt covered |
+| `internal/db` | 0% | All DB tests are integration tests — skipped without `TEST_DATABASE_URL` |
+| `internal/models` | — | No statements (types only) |
+
+### What each package tests
+
+**`internal/api`**
+- `TestNewAuthMiddlewareRejectsNoToken` — middleware returns 401 with no token
+- `TestNewAuthMiddlewareAcceptsValidToken` — valid HS256 JWT passes through
+- `TestHealthCheck` — `GET /health` returns 200
+
+**`internal/api/handlers`**
+- `TestSignUpReturnsBadRequestOnEmptyEmail` — 400 on missing email
+- `TestSignUpReturnsBadRequestOnShortPassword` — 400 on < 8 char password
+- `TestEncryptField_*` / `TestMaskNodes_*` / `TestDecryptNodes_*` — API key encryption/masking round-trips
+- `TestDeploy`, `TestTriggerRun`, `TestCreateAndGetWorkflow`, `TestAPIKeyEncryption`, `TestStopWorkflow*` — skipped without `TEST_DATABASE_URL`
+
+**`internal/engine`**
+- `TestTopologicalSort` — graph with no cycles sorts correctly
+- `TestCycleDetected` — graph with a cycle returns an error
+- `TestBuildAttachMap` — agent→tool attach edges parsed correctly
+- `TestStopReturns*` — runner stop signal tests (skipped without DB)
+
+**`internal/engine/nodes`**
+- `TestX402FreeEndpoint` — endpoint that returns 200 directly (no payment needed)
+- `TestX402ParseQuote` — endpoint returns 402, payment descriptor is parsed correctly
+- `TestX402PaymentSigned` — full flow: 402 → signer called → retry with txid → success
+- `TestX402NoWallet` — 402 response with no wallet configured returns a graceful error
+- `TestX402SignerError` — signer failure surfaces as an error
+- `TestWebhookAction` — action node POSTs to a webhook URL
+- `TestLogAction` — log action writes to RunContext
+- `TestCalculator` — `calc` tool evaluates math expressions
+- `TestDatetime` — `datetime` tool returns current time
+- `TestHTTPTool` — standard HTTP GET tool with mock server
+- ⚠️ `provider_test.go` has a build error — `ExecuteAgent` signature changed, test not updated yet (good first issue)
+
+**`internal/sse`**
+- `TestBrokerPublishSubscribe` — messages published to a channel are received by all subscribers
+
+**`internal/wallet`**
+- `TestGenerateWallet` — generates a valid Algorand Ed25519 keypair with a correct-length address
+- `TestEncryptDecrypt` — AES-GCM mnemonic encrypt → decrypt round-trip
+
+### Integration tests (require a real database)
+
+Tests in `internal/db` and several handler/runner tests are skipped unless `TEST_DATABASE_URL` is set:
+
+```bash
+TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/agentmesh_test go test ./...
+```
+
+These tests create and tear down their own schema, so they're safe to run against a throwaway local database. Do **not** point them at a production database.
+
+### Writing new tests
+
+- Unit tests live alongside the code they test (`foo.go` → `foo_test.go`) in the same package
+- Use `httptest.NewRecorder()` and `httptest.NewServer()` for HTTP handler/client tests — see `tool_test.go` for examples
+- For anything that touches the DB, guard with a skip:
+  ```go
+  db := os.Getenv("TEST_DATABASE_URL")
+  if db == "" {
+      t.Skip("TEST_DATABASE_URL not set")
+  }
+  ```
+- Don't mock the database in unit tests that are meant to test DB logic — use a real test DB or skip
+
+---
+
 ## Making a contribution
 
 1. **Open an issue first** for anything non-trivial — feature ideas, architectural changes, new node types. No point writing code that won't get merged.
 2. **Fork and branch** — name your branch something descriptive (`feat/memory-node`, `fix/sse-timeout`).
 3. **Keep PRs focused** — one thing per PR. A bug fix doesn't need a refactor alongside it.
 4. **Match the existing style** — no formatter changes, no linting rule updates, no unrelated file edits.
-5. **Test what you touch** — the backend has tests in `_test.go` files alongside each package. Run with `go test ./...` from `backend/`.
+5. **Test what you touch** — add or update `_test.go` files for whatever you change. Run `go test ./...` before opening a PR.
 6. **Open the PR against `master`**.
 
 For bugs: include what you expected, what happened, and how to reproduce it.
