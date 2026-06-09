@@ -53,8 +53,8 @@ func ExecuteTool402(ctx context.Context, node models.WorkflowNode, rc RunContext
 		return string(b), nil
 	}
 
-	quote := parsePaymentHeader(resp)
-	resp.Body.Close() // done with the 402 response
+	quote := parsePaymentHeader(resp) // reads body internally
+	resp.Body.Close()
 
 	if wallet.EncryptedMnemonic == "" || signer == nil {
 		return map[string]any{"error": "payment required but no agent wallet configured", "quote": quote}, nil
@@ -96,13 +96,29 @@ func ExecuteTool402(ctx context.Context, node models.WorkflowNode, rc RunContext
 }
 
 func parsePaymentHeader(resp *http.Response) map[string]any {
+	// Try header first (direct connections). Cloudflare and other proxies may
+	// strip non-standard response headers, so fall back to the response body.
 	header := resp.Header.Get("X-Payment-Required")
 	if header == "" {
 		header = resp.Header.Get("WWW-Authenticate")
 	}
 	var result map[string]any
-	if err := json.Unmarshal([]byte(header), &result); err != nil {
-		result = map[string]any{"raw": header}
+	if header != "" {
+		if err := json.Unmarshal([]byte(header), &result); err == nil {
+			return result
+		}
 	}
-	return result
+	// Body fallback: our server returns {"error":"Payment required","payment":{...}}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
+	var envelope struct {
+		Payment map[string]any `json:"payment"`
+	}
+	if err := json.Unmarshal(body, &envelope); err == nil && envelope.Payment != nil {
+		return envelope.Payment
+	}
+	// Last resort: try parsing body directly as the payment object
+	if err := json.Unmarshal(body, &result); err == nil {
+		return result
+	}
+	return map[string]any{"raw": header}
 }
