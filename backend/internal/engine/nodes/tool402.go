@@ -27,10 +27,13 @@ func QuoteX402(ctx context.Context, rawURL string) (map[string]any, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusPaymentRequired {
-		return map[string]any{"price": "0", "unit": "", "network": "", "recipient": ""}, nil
+	// Always attempt to parse payment info from header+body regardless of status.
+	// Proxies (Cloudflare tunnels) may rewrite 402 → 200/503 or strip headers.
+	quote := parsePaymentHeader(resp)
+	if _, hasPrice := quote["price"]; hasPrice {
+		return quote, nil
 	}
-	return parsePaymentHeader(resp), nil
+	return map[string]any{"price": "0", "unit": "", "network": "", "recipient": ""}, nil
 }
 
 func ExecuteTool402(ctx context.Context, node models.WorkflowNode, rc RunContexter, wallet models.AgentWallet, signer WalletSigner) (any, error) {
