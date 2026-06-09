@@ -134,13 +134,12 @@ export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: Log
 
   const outputPreview = (output: unknown): string => {
     if (output === null || output === undefined) return "—";
-    if (typeof output === "string") return output.slice(0, 120) + (output.length > 120 ? "…" : "");
+    if (typeof output === "string") return output;
     if (typeof output === "object" && output !== null) {
       const m = output as Record<string, unknown>;
-      // Agent output with embedded x402 receipts — show just the LLM text
-      if (typeof m.message === "string") return m.message.slice(0, 120) + (m.message.length > 120 ? "…" : "");
+      if (typeof m.message === "string") return m.message;
     }
-    try { const s = JSON.stringify(output); return s.slice(0, 120) + (s.length > 120 ? "…" : ""); }
+    try { return JSON.stringify(output); }
     catch { return String(output); }
   };
 
@@ -214,7 +213,7 @@ export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: Log
                   )}
                 </span>
               ) : (
-                <span style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{outputPreview(l.output)}</span>
+                <span style={{ color: "var(--fg)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{outputPreview(l.output)}</span>
               )}
             </div>
           ))}
