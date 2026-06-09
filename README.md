@@ -74,10 +74,10 @@ The full round-trip takes under 5 seconds. 0.001 ALGO transaction fees (~$0.0002
 
 ## Building x402-compatible endpoints
 
-Want to publish a paid API that AgentMesh agents can use? See the [`x402-examples/`](./x402-examples/) folder:
+Want to publish a paid API that AgentMesh agents can use? See the [`x402/`](./x402/) folder:
 
-- **[`CONTRIBUTING.md`](./x402-examples/CONTRIBUTING.md)** — the full protocol spec and how to build a compatible endpoint
-- **[`weather-example/`](./x402-examples/weather-example/)** — a working reference implementation
+- **[`CONTRIBUTING.md`](./x402/CONTRIBUTING.md)** — the full protocol spec and how to build a compatible endpoint
+- **[`EXAMPLE_SERVER.md`](./x402/EXAMPLE_SERVER.md)** — link to the reference implementation repo
 
 ---
 

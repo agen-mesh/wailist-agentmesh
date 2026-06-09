@@ -67,32 +67,35 @@ Your `402` response must include this JSON — both as the `X-Payment-Required` 
 }
 ```
 
-| Field         | Type     | Description |
-|---------------|----------|-------------|
-| `price`       | string   | Amount in ALGO (e.g. `"0.065"`) |
-| `unit`        | string   | Always `"call"` for per-call pricing |
-| `network`     | string   | `"algorand-testnet"` or `"algorand-mainnet"` |
-| `recipient`   | string   | Your Algorand wallet address that receives payment |
-| `description` | string   | Shown to the user in the AgentMesh UI |
-| `params`      | array    | Parameter schema — becomes LLM function declarations |
+| Field         | Type   | Description |
+|---------------|--------|-------------|
+| `price`       | string | Amount in ALGO (e.g. `"0.065"`) |
+| `unit`        | string | Always `"call"` for per-call pricing |
+| `network`     | string | `"algorand-testnet"` or `"algorand-mainnet"` |
+| `recipient`   | string | Your Algorand wallet address that receives payment |
+| `description` | string | Shown to the user in the AgentMesh UI |
+| `params`      | array  | Parameter schema — becomes LLM function declarations |
 
 ### The `params` array
 
 This is the most important part. AgentMesh's "Discover" button fetches your endpoint, reads the `params` schema, and registers them as **function call parameters** for the LLM. The AI agent uses these descriptions to decide what values to pass when calling your tool.
 
-- Write `description` values that make sense to an LLM. Be specific: "City name (e.g. London, Tokyo, Mumbai)" is better than "city".
+- Write `description` values that make sense to an LLM. Be specific: `"City name (e.g. London, Tokyo, Mumbai)"` is better than `"city"`.
 - `required: true` params must always be supplied by the LLM.
 - `default` values are shown as hints in the UI.
 - Supported types: `string`, `number`, `boolean`.
 
 ---
 
-## Response body format (send your payment info in both places)
+## Sending the payment info in both places
 
 Always send the payment descriptor in **both** the header and body. Cloudflare tunnels and some proxies strip `X-Payment-Required`:
 
 ```javascript
-const payment = { price: "0.065", unit: "call", network: "algorand-testnet", recipient: RECIPIENT, params: PARAMS };
+const payment = {
+  price: "0.065", unit: "call", network: "algorand-testnet",
+  recipient: RECIPIENT, params: PARAMS_SCHEMA
+};
 
 res.setHeader("X-Payment-Required", JSON.stringify(payment));
 res.setHeader("Content-Type", "application/json");
@@ -130,7 +133,7 @@ async function verifyPayment(txId, recipientAddress, requiredMicroAlgo) {
 
 > `requiredMicroAlgo = Math.round(priceAlgo * 1_000_000)` — e.g. 0.065 ALGO = 65000 μALGO.
 
-**Fallback for in-flight transactions** (not yet indexed — use `algod.pendingTransactionInformation`):
+**Fallback for in-flight transactions:**
 
 ```javascript
 const algod = new algosdk.Algodv2("", "https://testnet-api.algonode.cloud", "");
@@ -147,7 +150,7 @@ async function verifyPending(txId, recipientAddress, requiredMicroAlgo) {
 }
 ```
 
-Always try the indexer first (confirmed) and fall back to algod pending (in-flight).
+Always try the indexer first (confirmed), fall back to algod pending (in-flight).
 
 ---
 
@@ -159,9 +162,9 @@ AgentMesh agents run in production and can't reach `localhost`. Use [Cloudflare 
 cloudflared tunnel --url http://localhost:4402
 ```
 
-This gives you a public `*.trycloudflare.com` URL you can paste into the AgentMesh x402 Tool node.
+This gives you a public `*.trycloudflare.com` URL to paste into the AgentMesh x402 Tool node.
 
-> **Note:** Because Cloudflare may strip the `X-Payment-Required` header, always send payment info in the response body too (see above).
+> Because Cloudflare may strip `X-Payment-Required`, always send payment info in the response body too.
 
 ---
 
@@ -178,4 +181,4 @@ This gives you a public `*.trycloudflare.com` URL you can paste into the AgentMe
 
 ## See a working example
 
-The [`weather-example/`](./weather-example/) folder points to a fully working x402 weather endpoint built exactly to this spec. Use it as a reference or fork it as a starting point.
+→ [github.com/agentmesh/x402-weather-example](https://github.com/agentmesh/x402-weather-example)
