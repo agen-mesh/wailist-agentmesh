@@ -1,5 +1,10 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# Claude Code internal files
+AGENTS.md
+CLAUDE.md
+.claude/
+
 # dependencies
 /frontend/node_modules
 /.pnp
