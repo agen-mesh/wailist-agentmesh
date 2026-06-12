@@ -1,7 +1,7 @@
 // TODO: Replace all stubs with real FastAPI calls when backend is ready.
 // Base URL will come from env: process.env.NEXT_PUBLIC_API_URL
 
-import { Workflow } from "./types";
+import { Workflow, ParamDef } from "./types";
 import { WORKFLOWS, SAMPLE_WORKFLOW } from "./data";
 
 // In the browser, always route through /api so the cookie stays same-site.
@@ -223,7 +223,7 @@ export const agents = {
 export const tools = {
   x402quote: async (url: string): Promise<{
     price?: string; unit?: string; network?: string; recipient?: string; raw?: string; description?: string;
-    params?: Array<{ name: string; type: string; required: boolean; description: string; default?: string }>;
+    params?: ParamDef[];
   }> => {
     if (BASE) {
       const res = await fetch(`${BASE}/tools/x402/quote`, {

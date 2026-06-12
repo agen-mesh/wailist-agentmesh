@@ -89,6 +89,14 @@ export interface PortCoord {
   y: number;
 }
 
+export interface ParamDef {
+  name: string;
+  type: string;
+  required: boolean;
+  description: string;
+  default?: string;
+}
+
 export interface MarketplaceEndpoint {
   id: string;
   name: string;
@@ -103,6 +111,10 @@ export interface MarketplaceEndpoint {
   calls: number;
   rating: number;
   featured?: boolean;
+  // Bazaar-sourced fields — absent on static entries
+  endpoint?: string;
+  discoveredParams?: ParamDef[];
+  source?: "static" | "bazaar";
 }
 
 export interface MarketplaceWorkflow {
