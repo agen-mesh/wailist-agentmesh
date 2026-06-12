@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Logo, Pill, Tag, IconSearch, Toast } from "@/components/ui";
 import { MARKETPLACE_ENDPOINTS } from "@/lib/data";
-import type { MarketplaceEndpoint } from "@/lib/types";
+import type { MarketplaceEndpoint, PublishedWorkflow } from "@/lib/types";
 import { marketplace as marketplaceApi } from "@/lib/api";
 import { WorkflowPickerModal } from "./WorkflowPickerModal";
 
@@ -25,6 +25,10 @@ export function MarketplacePage() {
   const [category, setCategory] = useState<CategoryId>("all");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [mainTab, setMainTab] = useState<"endpoints" | "workflows">("endpoints");
+  const [wfQuery, setWfQuery] = useState("");
+  const [publishedWorkflows, setPublishedWorkflows] = useState<PublishedWorkflow[]>([]);
+  const [wfLoading, setWfLoading] = useState(false);
 
   const [pickerEndpoint, setPickerEndpoint] = useState<MarketplaceEndpoint | null>(null);
   const [bazaarEndpoints, setBazaarEndpoints] = useState<MarketplaceEndpoint[]>([]);
@@ -55,6 +59,31 @@ export function MarketplacePage() {
       .catch(() => setGpError(true))
       .finally(() => setGpLoading(false));
   }, []);
+
+  // Load published workflows when switching to the Workflows tab
+  useEffect(() => {
+    if (mainTab !== "workflows") return;
+    setWfLoading(true);
+    marketplaceApi
+      .listWorkflows("", 24, 0)
+      .then(({ workflows }) => setPublishedWorkflows(workflows ?? []))
+      .catch(() => {})
+      .finally(() => setWfLoading(false));
+  }, [mainTab]);
+
+  // Debounced workflow search
+  useEffect(() => {
+    if (mainTab !== "workflows") return;
+    const timer = setTimeout(() => {
+      setWfLoading(true);
+      marketplaceApi
+        .listWorkflows(wfQuery.trim(), 24, 0)
+        .then(({ workflows }) => setPublishedWorkflows(workflows ?? []))
+        .catch(() => {})
+        .finally(() => setWfLoading(false));
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [wfQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced search
   useEffect(() => {
@@ -103,6 +132,27 @@ export function MarketplacePage() {
     }
   };
 
+  const handleImport = async (pw: PublishedWorkflow) => {
+    try {
+      const wf = await marketplaceApi.importWorkflow(pw.id);
+      showToast(`"${pw.title}" imported — opening canvas…`);
+      setTimeout(() => router.push(`/workflows/${wf.id}`), 800);
+    } catch {
+      showToast("Import failed — are you signed in?");
+    }
+  };
+
+  const handleUpvote = async (pw: PublishedWorkflow) => {
+    try {
+      const { upvoted, count } = await marketplaceApi.upvoteWorkflow(pw.id);
+      setPublishedWorkflows((prev) =>
+        prev.map((w) => w.id === pw.id ? { ...w, upvoteCount: count, hasUpvoted: upvoted } : w)
+      );
+    } catch {
+      showToast("Upvote failed — are you signed in?");
+    }
+  };
+
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", flexDirection: "column" }}>
       {/* ── Nav ── */}
@@ -127,13 +177,31 @@ export function MarketplacePage() {
         </p>
         <div style={{ display: "flex", alignItems: "center", gap: 10, maxWidth: 480, margin: "24px auto 0", background: "var(--bg-elev-2)", border: "1px solid var(--border-strong)", borderRadius: "var(--r-2)", padding: "0 14px", height: 40 }}>
           <IconSearch size={14} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search Bazaar endpoints…"
-            style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "var(--fg)", fontSize: 13, fontFamily: "var(--font-sans)" }} />
+          {mainTab === "endpoints" ? (
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search endpoints…"
+              style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "var(--fg)", fontSize: 13, fontFamily: "var(--font-sans)" }} />
+          ) : (
+            <input value={wfQuery} onChange={(e) => setWfQuery(e.target.value)} placeholder="Search workflows…"
+              style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "var(--fg)", fontSize: 13, fontFamily: "var(--font-sans)" }} />
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 2, margin: "16px auto 0", background: "var(--bg-elev-2)", border: "1px solid var(--border)", borderRadius: "var(--r-2)", padding: 3 }}>
+          {(["endpoints", "workflows"] as const).map((t) => (
+            <button key={t} onClick={() => setMainTab(t)} style={{
+              height: 28, padding: "0 20px", fontSize: 12, fontWeight: 500, borderRadius: "calc(var(--r-2) - 2px)", cursor: "pointer",
+              fontFamily: "var(--font-sans)", border: "none", transition: "background 0.15s, color 0.15s",
+              background: mainTab === t ? "var(--bg-elev-3)" : "transparent",
+              color: mainTab === t ? "var(--fg)" : "var(--fg-muted)",
+            }}>
+              {t === "endpoints" ? "Endpoints" : "Workflows"}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* ── Content ── */}
       <div style={{ flex: 1, maxWidth: 1120, margin: "0 auto", width: "100%", padding: "0 24px 48px" }}>
+        {mainTab === "endpoints" && (<>
         {/* Category chips */}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 24, marginBottom: 28 }}>
           {CATEGORIES.map((cat) => (
@@ -215,7 +283,26 @@ export function MarketplacePage() {
             </div>
           )}
         </div>
-
+        </>)}
+        {mainTab === "workflows" && (
+          <div style={{ marginTop: 24 }}>
+            {wfLoading && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+                {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+              </div>
+            )}
+            {!wfLoading && publishedWorkflows.length === 0 && (
+              <EmptyState query={wfQuery} />
+            )}
+            {!wfLoading && publishedWorkflows.length > 0 && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+                {publishedWorkflows.map((pw) => (
+                  <WorkflowCard key={pw.id} pw={pw} onImport={() => handleImport(pw)} onUpvote={() => handleUpvote(pw)} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {pickerEndpoint && (
@@ -303,6 +390,38 @@ function EndpointCard({ ep, featured = false, onAdd }: { ep: MarketplaceEndpoint
           {ep.rating != null && <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--warm)" }}>★ {ep.rating}</span>}
         </div>
         <button onClick={onAdd} style={ghostBtnStyle}>+ Add to workflow</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Workflow Card ─────────────────────────────────────────────────────────
+function WorkflowCard({ pw, onImport, onUpvote }: { pw: PublishedWorkflow; onImport: () => void; onUpvote: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+      style={{ background: "var(--bg-elev-1)", border: `1px solid ${hovered ? "var(--accent-line)" : "var(--border)"}`, borderRadius: "var(--r-3)", padding: "18px 20px", display: "flex", flexDirection: "column", gap: 12, transition: "border-color 0.15s" }}
+    >
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)", marginBottom: 3 }}>{pw.title}</div>
+        <div style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--fg-dim)" }}>by {pw.creatorEmail}</div>
+      </div>
+      {pw.description && <p style={{ margin: 0, fontSize: 12, color: "var(--fg-muted)", lineHeight: 1.6 }}>{pw.description}</p>}
+      {pw.tags.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {pw.tags.map((t) => <span key={t} style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--fg-dim)", background: "var(--bg-elev-3)", borderRadius: "var(--r-1)", padding: "2px 7px", border: "1px solid var(--border)" }}>{t}</span>)}
+        </div>
+      )}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "auto" }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <button onClick={onUpvote} style={{ background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontFamily: "var(--font-mono)", fontSize: 12, color: pw.hasUpvoted ? "var(--accent)" : "var(--fg-dim)", padding: 0 }}>
+            ▲ {pw.upvoteCount}
+          </button>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-dim)" }}>⟳ {pw.runCount}</span>
+          {pw.feePerRun > 0 && <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "#E879F9" }}>${pw.feePerRun.toFixed(4)}/run</span>}
+        </div>
+        <button onClick={onImport} style={ghostBtnStyle}>Import</button>
       </div>
     </div>
   );
