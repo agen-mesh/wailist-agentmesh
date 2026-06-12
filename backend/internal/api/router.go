@@ -28,6 +28,10 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	r.Post("/run/{workflowId}", d.PublicTrigger)
 	r.Post("/hooks/{workflowId}/{nodeId}", d.PublicTrigger)
 
+	// Marketplace — public so the page loads without auth
+	r.Get("/marketplace/bazaar", d.BazaarList)
+	r.Get("/marketplace/bazaar/search", d.BazaarSearch)
+
 	// Protected routes — JWT required
 	r.Group(func(r chi.Router) {
 		r.Use(NewAuthMiddleware(d.JWTSecret))
