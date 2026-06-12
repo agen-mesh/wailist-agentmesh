@@ -1,9 +1,11 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Logo, Pill, Tag, IconSearch, Toast } from "@/components/ui";
 import { MARKETPLACE_ENDPOINTS } from "@/lib/data";
 import type { MarketplaceEndpoint } from "@/lib/types";
+import { marketplace as marketplaceApi } from "@/lib/api";
+import { WorkflowPickerModal } from "./WorkflowPickerModal";
 
 const CATEGORIES = [
   { id: "all",     label: "All" },
@@ -24,11 +26,44 @@ export function MarketplacePage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
+  const [pickerEndpoint, setPickerEndpoint] = useState<MarketplaceEndpoint | null>(null);
+  const [bazaarEndpoints, setBazaarEndpoints] = useState<MarketplaceEndpoint[]>([]);
+  const [bazaarLoading, setBazaarLoading] = useState(true);
+  const [bazaarError, setBazaarError] = useState(false);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2600); };
 
   const showFeatured = category === "all" && !query;
 
-  const filteredEndpoints = useMemo(() =>
+  // Initial load
+  useEffect(() => {
+    setBazaarLoading(true);
+    marketplaceApi
+      .bazaarList(24, 0)
+      .then(({ endpoints }) => { setBazaarEndpoints(endpoints); setBazaarError(false); })
+      .catch(() => setBazaarError(true))
+      .finally(() => setBazaarLoading(false));
+  }, []);
+
+  // Debounced search
+  useEffect(() => {
+    if (!query.trim()) {
+      marketplaceApi.bazaarList(24, 0).then(({ endpoints }) => setBazaarEndpoints(endpoints)).catch(() => {});
+      return;
+    }
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => {
+      marketplaceApi
+        .bazaarSearch(query)
+        .then(({ endpoints }) => setBazaarEndpoints(endpoints))
+        .catch(() => {});
+    }, 400);
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+  }, [query]);
+
+  // static entries filtered by category + query (client-side)
+  const filteredStatic = useMemo(() =>
     MARKETPLACE_ENDPOINTS.filter((ep) => {
       const matchCat = category === "all" || ep.category === category;
       const q = query.toLowerCase();
@@ -36,8 +71,19 @@ export function MarketplacePage() {
       return matchCat && matchQ;
     }), [query, category]);
 
-  const featuredEndpoints = filteredEndpoints.filter((e) => e.featured);
-  const restEndpoints = filteredEndpoints.filter((e) => !e.featured);
+  // Bazaar entries filtered by category only (search is server-side)
+  const filteredBazaar = useMemo(() =>
+    bazaarEndpoints.filter((ep) =>
+      category === "all" || ep.category === category
+    ), [bazaarEndpoints, category]);
+
+  const handleAdd = (ep: MarketplaceEndpoint) => {
+    if (ep.endpoint) {
+      setPickerEndpoint(ep);
+    } else {
+      showToast(`${ep.name} noted — set the endpoint in the inspector after adding`);
+    }
+  };
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", flexDirection: "column" }}>
@@ -63,7 +109,7 @@ export function MarketplacePage() {
         </p>
         <div style={{ display: "flex", alignItems: "center", gap: 10, maxWidth: 480, margin: "24px auto 0", background: "var(--bg-elev-2)", border: "1px solid var(--border-strong)", borderRadius: "var(--r-2)", padding: "0 14px", height: 40 }}>
           <IconSearch size={14} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search endpoints, tags…"
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search Bazaar endpoints…"
             style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "var(--fg)", fontSize: 13, fontFamily: "var(--font-sans)" }} />
         </div>
       </div>
@@ -83,25 +129,49 @@ export function MarketplacePage() {
           ))}
         </div>
 
-        {showFeatured && featuredEndpoints.length > 0 && (
+        {/* Curated static section */}
+        {showFeatured && filteredStatic.filter((e) => e.featured).length > 0 && (
           <div style={{ marginBottom: 36 }}>
-            <SectionLabel>Featured</SectionLabel>
+            <SectionLabel>Curated</SectionLabel>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
-              {featuredEndpoints.map((ep) => <EndpointCard key={ep.id} ep={ep} featured onAdd={() => showToast(`${ep.name} added — drop it onto your canvas`)} />)}
+              {filteredStatic.filter((e) => e.featured).map((ep) => (
+                <EndpointCard key={ep.id} ep={ep} featured onAdd={() => handleAdd(ep)} />
+              ))}
             </div>
           </div>
         )}
 
-        <SectionLabel>{showFeatured ? "All Endpoints" : `Results · ${filteredEndpoints.length}`}</SectionLabel>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
-          {(showFeatured ? restEndpoints : filteredEndpoints).map((ep) => (
-            <EndpointCard key={ep.id} ep={ep} onAdd={() => showToast(`${ep.name} added — drop it onto your canvas`)} />
-          ))}
+        {/* Live Bazaar section */}
+        <div style={{ marginBottom: 36 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <SectionLabel>{query ? `Bazaar results · ${filteredBazaar.length}` : "Live from Bazaar"}</SectionLabel>
+            {bazaarLoading && <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--fg-dim)" }}>fetching…</span>}
+            {bazaarError && <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "#f87171" }}>bazaar unreachable</span>}
+          </div>
+          {bazaarLoading && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+              {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+            </div>
+          )}
+          {!bazaarLoading && filteredBazaar.length === 0 && !bazaarError && (
+            <div style={{ fontSize: 12, color: "var(--fg-dim)", fontFamily: "var(--font-mono)", padding: "24px 0" }}>
+              {query ? `No Bazaar results for "${query}"` : "No endpoints found"}
+            </div>
+          )}
+          {!bazaarLoading && filteredBazaar.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+              {filteredBazaar.map((ep) => (
+                <EndpointCard key={ep.id} ep={ep} onAdd={() => handleAdd(ep)} />
+              ))}
+            </div>
+          )}
         </div>
-        {filteredEndpoints.length === 0 && <EmptyState query={query} />}
       </div>
 
-      {uploadOpen && <UploadModal onClose={() => setUploadOpen(false)} onSubmit={(name) => { setUploadOpen(false); showToast(`"${name}" submitted for review — usually live within 24h`); }} />}
+      {pickerEndpoint && (
+        <WorkflowPickerModal endpoint={pickerEndpoint} onClose={() => setPickerEndpoint(null)} />
+      )}
+      {uploadOpen && <UploadModal onClose={() => setUploadOpen(false)} onSubmit={(name) => { setUploadOpen(false); showToast(`"${name}" submitted for review`); }} />}
       {toast && <Toast message={toast} />}
     </div>
   );
@@ -110,6 +180,22 @@ export function MarketplacePage() {
 // ── Helpers ───────────────────────────────────────────────────────────────
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return <div style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--fg-dim)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>{children}</div>;
+}
+
+function SkeletonCard() {
+  return (
+    <div style={{ background: "var(--bg-elev-1)", border: "1px solid var(--border)", borderRadius: "var(--r-3)", padding: "18px 20px", height: 140, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+        <div style={{ width: 40, height: 40, borderRadius: "var(--r-2)", background: "var(--bg-elev-3)" }} />
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ height: 12, width: "60%", borderRadius: 4, background: "var(--bg-elev-3)" }} />
+          <div style={{ height: 10, width: "40%", borderRadius: 4, background: "var(--bg-elev-3)" }} />
+        </div>
+      </div>
+      <div style={{ height: 10, width: "90%", borderRadius: 4, background: "var(--bg-elev-3)" }} />
+      <div style={{ height: 10, width: "70%", borderRadius: 4, background: "var(--bg-elev-3)" }} />
+    </div>
+  );
 }
 
 function EmptyState({ query }: { query: string }) {
@@ -130,6 +216,7 @@ function EndpointCard({ ep, featured = false, onAdd }: { ep: MarketplaceEndpoint
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)" }}>{ep.name}</span>
             {featured && <Pill tone="accent">Featured</Pill>}
+            {ep.source === "bazaar" && <Pill tone="accent">Bazaar</Pill>}
           </div>
           <div style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--fg-dim)" }}>{ep.provider}</div>
         </div>
