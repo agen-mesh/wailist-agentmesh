@@ -55,11 +55,13 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         const raw = localStorage.getItem("agentmesh:pendingNode");
         if (raw) {
           try {
-            const meta = JSON.parse(raw) as Partial<WorkflowNode>;
+            const raw2 = JSON.parse(raw);
+            const { type, name, endpoint, description, discoveredParams } = raw2 as Partial<WorkflowNode>;
             const id = `n_${Date.now()}`;
-            const pendingNode: WorkflowNode = { id, x: 280, y: 180, ...meta } as WorkflowNode;
+            const pendingNode: WorkflowNode = { id, x: 280, y: 180, type: type ?? "tool402", name, endpoint, description, discoveredParams } as WorkflowNode;
             wf = { ...wf, nodes: [...wf.nodes, pendingNode] };
             setTimeout(() => setSelectedId(id), 0);
+            justLoaded.current = false; // ensure auto-save fires for the injected node
           } catch {
             // malformed JSON — ignore
           } finally {

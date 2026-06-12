@@ -8,11 +8,15 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/respond"
 )
+
+var bazaarHTTPClient = &http.Client{Timeout: 15 * time.Second}
 
 // bazaarResource is the shape returned by the Coinbase Bazaar discovery API.
 type bazaarResource struct {
@@ -57,15 +61,15 @@ func bazaarBase() string {
 
 // BazaarList proxies GET /marketplace/bazaar → Bazaar /resources.
 func (d *Deps) BazaarList(w http.ResponseWriter, r *http.Request) {
-	limit := r.URL.Query().Get("limit")
-	offset := r.URL.Query().Get("offset")
-	if limit == "" {
-		limit = "24"
+	limit, err2 := strconv.Atoi(r.URL.Query().Get("limit"))
+	if err2 != nil || limit <= 0 || limit > 100 {
+		limit = 24
 	}
-	if offset == "" {
-		offset = "0"
+	offset, err3 := strconv.Atoi(r.URL.Query().Get("offset"))
+	if err3 != nil || offset < 0 {
+		offset = 0
 	}
-	endpoints, err := fetchBazaar(r.Context(), fmt.Sprintf("/resources?limit=%s&offset=%s", limit, offset))
+	endpoints, err := fetchBazaar(r.Context(), fmt.Sprintf("/resources?limit=%d&offset=%d", limit, offset))
 	if err != nil {
 		respond.Error(w, http.StatusBadGateway, "bazaar unavailable")
 		return
@@ -98,7 +102,7 @@ func fetchBazaar(ctx context.Context, path string) ([]BazaarEndpoint, error) {
 		req.Header.Set("Authorization", "Bearer "+key)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := bazaarHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

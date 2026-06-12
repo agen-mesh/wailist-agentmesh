@@ -49,7 +49,9 @@ export function MarketplacePage() {
   // Debounced search
   useEffect(() => {
     if (!query.trim()) {
-      marketplaceApi.bazaarList(24, 0).then(({ endpoints }) => setBazaarEndpoints(endpoints)).catch(() => {});
+      if (!bazaarLoading) {
+        marketplaceApi.bazaarList(24, 0).then(({ endpoints }) => setBazaarEndpoints(endpoints)).catch(() => {});
+      }
       return;
     }
     if (searchTimer.current) clearTimeout(searchTimer.current);
@@ -211,14 +213,14 @@ function EndpointCard({ ep, featured = false, onAdd }: { ep: MarketplaceEndpoint
       style={{ background: featured ? "var(--bg-elev-2)" : "var(--bg-elev-1)", border: `1px solid ${hovered ? "var(--accent-line)" : featured ? "var(--border-strong)" : "var(--border)"}`, borderRadius: "var(--r-3)", padding: "18px 20px", display: "flex", flexDirection: "column", gap: 12, transition: "border-color 0.15s" }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-        <div style={{ width: 40, height: 40, borderRadius: "var(--r-2)", background: "rgba(232,121,249,0.12)", border: "1px solid rgba(232,121,249,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{ep.icon}</div>
+        <div style={{ width: 40, height: 40, borderRadius: "var(--r-2)", background: "rgba(232,121,249,0.12)", border: "1px solid rgba(232,121,249,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{ep.icon ?? "◈"}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)" }}>{ep.name}</span>
             {featured && <Pill tone="accent">Featured</Pill>}
             {ep.source === "bazaar" && <Pill tone="accent">Bazaar</Pill>}
           </div>
-          <div style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--fg-dim)" }}>{ep.provider}</div>
+          <div style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--fg-dim)" }}>{ep.provider}{ep.author && ep.author !== ep.provider ? ` · ${ep.author}` : ""}</div>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#E879F9" }}>${ep.price}</div>
@@ -231,8 +233,8 @@ function EndpointCard({ ep, featured = false, onAdd }: { ep: MarketplaceEndpoint
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
         <div style={{ display: "flex", gap: 14 }}>
-          <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--fg-dim)" }}>⟳ {(ep.calls / 1000).toFixed(0)}k</span>
-          <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--warm)" }}>★ {ep.rating}</span>
+          {ep.calls != null && <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--fg-dim)" }}>⟳ {(ep.calls / 1000).toFixed(0)}k</span>}
+          {ep.rating != null && <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--warm)" }}>★ {ep.rating}</span>}
         </div>
         <button onClick={onAdd} style={ghostBtnStyle}>+ Add to workflow</button>
       </div>

@@ -105,11 +105,11 @@ export interface MarketplaceEndpoint {
   price: string;
   unit: string;
   category: "search" | "data" | "ai" | "finance" | "media" | "util";
-  icon: string;
+  icon?: string;
   tags: string[];
-  author: string;
-  calls: number;
-  rating: number;
+  author?: string;
+  calls?: number;
+  rating?: number;
   featured?: boolean;
   // Bazaar-sourced fields — absent on static entries
   endpoint?: string;

@@ -251,7 +251,7 @@ export const marketplace = {
         `${BASE}/marketplace/bazaar?limit=${limit}&offset=${offset}`,
         { credentials: "include" },
       );
-      if (!res.ok) return { endpoints: [] };
+      if (!res.ok) throw new Error(`bazaar ${res.status}`);
       return res.json();
     }
     return { endpoints: [] };
@@ -263,7 +263,7 @@ export const marketplace = {
         `${BASE}/marketplace/bazaar/search?q=${encodeURIComponent(q)}`,
         { credentials: "include" },
       );
-      if (!res.ok) return { endpoints: [] };
+      if (!res.ok) throw new Error(`bazaar ${res.status}`);
       return res.json();
     }
     return { endpoints: [] };
