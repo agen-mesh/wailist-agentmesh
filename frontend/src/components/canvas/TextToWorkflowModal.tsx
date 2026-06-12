@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Workflow, WorkflowNode, WorkflowEdge, MarketplaceEndpoint } from "@/lib/types";
 import { MARKETPLACE_ENDPOINTS } from "@/lib/data";
 import { marketplace } from "@/lib/api";
@@ -25,14 +25,14 @@ export function TextToWorkflowModal({ setWorkflow, onClose }: TextToWorkflowModa
   const [draft, setDraft]         = useState<DraftPlan | null>(null);
   const [answers, setAnswers]     = useState<Record<string, string>>({});
   const [preview, setPreview]     = useState<{ nodes: WorkflowNode[]; edges: WorkflowEdge[] } | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Fetch live GoPlausible endpoints on open and merge with static list
+  // Fetch live GoPlausible endpoints on open; mounted flag prevents stale setState on unmount
   useEffect(() => {
+    let mounted = true;
     marketplace.goplausibleList(50, 0)
-      .then((r) => setEndpoints([...MARKETPLACE_ENDPOINTS, ...r.endpoints]))
-      .catch(() => {}); // gracefully fall back to static list
-    setTimeout(() => inputRef.current?.focus(), 50);
+      .then((r) => { if (mounted) setEndpoints([...MARKETPLACE_ENDPOINTS, ...r.endpoints]); })
+      .catch(() => {});
+    return () => { mounted = false; };
   }, []);
 
   const onGenerate = () => {
@@ -61,7 +61,7 @@ export function TextToWorkflowModal({ setWorkflow, onClose }: TextToWorkflowModa
   };
 
   const onApply = () => {
-    if (!preview) return;
+    if (!preview || preview.nodes.length === 0) return;
     setWorkflow((wf) => ({
       ...wf,
       nodes: [...wf.nodes, ...preview.nodes],
@@ -75,7 +75,7 @@ export function TextToWorkflowModal({ setWorkflow, onClose }: TextToWorkflowModa
       style={{ position: "fixed", inset: 0, background: "rgba(8,7,12,0.75)", backdropFilter: "blur(4px)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div style={{ width: 520, background: "var(--bg-elev-2)", border: "1px solid var(--border-strong)", borderRadius: 12, padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ width: 520, background: "var(--bg-elev-2)", border: "1px solid var(--border-strong)", borderRadius: "var(--r-3)", padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
         {/* Header */}
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
           <div>
@@ -97,7 +97,7 @@ export function TextToWorkflowModal({ setWorkflow, onClose }: TextToWorkflowModa
         {stage === "input" && (
           <>
             <textarea
-              ref={inputRef}
+              autoFocus
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) onGenerate(); }}
@@ -149,7 +149,7 @@ export function TextToWorkflowModal({ setWorkflow, onClose }: TextToWorkflowModa
               <div style={{ fontSize: 13, fontWeight: 500, color: "var(--fg)" }}>{draft.name}</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <button onClick={() => setStage("input")} style={ghostBtn}>Start over</button>
+              <button onClick={() => { setDraft(null); setAnswers({}); setPreview(null); setStage("input"); }} style={ghostBtn}>Start over</button>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={onClose} style={ghostBtn}>Cancel</button>
                 <button onClick={onApply} style={primaryBtn}>Apply to canvas</button>
