@@ -8,6 +8,7 @@ import { CanvasGraph } from "./CanvasGraph";
 import { PalettePanel } from "./PalettePanel";
 import { Inspector } from "./Inspector";
 import { LogDrawer } from "./LogDrawer";
+import { TextToWorkflowModal } from "./TextToWorkflowModal";
 import { PublishModal } from "./PublishModal";
 
 interface CanvasPageProps {
@@ -27,6 +28,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   const [saveLabel, setSaveLabel] = useState("");
   const [runId, setRunId] = useState<string | null>(null);
   const [chatPrompt, setChatPrompt] = useState<string | null>(null); // null = closed
+  const [t2wOpen, setT2wOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [savedWorkflows, setSavedWorkflows] = useState<Workflow[]>([]);
   const [spend, setSpend] = useState<{ total: number; last24h: number }>({ total: 0, last24h: 0 });
@@ -311,6 +313,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         onBack={() => router.push("/workflows")}
         estimatedCost={estimatedCost}
         onPublish={() => setPublishOpen(true)}
+        onOpenGenerate={() => setT2wOpen(true)}
       />
 
       <div style={{ flex: 1, display: "flex", position: "relative", overflow: "hidden" }}>
@@ -346,6 +349,13 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
           onClose={() => setChatPrompt(null)}
         />
       )}
+
+      {t2wOpen && (
+        <TextToWorkflowModal
+          setWorkflow={setWorkflowNN}
+          onClose={() => setT2wOpen(false)}
+        />
+      )}
       {publishOpen && (
         <PublishModal
           workflowId={workflow.id}
@@ -359,7 +369,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
 }
 
 // ── Topbar ─────────────────────────────────────────────────────────────────
-function CanvasTopbar({ workflow, setWorkflow, deployed, running, onDeploy, onRun, totalSpend, spend24h, saveLabel, onBack, estimatedCost, onPublish }: {
+function CanvasTopbar({ workflow, setWorkflow, deployed, running, onDeploy, onRun, totalSpend, spend24h, saveLabel, onBack, estimatedCost, onPublish, onOpenGenerate }: {
   workflow: Workflow;
   setWorkflow: React.Dispatch<React.SetStateAction<Workflow>>;
   deployed: boolean; running: boolean;
@@ -368,6 +378,7 @@ function CanvasTopbar({ workflow, setWorkflow, deployed, running, onDeploy, onRu
   onBack: () => void;
   estimatedCost: { usd: number; algo: number };
   onPublish: () => void;
+  onOpenGenerate: () => void;
 }) {
   return (
     <div style={{ height: 52, flexShrink: 0, background: "var(--bg-elev-1)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", padding: "0 14px", gap: 10, overflow: "hidden" }}>
@@ -407,6 +418,7 @@ function CanvasTopbar({ workflow, setWorkflow, deployed, running, onDeploy, onRu
         )}
       </div>
 
+      <button onClick={onOpenGenerate} style={{ ...ghostBtnSm, flexShrink: 0 }}>✨ Generate</button>
       <button onClick={onPublish} style={{ ...ghostBtnSm, flexShrink: 0 }}>Publish</button>
       <button onClick={onDeploy} style={{ ...btnStyle, flexShrink: 0 }}>{deployed ? "Re-deploy" : "Deploy"}</button>
       <button onClick={onRun} disabled={!deployed} title={!deployed ? "Deploy first" : "Run workflow"}
