@@ -174,6 +174,7 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run) {
 	cost := r.calcRunCost(wf.Nodes)
 	r.store.FinishRunWithCost(context.Background(), run.ID, models.RunStatusSuccess, cost)
 	r.deductUserCredits(context.Background(), wf.UserID, cost)
+	go r.store.CreditMarketplaceCreator(context.Background(), wf.ID, cost)
 }
 
 // calcRunCost estimates the cost of a run based on the workflow nodes.
