@@ -8,6 +8,7 @@ import { CanvasGraph } from "./CanvasGraph";
 import { PalettePanel } from "./PalettePanel";
 import { Inspector } from "./Inspector";
 import { LogDrawer } from "./LogDrawer";
+import { PublishModal } from "./PublishModal";
 
 interface CanvasPageProps {
   workflowId: string;
@@ -26,6 +27,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   const [saveLabel, setSaveLabel] = useState("");
   const [runId, setRunId] = useState<string | null>(null);
   const [chatPrompt, setChatPrompt] = useState<string | null>(null); // null = closed
+  const [publishOpen, setPublishOpen] = useState(false);
   const [spend, setSpend] = useState<{ total: number; last24h: number }>({ total: 0, last24h: 0 });
   const justLoaded = useRef(true);
 
@@ -301,6 +303,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         totalSpend={totalSpend} spend24h={spend24h} saveLabel={saveLabel}
         onBack={() => router.push("/workflows")}
         estimatedCost={estimatedCost}
+        onPublish={() => setPublishOpen(true)}
       />
 
       <div style={{ flex: 1, display: "flex", position: "relative", overflow: "hidden" }}>
@@ -336,12 +339,20 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
           onClose={() => setChatPrompt(null)}
         />
       )}
+      {publishOpen && (
+        <PublishModal
+          workflowId={workflow.id}
+          workflowName={workflow.name}
+          onClose={() => setPublishOpen(false)}
+          onPublished={() => { setPublishOpen(false); showToast("Published to marketplace!"); }}
+        />
+      )}
     </div>
   );
 }
 
 // ── Topbar ─────────────────────────────────────────────────────────────────
-function CanvasTopbar({ workflow, setWorkflow, deployed, running, onDeploy, onRun, totalSpend, spend24h, saveLabel, onBack, estimatedCost }: {
+function CanvasTopbar({ workflow, setWorkflow, deployed, running, onDeploy, onRun, totalSpend, spend24h, saveLabel, onBack, estimatedCost, onPublish }: {
   workflow: Workflow;
   setWorkflow: React.Dispatch<React.SetStateAction<Workflow>>;
   deployed: boolean; running: boolean;
@@ -349,6 +360,7 @@ function CanvasTopbar({ workflow, setWorkflow, deployed, running, onDeploy, onRu
   totalSpend: string; spend24h: string; saveLabel: string;
   onBack: () => void;
   estimatedCost: { usd: number; algo: number };
+  onPublish: () => void;
 }) {
   return (
     <div style={{ height: 52, flexShrink: 0, background: "var(--bg-elev-1)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", padding: "0 14px", gap: 10, overflow: "hidden" }}>
@@ -388,7 +400,7 @@ function CanvasTopbar({ workflow, setWorkflow, deployed, running, onDeploy, onRu
         )}
       </div>
 
-      <button style={{ ...ghostBtnSm, flexShrink: 0 }}>Share</button>
+      <button onClick={onPublish} style={{ ...ghostBtnSm, flexShrink: 0 }}>Publish</button>
       <button onClick={onDeploy} style={{ ...btnStyle, flexShrink: 0 }}>{deployed ? "Re-deploy" : "Deploy"}</button>
       <button onClick={onRun} disabled={!deployed} title={!deployed ? "Deploy first" : "Run workflow"}
         style={{ ...primaryBtnStyle, minWidth: 72, justifyContent: "center", opacity: !deployed ? 0.5 : 1, flexShrink: 0 }}>
