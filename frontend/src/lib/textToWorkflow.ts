@@ -213,16 +213,19 @@ export function buildDraftPlan(
 
     if (ambiguous && questions.length < 3) {
       const slotIdx = slots.length;
+      const candidates = items.slice(0, 4).map(({ ep }) => ep);
+      // Register all candidates so later categories don't re-pick them
+      for (const ep of candidates) seenIds.add(ep.id);
       slots.push({
         role: "tool", resolved: false,
-        candidates: items.slice(0, 4).map(({ ep }) => ep),
+        candidates,
         meta: { type: "tool402" },
       });
       questions.push({
         id: `q-tool-${items[0].ep.category}`,
         kind: "TOOL_PICK",
         prompt: `Multiple ${items[0].ep.category} tools matched. Which should I use?`,
-        options: items.slice(0, 4).map(({ ep }) => ({
+        options: candidates.map((ep) => ({
           label: `${ep.icon ?? "◌"} ${ep.name} ($${ep.price}/${ep.unit})`,
           value: ep.id,
         })),
@@ -252,7 +255,7 @@ export function buildDraftPlan(
     ...allEndpoints.map((e) => e.name.toLowerCase().split(/\s+/)).flat(),
   ]);
   const unknownNouns = tokens.filter(
-    (t) => !recognizedTerms.has(t) && !LLM_ONLY_VERBS.has(t) && t.length > 3,
+    (t) => !recognizedTerms.has(t) && t.length > 3,
   );
 
   for (const noun of unknownNouns.slice(0, 1)) {
@@ -294,7 +297,6 @@ export function buildDraftPlan(
       },
     });
     if (actionTemplate === "email" && questions.length < 3) {
-      slots[slotIdx].resolved = false;
       questions.push({
         id: "q-email-to",
         kind: "EMAIL_RECIPIENT",
@@ -427,7 +429,7 @@ export function buildWorkflow(plan: DraftPlan): {
     nodes.push({ id: nid(), x: FLOW_X0 + i * FLOW_GAP, y: FLOW_Y, ...slot.meta } as WorkflowNode);
   });
 
-  // Attach nodes — centred below the agent (always 2nd flow node)
+  // Attach nodes — centred below the agent node (found by role, not position)
   const agentNode = nodes[flowSlots.findIndex((s) => s.role === "agent")] ?? null;
   const agentX    = agentNode?.x ?? FLOW_X0 + FLOW_GAP;
   const attachX0  = agentX - Math.floor(attachSlots.length / 2) * ATTACH_GAP;
