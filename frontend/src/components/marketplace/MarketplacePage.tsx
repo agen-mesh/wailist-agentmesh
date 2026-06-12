@@ -30,6 +30,9 @@ export function MarketplacePage() {
   const [bazaarEndpoints, setBazaarEndpoints] = useState<MarketplaceEndpoint[]>([]);
   const [bazaarLoading, setBazaarLoading] = useState(true);
   const [bazaarError, setBazaarError] = useState(false);
+  const [gpEndpoints, setGpEndpoints] = useState<MarketplaceEndpoint[]>([]);
+  const [gpLoading, setGpLoading] = useState(true);
+  const [gpError, setGpError] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2600); };
@@ -44,6 +47,13 @@ export function MarketplacePage() {
       .then(({ endpoints }) => { setBazaarEndpoints(endpoints); setBazaarError(false); })
       .catch(() => setBazaarError(true))
       .finally(() => setBazaarLoading(false));
+
+    setGpLoading(true);
+    marketplaceApi
+      .goplausibleList(50, 0)
+      .then(({ endpoints }) => { setGpEndpoints(endpoints); setGpError(false); })
+      .catch(() => setGpError(true))
+      .finally(() => setGpLoading(false));
   }, []);
 
   // Debounced search
@@ -78,6 +88,12 @@ export function MarketplacePage() {
     bazaarEndpoints.filter((ep) =>
       category === "all" || ep.category === category
     ), [bazaarEndpoints, category]);
+
+  // GoPlausible entries filtered by category
+  const filteredGP = useMemo(() =>
+    gpEndpoints.filter((ep) =>
+      category === "all" || ep.category === category
+    ), [gpEndpoints, category]);
 
   const handleAdd = (ep: MarketplaceEndpoint) => {
     if (ep.endpoint) {
@@ -143,10 +159,11 @@ export function MarketplacePage() {
           </div>
         )}
 
-        {/* Live Bazaar section */}
+        {/* Live Bazaar section — EVM/USDC */}
         <div style={{ marginBottom: 36 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-            <SectionLabel>{query ? `Bazaar results · ${filteredBazaar.length}` : "Live from Bazaar"}</SectionLabel>
+            <SectionLabel>{query ? `EVM results · ${filteredBazaar.length}` : "EVM Marketplace · Coinbase Bazaar"}</SectionLabel>
+            <ChainBadge chain="evm" />
             {bazaarLoading && <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--fg-dim)" }}>fetching…</span>}
             {bazaarError && <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "#f87171" }}>bazaar unreachable</span>}
           </div>
@@ -157,12 +174,42 @@ export function MarketplacePage() {
           )}
           {!bazaarLoading && filteredBazaar.length === 0 && !bazaarError && (
             <div style={{ fontSize: 12, color: "var(--fg-dim)", fontFamily: "var(--font-mono)", padding: "24px 0" }}>
-              {query ? `No Bazaar results for "${query}"` : "No endpoints found"}
+              {query ? `No EVM results for "${query}"` : "No endpoints found"}
             </div>
           )}
           {!bazaarLoading && filteredBazaar.length > 0 && (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
               {filteredBazaar.map((ep) => (
+                <EndpointCard key={ep.id} ep={ep} onAdd={() => handleAdd(ep)} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Algorand section — GoPlausible */}
+        <div style={{ marginBottom: 36 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <SectionLabel>Algorand Marketplace · GoPlausible</SectionLabel>
+            <ChainBadge chain="avm" />
+            {gpLoading && <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--fg-dim)" }}>fetching…</span>}
+            {gpError && <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "#f87171" }}>unreachable</span>}
+          </div>
+          {gpLoading && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+              {Array.from({ length: 2 }).map((_, i) => <SkeletonCard key={i} />)}
+            </div>
+          )}
+          {!gpLoading && filteredGP.length === 0 && !gpError && (
+            <div style={{ background: "var(--bg-elev-1)", border: "1px solid var(--border)", borderRadius: "var(--r-3)", padding: "28px 24px", display: "flex", flexDirection: "column", gap: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>No Algorand APIs listed yet</span>
+              <span style={{ fontSize: 12, color: "var(--fg-muted)", lineHeight: 1.6 }}>
+                The GoPlausible catalog is new — providers are onboarding. Algorand-native pay-per-call APIs will appear here as they register.
+              </span>
+            </div>
+          )}
+          {!gpLoading && filteredGP.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+              {filteredGP.map((ep) => (
                 <EndpointCard key={ep.id} ep={ep} onAdd={() => handleAdd(ep)} />
               ))}
             </div>
@@ -204,6 +251,22 @@ function EmptyState({ query }: { query: string }) {
   return <div style={{ textAlign: "center", padding: "48px 0", color: "var(--fg-dim)", fontFamily: "var(--font-mono)", fontSize: 13 }}>No results{query ? ` for "${query}"` : ""}</div>;
 }
 
+const CHAIN_META: Record<string, { label: string; color: string; bg: string }> = {
+  evm: { label: "EVM", color: "#60a5fa", bg: "rgba(96,165,250,0.1)" },
+  avm: { label: "ALGO", color: "#34d399", bg: "rgba(52,211,153,0.1)" },
+  svm: { label: "SOL", color: "#a78bfa", bg: "rgba(167,139,250,0.1)" },
+};
+
+function ChainBadge({ chain }: { chain: string }) {
+  const meta = CHAIN_META[chain];
+  if (!meta) return null;
+  return (
+    <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", fontWeight: 700, letterSpacing: "0.06em", color: meta.color, background: meta.bg, border: `1px solid ${meta.color}33`, borderRadius: 4, padding: "2px 6px" }}>
+      {meta.label}
+    </span>
+  );
+}
+
 // ── Endpoint Card ─────────────────────────────────────────────────────────
 function EndpointCard({ ep, featured = false, onAdd }: { ep: MarketplaceEndpoint; featured?: boolean; onAdd: () => void }) {
   const [hovered, setHovered] = useState(false);
@@ -215,10 +278,12 @@ function EndpointCard({ ep, featured = false, onAdd }: { ep: MarketplaceEndpoint
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
         <div style={{ width: 40, height: 40, borderRadius: "var(--r-2)", background: "rgba(232,121,249,0.12)", border: "1px solid rgba(232,121,249,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{ep.icon ?? "◈"}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)" }}>{ep.name}</span>
             {featured && <Pill tone="accent">Featured</Pill>}
             {ep.source === "bazaar" && <Pill tone="accent">Bazaar</Pill>}
+            {ep.source === "goplausible" && <Pill tone="accent">GoPlausible</Pill>}
+            {ep.chainFamily && <ChainBadge chain={ep.chainFamily} />}
           </div>
           <div style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--fg-dim)" }}>{ep.provider}{ep.author && ep.author !== ep.provider ? ` · ${ep.author}` : ""}</div>
         </div>

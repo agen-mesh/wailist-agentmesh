@@ -268,6 +268,21 @@ export const marketplace = {
     }
     return { endpoints: [] };
   },
+
+  goplausibleList: async (
+    limit = 50,
+    offset = 0,
+  ): Promise<{ endpoints: MarketplaceEndpoint[] }> => {
+    if (BASE) {
+      const res = await fetch(
+        `${BASE}/marketplace/goplausible?limit=${limit}&offset=${offset}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) throw new Error(`goplausible ${res.status}`);
+      return res.json();
+    }
+    return { endpoints: [] };
+  },
 };
 
 // -- Waitlist -------------------------------------------------------------

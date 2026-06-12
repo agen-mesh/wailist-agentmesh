@@ -114,7 +114,8 @@ export interface MarketplaceEndpoint {
   // Bazaar-sourced fields — absent on static entries
   endpoint?: string;
   discoveredParams?: ParamDef[];
-  source?: "static" | "bazaar";
+  source?: "static" | "bazaar" | "goplausible";
+  chainFamily?: "avm" | "evm" | "svm";
 }
 
 export interface MarketplaceWorkflow {
