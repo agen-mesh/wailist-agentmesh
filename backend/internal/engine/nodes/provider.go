@@ -8,11 +8,34 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"unicode"
 
 	"github.com/agentmesh/backend/internal/models"
 )
+
+// resolveAPIKey returns the node's own API key when set, or falls back to the
+// platform env key when UseOurKey is true (or the node key is empty).
+func resolveAPIKey(p models.WorkflowNode) string {
+	if p.APIKey != "" && !p.UseOurKey {
+		return p.APIKey
+	}
+	switch p.Template {
+	case "gemini":
+		return os.Getenv("GEMINI_API_KEY")
+	case "openai":
+		return os.Getenv("OPENAI_API_KEY")
+	case "anthropic":
+		return os.Getenv("ANTHROPIC_API_KEY")
+	case "groq":
+		return os.Getenv("GROQ_API_KEY")
+	case "mistral":
+		return os.Getenv("MISTRAL_API_KEY")
+	default:
+		return p.APIKey
+	}
+}
 
 var openAIBaseURL = "https://api.openai.com"
 var groqBaseURL = "https://api.groq.com/openai"
@@ -203,7 +226,7 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 		model = "gemini-2.5-flash"
 	}
 	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", model)
-	apiHeaders := map[string]string{"x-goog-api-key": provider.APIKey}
+	apiHeaders := map[string]string{"x-goog-api-key": resolveAPIKey(provider)}
 
 	contents := []map[string]any{
 		{"role": "user", "parts": []map[string]any{{"text": rc.UserInput()}}},
@@ -363,7 +386,7 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 		payload["tools"] = oaiTools
 	}
 
-	headers := map[string]string{"Authorization": "Bearer " + provider.APIKey}
+	headers := map[string]string{"Authorization": "Bearer " + resolveAPIKey(provider)}
 
 	var x402Payments []map[string]any
 
@@ -456,7 +479,7 @@ func callAnthropic(ctx context.Context, agent models.WorkflowNode, provider mode
 	}
 
 	headers := map[string]string{
-		"x-api-key":         provider.APIKey,
+		"x-api-key":         resolveAPIKey(provider),
 		"anthropic-version": "2023-06-01",
 	}
 	resp, err := postJSON(ctx, "https://api.anthropic.com/v1/messages", headers, payload)

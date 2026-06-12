@@ -26,12 +26,15 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	r.Get("/auth/oauth/{provider}/callback", d.OAuthCallback)
 	r.Post("/waitlist", d.JoinWaitlist)
 	r.Post("/run/{workflowId}", d.PublicTrigger)
+	r.Post("/hooks/{workflowId}/{nodeId}", d.PublicTrigger)
 
 	// Protected routes — JWT required
 	r.Group(func(r chi.Router) {
 		r.Use(NewAuthMiddleware(d.JWTSecret))
 
 		r.Get("/auth/me", d.Me)
+		r.Post("/credits/topup", d.TopupCredits)
+		r.Get("/credits/spend", d.GetSpend)
 
 		r.Get("/workflows", d.ListWorkflows)
 		r.Post("/workflows", d.CreateWorkflow)

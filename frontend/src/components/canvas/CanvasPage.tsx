@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { WorkflowNode, WorkflowEdge, Workflow } from "@/lib/types";
 import { Toast, Logo, Pill, Hairline, IconPlay, IconStop } from "@/components/ui";
-import { workflows as workflowsApi } from "@/lib/api";
+import { workflows as workflowsApi, auth as authApi } from "@/lib/api";
 import { CanvasGraph } from "./CanvasGraph";
 import { PalettePanel } from "./PalettePanel";
 import { Inspector } from "./Inspector";
@@ -26,7 +26,14 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   const [saveLabel, setSaveLabel] = useState("");
   const [runId, setRunId] = useState<string | null>(null);
   const [chatPrompt, setChatPrompt] = useState<string | null>(null); // null = closed
+  const [spend, setSpend] = useState<{ total: number; last24h: number }>({ total: 0, last24h: 0 });
   const justLoaded = useRef(true);
+
+  const refreshSpend = useCallback(() => {
+    authApi.getSpend().then(setSpend).catch(() => {});
+  }, []);
+
+  useEffect(() => { refreshSpend(); }, [refreshSpend]);
 
   useEffect(() => {
     setLoading(true);
@@ -122,13 +129,15 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         if (!wf) return wf;
         const addrMap: Record<string, string> = {};
         for (const a of res.agents) addrMap[a.nodeId] = a.address;
+        const webhookMap: Record<string, string> = {};
+        for (const wh of (res.webhooks ?? [])) webhookMap[wh.nodeId] = wh.url;
         return {
           ...wf,
-          nodes: wf.nodes.map((n) =>
-            n.type === "agent" && addrMap[n.id]
-              ? { ...n, wallet: addrMap[n.id], balance: "0.000000", spent: "0.000000" }
-              : n
-          ),
+          nodes: wf.nodes.map((n) => {
+            if (n.type === "agent" && addrMap[n.id]) return { ...n, wallet: addrMap[n.id], balance: "0.000000", spent: "0.000000" };
+            if (n.type === "trigger" && webhookMap[n.id]) return { ...n, webhookLiveURL: webhookMap[n.id] };
+            return n;
+          }),
         };
       });
       setDeployed(true);
@@ -172,7 +181,75 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     await startRun();
   }, [workflow, deployed, running, hasChatTrigger, startRun, showToast]);
 
-  const totalSpend = (workflow?.nodes.filter((n) => n.type === "agent").reduce((s, n) => s + parseFloat(n.spent ?? "0"), 0) ?? 0).toFixed(3);
+  const totalSpend = spend.total.toFixed(4);
+  const spend24h = spend.last24h.toFixed(4);
+
+  const estimatedCost = useMemo(() => {
+    if (!workflow) return { usd: 0, algo: 0 };
+
+    // USD cost per typical LLM call (~500 input + 200 output tokens at published rates)
+    const USD_PER_CALL: Record<string, number> = {
+      "gemini-2.5-flash":           0.0001,
+      "gemini-2.5-pro":             0.0025,
+      "gemini-2.0-flash":           0.00006,
+      "gemini-1.5-pro":             0.00175,
+      "gemini-1.5-flash":           0.0001,
+      "gpt-4.1":                    0.0031,
+      "gpt-4o":                     0.00375,
+      "gpt-4o-mini":                0.00025,
+      "claude-sonnet-4-6":          0.00465,
+      "claude-opus-4-8":            0.0225,
+      "claude-haiku-4-5":           0.0005,
+      "claude-3-5-sonnet-20241022": 0.00465,
+      "llama-3.3-70b-versatile":    0.0004,
+      "llama-3.1-8b-instant":       0.00006,
+      "mistral-large-latest":       0.0023,
+      "mistral-medium-latest":      0.00065,
+      "mistral-small-latest":       0.00015,
+    };
+
+    const nodeById = new Map(workflow.nodes.map(n => [n.id, n]));
+
+    // Walk attach edges — check both node types rather than relying on edge direction,
+    // since users can wire provider→agent or agent→provider and we store both.
+    const agentModels = new Map<string, { model: string; useOurKey: boolean }>();
+    const agentsWithTools = new Set<string>();
+    for (const edge of workflow.edges) {
+      if (edge.kind !== "attach") continue;
+      const a = nodeById.get(edge.from);
+      const b = nodeById.get(edge.to);
+      if (!a || !b) continue;
+
+      const provider = a.type === "provider" ? a : b.type === "provider" ? b : null;
+      const agent    = a.type === "agent"    ? a : b.type === "agent"    ? b : null;
+      const isTool   = a.type === "tool402" || a.type === "tool" || b.type === "tool402" || b.type === "tool";
+
+      if (provider && agent && provider.model) {
+        agentModels.set(agent.id, { model: provider.model, useOurKey: provider.useOurKey ?? true });
+      }
+      if (isTool && agent) {
+        agentsWithTools.add(agent.id);
+      }
+    }
+
+    let usd = 0;
+    let algo = 0;
+    for (const node of workflow.nodes) {
+      if (node.type === "agent") {
+        const info = agentModels.get(node.id);
+        if (info) {
+          const base = USD_PER_CALL[info.model] ?? 0.003;
+          const cost = info.useOurKey ? base * 1.3 : base;
+          // Agents with tools run an agentic loop (~3 LLM calls on avg per run)
+          usd += cost * (agentsWithTools.has(node.id) ? 3 : 1);
+        }
+      }
+      if (node.type === "tool402" && node.price) {
+        algo += Math.abs(parseFloat(node.price) || 0);
+      }
+    }
+    return { usd, algo };
+  }, [workflow]);
 
   const onDragNodeStart = useCallback((e: React.DragEvent, meta: Partial<WorkflowNode>) => {
     e.dataTransfer.setData("application/agentmesh", JSON.stringify(meta));
@@ -205,8 +282,9 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         workflow={workflow} setWorkflow={setWorkflowNN}
         deployed={deployed} running={running}
         onDeploy={onDeploy} onRun={onRun}
-        totalSpend={totalSpend} saveLabel={saveLabel}
+        totalSpend={totalSpend} spend24h={spend24h} saveLabel={saveLabel}
         onBack={() => router.push("/workflows")}
+        estimatedCost={estimatedCost}
       />
 
       <div style={{ flex: 1, display: "flex", position: "relative", overflow: "hidden" }}>
@@ -222,7 +300,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
           <LogDrawer
             open={logOpen} onToggle={() => setLogOpen((o) => !o)}
             runId={runId} running={running}
-            onRunComplete={() => setRunning(false)}
+            onRunComplete={() => { setRunning(false); refreshSpend(); }}
           />
         </div>
 
@@ -247,47 +325,61 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
 }
 
 // ── Topbar ─────────────────────────────────────────────────────────────────
-function CanvasTopbar({ workflow, setWorkflow, deployed, running, onDeploy, onRun, totalSpend, saveLabel, onBack }: {
+function CanvasTopbar({ workflow, setWorkflow, deployed, running, onDeploy, onRun, totalSpend, spend24h, saveLabel, onBack, estimatedCost }: {
   workflow: Workflow;
   setWorkflow: React.Dispatch<React.SetStateAction<Workflow>>;
   deployed: boolean; running: boolean;
   onDeploy: () => void; onRun: () => void;
-  totalSpend: string; saveLabel: string;
+  totalSpend: string; spend24h: string; saveLabel: string;
   onBack: () => void;
+  estimatedCost: { usd: number; algo: number };
 }) {
   return (
-    <div style={{ height: 52, flexShrink: 0, background: "var(--bg-elev-1)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", padding: "0 14px", gap: 14 }}>
-      <button onClick={onBack} style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "inline-flex" }}>
-        <Logo size={16} />
-      </button>
-      <Hairline vertical length={20} />
-      <button onClick={onBack} style={ghostBtnSm}>← Workflows</button>
-      <span style={{ color: "var(--fg-dim)" }}>/</span>
-      <input
-        value={workflow.name}
-        onChange={(e) => setWorkflow((wf) => ({ ...wf, name: e.target.value }))}
-        style={{ background: "transparent", border: "none", outline: "none", color: "var(--fg)", fontSize: 13, fontWeight: 500, fontFamily: "var(--font-sans)", minWidth: 200, padding: "4px 6px", borderRadius: 4 }}
-      />
-      <Pill mono dot tone={deployed ? "ok" : "default"}>{deployed ? "deployed · testnet" : "draft"}</Pill>
-      {saveLabel && <Pill mono>{saveLabel}</Pill>}
+    <div style={{ height: 52, flexShrink: 0, background: "var(--bg-elev-1)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", padding: "0 14px", gap: 10, overflow: "hidden" }}>
+      {/* Left group — shrinks when viewport is narrow */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexShrink: 1 }}>
+        <button onClick={onBack} style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "inline-flex", flexShrink: 0 }}>
+          <Logo size={16} />
+        </button>
+        <Hairline vertical length={20} />
+        <button onClick={onBack} style={{ ...ghostBtnSm, flexShrink: 0 }}>← Workflows</button>
+        <span style={{ color: "var(--fg-dim)", flexShrink: 0 }}>/</span>
+        <input
+          value={workflow.name}
+          onChange={(e) => setWorkflow((wf) => ({ ...wf, name: e.target.value }))}
+          style={{ background: "transparent", border: "none", outline: "none", color: "var(--fg)", fontSize: 13, fontWeight: 500, fontFamily: "var(--font-sans)", width: 160, minWidth: 60, flexShrink: 1, padding: "4px 6px", borderRadius: 4 }}
+        />
+        <div style={{ flexShrink: 0 }}><Pill mono dot tone={deployed ? "ok" : "default"}>{deployed ? "deployed · testnet" : "draft"}</Pill></div>
+        {saveLabel && <div style={{ flexShrink: 0 }}><Pill mono>{saveLabel}</Pill></div>}
+      </div>
 
-      <div style={{ flex: 1 }} />
+      <div style={{ flex: 1, minWidth: 8 }} />
 
-      <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "0 14px", borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)", height: 36 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 12px", borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)", height: 36, flexShrink: 0 }}>
         <Stat label="agents" value={workflow.nodes.filter((n) => n.type === "agent").length} />
         <Stat label="tools"  value={workflow.nodes.filter((n) => n.type === "tool" || n.type === "tool402").length} />
         <Stat label="x402"   value={workflow.nodes.filter((n) => n.type === "tool402").length} color="#E879F9" />
-        <Stat label="spent / 24h" value={totalSpend} unit="ALGO" color="var(--accent)" />
+        <Stat label="spent / 24h" value={`$${spend24h}`} color="var(--accent)" />
+        <Stat label="total spent" value={`$${totalSpend}`} color="var(--fg-muted)" />
+        {estimatedCost.usd > 0 && (
+          <Stat label="est. llm" value={`~$${estimatedCost.usd.toFixed(4)}`} color={estimatedCost.usd > 0.05 ? "var(--warm)" : "var(--accent)"} />
+        )}
+        {estimatedCost.algo > 0 && (
+          <Stat label="est. algo" value={`~${estimatedCost.algo.toFixed(4)} Ⓐ`} color="#E879F9" />
+        )}
+        {estimatedCost.usd === 0 && estimatedCost.algo === 0 && (
+          <Stat label="est. / run" value="—" color="var(--fg-dim)" />
+        )}
       </div>
 
-      <button style={ghostBtnSm}>Share</button>
-      <button onClick={onDeploy} style={btnStyle}>{deployed ? "Re-deploy" : "Deploy"}</button>
+      <button style={{ ...ghostBtnSm, flexShrink: 0 }}>Share</button>
+      <button onClick={onDeploy} style={{ ...btnStyle, flexShrink: 0 }}>{deployed ? "Re-deploy" : "Deploy"}</button>
       <button onClick={onRun} disabled={!deployed} title={!deployed ? "Deploy first" : "Run workflow"}
-        style={{ ...primaryBtnStyle, minWidth: 86, justifyContent: "center", opacity: !deployed ? 0.5 : 1 }}>
+        style={{ ...primaryBtnStyle, minWidth: 72, justifyContent: "center", opacity: !deployed ? 0.5 : 1, flexShrink: 0 }}>
         {running ? <><IconStop size={10} /> Stop</> : <><IconPlay size={12} /> Run</>}
       </button>
       <Hairline vertical length={20} />
-      <div style={{ width: 28, height: 28, borderRadius: 999, background: "var(--accent)", color: "var(--accent-fg)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>AC</div>
+      <div style={{ width: 28, height: 28, borderRadius: 999, background: "var(--accent)", color: "var(--accent-fg)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>AC</div>
     </div>
   );
 }

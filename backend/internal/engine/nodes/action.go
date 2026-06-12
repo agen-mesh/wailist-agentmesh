@@ -7,10 +7,22 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/agentmesh/backend/internal/models"
 )
+
+var resendBaseURL = "https://api.resend.com"
+
+// SetResendBaseURLForTest overrides the Resend base URL. Call with "" to restore.
+func SetResendBaseURLForTest(u string) {
+	if u == "" {
+		resendBaseURL = "https://api.resend.com"
+	} else {
+		resendBaseURL = u
+	}
+}
 
 func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	switch node.Template {
@@ -48,6 +60,9 @@ func callWebhook(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 
 func sendEmail(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	apiKey := node.EmailAPIKey
+	if node.UseOurEmail || apiKey == "" {
+		apiKey = os.Getenv("PLATFORM_RESEND_KEY")
+	}
 	if apiKey == "" {
 		return "email_skipped_no_api_key", nil
 	}
@@ -97,7 +112,7 @@ func sendViaResend(ctx context.Context, apiKey, from, to, subject, body string) 
 		"text":    body,
 	}
 	b, _ := json.Marshal(payload)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.resend.com/emails", bytes.NewReader(b))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, resendBaseURL+"/emails", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	resp, err := toolHTTPClient.Do(req)

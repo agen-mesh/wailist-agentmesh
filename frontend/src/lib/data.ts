@@ -1,4 +1,4 @@
-import { NodeTypeMeta, Workflow } from "./types";
+import { NodeTypeMeta, Workflow, MarketplaceEndpoint, MarketplaceWorkflow } from "./types";
 
 export const NODE_TYPES: Record<string, NodeTypeMeta> = {
   trigger:  { w: 200, h: 60,  ports: ["out"] },
@@ -114,3 +114,41 @@ export const LOG_LINES = [
 ];
 
 export const WAITLIST_COUNT = 142;
+
+export const MARKETPLACE_ENDPOINTS: MarketplaceEndpoint[] = [
+  { id: "mp-tavily",     name: "Tavily Search",      description: "Real-time web search optimised for AI agents. Returns structured results with snippets, URLs, and relevance scores.", provider: "tavily.x402",     price: "0.002",  unit: "call",  category: "search",  icon: "⌕", tags: ["search","web","research"],          author: "Tavily Inc.",      calls: 128400, rating: 4.8, featured: true },
+  { id: "mp-firecrawl",  name: "Firecrawl Scrape",   description: "Turn any URL into clean markdown for LLM ingestion. Handles SPAs, paywalls, and JS-heavy pages.",                  provider: "firecrawl.x402",  price: "0.005",  unit: "page",  category: "data",    icon: "◐", tags: ["scraping","markdown","web"],         author: "Firecrawl",        calls: 84200,  rating: 4.6, featured: true },
+  { id: "mp-flux",       name: "FluxImage Gen",       description: "State-of-the-art image generation via Flux.1. High-resolution output, fast inference, prompt adherence.",           provider: "flux.x402",       price: "0.020",  unit: "image", category: "ai",      icon: "✦", tags: ["image","generation","creative"],     author: "Black Forest Labs", calls: 31700,  rating: 4.9, featured: true },
+  { id: "mp-alpaca",     name: "AlpacaQuote",         description: "Live and historical stock/crypto quotes from Alpaca Markets. Streaming and snapshot modes.",                         provider: "alpaca.x402",     price: "0.001",  unit: "quote", category: "finance", icon: "$", tags: ["finance","stocks","crypto"],         author: "Alpaca Markets",   calls: 249000, rating: 4.7 },
+  { id: "mp-ocr",        name: "OCR.space",           description: "Extract text from images and PDFs. Supports 30+ languages and table detection.",                                     provider: "ocr.x402",        price: "0.003",  unit: "page",  category: "ai",      icon: "⊟", tags: ["ocr","pdf","text-extraction"],       author: "OCR.space",        calls: 56800,  rating: 4.4 },
+  { id: "mp-weather",    name: "WeatherKit",          description: "Real-time and forecast weather for any city worldwide. Temperature, wind, precipitation, UV index.",                  provider: "weatherkit.x402", price: "0.0008", unit: "call",  category: "data",    icon: "◌", tags: ["weather","forecast","geo"],          author: "WeatherKit",       calls: 189300, rating: 4.5 },
+  { id: "mp-perplexity", name: "Perplexity Search",   description: "AI-powered answer engine with citations. Best for knowledge questions and fact-checking.",                           provider: "perplexity.x402", price: "0.008",  unit: "query", category: "search",  icon: "◎", tags: ["search","ai","answers"],             author: "Perplexity AI",    calls: 42100,  rating: 4.7 },
+  { id: "mp-exa",        name: "Exa Neural Search",   description: "Semantic search over the live web. Finds conceptually similar content rather than keyword matches.",                 provider: "exa.x402",        price: "0.004",  unit: "call",  category: "search",  icon: "⟲", tags: ["search","semantic","neural"],        author: "Exa",              calls: 18900,  rating: 4.6 },
+];
+
+export const MARKETPLACE_WORKFLOWS: MarketplaceWorkflow[] = [
+  {
+    id: "mwf-support", name: "Customer Support Triage", author: "AgentMesh Team",
+    description: "Classifies inbound support tickets, looks up account data, drafts a reply, and routes to the right team — fully automated.",
+    tags: ["support","classification","email"], nodes: 6, runs: 12400, stars: 284, featured: true, price: "2.00",
+    previewNodes: [{ type: "trigger", label: "Webhook", template: "webhook" }, { type: "agent", label: "Classifier" }, { type: "tool402", label: "CRM Lookup" }, { type: "agent", label: "Reply Drafter" }, { type: "action", label: "Send Email", template: "email" }, { type: "end", label: "Done", template: "end" }],
+  },
+  {
+    id: "mwf-market", name: "Daily Market Brief", author: "AgentMesh Team",
+    description: "Pulls live prices, searches recent news, synthesises a morning brief, and emails it to your team at 7 AM.",
+    tags: ["finance","research","schedule"], nodes: 5, runs: 1820, stars: 147, featured: true, price: "1.50",
+    previewNodes: [{ type: "trigger", label: "Schedule", template: "cron" }, { type: "tool402", label: "AlpacaQuote" }, { type: "tool402", label: "Tavily Search" }, { type: "agent", label: "Brief Writer" }, { type: "action", label: "Send Email", template: "email" }],
+  },
+  {
+    id: "mwf-leads", name: "Lead Enrichment Pipeline", author: "sales-tools",
+    description: "Takes a CSV of company names, enriches each with web scraping and LinkedIn data, and writes structured profiles to your CRM.",
+    tags: ["sales","enrichment","crm"], nodes: 7, runs: 4300, stars: 203, price: "3.00",
+    previewNodes: [{ type: "trigger", label: "Webhook", template: "webhook" }, { type: "tool402", label: "Firecrawl" }, { type: "tool402", label: "Exa Search" }, { type: "agent", label: "Enricher" }, { type: "action", label: "CRM Write", template: "webhook" }, { type: "end", label: "Done", template: "end" }],
+  },
+  {
+    id: "mwf-content", name: "Content to Social Pipeline", author: "marketing-kit",
+    description: "Feed in a blog post URL — the agent scrapes it, generates a Twitter thread, LinkedIn post, and image, then schedules them.",
+    tags: ["marketing","social","content"], nodes: 8, runs: 2100, stars: 118, price: "2.50",
+    previewNodes: [{ type: "trigger", label: "Webhook", template: "webhook" }, { type: "tool402", label: "Firecrawl" }, { type: "agent", label: "Thread Writer" }, { type: "tool402", label: "FluxImage" }, { type: "action", label: "Post to X", template: "webhook" }, { type: "action", label: "Post to LinkedIn", template: "webhook" }],
+  },
+];

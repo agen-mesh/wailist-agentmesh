@@ -19,7 +19,62 @@ func (d *Deps) TriggerRun(w http.ResponseWriter, r *http.Request) {
 
 func (d *Deps) PublicTrigger(w http.ResponseWriter, r *http.Request) {
 	workflowID := chi.URLParam(r, "workflowId")
-	d.startRun(w, r, workflowID, "webhook", false)
+	d.startRunSync(w, r, workflowID)
+}
+
+// startRunSync runs a workflow and waits for completion, returning the agent output.
+// Used by public webhook triggers so the caller gets the result in the HTTP response.
+func (d *Deps) startRunSync(w http.ResponseWriter, r *http.Request, workflowID string) {
+	ctx := r.Context()
+
+	wf, err := d.Store.GetWorkflow(ctx, workflowID)
+	if err != nil || wf.Status != models.WorkflowStatusDeployed {
+		respond.Error(w, http.StatusNotFound, "workflow not found")
+		return
+	}
+	hasTrigger := false
+	for _, n := range wf.Nodes {
+		if n.Type == models.NodeTypeTrigger {
+			hasTrigger = true
+			break
+		}
+	}
+	if !hasTrigger {
+		respond.Error(w, http.StatusNotFound, "workflow not found")
+		return
+	}
+
+	var inputBody any
+	json.NewDecoder(r.Body).Decode(&inputBody)
+	inputJSON, _ := json.Marshal(inputBody)
+
+	run, err := d.Store.CreateRun(ctx, workflowID, "webhook", inputJSON)
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	wf.Nodes = decryptNodes(wf.Nodes, d.EncryptionKey)
+	d.Broker.Create(run.ID)
+	d.Engine.Start(wf, run)
+
+	// Wait for the engine to finish (up to 60s).
+	select {
+	case <-d.Broker.Done(run.ID):
+	case <-time.After(60 * time.Second):
+		respond.JSON(w, http.StatusAccepted, map[string]string{"runId": run.ID, "status": "timeout"})
+		return
+	case <-ctx.Done():
+		return
+	}
+
+	output, _ := d.Store.GetLastAgentOutput(ctx, run.ID)
+	finalRun, _ := d.Store.GetRun(ctx, run.ID)
+	respond.JSON(w, http.StatusOK, map[string]any{
+		"runId":  run.ID,
+		"status": string(finalRun.Status),
+		"output": output,
+	})
 }
 
 func (d *Deps) startRun(w http.ResponseWriter, r *http.Request, workflowID, triggeredBy string, checkOwner bool) {

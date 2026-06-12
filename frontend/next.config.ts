@@ -10,10 +10,9 @@ const nextConfig: NextConfig = {
   async rewrites() {
     if (!BACKEND_URL) return [];
     return [
-      {
-        source: "/api/:path*",
-        destination: `${BACKEND_URL}/:path*`,
-      },
+      { source: "/api/:path*",   destination: `${BACKEND_URL}/:path*` },
+      { source: "/hooks/:path*", destination: `${BACKEND_URL}/hooks/:path*` },
+      { source: "/run/:path*",   destination: `${BACKEND_URL}/run/:path*` },
     ];
   },
 };

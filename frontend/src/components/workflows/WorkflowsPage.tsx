@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Logo, Pill, Tag, Hairline, IconSearch, IconGrid } from "@/components/ui";
 import { Workflow } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
-import { workflows as workflowsApi } from "@/lib/api";
+import { workflows as workflowsApi, auth as authApi } from "@/lib/api";
 
 export function WorkflowsPage() {
   const router = useRouter();
@@ -49,6 +49,23 @@ export function WorkflowsPage() {
 
   const activeCount = wfList.filter((w) => w.status === "active").length;
 
+  const [credits, setCredits] = useState<number | null>(null);
+  const [toppingUp, setToppingUp] = useState(false);
+
+  useEffect(() => {
+    authApi.me().then((u) => setCredits(u.credits ?? 0)).catch(() => {});
+  }, []);
+
+  const handleTopup = async () => {
+    setToppingUp(true);
+    try {
+      const res = await authApi.topup();
+      setCredits(res.credits);
+    } finally {
+      setToppingUp(false);
+    }
+  };
+
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)" }}>
       {/* Topbar */}
@@ -57,11 +74,12 @@ export function WorkflowsPage() {
           <Logo size={18} />
         </button>
         <Hairline vertical length={22} />
+        <button onClick={() => router.push("/marketplace")} style={navBtnStyle}>Marketplace</button>
+        <button onClick={() => router.push("/billing")} style={navBtnStyle}>Billing</button>
+        <Hairline vertical length={22} />
         <button style={ghostBtnSm}>Acme Capital ▾</button>
         <Pill mono dot tone="ok">testnet</Pill>
         <div style={{ flex: 1 }} />
-        <button style={ghostBtnSm}>Credentials</button>
-        <button style={ghostBtnSm}>Settings</button>
         <Hairline vertical length={22} />
         <button style={ghostBtnSm} onClick={handleSignOut}>Sign out</button>
         <div style={{ width: 28, height: 28, borderRadius: 999, background: "var(--accent)", color: "var(--accent-fg)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>AC</div>
@@ -77,7 +95,19 @@ export function WorkflowsPage() {
               <h1 style={{ margin: "12px 0 4px", fontSize: 36, fontWeight: 500, letterSpacing: "-0.025em" }}>Workflows</h1>
               <p style={{ margin: 0, color: "var(--fg-muted)", fontSize: 14 }}>Design, deploy, and monitor agent pipelines.</p>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {/* Credits widget */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 14px", background: "var(--bg-elev-2)", border: "1px solid var(--border)", borderRadius: "var(--r-2)", height: 36 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--fg-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>credits left</span>
+                  <span style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 600, color: "var(--accent)" }}>
+                    {credits == null ? "…" : `$${credits.toFixed(2)}`}
+                  </span>
+                </div>
+                <button onClick={handleTopup} disabled={toppingUp} style={{ height: 24, padding: "0 10px", fontSize: 11, fontWeight: 500, background: "rgba(167,139,250,0.12)", border: "1px solid rgba(167,139,250,0.3)", borderRadius: "var(--r-1)", color: "var(--accent)", cursor: "pointer", fontFamily: "var(--font-sans)", opacity: toppingUp ? 0.6 : 1 }}>
+                  {toppingUp ? "…" : "Top up +$10"}
+                </button>
+              </div>
               <button style={ghostBtn}>Import</button>
               <button onClick={handleNewWorkflow} disabled={creating} style={{ ...primaryBtn, opacity: creating ? 0.6 : 1 }}>
                 {creating ? "Creating…" : "+ New workflow"}
@@ -263,6 +293,11 @@ function fmtDate(iso?: string): string {
 }
 
 // Shared styles
+const navBtnStyle: React.CSSProperties = {
+  background: "transparent", border: "none", cursor: "pointer",
+  fontSize: 13, color: "var(--fg-muted)", fontFamily: "var(--font-sans)", padding: "4px 8px",
+};
+
 const ghostBtnSm: React.CSSProperties = {
   height: 28, padding: "0 10px", fontSize: 12, fontWeight: 500,
   background: "transparent", border: "1px solid var(--border-strong)",

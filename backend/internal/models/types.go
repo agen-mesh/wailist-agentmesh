@@ -57,8 +57,19 @@ type WorkflowNode struct {
 	EmailAPIKey   string `json:"emailApiKey,omitempty"`
 	EmailProvider string `json:"emailProvider,omitempty"`
 	// x402 tool discovered params (populated by frontend discover)
-	DiscoveredParams []ParamDef     `json:"discoveredParams,omitempty"`
-	Description      string         `json:"description,omitempty"`
+	DiscoveredParams []ParamDef `json:"discoveredParams,omitempty"`
+	Description      string     `json:"description,omitempty"`
+	// "use ours" toggles
+	UseOurKey   bool `json:"useOurKey,omitempty"`
+	UseOurEmail bool `json:"useOurEmail,omitempty"`
+	// agent: false = platform wallet pays for x402, true = user funds the agent wallet
+	SelfFundWallet bool   `json:"selfFundWallet,omitempty"`
+	MaxCostPerRun  string `json:"maxCostPerRun,omitempty"`
+	MaxSpendTotal  string `json:"maxSpendTotal,omitempty"`
+	// webhook trigger
+	WebhookMethod        string `json:"webhookMethod,omitempty"`
+	WebhookPayloadSchema string `json:"webhookPayloadSchema,omitempty"`
+	WebhookLiveURL       string `json:"webhookLiveURL,omitempty"`
 }
 
 type WorkflowEdge struct {
@@ -117,6 +128,7 @@ type Run struct {
 	StartedAt    time.Time  `json:"startedAt"`
 	FinishedAt   *time.Time `json:"finishedAt,omitempty"`
 	InputContext any        `json:"inputContext,omitempty"`
+	Cost         float64    `json:"cost"`
 }
 
 type LogStatus string
@@ -170,5 +182,6 @@ type User struct {
 	ID           string    `json:"id"`
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"-"`
+	Credits      float64   `json:"credits"`
 	CreatedAt    time.Time `json:"createdAt"`
 }

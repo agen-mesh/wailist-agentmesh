@@ -39,7 +39,7 @@ export function Inspector({ selected, deployed, workflowId, onUpdate, onDelete }
         {selected.type === "provider" && <ProviderInspector node={selected} onUpdate={onUpdate} />}
         {selected.type === "tool"     && <ToolInspector     node={selected} onUpdate={onUpdate} />}
         {selected.type === "tool402"  && <Tool402Inspector  node={selected} onUpdate={onUpdate} />}
-        {selected.type === "trigger"  && <TriggerInspector  node={selected} onUpdate={onUpdate} />}
+        {selected.type === "trigger"  && <TriggerInspector  node={selected} onUpdate={onUpdate} deployed={deployed} />}
         {selected.type === "action"   && <ActionInspector   node={selected} onUpdate={onUpdate} />}
         {selected.type === "end"      && <EndInspector      node={selected} onUpdate={onUpdate} />}
       </div>
@@ -75,6 +75,28 @@ function nodeMeta(n: WorkflowNode) {
 }
 
 // ── Shared ─────────────────────────────────────────────────────────────────
+function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onChange(!value)}
+      style={{
+        width: 40, height: 22, borderRadius: 999, flexShrink: 0,
+        background: value ? "var(--accent)" : "var(--bg-elev-3)",
+        border: `1px solid ${value ? "var(--accent)" : "var(--border-strong)"}`,
+        cursor: "pointer", padding: 2, position: "relative", transition: "background 0.15s",
+      }}
+    >
+      <div style={{
+        width: 16, height: 16, borderRadius: 999,
+        background: value ? "#fff" : "var(--fg-dim)",
+        position: "absolute", top: 2,
+        left: value ? "calc(100% - 18px)" : 2,
+        transition: "left 0.15s",
+      }} />
+    </button>
+  );
+}
+
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
@@ -151,50 +173,62 @@ function AgentInspector({ node, deployed, workflowId, onUpdate }: { node: Workfl
       </Section>
 
       <Section label="Wallet">
-        {deployed && node.wallet ? (
+        {/* Self-fund toggle */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--r-2)" }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 500, color: "var(--fg)" }}>Fund wallet yourself</div>
+            <div style={{ fontSize: 11, color: "var(--fg-dim)", marginTop: 2 }}>
+              {node.selfFundWallet ? "You will fund this agent's Algorand wallet" : "Platform pays for x402 calls automatically"}
+            </div>
+          </div>
+          <Toggle value={node.selfFundWallet ?? false} onChange={(v) => onUpdate({ ...node, selfFundWallet: v })} />
+        </div>
+
+        {node.selfFundWallet ? (
+          deployed && node.wallet ? (
+            <div style={{ padding: 14, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--r-2)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <Pill mono dot tone="ok">algorand testnet</Pill>
+                <button onClick={copyAddress} title="Copy full address" style={iconBtnStyle}>
+                  {copied ? "✓" : "⎘"}
+                </button>
+              </div>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-muted)", background: "var(--bg-elev-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 10px", wordBreak: "break-all", lineHeight: 1.7, userSelect: "text", cursor: "text" }}>{node.wallet}</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 28, fontWeight: 600, color: "var(--accent)", letterSpacing: "-0.02em" }}>{node.balance ?? "0.000000"}</span>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-muted)" }}>ALGO</span>
+                </div>
+                <button onClick={refreshBalance} disabled={refreshing} title="Refresh balance from chain" style={{ ...iconBtnStyle, fontSize: 16, width: 32, height: 32 }}>
+                  <span style={{ display: "inline-block", transition: "transform 0.4s", transform: refreshing ? "rotate(360deg)" : "none" }}>↻</span>
+                </button>
+              </div>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-dim)", marginTop: 2 }}>spent {node.spent ?? "0.000000"} ALGO · last 24h</div>
+              <div style={{ marginTop: 12, padding: "8px 10px", background: "var(--bg-elev-2)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 11, color: "var(--fg-dim)", lineHeight: 1.55 }}>
+                Fund via the{" "}
+                <a href="https://bank.testnet.algorand.network/" target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "none" }}>Algorand faucet</a>
+                {" "}or Lora testnet. Hit ↻ to refresh.
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: 14, background: "var(--bg)", border: "1px dashed var(--border-strong)", borderRadius: "var(--r-2)", fontSize: 12, color: "var(--fg-muted)", lineHeight: 1.55 }}>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-dim)", marginBottom: 8 }}>not yet deployed</div>
+              An Algorand wallet will be generated on <strong style={{ color: "var(--fg)" }}>Deploy</strong>. You&apos;ll then fund it here.
+            </div>
+          )
+        ) : deployed && node.wallet ? (
           <div style={{ padding: 14, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--r-2)" }}>
-            {/* Network badge + address header */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
               <Pill mono dot tone="ok">algorand testnet</Pill>
-              <button onClick={copyAddress} title="Copy full address" style={iconBtnStyle}>
-                {copied ? "✓" : "⎘"}
-              </button>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--accent)", background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.2)", borderRadius: 4, padding: "2px 6px" }}>platform</span>
             </div>
-
-            {/* Full address — monospace, selectable, wrapped cleanly */}
-            <div style={{
-              fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-muted)",
-              background: "var(--bg-elev-2)", border: "1px solid var(--border)",
-              borderRadius: 6, padding: "8px 10px",
-              wordBreak: "break-all", lineHeight: 1.7,
-              userSelect: "text", cursor: "text",
-            }}>{node.wallet}</div>
-
-            {/* Balance row */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14 }}>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 28, fontWeight: 600, color: "var(--accent)", letterSpacing: "-0.02em" }}>{node.balance ?? "0.000000"}</span>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-muted)" }}>ALGO</span>
-              </div>
-              <button onClick={refreshBalance} disabled={refreshing} title="Refresh balance from chain" style={{ ...iconBtnStyle, fontSize: 16, width: 32, height: 32 }}>
-                <span style={{ display: "inline-block", transition: "transform 0.4s", transform: refreshing ? "rotate(360deg)" : "none" }}>↻</span>
-              </button>
-            </div>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-dim)", marginTop: 2 }}>
-              spent {node.spent ?? "0.000000"} ALGO · last 24h
-            </div>
-
-            {/* Fund hint */}
-            <div style={{ marginTop: 12, padding: "8px 10px", background: "var(--bg-elev-2)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 11, color: "var(--fg-dim)", lineHeight: 1.55 }}>
-              Copy the address above and fund it via the{" "}
-              <a href="https://bank.testnet.algorand.network/" target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "none" }}>Algorand faucet</a>
-              {" "}or Lora testnet. Hit ↻ to see the updated balance.
-            </div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-muted)", background: "var(--bg-elev-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 10px", wordBreak: "break-all", lineHeight: 1.7, userSelect: "text", cursor: "text" }}>{node.wallet}</div>
+            <div style={{ marginTop: 8, fontSize: 11, color: "var(--fg-dim)", lineHeight: 1.5 }}>x402 payments draw from the platform&apos;s pre-funded account. No setup required.</div>
           </div>
         ) : (
           <div style={{ padding: 14, background: "var(--bg)", border: "1px dashed var(--border-strong)", borderRadius: "var(--r-2)", fontSize: 12, color: "var(--fg-muted)", lineHeight: 1.55 }}>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-dim)", marginBottom: 8 }}>not yet deployed</div>
-            This agent will receive an Algorand keypair on testnet when you click <strong style={{ color: "var(--fg)" }}>Deploy</strong>.
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-dim)", marginBottom: 8 }}>platform funded</div>
+            x402 payments will draw from the platform&apos;s Algorand account after <strong style={{ color: "var(--fg)" }}>Deploy</strong>.
           </div>
         )}
       </Section>
@@ -205,8 +239,12 @@ function AgentInspector({ node, deployed, workflowId, onUpdate }: { node: Workfl
 
       <Section label="Limits">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <Field label="Max spend / run"><input style={monoInputStyle} defaultValue="0.50 ALGO" /></Field>
-          <Field label="Timeout"><input style={monoInputStyle} defaultValue="30s" /></Field>
+          <Field label="Max cost / run" hint="ALGO">
+            <input style={monoInputStyle} value={node.maxCostPerRun ?? ""} placeholder="0.50" onChange={(e) => onUpdate({ ...node, maxCostPerRun: e.target.value })} />
+          </Field>
+          <Field label="Max total spend" hint="ALGO">
+            <input style={monoInputStyle} value={node.maxSpendTotal ?? ""} placeholder="10.00" onChange={(e) => onUpdate({ ...node, maxSpendTotal: e.target.value })} />
+          </Field>
         </div>
       </Section>
     </>
@@ -270,15 +308,26 @@ function ProviderInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (
         </Field>
       </Section>
       <Section label="Credentials">
-        <Field label="API Key" hint="encrypted at rest">
-          <input
-            style={monoInputStyle}
-            type="password"
-            value={node.apiKey === "__enc__" ? "" : (node.apiKey ?? "")}
-            placeholder={node.apiKey === "__enc__" ? "Key set — enter to replace" : "AIza···"}
-            onChange={(e) => onUpdate({ ...node, apiKey: e.target.value || (node.apiKey === "__enc__" ? "__enc__" : "") })}
-          />
-        </Field>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--r-2)" }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 500, color: "var(--fg)" }}>Use your own API key</div>
+            <div style={{ fontSize: 11, color: "var(--fg-dim)", marginTop: 2 }}>
+              {!node.useOurKey ? "Your key — encrypted with the workflow" : "Platform key — billed to your credits at 1.3× cost"}
+            </div>
+          </div>
+          <Toggle value={!node.useOurKey} onChange={(v) => onUpdate({ ...node, useOurKey: !v })} />
+        </div>
+        {!node.useOurKey && (
+          <Field label="API Key" hint="encrypted at rest">
+            <input
+              style={monoInputStyle}
+              type="password"
+              value={node.apiKey === "__enc__" ? "" : (node.apiKey ?? "")}
+              placeholder={node.apiKey === "__enc__" ? "Key set — enter to replace" : "AIza···"}
+              onChange={(e) => onUpdate({ ...node, apiKey: e.target.value || (node.apiKey === "__enc__" ? "__enc__" : "") })}
+            />
+          </Field>
+        )}
       </Section>
       <Section label="Parameters">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -445,16 +494,61 @@ function Tool402Inspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n
 }
 
 // ── Trigger Inspector ──────────────────────────────────────────────────────
-function TriggerInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n: WorkflowNode) => void }) {
+function TriggerInspector({ node, onUpdate, deployed }: { node: WorkflowNode; onUpdate: (n: WorkflowNode) => void; deployed: boolean }) {
   const tpl = TRIGGER_TEMPLATES.find((t) => t.id === node.template);
+  const [copied, setCopied] = useState(false);
+
+  const copyURL = () => {
+    navigator.clipboard.writeText(node.webhookLiveURL ?? "").then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  };
+
   return (
     <Section label="Trigger">
       {node.custom
         ? <Field label="Label"><input style={inputStyle} value={node.label ?? ""} placeholder="When …" onChange={(e) => onUpdate({ ...node, label: e.target.value })} /></Field>
         : <Field label="Type"><input style={inputStyle} value={tpl?.name ?? ""} readOnly /></Field>}
-      {node.template === "cron"    && <Field label="Cron"><input style={monoInputStyle} defaultValue="0 9 * * *" /></Field>}
-      {node.template === "webhook" && <Field label="Path"><input style={monoInputStyle} defaultValue="/in/abc123" /></Field>}
-      {node.template === "chat"    && <Field label="Source"><input style={inputStyle} defaultValue="In-app chat widget" /></Field>}
+      {node.template === "cron" && <Field label="Cron"><input style={monoInputStyle} defaultValue="0 9 * * *" /></Field>}
+      {node.template === "chat" && <Field label="Source"><input style={inputStyle} defaultValue="In-app chat widget" /></Field>}
+      {node.template === "webhook" && (
+        <>
+          <Field label="Method">
+            <select style={monoInputStyle} value={node.webhookMethod ?? "POST"} onChange={(e) => onUpdate({ ...node, webhookMethod: e.target.value })}>
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+            </select>
+          </Field>
+          <Field label="Payload schema" hint="describe what you expect">
+            <textarea
+              style={{ ...inputStyle, height: "auto", padding: 10, resize: "vertical", lineHeight: 1.5 }}
+              rows={3}
+              value={node.webhookPayloadSchema ?? ""}
+              placeholder={'{ "message": "string", "userId": "string" }'}
+              onChange={(e) => onUpdate({ ...node, webhookPayloadSchema: e.target.value })}
+            />
+          </Field>
+          {deployed && node.webhookLiveURL ? (
+            <div style={{ padding: 12, background: "var(--bg)", border: "1px solid var(--accent-line, var(--border))", borderRadius: "var(--r-2)" }}>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-dim)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>live endpoint</div>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--accent)", wordBreak: "break-all", lineHeight: 1.6 }}>
+                {node.webhookLiveURL}
+              </div>
+              <button onClick={copyURL} style={{ ...iconBtnStyle, marginTop: 10, width: "100%", fontSize: 11, fontFamily: "var(--font-sans)", gap: 6 }}>
+                {copied ? "✓ Copied" : "⎘ Copy URL"}
+              </button>
+              <div style={{ marginTop: 8, fontSize: 11, color: "var(--fg-dim)", lineHeight: 1.5 }}>
+                {node.webhookMethod ?? "POST"} · expects {node.webhookPayloadSchema ? "your schema above" : "any JSON body"}
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: 10, background: "var(--bg)", border: "1px dashed var(--border-strong)", borderRadius: "var(--r-2)", fontSize: 11, color: "var(--fg-dim)" }}>
+              {deployed ? "Re-deploy to generate a webhook URL." : "Deploy to get a live webhook URL."}
+            </div>
+          )}
+        </>
+      )}
     </Section>
   );
 }
@@ -471,6 +565,16 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
 
       {node.template === "email" && (
         <Section label="Email config">
+          {/* Use ours / yours toggle */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--r-2)" }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: "var(--fg)" }}>Use your own email key</div>
+              <div style={{ fontSize: 11, color: "var(--fg-dim)", marginTop: 2 }}>
+                {!node.useOurEmail ? "Your Resend / Postmark key" : "Platform Resend account — included in billing"}
+              </div>
+            </div>
+            <Toggle value={!node.useOurEmail} onChange={(v) => onUpdate({ ...node, useOurEmail: !v })} />
+          </div>
           <Field label="Provider">
             <select style={inputStyle} value={node.emailProvider ?? "resend"} onChange={(e) => onUpdate({ ...node, emailProvider: e.target.value })}>
               <option value="resend">Resend</option>
@@ -478,12 +582,14 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
               <option value="sendgrid">SendGrid</option>
             </select>
           </Field>
-          <Field label="API Key" hint="encrypted at rest">
-            <input style={monoInputStyle} type="password"
-              value={node.emailApiKey === "__enc__" ? "" : (node.emailApiKey ?? "")}
-              placeholder={node.emailApiKey === "__enc__" ? "Key set — enter to replace" : (node.emailProvider === "postmark" ? "your-postmark-server-token" : "re_xxxxxxxxxxxx")}
-              onChange={(e) => onUpdate({ ...node, emailApiKey: e.target.value || (node.emailApiKey === "__enc__" ? "__enc__" : "") })} />
-          </Field>
+          {!node.useOurEmail && (
+            <Field label="API Key" hint="encrypted at rest">
+              <input style={monoInputStyle} type="password"
+                value={node.emailApiKey === "__enc__" ? "" : (node.emailApiKey ?? "")}
+                placeholder={node.emailApiKey === "__enc__" ? "Key set — enter to replace" : (node.emailProvider === "postmark" ? "your-postmark-server-token" : "re_xxxxxxxxxxxx")}
+                onChange={(e) => onUpdate({ ...node, emailApiKey: e.target.value || (node.emailApiKey === "__enc__" ? "__enc__" : "") })} />
+            </Field>
+          )}
           <Field label="From" hint="must be verified in your provider">
             <input style={monoInputStyle}
               value={node.emailFrom ?? ""}

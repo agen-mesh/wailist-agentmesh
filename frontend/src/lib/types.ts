@@ -34,6 +34,17 @@ export interface WorkflowNode {
   priceLive?: boolean;
   discoveredParams?: Array<{ name: string; type: string; required: boolean; description: string; default?: string }>;
   paramDefaults?: Record<string, string>;
+  // "use ours / yours" toggles
+  useOurKey?: boolean;
+  useOurEmail?: boolean;
+  selfFundWallet?: boolean;
+  // agent limits
+  maxCostPerRun?: string;
+  maxSpendTotal?: string;
+  // webhook trigger live config
+  webhookMethod?: string;
+  webhookPayloadSchema?: string;
+  webhookLiveURL?: string;
   // trigger-specific
   source?: string;
   // email action-specific
@@ -76,4 +87,34 @@ export interface NodeTypeMeta {
 export interface PortCoord {
   x: number;
   y: number;
+}
+
+export interface MarketplaceEndpoint {
+  id: string;
+  name: string;
+  description: string;
+  provider: string;
+  price: string;
+  unit: string;
+  category: "search" | "data" | "ai" | "finance" | "media" | "util";
+  icon: string;
+  tags: string[];
+  author: string;
+  calls: number;
+  rating: number;
+  featured?: boolean;
+}
+
+export interface MarketplaceWorkflow {
+  id: string;
+  name: string;
+  description: string;
+  author: string;
+  tags: string[];
+  nodes: number;
+  runs: number;
+  stars: number;
+  price?: string;
+  featured?: boolean;
+  previewNodes: Array<{ type: string; label: string; template?: string }>;
 }

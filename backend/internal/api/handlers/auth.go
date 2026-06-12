@@ -148,7 +148,32 @@ func (d *Deps) SignOut(w http.ResponseWriter, r *http.Request) {
 
 func (d *Deps) Me(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(CtxUserID).(string)
-	respond.JSON(w, http.StatusOK, map[string]string{"id": userID})
+	u, err := d.Store.GetUserByID(r.Context(), userID)
+	if err != nil {
+		respond.JSON(w, http.StatusOK, map[string]any{"id": userID, "credits": 0.0})
+		return
+	}
+	respond.JSON(w, http.StatusOK, map[string]any{"id": u.ID, "email": u.Email, "credits": u.Credits})
+}
+
+func (d *Deps) TopupCredits(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(CtxUserID).(string)
+	newBalance, err := d.Store.TopupCredits(r.Context(), userID, 10.0)
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respond.JSON(w, http.StatusOK, map[string]any{"credits": newBalance})
+}
+
+func (d *Deps) GetSpend(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(CtxUserID).(string)
+	total, last24h, err := d.Store.GetUserSpend(r.Context(), userID)
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respond.JSON(w, http.StatusOK, map[string]any{"total": total, "last24h": last24h})
 }
 
 func (d *Deps) issueToken(user models.User) (string, error) {

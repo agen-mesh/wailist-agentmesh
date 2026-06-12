@@ -309,17 +309,17 @@ func (s *Store) CreateUser(ctx context.Context, email, passwordHash string) (mod
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO users (id, email, password_hash)
 		VALUES (gen_random_uuid()::text, $1, $2)
-		RETURNING id, email, password_hash, created_at
-	`, email, passwordHash).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt)
+		RETURNING id, email, password_hash, credits, created_at
+	`, email, passwordHash).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Credits, &u.CreatedAt)
 	return u, err
 }
 
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (models.User, error) {
 	var u models.User
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, email, password_hash, created_at
+		SELECT id, email, password_hash, credits, created_at
 		FROM users WHERE email = $1
-	`, email).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt)
+	`, email).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Credits, &u.CreatedAt)
 	return u, err
 }
 
@@ -330,8 +330,8 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (models.User, 
 func (s *Store) GetOrCreateOAuthUser(ctx context.Context, email string) (models.User, error) {
 	var u models.User
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, email, password_hash, created_at FROM users WHERE email = $1
-	`, email).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt)
+		SELECT id, email, password_hash, credits, created_at FROM users WHERE email = $1
+	`, email).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Credits, &u.CreatedAt)
 	if err == nil {
 		if u.PasswordHash != "" {
 			return models.User{}, ErrPasswordAccountExists
@@ -347,19 +347,98 @@ func (s *Store) GetOrCreateOAuthUser(ctx context.Context, email string) (models.
 		INSERT INTO users (id, email, password_hash)
 		VALUES (gen_random_uuid()::text, $1, '')
 		ON CONFLICT (email) DO NOTHING
-		RETURNING id, email, password_hash, created_at
-	`, email).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt)
+		RETURNING id, email, password_hash, credits, created_at
+	`, email).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Credits, &u.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Lost a race: a row appeared between SELECT and INSERT. Re-fetch and
 		// apply the same password-account guard.
 		err = s.pool.QueryRow(ctx, `
-			SELECT id, email, password_hash, created_at FROM users WHERE email = $1
-		`, email).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt)
+			SELECT id, email, password_hash, credits, created_at FROM users WHERE email = $1
+		`, email).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Credits, &u.CreatedAt)
 		if err == nil && u.PasswordHash != "" {
 			return models.User{}, ErrPasswordAccountExists
 		}
 	}
 	return u, err
+}
+
+// --- Credits / spend methods ---
+
+func (s *Store) GetUserByID(ctx context.Context, userID string) (models.User, error) {
+	var u models.User
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, email, password_hash, credits, created_at FROM users WHERE id=$1
+	`, userID).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Credits, &u.CreatedAt)
+	return u, err
+}
+
+func (s *Store) TopupCredits(ctx context.Context, userID string, amount float64) (float64, error) {
+	var newBalance float64
+	err := s.pool.QueryRow(ctx, `
+		UPDATE users SET credits = credits + $2 WHERE id = $1 RETURNING credits
+	`, userID, amount).Scan(&newBalance)
+	return newBalance, err
+}
+
+func (s *Store) DeductCredits(ctx context.Context, userID string, amount float64) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE users SET credits = GREATEST(0, credits - $2) WHERE id = $1
+	`, userID, amount)
+	return err
+}
+
+func (s *Store) FinishRunWithCost(ctx context.Context, runID string, status models.RunStatus, cost float64) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE runs SET status=$2, finished_at=NOW(), cost=$3 WHERE id=$1
+	`, runID, string(status), cost)
+	return err
+}
+
+// GetSpend returns total spend and spend in last 24h for a workflow's runs.
+func (s *Store) GetSpend(ctx context.Context, workflowID string) (total, last24h float64, err error) {
+	err = s.pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(SUM(cost), 0),
+			COALESCE(SUM(CASE WHEN started_at > NOW() - INTERVAL '24 hours' THEN cost ELSE 0 END), 0)
+		FROM runs
+		WHERE workflow_id=$1 AND status='completed'
+	`, workflowID).Scan(&total, &last24h)
+	return
+}
+
+// GetUserSpend returns global total spend and 24h spend across all workflows for a user.
+func (s *Store) GetUserSpend(ctx context.Context, userID string) (total, last24h float64, err error) {
+	err = s.pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(SUM(r.cost), 0),
+			COALESCE(SUM(CASE WHEN r.started_at > NOW() - INTERVAL '24 hours' THEN r.cost ELSE 0 END), 0)
+		FROM runs r
+		JOIN workflows w ON w.id = r.workflow_id
+		WHERE w.user_id=$1 AND r.status='completed'
+	`, userID).Scan(&total, &last24h)
+	return
+}
+
+// GetLastAgentOutput returns the output of the last successful agent node in a run.
+func (s *Store) GetLastAgentOutput(ctx context.Context, runID string) (string, error) {
+	var out []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT output FROM run_logs
+		WHERE run_id=$1 AND node_type='agent' AND status='success'
+		ORDER BY step_index DESC, ts DESC LIMIT 1
+	`, runID).Scan(&out)
+	if err != nil {
+		return "", err
+	}
+	var v any
+	json.Unmarshal(out, &v)
+	switch s := v.(type) {
+	case string:
+		return s, nil
+	default:
+		b, _ := json.Marshal(v)
+		return string(b), nil
+	}
 }
 
 // --- Waitlist methods ---

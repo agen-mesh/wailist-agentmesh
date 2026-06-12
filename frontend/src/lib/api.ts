@@ -41,13 +41,29 @@ export const auth = {
     await delay(500);
   },
 
-  me: async (): Promise<{ id: string; email: string }> => {
+  me: async (): Promise<{ id: string; email: string; credits: number }> => {
     if (BASE) {
       const res = await fetch(`${BASE}/auth/me`, { credentials: "include" });
       if (!res.ok) throw new Error("unauthorized");
       return res.json();
     }
-    return { id: "dev", email: "dev@local" };
+    return { id: "dev", email: "dev@local", credits: 10 };
+  },
+
+  topup: async (): Promise<{ credits: number }> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/credits/topup`, { method: "POST", credentials: "include" });
+      return res.json();
+    }
+    return { credits: 20 };
+  },
+
+  getSpend: async (): Promise<{ total: number; last24h: number }> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/credits/spend`, { credentials: "include" });
+      return res.json();
+    }
+    return { total: 0, last24h: 0 };
   },
 
   signOut: async (): Promise<void> => {
@@ -116,7 +132,7 @@ export const workflows = {
   },
 
   // TODO: POST /workflows/:id/deploy
-  deploy: async (id: string): Promise<{ agents: { nodeId: string; address: string; network: string }[] }> => {
+  deploy: async (id: string): Promise<{ agents: { nodeId: string; address: string; network: string; platformFunded?: boolean }[]; webhooks?: { nodeId: string; url: string; method: string }[] }> => {
     if (BASE) {
       const res = await fetch(`${BASE}/workflows/${id}/deploy`, {
         method: "POST", credentials: "include",
@@ -150,6 +166,27 @@ export const workflows = {
       return;
     }
     await delay(100);
+  },
+
+  createFromTemplate: async (name: string, nodes: unknown[], edges: unknown[]): Promise<Workflow> => {
+    if (BASE) {
+      const createRes = await fetch(`${BASE}/workflows`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!createRes.ok) throw new Error("failed to create workflow");
+      const created: Workflow = await createRes.json();
+      const updateRes = await fetch(`${BASE}/workflows/${created.id}`, {
+        method: "PUT", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, nodes, edges }),
+      });
+      if (!updateRes.ok) return created;
+      return updateRes.json();
+    }
+    await delay(400);
+    return { id: `wf-${Date.now()}`, name, nodes: nodes as Workflow["nodes"], edges: edges as Workflow["edges"] };
   },
 };
 

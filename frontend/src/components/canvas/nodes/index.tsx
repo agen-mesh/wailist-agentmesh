@@ -167,11 +167,13 @@ function AgentNode({ node, selected, deployed, onMouseDown, onPortHover, onPortL
               color: "var(--fg-muted)",
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}>{shortAddr}</span>
-            {/* Balance */}
-            <span style={{ flexShrink: 0, display: "flex", alignItems: "baseline", gap: 3 }}>
-              <span style={{ color: "var(--accent)", fontWeight: 600 }}>{node.balance ?? "0.00"}</span>
-              <span style={{ color: "var(--fg-dim)", fontSize: 9 }}>ALGO</span>
-            </span>
+            {/* Balance — only visible when user self-funds the wallet */}
+            {node.selfFundWallet && (
+              <span style={{ flexShrink: 0, display: "flex", alignItems: "baseline", gap: 3 }}>
+                <span style={{ color: "var(--accent)", fontWeight: 600 }}>{node.balance ?? "0.00"}</span>
+                <span style={{ color: "var(--fg-dim)", fontSize: 9 }}>ALGO</span>
+              </span>
+            )}
           </>
         ) : (
           <span style={{ color: "var(--fg-dim)", fontSize: 9.5 }}>
@@ -207,10 +209,11 @@ function SubPortLabel({ label, x, filled, hint, nodeW }: { label: string; x: num
 function ProviderNode({ node, selected, onMouseDown, onPortHover, onPortLeave, onStartWire }: NodeProps) {
   const t = NODE_TYPES.provider;
   const tpl = PROVIDER_TEMPLATES.find((x) => x.id === node.template);
-  const hasKey = !!node.apiKey;
-  const maskedKey = hasKey
-    ? (node.apiKey === "__enc__" ? "•".repeat(14) : `${node.apiKey!.slice(0, 4)}${"•".repeat(10)}`)
-    : null;
+  const hasKey = !!node.apiKey || !!node.useOurKey;
+  const maskedKey = node.useOurKey
+    ? "platform key"
+    : !node.apiKey ? null
+    : (node.apiKey === "__enc__" ? "•".repeat(14) : `${node.apiKey.slice(0, 4)}${"•".repeat(10)}`);
   return (
     <NodeShell node={node} selected={selected} onMouseDown={onMouseDown} W={t.w} H={t.h} accent="var(--accent)">
       <NodeHeader icon={node.icon ?? tpl?.icon ?? "+"} iconBg="var(--bg-elev-3)" iconColor="var(--accent)" kicker="ai provider" title={node.name ?? tpl?.name ?? "Provider"} sub={node.model ?? tpl?.model} />
@@ -218,7 +221,7 @@ function ProviderNode({ node, selected, onMouseDown, onPortHover, onPortLeave, o
         <span style={{ color: "var(--fg-dim)" }}>key</span>
         {hasKey ? (
           <>
-            <span style={{ flex: 1, color: "var(--fg-muted)", letterSpacing: "0.04em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{maskedKey}</span>
+            <span style={{ flex: 1, color: node.useOurKey ? "var(--accent)" : "var(--fg-muted)", letterSpacing: "0.04em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{maskedKey}</span>
             <span style={{ color: "#4ade80", fontSize: 9, flexShrink: 0 }}>✓</span>
           </>
         ) : (

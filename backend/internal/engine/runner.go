@@ -51,7 +51,7 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run) {
 	attachMap := BuildAttachMap(wf.Nodes, wf.Edges)
 	levels, err := TopologicalSort(wf.Nodes, wf.Edges)
 	if err != nil {
-		r.store.FinishRun(context.Background(), run.ID, models.RunStatusFailed)
+		r.store.FinishRunWithCost(context.Background(), run.ID, models.RunStatusFailed, 0)
 		return
 	}
 
@@ -85,7 +85,7 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run) {
 	for stepIdx, level := range levels {
 		// Check for cancellation between levels.
 		if ctx.Err() != nil {
-			r.store.FinishRun(context.Background(), run.ID, models.RunStatusStopped)
+			r.store.FinishRunWithCost(context.Background(), run.ID, models.RunStatusStopped, 0)
 			return
 		}
 
@@ -164,12 +164,50 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run) {
 		wg.Wait()
 
 		if atomic.LoadInt32(&failed) != 0 {
-			r.store.FinishRun(context.Background(), run.ID, models.RunStatusFailed)
+			cost := r.calcRunCost(wf.Nodes)
+			r.store.FinishRunWithCost(context.Background(), run.ID, models.RunStatusFailed, cost)
+			r.deductUserCredits(context.Background(), wf.UserID, cost)
 			return
 		}
 	}
 
-	r.store.FinishRun(context.Background(), run.ID, models.RunStatusSuccess)
+	cost := r.calcRunCost(wf.Nodes)
+	r.store.FinishRunWithCost(context.Background(), run.ID, models.RunStatusSuccess, cost)
+	r.deductUserCredits(context.Background(), wf.UserID, cost)
+}
+
+// calcRunCost estimates the cost of a run based on the workflow nodes.
+// Provider cost depends on template; tool402 nodes add a fixed per-call fee.
+func (r *Runner) calcRunCost(nodes []models.WorkflowNode) float64 {
+	var total float64
+	for _, n := range nodes {
+		switch n.Type {
+		case models.NodeTypeProvider:
+			base := 0.001
+			switch n.Template {
+			case "openai":
+				base = 0.0015
+			case "anthropic":
+				base = 0.002
+			case "gemini":
+				base = 0.0008
+			}
+			if n.UseOurKey {
+				base *= 1.3
+			}
+			total += base * 3 // default 3 iterations
+		case models.NodeTypeTool402:
+			total += 0.002
+		}
+	}
+	return total
+}
+
+func (r *Runner) deductUserCredits(ctx context.Context, userID string, amount float64) {
+	if userID == "" || amount <= 0 {
+		return
+	}
+	r.store.DeductCredits(ctx, userID, amount)
 }
 
 func (r *Runner) executeNode(

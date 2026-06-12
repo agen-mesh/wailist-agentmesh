@@ -39,6 +39,25 @@ func (s *Service) GenerateWallet() (address, encMnemonic string, err error) {
 	return acc.Address.String(), enc, nil
 }
 
+// WrapMnemonic derives the Algorand address from an existing raw mnemonic and
+// returns it alongside an encrypted copy. Used for the platform wallet so the
+// stored AgentWallet record is identical in shape to a generated one.
+func (s *Service) WrapMnemonic(mn string) (address, encMnemonic string, err error) {
+	privKey, err := mnemonic.ToPrivateKey(mn)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid mnemonic: %w", err)
+	}
+	acc, err := crypto.AccountFromPrivateKey(privKey)
+	if err != nil {
+		return "", "", err
+	}
+	enc, err := Encrypt(mn, s.encKey)
+	if err != nil {
+		return "", "", err
+	}
+	return acc.Address.String(), enc, nil
+}
+
 func (s *Service) DecryptMnemonic(encMnemonic string) (string, error) {
 	return Decrypt(encMnemonic, s.encKey)
 }

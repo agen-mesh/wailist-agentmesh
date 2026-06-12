@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -26,32 +27,70 @@ func (d *Deps) Deploy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type agentResult struct {
-		NodeID  string `json:"nodeId"`
-		Address string `json:"address"`
-		Network string `json:"network"`
+		NodeID         string `json:"nodeId"`
+		Address        string `json:"address"`
+		Network        string `json:"network"`
+		PlatformFunded bool   `json:"platformFunded,omitempty"`
+	}
+	type webhookResult struct {
+		NodeID string `json:"nodeId"`
+		URL    string `json:"url"`
+		Method string `json:"method"`
 	}
 	var agents []agentResult
+	var webhooks []webhookResult
 
-	for _, node := range wf.Nodes {
-		if node.Type != models.NodeTypeAgent {
-			continue
+	platformMnemonic := os.Getenv("PLATFORM_ALGO_MNEMONIC")
+
+	for i, node := range wf.Nodes {
+		switch node.Type {
+		case models.NodeTypeAgent:
+			platformFunded := !node.SelfFundWallet
+			var address, encMnemonic string
+			var err error
+			if platformFunded && platformMnemonic != "" {
+				address, encMnemonic, err = d.Wallet.WrapMnemonic(platformMnemonic)
+			} else {
+				address, encMnemonic, err = d.Wallet.GenerateWallet()
+				platformFunded = false
+			}
+			if err != nil {
+				respond.Error(w, http.StatusInternalServerError, fmt.Sprintf("wallet creation failed: %v", err))
+				return
+			}
+			if err := d.Store.InsertAgentWallet(ctx, models.AgentWallet{
+				WorkflowID:        id,
+				AgentNodeID:       node.ID,
+				Address:           address,
+				EncryptedMnemonic: encMnemonic,
+				Network:           d.Wallet.Network(),
+			}); err != nil {
+				respond.Error(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			agents = append(agents, agentResult{NodeID: node.ID, Address: address, Network: d.Wallet.Network(), PlatformFunded: platformFunded})
+
+		case models.NodeTypeTrigger:
+			if node.Template == "webhook" && node.WebhookLiveURL == "" {
+				method := node.WebhookMethod
+				if method == "" {
+					method = "POST"
+				}
+				liveURL := fmt.Sprintf("%s/hooks/%s/%s", d.BaseURL, id, node.ID)
+				wf.Nodes[i].WebhookLiveURL = liveURL
+				wf.Nodes[i].WebhookMethod = method
+				webhooks = append(webhooks, webhookResult{NodeID: node.ID, URL: liveURL, Method: method})
+			}
 		}
-		address, encMnemonic, err := d.Wallet.GenerateWallet()
-		if err != nil {
-			respond.Error(w, http.StatusInternalServerError, fmt.Sprintf("wallet creation failed: %v", err))
-			return
-		}
-		if err := d.Store.InsertAgentWallet(ctx, models.AgentWallet{
-			WorkflowID:        id,
-			AgentNodeID:       node.ID,
-			Address:           address,
-			EncryptedMnemonic: encMnemonic,
-			Network:           d.Wallet.Network(),
-		}); err != nil {
+	}
+
+	// If any webhook URLs were generated, persist the updated nodes.
+	if len(webhooks) > 0 {
+		graph := models.WorkflowGraph{Nodes: wf.Nodes, Edges: wf.Edges}
+		if _, err := d.Store.UpdateWorkflow(ctx, id, wf.Name, graph); err != nil {
 			respond.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		agents = append(agents, agentResult{NodeID: node.ID, Address: address, Network: d.Wallet.Network()})
 	}
 
 	runEndpoint := fmt.Sprintf("%s/run/%s", d.BaseURL, id)
@@ -64,11 +103,15 @@ func (d *Deps) Deploy(w http.ResponseWriter, r *http.Request) {
 	if agents == nil {
 		agents = []agentResult{}
 	}
+	if webhooks == nil {
+		webhooks = []webhookResult{}
+	}
 	respond.JSON(w, http.StatusOK, map[string]any{
 		"workflowId":  id,
 		"status":      "deployed",
 		"runEndpoint": runEndpoint,
 		"agents":      agents,
+		"webhooks":    webhooks,
 		"deployedAt":  now,
 	})
 }
