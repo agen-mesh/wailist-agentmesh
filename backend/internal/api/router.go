@@ -31,6 +31,7 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	// Marketplace — public so the page loads without auth
 	r.Get("/marketplace/bazaar", d.BazaarList)
 	r.Get("/marketplace/bazaar/search", d.BazaarSearch)
+	r.Get("/marketplace/goplausible", d.GoplausibleList)
 
 	// Protected routes — JWT required
 	r.Group(func(r chi.Router) {
