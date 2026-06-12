@@ -9,9 +9,9 @@ export interface DraftSlot {
   role: "trigger" | "agent" | "provider" | "tool" | "action" | "end";
   resolved: boolean;
   skip?: boolean;                        // tier-decision: user chose "let AI handle it"
-  template?: string;
-  endpoint?: MarketplaceEndpoint;
-  candidates?: MarketplaceEndpoint[];    // populated for unresolved TOOL_PICK slots
+  template?: string;                     // trigger/action template id, e.g. "chat" or "email"
+  endpoint?: MarketplaceEndpoint;        // set when resolved is true for tool slots
+  candidates?: MarketplaceEndpoint[];    // TOOL_PICK only: options the user will choose between
   meta: Partial<WorkflowNode>;
 }
 
@@ -61,7 +61,7 @@ const LLM_ONLY_VERBS = new Set([
   "compare",   "list",    "describe",  "plan",    "generate",
 ]);
 
-// Known external service names and their base URLs
+// Known external service names → base URLs (org-specific entries are placeholders the user fills in Inspector)
 const HTTP_SERVICE_URLS: Record<string, string> = {
   github:    "https://api.github.com",
   stripe:    "https://api.stripe.com/v1",
