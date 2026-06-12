@@ -159,34 +159,7 @@ export function MarketplacePage() {
           </div>
         )}
 
-        {/* Live Bazaar section — EVM/USDC */}
-        <div style={{ marginBottom: 36 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-            <SectionLabel>{query ? `EVM results · ${filteredBazaar.length}` : "EVM Marketplace · Coinbase Bazaar"}</SectionLabel>
-            <ChainBadge chain="evm" />
-            {bazaarLoading && <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--fg-dim)" }}>fetching…</span>}
-            {bazaarError && <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "#f87171" }}>bazaar unreachable</span>}
-          </div>
-          {bazaarLoading && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
-              {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
-            </div>
-          )}
-          {!bazaarLoading && filteredBazaar.length === 0 && !bazaarError && (
-            <div style={{ fontSize: 12, color: "var(--fg-dim)", fontFamily: "var(--font-mono)", padding: "24px 0" }}>
-              {query ? `No EVM results for "${query}"` : "No endpoints found"}
-            </div>
-          )}
-          {!bazaarLoading && filteredBazaar.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
-              {filteredBazaar.map((ep) => (
-                <EndpointCard key={ep.id} ep={ep} onAdd={() => handleAdd(ep)} />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Algorand section — GoPlausible */}
+        {/* Algorand section — GoPlausible (first) */}
         <div style={{ marginBottom: 36 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
             <SectionLabel>Algorand Marketplace · GoPlausible</SectionLabel>
@@ -215,6 +188,34 @@ export function MarketplacePage() {
             </div>
           )}
         </div>
+
+        {/* EVM Bazaar section — Coinbase */}
+        <div style={{ marginBottom: 36 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <SectionLabel>{query ? `EVM results · ${filteredBazaar.length}` : "EVM Marketplace · Coinbase Bazaar"}</SectionLabel>
+            <ChainBadge chain="evm" />
+            {bazaarLoading && <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--fg-dim)" }}>fetching…</span>}
+            {bazaarError && <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "#f87171" }}>bazaar unreachable</span>}
+          </div>
+          {bazaarLoading && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+              {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+            </div>
+          )}
+          {!bazaarLoading && filteredBazaar.length === 0 && !bazaarError && (
+            <div style={{ fontSize: 12, color: "var(--fg-dim)", fontFamily: "var(--font-mono)", padding: "24px 0" }}>
+              {query ? `No EVM results for "${query}"` : "No endpoints found"}
+            </div>
+          )}
+          {!bazaarLoading && filteredBazaar.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+              {filteredBazaar.map((ep) => (
+                <EndpointCard key={ep.id} ep={ep} onAdd={() => handleAdd(ep)} />
+              ))}
+            </div>
+          )}
+        </div>
+
       </div>
 
       {pickerEndpoint && (
