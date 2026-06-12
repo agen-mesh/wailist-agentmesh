@@ -1,4 +1,4 @@
-import { NodeTypeMeta, Workflow, MarketplaceEndpoint, MarketplaceWorkflow } from "./types";
+import { NodeTypeMeta, Workflow, WorkflowNode, WorkflowEdge, MarketplaceEndpoint, MarketplaceWorkflow } from "./types";
 
 export const NODE_TYPES: Record<string, NodeTypeMeta> = {
   trigger:  { w: 200, h: 60,  ports: ["out"] },
@@ -150,5 +150,130 @@ export const MARKETPLACE_WORKFLOWS: MarketplaceWorkflow[] = [
     description: "Feed in a blog post URL — the agent scrapes it, generates a Twitter thread, LinkedIn post, and image, then schedules them.",
     tags: ["marketing","social","content"], nodes: 8, runs: 2100, stars: 118, price: "2.50",
     previewNodes: [{ type: "trigger", label: "Webhook", template: "webhook" }, { type: "tool402", label: "Firecrawl" }, { type: "agent", label: "Thread Writer" }, { type: "tool402", label: "FluxImage" }, { type: "action", label: "Post to X", template: "webhook" }, { type: "action", label: "Post to LinkedIn", template: "webhook" }],
+  },
+];
+
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  icon: string;
+  previewNodes: Array<{ type: string; label: string }>;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+}
+
+export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
+  {
+    id: "tpl-lead-research",
+    name: "Lead Research Agent",
+    description: "Drop in a company name — the agent searches the web and emails you a structured research brief.",
+    tags: ["research", "sales", "email"],
+    icon: "⌕",
+    previewNodes: [
+      { type: "trigger", label: "Manual" },
+      { type: "agent",   label: "Researcher" },
+      { type: "tool402", label: "Tavily Search" },
+      { type: "action",  label: "Email report" },
+      { type: "end",     label: "Done" },
+    ],
+    nodes: [
+      { id: "n1", type: "trigger",  template: "manual",  x: 60,  y: 200, label: "Manual Trigger", icon: "▶" },
+      { id: "n2", type: "agent",    template: "agent",   x: 340, y: 160,
+        name: "Lead Researcher", icon: "◇",
+        systemPrompt: "You are a lead research agent. The user will give you a company name or domain. Use the Tavily Search tool to find: what the company does, their key products, estimated company size, recent news, and any funding information. Return a structured report with sections: Overview, Products, Size & Stage, Recent News." },
+      { id: "n3", type: "provider", template: "gemini",  x: 260, y: 400, name: "Gemini 2.5 Flash", model: "gemini-2.5-flash", icon: "G" },
+      { id: "n4", type: "tool402",  template: "tavily",  x: 500, y: 400, name: "Tavily Search", icon: "⌕",
+        description: "Real-time web search optimised for AI agents. Returns structured results with snippets and URLs.",
+        price: "0.002", unit: "call" },
+      { id: "n5", type: "action",   template: "email",   x: 700, y: 160, name: "Send Report Email", icon: "✉" },
+      { id: "n6", type: "end",      template: "done",    x: 960, y: 170, label: "Done", icon: "■" },
+    ] as WorkflowNode[],
+    edges: [
+      { id: "e1", from: "n1", to: "n2", kind: "flow",   toPort: "in" },
+      { id: "e2", from: "n3", to: "n2", kind: "attach", toPort: "model" },
+      { id: "e3", from: "n4", to: "n2", kind: "attach", toPort: "tools" },
+      { id: "e4", from: "n2", to: "n5", kind: "flow",   toPort: "in" },
+      { id: "e5", from: "n5", to: "n6", kind: "flow",   toPort: "in" },
+    ] as WorkflowEdge[],
+  },
+  {
+    id: "tpl-market-brief",
+    name: "Daily Market Brief",
+    description: "Run it each morning — pulls live stock quotes and web headlines, then emails your team a concise brief.",
+    tags: ["finance", "research", "email"],
+    icon: "$",
+    previewNodes: [
+      { type: "trigger", label: "Manual" },
+      { type: "agent",   label: "Analyst" },
+      { type: "tool402", label: "AlpacaQuote" },
+      { type: "tool402", label: "Tavily" },
+      { type: "action",  label: "Email brief" },
+      { type: "end",     label: "Done" },
+    ],
+    nodes: [
+      { id: "n1", type: "trigger",  template: "manual",  x: 60,  y: 200, label: "Manual Trigger", icon: "▶" },
+      { id: "n2", type: "agent",    template: "agent",   x: 340, y: 150,
+        name: "Market Analyst", icon: "◇",
+        systemPrompt: "You are a financial analyst agent. Use AlpacaQuote to fetch the latest prices for SPY, QQQ, BTC/USD, and ETH/USD. Use Tavily Search to find the top 3 market-moving headlines from today. Then compose a concise morning brief: key levels, whether markets are risk-on or risk-off, and the most important headline. Keep it under 200 words, professional tone." },
+      { id: "n3", type: "provider", template: "gemini",  x: 220, y: 390, name: "Gemini 2.5 Flash", model: "gemini-2.5-flash", icon: "G" },
+      { id: "n4", type: "tool402",  template: "alpaca",  x: 440, y: 390, name: "AlpacaQuote", icon: "$",
+        description: "Live stock and crypto quotes from Alpaca Markets.",
+        price: "0.001", unit: "quote" },
+      { id: "n5", type: "tool402",  template: "tavily",  x: 440, y: 510, name: "Tavily Search", icon: "⌕",
+        description: "Real-time web search for market news and headlines.",
+        price: "0.002", unit: "call" },
+      { id: "n6", type: "action",   template: "email",   x: 720, y: 150, name: "Send Morning Brief", icon: "✉" },
+      { id: "n7", type: "end",      template: "done",    x: 980, y: 160, label: "Done", icon: "■" },
+    ] as WorkflowNode[],
+    edges: [
+      { id: "e1", from: "n1", to: "n2", kind: "flow",   toPort: "in" },
+      { id: "e2", from: "n3", to: "n2", kind: "attach", toPort: "model" },
+      { id: "e3", from: "n4", to: "n2", kind: "attach", toPort: "tools" },
+      { id: "e4", from: "n5", to: "n2", kind: "attach", toPort: "tools" },
+      { id: "e5", from: "n2", to: "n6", kind: "flow",   toPort: "in" },
+      { id: "e6", from: "n6", to: "n7", kind: "flow",   toPort: "in" },
+    ] as WorkflowEdge[],
+  },
+  {
+    id: "tpl-content-pipeline",
+    name: "Content Pipeline",
+    description: "Two-agent system: first agent scrapes a URL and researches the topic, second agent writes a polished article and emails it.",
+    tags: ["content", "marketing", "multi-agent"],
+    icon: "◐",
+    previewNodes: [
+      { type: "trigger", label: "Manual" },
+      { type: "agent",   label: "Researcher" },
+      { type: "tool402", label: "Firecrawl" },
+      { type: "agent",   label: "Writer" },
+      { type: "action",  label: "Email draft" },
+      { type: "end",     label: "Done" },
+    ],
+    nodes: [
+      { id: "n1", type: "trigger",  template: "manual",    x: 60,  y: 200, label: "Manual Trigger", icon: "▶" },
+      { id: "n2", type: "agent",    template: "agent",     x: 300, y: 160,
+        name: "Researcher", icon: "◇",
+        systemPrompt: "You are a research agent. The user will give you a URL or topic. Use Firecrawl to scrape the URL into clean text, then extract: main thesis, key facts and data points, notable quotes, and related angles worth exploring. Return a structured research brief that a writer can use." },
+      { id: "n3", type: "provider", template: "gemini",    x: 220, y: 390, name: "Gemini 2.5 Flash", model: "gemini-2.5-flash", icon: "G" },
+      { id: "n4", type: "tool402",  template: "firecrawl", x: 440, y: 390, name: "Firecrawl Scrape", icon: "◐",
+        description: "Turn any URL into clean markdown for LLM ingestion.",
+        price: "0.005", unit: "page" },
+      { id: "n5", type: "agent",    template: "agent",     x: 660, y: 160,
+        name: "Writer", icon: "◇",
+        systemPrompt: "You are a content writer agent. You will receive a research brief from the Researcher agent. Write a polished, engaging article: compelling headline, strong intro hook, 3-4 body sections with subheadings, and a clear conclusion. Target 600-800 words. Tone: professional but readable. Do not fabricate facts not in the research brief." },
+      { id: "n6", type: "provider", template: "gemini",    x: 580, y: 390, name: "Gemini 2.5 Flash", model: "gemini-2.5-flash", icon: "G" },
+      { id: "n7", type: "action",   template: "email",     x: 1000, y: 160, name: "Email Draft", icon: "✉" },
+      { id: "n8", type: "end",      template: "done",      x: 1260, y: 170, label: "Done", icon: "■" },
+    ] as WorkflowNode[],
+    edges: [
+      { id: "e1", from: "n1", to: "n2", kind: "flow",   toPort: "in" },
+      { id: "e2", from: "n3", to: "n2", kind: "attach", toPort: "model" },
+      { id: "e3", from: "n4", to: "n2", kind: "attach", toPort: "tools" },
+      { id: "e4", from: "n2", to: "n5", kind: "flow",   toPort: "in" },
+      { id: "e5", from: "n6", to: "n5", kind: "attach", toPort: "model" },
+      { id: "e6", from: "n5", to: "n7", kind: "flow",   toPort: "in" },
+      { id: "e7", from: "n7", to: "n8", kind: "flow",   toPort: "in" },
+    ] as WorkflowEdge[],
   },
 ];

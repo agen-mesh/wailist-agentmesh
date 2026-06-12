@@ -5,6 +5,7 @@ import { Logo, Pill, Tag, Hairline, IconSearch, IconGrid } from "@/components/ui
 import { Workflow } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
 import { workflows as workflowsApi, auth as authApi } from "@/lib/api";
+import { WORKFLOW_TEMPLATES, WorkflowTemplate } from "@/lib/data";
 
 export function WorkflowsPage() {
   const router = useRouter();
@@ -15,6 +16,7 @@ export function WorkflowsPage() {
   const [wfList, setWfList] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [spawning, setSpawning] = useState<string | null>(null);
 
   useEffect(() => {
     workflowsApi.list()
@@ -41,6 +43,17 @@ export function WorkflowsPage() {
       setCreating(false);
     }
   }, [creating, router]);
+
+  const handleUseTemplate = useCallback(async (tpl: WorkflowTemplate) => {
+    if (spawning) return;
+    setSpawning(tpl.id);
+    try {
+      const wf = await workflowsApi.createFromTemplate(tpl.name, tpl.nodes, tpl.edges);
+      router.push(`/workflows/${wf.id}`);
+    } catch {
+      setSpawning(null);
+    }
+  }, [spawning, router]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -161,9 +174,12 @@ export function WorkflowsPage() {
             <WorkflowGrid items={filtered} onOpen={(id) => router.push(`/workflows/${id}`)} />
           )}
 
-          {!loading && filtered.length === 0 && (
+          {!loading && filtered.length === 0 && wfList.length === 0 && (
+            <TemplatesSection templates={WORKFLOW_TEMPLATES} spawning={spawning} onUse={handleUseTemplate} />
+          )}
+          {!loading && filtered.length === 0 && wfList.length > 0 && (
             <div style={{ padding: 48, textAlign: "center", border: "1px dashed var(--border)", borderRadius: "var(--r-3)", color: "var(--fg-dim)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
-              {wfList.length === 0 ? "no workflows yet — create one to get started" : "no workflows match"}
+              no workflows match
             </div>
           )}
         </div>
@@ -279,6 +295,112 @@ function WorkflowGrid({ items, onOpen }: { items: Workflow[]; onOpen: (id: strin
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── Templates ──────────────────────────────────────────────────────────────
+
+function TemplatesSection({ templates, spawning, onUse }: {
+  templates: WorkflowTemplate[];
+  spawning: string | null;
+  onUse: (t: WorkflowTemplate) => void;
+}) {
+  return (
+    <div>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-dim)", marginBottom: 6 }}>quick start</div>
+        <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: "-0.02em", color: "var(--fg)", marginBottom: 4 }}>Start from a template</div>
+        <p style={{ margin: 0, fontSize: 13, color: "var(--fg-muted)" }}>Pre-built workflows you can customise and run in minutes.</p>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+        {templates.map((tpl) => (
+          <TemplateCard key={tpl.id} tpl={tpl} loading={spawning === tpl.id} disabled={spawning !== null} onUse={() => onUse(tpl)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const NODE_TYPE_COLOR: Record<string, { bg: string; fg: string }> = {
+  trigger:  { bg: "var(--bg-elev-3)",          fg: "var(--fg-muted)" },
+  agent:    { bg: "rgba(167,139,250,0.12)",     fg: "var(--accent)" },
+  provider: { bg: "rgba(167,139,250,0.08)",     fg: "var(--accent)" },
+  tool:     { bg: "var(--bg-elev-3)",          fg: "var(--fg-muted)" },
+  tool402:  { bg: "rgba(232,121,249,0.10)",     fg: "#E879F9" },
+  action:   { bg: "rgba(255,181,71,0.10)",      fg: "var(--warm)" },
+  end:      { bg: "var(--bg-elev-3)",          fg: "var(--fg-dim)" },
+};
+
+function TemplateCard({ tpl, loading, disabled, onUse }: {
+  tpl: WorkflowTemplate;
+  loading: boolean;
+  disabled: boolean;
+  onUse: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: "var(--bg-elev-1)",
+        border: `1px solid ${hovered ? "var(--accent-line)" : "var(--border)"}`,
+        borderRadius: "var(--r-3)",
+        padding: 20,
+        display: "flex",
+        flexDirection: "column",
+        gap: 14,
+        transition: "border-color 0.15s",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ width: 40, height: 40, borderRadius: "var(--r-2)", background: "var(--bg-elev-3)", border: "1px solid var(--border-strong)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
+          {tpl.icon}
+        </div>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)" }}>{tpl.name}</div>
+          <div style={{ display: "flex", gap: 5, marginTop: 3 }}>
+            {tpl.tags.map((t) => (
+              <span key={t} style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--fg-dim)", textTransform: "uppercase", letterSpacing: "0.05em" }}>#{t}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <p style={{ margin: 0, fontSize: 12, color: "var(--fg-muted)", lineHeight: 1.65, flex: 1 }}>{tpl.description}</p>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+        {tpl.previewNodes.map((n, i) => {
+          const c = NODE_TYPE_COLOR[n.type] ?? NODE_TYPE_COLOR.end;
+          return (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: c.fg, background: c.bg, border: `1px solid ${c.fg}22`, borderRadius: 4, padding: "2px 7px" }}>{n.label}</span>
+              {i < tpl.previewNodes.length - 1 && <span style={{ fontSize: 10, color: "var(--fg-dim)" }}>→</span>}
+            </div>
+          );
+        })}
+      </div>
+
+      <button
+        onClick={onUse}
+        disabled={disabled}
+        style={{
+          height: 34,
+          background: hovered && !disabled ? "var(--accent)" : "transparent",
+          border: `1px solid ${hovered && !disabled ? "var(--accent)" : "var(--border-strong)"}`,
+          borderRadius: "var(--r-2)",
+          color: hovered && !disabled ? "var(--accent-fg)" : "var(--fg-muted)",
+          fontSize: 12,
+          fontWeight: 600,
+          cursor: disabled ? "default" : "pointer",
+          fontFamily: "var(--font-sans)",
+          transition: "background 0.15s, border-color 0.15s, color 0.15s",
+          opacity: disabled && !loading ? 0.5 : 1,
+        }}
+      >
+        {loading ? "Creating…" : "Use template →"}
+      </button>
     </div>
   );
 }
