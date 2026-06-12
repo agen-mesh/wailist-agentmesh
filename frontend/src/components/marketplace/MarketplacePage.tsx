@@ -229,7 +229,7 @@ function EndpointCard({ ep, featured = false, onAdd }: { ep: MarketplaceEndpoint
       </div>
       <p style={{ margin: 0, fontSize: 12, color: "var(--fg-muted)", lineHeight: 1.6 }}>{ep.description}</p>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {ep.tags.map((t) => <span key={t} style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--fg-dim)", background: "var(--bg-elev-3)", borderRadius: "var(--r-1)", padding: "2px 7px", border: "1px solid var(--border)" }}>{t}</span>)}
+        {(ep.tags ?? []).map((t) => <span key={t} style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--fg-dim)", background: "var(--bg-elev-3)", borderRadius: "var(--r-1)", padding: "2px 7px", border: "1px solid var(--border)" }}>{t}</span>)}
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
         <div style={{ display: "flex", gap: 14 }}>

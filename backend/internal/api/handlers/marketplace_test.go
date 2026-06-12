@@ -4,37 +4,54 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/api/handlers"
 )
 
-// fakeBazaarServer returns an httptest.Server serving one Bazaar resource.
+// oneItem is the real Bazaar item shape (resource/serviceName/accepts/extensions).
+var oneItem = map[string]any{
+	"resource":    "https://example.com/api",
+	"serviceName": "TestCo",
+	"description": "A test API",
+	"tags":        []string{"test", "data"},
+	"type":        "data",
+	"accepts": []map[string]any{
+		{"amount": "1000", "network": "eip155:8453"},
+	},
+	"extensions": map[string]any{
+		"bazaar": map[string]any{
+			"schema": map[string]any{
+				"properties": map[string]any{
+					"input": map[string]any{
+						"properties": map[string]any{
+							"queryParams": map[string]any{
+								"type": "object",
+								"properties": map[string]any{
+									"query": map[string]any{"type": "string", "description": "Search query"},
+								},
+								"required": []string{"query"},
+							},
+						},
+					},
+				},
+			},
+		},
+	},
+}
+
+// fakeBazaarServer returns an httptest.Server serving one Bazaar item using
+// the real API shapes: list → "items", search → "resources".
 func fakeBazaarServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"resources": []map[string]any{
-				{
-					"id":          "abc123",
-					"url":         "https://example.com/api",
-					"name":        "Test API",
-					"description": "A test API",
-					"provider":    "TestCo",
-					"price":       map[string]any{"amount": "0.005", "currency": "USDC", "network": "base-mainnet"},
-					"tags":        []string{"test", "data"},
-					"category":    "data",
-					"inputSchema": map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"query": map[string]any{"type": "string", "description": "Search query"},
-						},
-						"required": []string{"query"},
-					},
-				},
-			},
-		})
+		if strings.Contains(r.URL.Path, "search") {
+			json.NewEncoder(w).Encode(map[string]any{"resources": []any{oneItem}})
+		} else {
+			json.NewEncoder(w).Encode(map[string]any{"items": []any{oneItem}})
+		}
 	}))
 }
 
