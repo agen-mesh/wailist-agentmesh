@@ -51,8 +51,22 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     workflowsApi.get(workflowId)
       .then((wf) => {
         justLoaded.current = true;
+        // Inject any node that was queued from the marketplace
+        const raw = localStorage.getItem("agentmesh:pendingNode");
+        if (raw) {
+          try {
+            const meta = JSON.parse(raw) as Partial<WorkflowNode>;
+            const id = `n_${Date.now()}`;
+            const pendingNode: WorkflowNode = { id, x: 280, y: 180, ...meta } as WorkflowNode;
+            wf = { ...wf, nodes: [...wf.nodes, pendingNode] };
+            setTimeout(() => setSelectedId(id), 0);
+          } catch {
+            // malformed JSON — ignore
+          } finally {
+            localStorage.removeItem("agentmesh:pendingNode");
+          }
+        }
         setWorkflow(wf);
-        // Restore deployed state: if any agent node has a wallet address it was previously deployed.
         if (wf.nodes.some((n) => n.type === "agent" && n.wallet)) {
           setDeployed(true);
         }
