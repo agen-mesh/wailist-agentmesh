@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -102,6 +103,11 @@ func fetchBazaar(ctx context.Context, path string) ([]BazaarEndpoint, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("bazaar %d: %s", resp.StatusCode, string(b))
+	}
 
 	var raw struct {
 		Resources []bazaarResource `json:"resources"`
