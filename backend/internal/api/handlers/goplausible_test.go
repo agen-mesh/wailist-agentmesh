@@ -122,7 +122,15 @@ func TestGoplausibleListEmpty(t *testing.T) {
 	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	eps, _ := resp["endpoints"].([]any)
-	if len(eps) != 0 {
-		t.Errorf("want 0 endpoints got %d", len(eps))
+	// When catalog is empty the handler falls back to seeded example endpoints.
+	if len(eps) < 1 {
+		t.Errorf("want seeded example endpoints, got %d", len(eps))
+	}
+	ep0, _ := eps[0].(map[string]any)
+	if ep0["source"] != "goplausible" {
+		t.Errorf("want source=goplausible got %v", ep0["source"])
+	}
+	if ep0["chainFamily"] != "avm" {
+		t.Errorf("want chainFamily=avm got %v", ep0["chainFamily"])
 	}
 }

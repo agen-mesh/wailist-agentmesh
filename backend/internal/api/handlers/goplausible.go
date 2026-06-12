@@ -92,6 +92,13 @@ func (d *Deps) GoplausibleList(w http.ResponseWriter, r *http.Request) {
 			endpoints = append(endpoints, ep)
 		}
 	}
+
+	// When the live catalog is empty, fall back to GoPlausible's own example
+	// endpoints so the Algorand section is never completely blank.
+	if len(endpoints) == 0 {
+		endpoints = gpExampleEndpoints()
+	}
+
 	respond.JSON(w, http.StatusOK, map[string]any{"endpoints": endpoints})
 }
 
@@ -256,4 +263,40 @@ func urlPath(rawURL string) string {
 		return s[i:]
 	}
 	return ""
+}
+
+// gpExampleEndpoints returns GoPlausible's own example AVM endpoints as seeds
+// so the Algorand section shows real live resources while the catalog is new.
+func gpExampleEndpoints() []BazaarEndpoint {
+	return []BazaarEndpoint{
+		{
+			ID:          "goplausible-example-weather",
+			Name:        "Weather Data",
+			Description: "Real-time weather data by city. Returns temperature and conditions. Algorand testnet x402 demo endpoint by GoPlausible.",
+			Provider:    "GoPlausible",
+			Price:       "0.0010",
+			Unit:        "call",
+			Category:    "data",
+			Tags:        []string{"weather", "demo", "algorand"},
+			Endpoint:    "https://example.x402.goplausible.xyz/avm/weather",
+			DiscoveredParams: []models.ParamDef{
+				{Name: "city", Type: "string", Required: true, Description: "City name"},
+			},
+			Source:      "goplausible",
+			ChainFamily: "avm",
+		},
+		{
+			ID:          "goplausible-example-protected",
+			Name:        "Protected Content",
+			Description: "Pay-gated HTML content. Demonstrates Algorand x402 payment flow for web content. Algorand testnet demo by GoPlausible.",
+			Provider:    "GoPlausible",
+			Price:       "0.0010",
+			Unit:        "call",
+			Category:    "util",
+			Tags:        []string{"protected", "demo", "algorand"},
+			Endpoint:    "https://example.x402.goplausible.xyz/avm/protected",
+			Source:      "goplausible",
+			ChainFamily: "avm",
+		},
+	}
 }
