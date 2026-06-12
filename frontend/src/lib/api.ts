@@ -1,7 +1,7 @@
 // TODO: Replace all stubs with real FastAPI calls when backend is ready.
 // Base URL will come from env: process.env.NEXT_PUBLIC_API_URL
 
-import { Workflow, ParamDef, MarketplaceEndpoint } from "./types";
+import { Workflow, ParamDef, MarketplaceEndpoint, PublishedWorkflow } from "./types";
 import { WORKFLOWS, SAMPLE_WORKFLOW } from "./data";
 
 // In the browser, always route through /api so the cookie stays same-site.
@@ -282,6 +282,64 @@ export const marketplace = {
       return res.json();
     }
     return { endpoints: [] };
+  },
+
+  listWorkflows: async (q = "", limit = 24, offset = 0): Promise<{ workflows: PublishedWorkflow[] }> => {
+    if (BASE) {
+      const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+      if (q) params.set("q", q);
+      const res = await fetch(`${BASE}/marketplace/workflows?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error(`marketplace ${res.status}`);
+      return res.json();
+    }
+    return { workflows: [] };
+  },
+
+  publishWorkflow: async (
+    workflowId: string,
+    title: string,
+    description: string,
+    tags: string[],
+    feePerRun: number,
+  ): Promise<PublishedWorkflow> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/marketplace/workflows`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workflowId, title, description, tags, feePerRun }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "publish failed");
+      return data;
+    }
+    throw new Error("no backend configured");
+  },
+
+  importWorkflow: async (publishedId: string): Promise<Workflow> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/marketplace/workflows/${publishedId}/import`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "import failed");
+      return data;
+    }
+    throw new Error("no backend configured");
+  },
+
+  upvoteWorkflow: async (publishedId: string): Promise<{ upvoted: boolean; count: number }> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/marketplace/workflows/${publishedId}/upvote`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "upvote failed");
+      return data;
+    }
+    return { upvoted: false, count: 0 };
   },
 };
 

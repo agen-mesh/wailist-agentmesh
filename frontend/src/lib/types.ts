@@ -76,6 +76,7 @@ export interface Workflow {
   runs?: number;
   spend?: string;
   tags?: string[];
+  sourcePublishedId?: string;
 }
 
 export interface NodeTypeMeta {
@@ -116,6 +117,20 @@ export interface MarketplaceEndpoint {
   discoveredParams?: ParamDef[];
   source?: "static" | "bazaar" | "goplausible";
   chainFamily?: "avm" | "evm" | "svm";
+}
+
+export interface PublishedWorkflow {
+  id: string;
+  creatorId: string;
+  creatorEmail: string;
+  title: string;
+  description: string;
+  tags: string[];
+  feePerRun: number;
+  runCount: number;
+  upvoteCount: number;
+  publishedAt: string;
+  hasUpvoted?: boolean;
 }
 
 export interface MarketplaceWorkflow {
