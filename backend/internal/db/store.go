@@ -57,11 +57,11 @@ func (s *Store) GetWorkflow(ctx context.Context, id string) (models.Workflow, er
 	var graphJSON []byte
 	var runEndpoint *string
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, user_id, name, status, graph, deployed_at, run_endpoint, created_at, updated_at
+		SELECT id, user_id, name, status, graph, deployed_at, run_endpoint, source_published_id, created_at, updated_at
 		FROM workflows WHERE id = $1
 	`, id).Scan(
 		&w.ID, &w.UserID, &w.Name, &w.Status, &graphJSON,
-		&w.DeployedAt, &runEndpoint, &w.CreatedAt, &w.UpdatedAt,
+		&w.DeployedAt, &runEndpoint, &w.SourcePublishedID, &w.CreatedAt, &w.UpdatedAt,
 	)
 	if err != nil {
 		return w, err
@@ -75,7 +75,7 @@ func (s *Store) GetWorkflow(ctx context.Context, id string) (models.Workflow, er
 
 func (s *Store) ListWorkflows(ctx context.Context, userID string) ([]models.Workflow, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, user_id, name, status, graph, deployed_at, run_endpoint, created_at, updated_at
+		SELECT id, user_id, name, status, graph, deployed_at, run_endpoint, source_published_id, created_at, updated_at
 		FROM workflows WHERE user_id = $1 ORDER BY updated_at DESC
 	`, userID)
 	if err != nil {
@@ -89,7 +89,7 @@ func (s *Store) ListWorkflows(ctx context.Context, userID string) ([]models.Work
 		var runEndpoint *string
 		if err := rows.Scan(
 			&w.ID, &w.UserID, &w.Name, &w.Status, &graphJSON,
-			&w.DeployedAt, &runEndpoint, &w.CreatedAt, &w.UpdatedAt,
+			&w.DeployedAt, &runEndpoint, &w.SourcePublishedID, &w.CreatedAt, &w.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -447,5 +447,153 @@ func (s *Store) InsertWaitlistEmail(ctx context.Context, email string) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO waitlist (email) VALUES ($1) ON CONFLICT (email) DO NOTHING
 	`, email)
+	return err
+}
+
+// --- Published Workflow methods ---
+
+func (s *Store) PublishWorkflow(ctx context.Context, creatorID, title, description string, tags []string, graph models.WorkflowGraph, feePerRun float64) (models.PublishedWorkflow, error) {
+	graphJSON, _ := json.Marshal(graph)
+	if tags == nil {
+		tags = []string{}
+	}
+	var pw models.PublishedWorkflow
+	var graphOut []byte
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO published_workflows (creator_id, title, description, tags, graph, fee_per_run)
+		VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+		RETURNING id, creator_id, title, description, tags, graph, fee_per_run, run_count, upvote_count, published_at
+	`, creatorID, title, description, tags, string(graphJSON), feePerRun).Scan(
+		&pw.ID, &pw.CreatorID, &pw.Title, &pw.Description, &pw.Tags,
+		&graphOut, &pw.FeePerRun, &pw.RunCount, &pw.UpvoteCount, &pw.PublishedAt,
+	)
+	if err != nil {
+		return pw, err
+	}
+	var g models.WorkflowGraph
+	if err := json.Unmarshal(graphOut, &g); err == nil {
+		pw.Nodes = g.Nodes
+		pw.Edges = g.Edges
+	}
+	return pw, nil
+}
+
+func (s *Store) ListPublishedWorkflows(ctx context.Context, query string, limit, offset int) ([]models.PublishedWorkflow, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT pw.id, pw.creator_id, u.email, pw.title, pw.description, pw.tags,
+		       pw.fee_per_run, pw.run_count, pw.upvote_count, pw.published_at
+		FROM published_workflows pw
+		JOIN users u ON u.id = pw.creator_id
+		WHERE $1 = ''
+		   OR pw.title ILIKE '%' || $1 || '%'
+		   OR pw.description ILIKE '%' || $1 || '%'
+		   OR $1 = ANY(pw.tags)
+		ORDER BY pw.upvote_count DESC, pw.run_count DESC
+		LIMIT $2 OFFSET $3
+	`, query, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []models.PublishedWorkflow
+	for rows.Next() {
+		var pw models.PublishedWorkflow
+		if err := rows.Scan(
+			&pw.ID, &pw.CreatorID, &pw.CreatorEmail, &pw.Title, &pw.Description, &pw.Tags,
+			&pw.FeePerRun, &pw.RunCount, &pw.UpvoteCount, &pw.PublishedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, pw)
+	}
+	return out, rows.Err()
+}
+
+// ImportPublishedWorkflow creates a copy of a published workflow for the given user,
+// setting source_published_id so run-cost credit flows back to the creator.
+func (s *Store) ImportPublishedWorkflow(ctx context.Context, userID, publishedID string) (models.Workflow, error) {
+	var title string
+	var graphJSON []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT title, graph FROM published_workflows WHERE id = $1
+	`, publishedID).Scan(&title, &graphJSON)
+	if err != nil {
+		return models.Workflow{}, err
+	}
+
+	id := uuid.New().String()
+	var w models.Workflow
+	var gJSON []byte
+	var runEndpoint *string
+	err = s.pool.QueryRow(ctx, `
+		INSERT INTO workflows (id, user_id, name, status, graph, source_published_id)
+		VALUES ($1, $2, $3, 'draft', $4::jsonb, $5)
+		RETURNING id, user_id, name, status, graph, deployed_at, run_endpoint, source_published_id, created_at, updated_at
+	`, id, userID, title, string(graphJSON), publishedID).Scan(
+		&w.ID, &w.UserID, &w.Name, &w.Status, &gJSON,
+		&w.DeployedAt, &runEndpoint, &w.SourcePublishedID, &w.CreatedAt, &w.UpdatedAt,
+	)
+	if err != nil {
+		return w, err
+	}
+	if runEndpoint != nil {
+		w.RunEndpoint = *runEndpoint
+	}
+	unmarshalGraph(gJSON, &w)
+	return w, nil
+}
+
+// ToggleUpvote adds an upvote if not present, removes it if present.
+// Returns (new_count, is_now_upvoted, error).
+func (s *Store) ToggleUpvote(ctx context.Context, userID, publishedID string) (int, bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		INSERT INTO published_workflow_votes (user_id, workflow_id) VALUES ($1, $2)
+		ON CONFLICT (user_id, workflow_id) DO NOTHING
+	`, userID, publishedID)
+	if err != nil {
+		return 0, false, err
+	}
+	added := tag.RowsAffected() == 1
+
+	if !added {
+		if _, err := s.pool.Exec(ctx, `
+			DELETE FROM published_workflow_votes WHERE user_id=$1 AND workflow_id=$2
+		`, userID, publishedID); err != nil {
+			return 0, false, err
+		}
+	}
+
+	var count int
+	err = s.pool.QueryRow(ctx, `
+		UPDATE published_workflows
+		SET upvote_count = (SELECT COUNT(*) FROM published_workflow_votes WHERE workflow_id = $1)
+		WHERE id = $1
+		RETURNING upvote_count
+	`, publishedID).Scan(&count)
+	return count, added, err
+}
+
+// CreditMarketplaceCreator credits the creator 1% of the run cost and increments
+// run_count on the published workflow. No-op if the workflow has no source_published_id.
+func (s *Store) CreditMarketplaceCreator(ctx context.Context, workflowID string, cost float64) error {
+	if cost <= 0 {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `
+		WITH src AS (
+			SELECT pw.creator_id, pw.id AS published_id
+			FROM workflows w
+			JOIN published_workflows pw ON pw.id = w.source_published_id
+			WHERE w.id = $1
+		),
+		credit AS (
+			UPDATE users
+			SET credits = credits + ($2 * 0.01)
+			WHERE id = (SELECT creator_id FROM src)
+		)
+		UPDATE published_workflows
+		SET run_count = run_count + 1
+		WHERE id = (SELECT published_id FROM src)
+	`, workflowID, cost)
 	return err
 }
