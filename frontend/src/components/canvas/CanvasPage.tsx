@@ -28,6 +28,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   const [runId, setRunId] = useState<string | null>(null);
   const [chatPrompt, setChatPrompt] = useState<string | null>(null); // null = closed
   const [publishOpen, setPublishOpen] = useState(false);
+  const [savedWorkflows, setSavedWorkflows] = useState<Workflow[]>([]);
   const [spend, setSpend] = useState<{ total: number; last24h: number }>({ total: 0, last24h: 0 });
   const justLoaded = useRef(true);
 
@@ -36,6 +37,12 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   }, []);
 
   useEffect(() => { refreshSpend(); }, [refreshSpend]);
+
+  useEffect(() => {
+    workflowsApi.list()
+      .then((wfs) => setSavedWorkflows(wfs.filter((w) => !!w.sourcePublishedId)))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -307,7 +314,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       />
 
       <div style={{ flex: 1, display: "flex", position: "relative", overflow: "hidden" }}>
-        <PalettePanel onDragNodeStart={onDragNodeStart} />
+        <PalettePanel onDragNodeStart={onDragNodeStart} savedWorkflows={savedWorkflows} onOpenSaved={(id) => router.push(`/workflows/${id}`)} />
 
         <div style={{ flex: 1, position: "relative", display: "flex", flexDirection: "column" }}>
           <CanvasGraph

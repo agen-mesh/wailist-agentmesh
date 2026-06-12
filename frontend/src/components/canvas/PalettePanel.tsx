@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { WorkflowNode } from "@/lib/types";
+import { WorkflowNode, Workflow } from "@/lib/types";
 import { TRIGGER_TEMPLATES, AGENT_TEMPLATES, PROVIDER_TEMPLATES, TOOL_TEMPLATES, TOOL402_TEMPLATES, ACTION_TEMPLATES, END_TEMPLATES } from "@/lib/data";
 import { IconSearch } from "@/components/ui";
 
@@ -33,20 +33,28 @@ const CREATE_META: Record<string, Partial<WorkflowNode>> = {
   end:       { type: "end",      custom: true, label: "Custom End",         icon: "■", sub: "define your own" },
 };
 
+type AnyTab = TabId | "saved";
+
 interface PalettePanelProps {
   onDragNodeStart: (e: React.DragEvent, meta: Partial<WorkflowNode>) => void;
+  savedWorkflows?: Workflow[];
+  onOpenSaved?: (id: string) => void;
 }
 
-export function PalettePanel({ onDragNodeStart }: PalettePanelProps) {
-  const [tab, setTab] = useState<TabId>("triggers");
+export function PalettePanel({ onDragNodeStart, savedWorkflows = [], onOpenSaved }: PalettePanelProps) {
+  const [tab, setTab] = useState<AnyTab>("triggers");
   const [q, setQ] = useState("");
 
-  const tabDef = PALETTE_TABS.find((t) => t.id === tab)!;
-  const items = tabDef.items() as unknown[];
-  const mapped = (items as Parameters<typeof tabDef.map>[0][]).map(tabDef.map as (it: Parameters<typeof tabDef.map>[0]) => Partial<WorkflowNode>);
+  const tabDef = tab !== "saved" ? PALETTE_TABS.find((t) => t.id === tab)! : null;
+  const items = tabDef ? (tabDef.items() as unknown[]) : [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mapped: Partial<WorkflowNode>[] = tabDef ? (items as any[]).map((it) => tabDef.map(it)) : [];
   const filtered = mapped.filter((i) =>
     ((i.name ?? i.label ?? "") as string).toLowerCase().includes(q.toLowerCase()) ||
     (i.sub ?? "").toLowerCase().includes(q.toLowerCase())
+  );
+  const filteredSaved = savedWorkflows.filter((w) =>
+    w.name.toLowerCase().includes(q.toLowerCase())
   );
 
   return (
@@ -60,6 +68,10 @@ export function PalettePanel({ onDragNodeStart }: PalettePanelProps) {
               {t.label}
             </button>
           ))}
+          <button onClick={() => setTab("saved")}
+            style={{ flex: "1 0 calc(33% - 4px)", height: 26, border: "none", cursor: "pointer", background: tab === "saved" ? "var(--bg-elev-3)" : "transparent", color: tab === "saved" ? "var(--accent)" : "var(--fg-muted)", borderRadius: 5, fontSize: 11, fontWeight: 500, fontFamily: "var(--font-sans)" }}>
+            Saved{savedWorkflows.length > 0 ? ` (${savedWorkflows.length})` : ""}
+          </button>
         </div>
       </div>
 
@@ -68,30 +80,45 @@ export function PalettePanel({ onDragNodeStart }: PalettePanelProps) {
           <span style={{ position: "absolute", left: 10, top: 10, color: "var(--fg-dim)" }}><IconSearch size={12} /></span>
           <input
             style={{ height: 32, paddingLeft: 30, paddingRight: 10, width: "100%", background: "var(--bg-elev-2)", border: "1px solid var(--border)", borderRadius: "var(--r-2)", color: "var(--fg)", fontFamily: "var(--font-sans)", fontSize: 12, outline: "none" }}
-            placeholder={`search ${tabDef.label.toLowerCase()}…`}
+            placeholder={tab === "saved" ? "search saved…" : `search ${tabDef!.label.toLowerCase()}…`}
             value={q} onChange={(e) => setQ(e.target.value)}
           />
         </div>
       </div>
 
       <div style={{ padding: "4px 10px", display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", flex: 1 }}>
-        {/* Create row */}
-        <CreateRow meta={CREATE_META[tab]} onDragStart={(e) => onDragNodeStart(e, CREATE_META[tab])} isX402={tab === "x402"} />
+        {tab === "saved" ? (
+          <>
+            {filteredSaved.length === 0 && (
+              <div style={{ padding: "24px 8px", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-dim)", textAlign: "center" }}>
+                {savedWorkflows.length === 0 ? "no imported workflows yet" : "no matches"}
+              </div>
+            )}
+            {filteredSaved.map((wf) => (
+              <SavedRow key={wf.id} name={wf.name} onClick={() => onOpenSaved?.(wf.id)} />
+            ))}
+          </>
+        ) : (
+          <>
+            {/* Create row */}
+            <CreateRow meta={CREATE_META[tab]} onDragStart={(e) => onDragNodeStart(e, CREATE_META[tab])} isX402={tab === "x402"} />
 
-        {filtered.map((it, i) => (
-          <DraggableRow key={i}
-            icon={(it.icon ?? "") as string}
-            title={(it.name ?? it.label ?? "") as string}
-            sub={(it.sub ?? "") as string}
-            dotColor={tabDef.dotColor}
-            onDragStart={(e) => onDragNodeStart(e, it)}
-          />
-        ))}
+            {filtered.map((it, i) => (
+              <DraggableRow key={i}
+                icon={(it.icon ?? "") as string}
+                title={(it.name ?? it.label ?? "") as string}
+                sub={(it.sub ?? "") as string}
+                dotColor={tabDef!.dotColor}
+                onDragStart={(e) => onDragNodeStart(e, it)}
+              />
+            ))}
 
-        {filtered.length === 0 && (
-          <div style={{ padding: "24px 8px", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-dim)", textAlign: "center" }}>
-            no presets — drag the + above to build your own
-          </div>
+            {filtered.length === 0 && (
+              <div style={{ padding: "24px 8px", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-dim)", textAlign: "center" }}>
+                no presets — drag the + above to build your own
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -117,6 +144,22 @@ function CreateRow({ meta, onDragStart, isX402 }: { meta: Partial<WorkflowNode>;
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: accent }}>{(meta.name ?? meta.label) as string}</div>
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{meta.sub as string}</div>
+      </div>
+    </div>
+  );
+}
+
+function SavedRow({ name, onClick }: { name: string; onClick: () => void }) {
+  return (
+    <div onClick={onClick}
+      style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "var(--bg-elev-2)", border: "1px solid var(--border)", borderRadius: "var(--r-2)", cursor: "pointer" }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--accent-line)"; }}
+      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border)"; }}
+    >
+      <span style={{ width: 22, height: 22, borderRadius: 6, background: "var(--accent-soft)", color: "var(--accent)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}>↗</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 500, color: "var(--fg)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</div>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-muted)" }}>click to open</div>
       </div>
     </div>
   );
