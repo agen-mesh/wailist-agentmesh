@@ -59,7 +59,8 @@ type BazaarEndpoint struct {
 	Tags             []string          `json:"tags"`
 	Endpoint         string            `json:"endpoint"`
 	DiscoveredParams []models.ParamDef `json:"discoveredParams,omitempty"`
-	Source           string            `json:"source"` // always "bazaar"
+	Source           string            `json:"source"`       // always "bazaar"
+	ChainFamily      string            `json:"chainFamily"`  // "evm", "avm", "svm"
 }
 
 func bazaarBase() string {
@@ -158,6 +159,7 @@ func normalizeBazaarItem(item bazaarItem) BazaarEndpoint {
 		Endpoint:         item.Resource,
 		DiscoveredParams: extractBazaarParams(item.Extensions),
 		Source:           "bazaar",
+		ChainFamily:      "evm",
 	}
 }
 

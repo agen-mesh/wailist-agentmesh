@@ -120,3 +120,25 @@ func TestBazaarSearchMissingQ(t *testing.T) {
 		t.Fatalf("want 400 got %d", w.Code)
 	}
 }
+
+func TestBazaarListChainFamily(t *testing.T) {
+	fake := fakeBazaarServer(t)
+	defer fake.Close()
+	t.Setenv("BAZAAR_BASE_URL", fake.URL)
+
+	d := &handlers.Deps{}
+	req := httptest.NewRequest(http.MethodGet, "/marketplace/bazaar", nil)
+	w := httptest.NewRecorder()
+	d.BazaarList(w, req)
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	eps, _ := resp["endpoints"].([]any)
+	if len(eps) == 0 {
+		t.Fatal("want at least 1 endpoint")
+	}
+	ep, _ := eps[0].(map[string]any)
+	if ep["chainFamily"] != "evm" {
+		t.Errorf("want chainFamily=evm for Coinbase Bazaar items, got %v", ep["chainFamily"])
+	}
+}
