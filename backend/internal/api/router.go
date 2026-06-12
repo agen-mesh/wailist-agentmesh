@@ -32,6 +32,7 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	r.Get("/marketplace/bazaar", d.BazaarList)
 	r.Get("/marketplace/bazaar/search", d.BazaarSearch)
 	r.Get("/marketplace/goplausible", d.GoplausibleList)
+	r.Get("/marketplace/workflows", d.ListPublishedWorkflows)
 
 	// Protected routes — JWT required
 	r.Group(func(r chi.Router) {
@@ -57,6 +58,10 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Get("/runs/{runId}/stream", d.StreamRun)
 
 		r.Post("/tools/x402/quote", d.X402Quote)
+
+		r.Post("/marketplace/workflows", d.PublishWorkflow)
+		r.Post("/marketplace/workflows/{id}/import", d.ImportWorkflow)
+		r.Post("/marketplace/workflows/{id}/upvote", d.UpvoteWorkflow)
 	})
 
 	return r
