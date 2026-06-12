@@ -1,7 +1,7 @@
 // TODO: Replace all stubs with real FastAPI calls when backend is ready.
 // Base URL will come from env: process.env.NEXT_PUBLIC_API_URL
 
-import { Workflow, ParamDef } from "./types";
+import { Workflow, ParamDef, MarketplaceEndpoint } from "./types";
 import { WORKFLOWS, SAMPLE_WORKFLOW } from "./data";
 
 // In the browser, always route through /api so the cookie stays same-site.
@@ -237,6 +237,36 @@ export const tools = {
     }
     await delay(600);
     return { price: "0.002", unit: "call", network: "algorand-testnet", recipient: "" };
+  },
+};
+
+// -- Marketplace ----------------------------------------------------------
+export const marketplace = {
+  bazaarList: async (
+    limit = 24,
+    offset = 0,
+  ): Promise<{ endpoints: MarketplaceEndpoint[] }> => {
+    if (BASE) {
+      const res = await fetch(
+        `${BASE}/marketplace/bazaar?limit=${limit}&offset=${offset}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) return { endpoints: [] };
+      return res.json();
+    }
+    return { endpoints: [] };
+  },
+
+  bazaarSearch: async (q: string): Promise<{ endpoints: MarketplaceEndpoint[] }> => {
+    if (BASE) {
+      const res = await fetch(
+        `${BASE}/marketplace/bazaar/search?q=${encodeURIComponent(q)}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) return { endpoints: [] };
+      return res.json();
+    }
+    return { endpoints: [] };
   },
 };
 
