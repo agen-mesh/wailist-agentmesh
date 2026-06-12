@@ -151,8 +151,8 @@ export function MarketplacePage() {
             {bazaarError && <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "#f87171" }}>bazaar unreachable</span>}
           </div>
           {bazaarLoading && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
-              {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+              {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
             </div>
           )}
           {!bazaarLoading && filteredBazaar.length === 0 && !bazaarError && (
@@ -161,7 +161,7 @@ export function MarketplacePage() {
             </div>
           )}
           {!bazaarLoading && filteredBazaar.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
               {filteredBazaar.map((ep) => (
                 <EndpointCard key={ep.id} ep={ep} onAdd={() => handleAdd(ep)} />
               ))}

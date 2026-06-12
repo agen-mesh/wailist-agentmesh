@@ -144,19 +144,13 @@ func fetchBazaar(ctx context.Context, path string) ([]BazaarEndpoint, error) {
 }
 
 func normalizeBazaarItem(item bazaarItem) BazaarEndpoint {
-	// Stable ID derived from the endpoint URL.
 	id := fmt.Sprintf("bazaar-%x", md5.Sum([]byte(item.Resource)))
-
-	name := item.ServiceName
-	if name == "" {
-		name = item.Resource
-	}
-
+	name, provider := parseNameProvider(item.ServiceName, item.Resource)
 	return BazaarEndpoint{
 		ID:               id,
 		Name:             name,
 		Description:      item.Description,
-		Provider:         item.ServiceName,
+		Provider:         provider,
 		Price:            formatBazaarPrice(item.Accepts),
 		Unit:             "call",
 		Category:         categoryFromTags(item.Tags, item.Type),
@@ -165,6 +159,104 @@ func normalizeBazaarItem(item bazaarItem) BazaarEndpoint {
 		DiscoveredParams: extractBazaarParams(item.Extensions),
 		Source:           "bazaar",
 	}
+}
+
+// parseNameProvider returns a human-readable name and provider for a Bazaar item.
+// When serviceName is a URL (some Bazaar entries use the endpoint URL as the name),
+// we derive the name from the URL path and the provider from the hostname.
+func parseNameProvider(serviceName, resource string) (name, provider string) {
+	isURL := strings.HasPrefix(serviceName, "http://") || strings.HasPrefix(serviceName, "https://")
+
+	u, _ := url.Parse(resource)
+	providerHost := ""
+	if u != nil {
+		providerHost = hostToProvider(u.Host)
+	}
+
+	if isURL {
+		// serviceName is a URL — extract clean name from path
+		su, err := url.Parse(serviceName)
+		if err == nil {
+			name = pathToName(su.Path)
+		}
+		if name == "" {
+			name = providerHost
+		}
+		provider = providerHost
+		return
+	}
+
+	// serviceName is a human-readable name — use it for both name and provider.
+	name = serviceName
+	provider = serviceName
+	if provider == "" {
+		provider = providerHost
+	}
+	// When serviceName is empty, derive a readable name from the resource URL path.
+	if name == "" && u != nil {
+		name = pathToName(u.Path)
+	}
+	if name == "" {
+		name = providerHost
+	}
+	return
+}
+
+// hostToProvider converts a hostname like "x402.ottoai.services" → "OttoAI".
+func hostToProvider(host string) string {
+	// Strip port.
+	if i := strings.LastIndex(host, ":"); i > strings.LastIndex(host, "]") {
+		host = host[:i]
+	}
+	// Strip known subdomain prefixes.
+	for _, pfx := range []string{"api.", "www.", "x402.", "skills.", "app."} {
+		host = strings.TrimPrefix(host, pfx)
+	}
+	parts := strings.Split(host, ".")
+	if len(parts) == 0 {
+		return host
+	}
+	// Second-level domain is the brand name.
+	brand := parts[0]
+	if len(parts) >= 2 {
+		brand = parts[len(parts)-2]
+	}
+	if brand == "" {
+		return host
+	}
+	// Title-case each camelCase word boundary (e.g. "ottoai" → "OttoAI" is hard,
+	// just capitalize the first letter for a clean result like "Ottoai").
+	return strings.ToUpper(brand[:1]) + brand[1:]
+}
+
+// pathToName converts a URL path like "/api/chain/ens/:input" → "Ens".
+func pathToName(path string) string {
+	skip := map[string]bool{
+		"api": true, "v1": true, "v2": true, "v3": true,
+		"chain": true, "public": true, "data": true, "platform": true,
+	}
+	var segments []string
+	for _, seg := range strings.Split(path, "/") {
+		seg = strings.TrimSpace(seg)
+		if seg == "" || strings.HasPrefix(seg, ":") || strings.HasPrefix(seg, "{") {
+			continue
+		}
+		if skip[strings.ToLower(seg)] {
+			continue
+		}
+		segments = append(segments, seg)
+	}
+	if len(segments) == 0 {
+		return ""
+	}
+	last := segments[len(segments)-1]
+	words := strings.FieldsFunc(strings.NewReplacer("-", " ", "_", " ").Replace(last), func(r rune) bool { return r == ' ' })
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(w[:1]) + strings.ToLower(w[1:])
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 // formatBazaarPrice converts micro-USDC to a human-readable dollar string.
@@ -192,7 +284,7 @@ func formatBazaarPrice(accepts []bazaarAccept) string {
 func categoryFromTags(tags []string, typ string) string {
 	combined := strings.ToLower(strings.Join(tags, " ") + " " + typ)
 	switch {
-	case strings.ContainsAny(combined, "") && (strings.Contains(combined, "search") || strings.Contains(combined, "query")):
+	case strings.Contains(combined, "search") || strings.Contains(combined, "query"):
 		return "search"
 	case strings.Contains(combined, "finance") || strings.Contains(combined, "crypto") ||
 		strings.Contains(combined, "stock") || strings.Contains(combined, "market") ||
