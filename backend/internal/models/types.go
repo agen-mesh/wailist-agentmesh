@@ -107,8 +107,9 @@ type Workflow struct {
 	Runs        int            `json:"runs,omitempty"`
 	Spend       string         `json:"spend,omitempty"`
 	Updated     string         `json:"updated,omitempty"`
-	CreatedAt   time.Time      `json:"createdAt"`
-	UpdatedAt   time.Time      `json:"updatedAt"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	UpdatedAt         time.Time  `json:"updatedAt"`
+	SourcePublishedID *string    `json:"sourcePublishedId,omitempty"`
 }
 
 type RunStatus string
@@ -184,4 +185,19 @@ type User struct {
 	PasswordHash string    `json:"-"`
 	Credits      float64   `json:"credits"`
 	CreatedAt    time.Time `json:"createdAt"`
+}
+
+type PublishedWorkflow struct {
+	ID           string         `json:"id"`
+	CreatorID    string         `json:"creatorId"`
+	CreatorEmail string         `json:"creatorEmail"`
+	Title        string         `json:"title"`
+	Description  string         `json:"description"`
+	Tags         []string       `json:"tags"`
+	Nodes        []WorkflowNode `json:"nodes,omitempty"`
+	Edges        []WorkflowEdge `json:"edges,omitempty"`
+	FeePerRun    float64        `json:"feePerRun"`
+	RunCount     int            `json:"runCount"`
+	UpvoteCount  int            `json:"upvoteCount"`
+	PublishedAt  time.Time      `json:"publishedAt"`
 }
