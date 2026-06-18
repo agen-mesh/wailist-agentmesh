@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Workflow, WorkflowNode, WorkflowEdge, MarketplaceEndpoint } from "@/lib/types";
+import { WorkflowNode, WorkflowEdge, MarketplaceEndpoint } from "@/lib/types";
 import { MARKETPLACE_ENDPOINTS } from "@/lib/data";
 import { marketplace } from "@/lib/api";
 import {
@@ -12,13 +12,13 @@ import {
 } from "@/lib/textToWorkflow";
 
 interface TextToWorkflowModalProps {
-  setWorkflow: React.Dispatch<React.SetStateAction<Workflow>>;
+  onApply: (nodes: WorkflowNode[], edges: WorkflowEdge[]) => void;
   onClose: () => void;
 }
 
 type Stage = "input" | "questions" | "preview";
 
-export function TextToWorkflowModal({ setWorkflow, onClose }: TextToWorkflowModalProps) {
+export function TextToWorkflowModal({ onApply, onClose }: TextToWorkflowModalProps) {
   const [stage, setStage]         = useState<Stage>("input");
   const [text, setText]           = useState("");
   const [endpoints, setEndpoints] = useState<MarketplaceEndpoint[]>(MARKETPLACE_ENDPOINTS);
@@ -60,13 +60,9 @@ export function TextToWorkflowModal({ setWorkflow, onClose }: TextToWorkflowModa
     setStage("preview");
   };
 
-  const onApply = () => {
+  const handleApply = () => {
     if (!preview || preview.nodes.length === 0) return;
-    setWorkflow((wf) => ({
-      ...wf,
-      nodes: [...wf.nodes, ...preview.nodes],
-      edges: [...wf.edges, ...preview.edges],
-    }));
+    onApply(preview.nodes, preview.edges);
     onClose();
   };
 
@@ -152,7 +148,7 @@ export function TextToWorkflowModal({ setWorkflow, onClose }: TextToWorkflowModa
               <button onClick={() => { setDraft(null); setAnswers({}); setPreview(null); setStage("input"); }} style={ghostBtn}>Start over</button>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={onClose} style={ghostBtn}>Cancel</button>
-                <button onClick={onApply} style={primaryBtn}>Apply to canvas</button>
+                <button onClick={handleApply} style={primaryBtn}>Apply to canvas</button>
               </div>
             </div>
           </>

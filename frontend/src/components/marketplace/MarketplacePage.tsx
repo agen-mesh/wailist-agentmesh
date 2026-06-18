@@ -31,27 +31,15 @@ export function MarketplacePage() {
   const [wfLoading, setWfLoading] = useState(false);
 
   const [pickerEndpoint, setPickerEndpoint] = useState<MarketplaceEndpoint | null>(null);
-  const [bazaarEndpoints, setBazaarEndpoints] = useState<MarketplaceEndpoint[]>([]);
-  const [bazaarLoading, setBazaarLoading] = useState(true);
-  const [bazaarError, setBazaarError] = useState(false);
   const [gpEndpoints, setGpEndpoints] = useState<MarketplaceEndpoint[]>([]);
   const [gpLoading, setGpLoading] = useState(true);
   const [gpError, setGpError] = useState(false);
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2600); };
 
   const showFeatured = category === "all" && !query;
 
   // Initial load
   useEffect(() => {
-    setBazaarLoading(true);
-    marketplaceApi
-      .bazaarList(24, 0)
-      .then(({ endpoints }) => { setBazaarEndpoints(endpoints); setBazaarError(false); })
-      .catch(() => setBazaarError(true))
-      .finally(() => setBazaarLoading(false));
-
     setGpLoading(true);
     marketplaceApi
       .goplausibleList(50, 0)
@@ -85,24 +73,6 @@ export function MarketplacePage() {
     return () => clearTimeout(timer);
   }, [wfQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Debounced search
-  useEffect(() => {
-    if (!query.trim()) {
-      if (!bazaarLoading) {
-        marketplaceApi.bazaarList(24, 0).then(({ endpoints }) => setBazaarEndpoints(endpoints)).catch(() => {});
-      }
-      return;
-    }
-    if (searchTimer.current) clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => {
-      marketplaceApi
-        .bazaarSearch(query)
-        .then(({ endpoints }) => setBazaarEndpoints(endpoints))
-        .catch(() => {});
-    }, 400);
-    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
-  }, [query]);
-
   // static entries filtered by category + query (client-side)
   const filteredStatic = useMemo(() =>
     MARKETPLACE_ENDPOINTS.filter((ep) => {
@@ -111,12 +81,6 @@ export function MarketplacePage() {
       const matchQ = !q || ep.name.toLowerCase().includes(q) || ep.description.toLowerCase().includes(q) || ep.tags.some((t) => t.includes(q));
       return matchCat && matchQ;
     }), [query, category]);
-
-  // Bazaar entries filtered by category only (search is server-side)
-  const filteredBazaar = useMemo(() =>
-    bazaarEndpoints.filter((ep) =>
-      category === "all" || ep.category === category
-    ), [bazaarEndpoints, category]);
 
   // GoPlausible entries filtered by category
   const filteredGP = useMemo(() =>
@@ -257,32 +221,6 @@ export function MarketplacePage() {
           )}
         </div>
 
-        {/* EVM Bazaar section — Coinbase */}
-        <div style={{ marginBottom: 36 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-            <SectionLabel>{query ? `EVM results · ${filteredBazaar.length}` : "EVM Marketplace · Coinbase Bazaar"}</SectionLabel>
-            <ChainBadge chain="evm" />
-            {bazaarLoading && <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--fg-dim)" }}>fetching…</span>}
-            {bazaarError && <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "#f87171" }}>bazaar unreachable</span>}
-          </div>
-          {bazaarLoading && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
-              {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
-            </div>
-          )}
-          {!bazaarLoading && filteredBazaar.length === 0 && !bazaarError && (
-            <div style={{ fontSize: 12, color: "var(--fg-dim)", fontFamily: "var(--font-mono)", padding: "24px 0" }}>
-              {query ? `No EVM results for "${query}"` : "No endpoints found"}
-            </div>
-          )}
-          {!bazaarLoading && filteredBazaar.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
-              {filteredBazaar.map((ep) => (
-                <EndpointCard key={ep.id} ep={ep} onAdd={() => handleAdd(ep)} />
-              ))}
-            </div>
-          )}
-        </div>
         </>)}
         {mainTab === "workflows" && (
           <div style={{ marginTop: 24 }}>

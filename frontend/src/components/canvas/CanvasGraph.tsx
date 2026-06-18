@@ -14,13 +14,15 @@ interface CanvasGraphProps {
   deployed: boolean;
   running: boolean;
   attachedSummaries: Record<string, { model: string | null; tools: number }>;
+  scrollTo?: { x: number; y: number } | null;
+  onScrolled?: () => void;
 }
 
 interface ViewState { x: number; y: number; k: number; }
 interface WireState { fromId: string; fromPort: PortName; x: number; y: number; }
 interface HoverPort { nodeId: string; port: PortName; }
 
-export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, deployed, running, attachedSummaries }: CanvasGraphProps) {
+export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, deployed, running, attachedSummaries, scrollTo, onScrolled }: CanvasGraphProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<ViewState>({ x: 40, y: 40, k: 0.95 });
   const [panning, setPanning] = useState(false);
@@ -36,6 +38,19 @@ export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, 
     const id = setInterval(() => setAnimTick((t) => t + 1), 90);
     return () => clearInterval(id);
   }, [running]);
+
+  // Pan view to center on a newly injected node
+  useEffect(() => {
+    if (!scrollTo || !wrapRef.current) return;
+    const rect = wrapRef.current.getBoundingClientRect();
+    const k = 0.95;
+    setView({
+      x: rect.width / 2 - scrollTo.x * k - 110, // 110 = half node width (220/2)
+      y: rect.height / 2 - scrollTo.y * k - 42,  // 42 = half node height (84/2)
+      k,
+    });
+    onScrolled?.();
+  }, [scrollTo, onScrolled]);
 
   // Wheel zoom
   useEffect(() => {

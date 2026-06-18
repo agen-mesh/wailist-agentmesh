@@ -60,6 +60,12 @@ export function WorkflowsPage() {
     router.push("/");
   };
 
+  const handleDelete = useCallback(async (id: string) => {
+    if (!confirm("Delete this workflow? This cannot be undone.")) return;
+    await workflowsApi.delete(id);
+    setWfList((prev) => prev.filter((w) => w.id !== id));
+  }, []);
+
   const activeCount = wfList.filter((w) => w.status === "active").length;
 
   const [credits, setCredits] = useState<number | null>(null);
@@ -169,7 +175,7 @@ export function WorkflowsPage() {
               loading workflows…
             </div>
           ) : view === "rows" ? (
-            <WorkflowRows items={filtered} onOpen={(id) => router.push(`/workflows/${id}`)} />
+            <WorkflowRows items={filtered} onOpen={(id) => router.push(`/workflows/${id}`)} onDelete={handleDelete} />
           ) : (
             <WorkflowGrid items={filtered} onOpen={(id) => router.push(`/workflows/${id}`)} />
           )}
@@ -232,7 +238,17 @@ function WorkflowIcon({ name }: { name: string }) {
   );
 }
 
-function WorkflowRows({ items, onOpen }: { items: Workflow[]; onOpen: (id: string) => void }) {
+function WorkflowRows({ items, onOpen, onDelete }: { items: Workflow[]; onOpen: (id: string) => void; onDelete: (id: string) => void }) {
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!openMenu) return;
+    const close = () => setOpenMenu(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [openMenu]);
+
   return (
     <div style={{ background: "var(--bg-elev-1)", border: "1px solid var(--border)", borderRadius: "var(--r-3)", overflow: "hidden" }}>
       <div style={{ display: "grid", gridTemplateColumns: "1.6fr 100px 80px 110px 130px 160px 80px", gap: 12, padding: "10px 16px", background: "var(--bg-elev-2)", borderBottom: "1px solid var(--border)", fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-dim)" }}>
@@ -258,9 +274,27 @@ function WorkflowRows({ items, onOpen }: { items: Workflow[]; onOpen: (id: strin
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--fg-muted)" }}>{wf.runs?.toLocaleString() ?? "—"}</span>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--accent)" }}>{wf.spend ?? "—"}{wf.spend && <span style={{ color: "var(--fg-dim)" }}> ALGO</span>}</span>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-muted)" }}>{fmtDate(wf.updatedAt ?? wf.updated)}</span>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 4 }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 4, position: "relative" }}>
             <button style={ghostBtnSm} onClick={(e) => { e.stopPropagation(); onOpen(wf.id); }}>Open</button>
-            <button style={{ ...ghostBtnSm, width: 28, padding: 0, justifyContent: "center" }} onClick={(e) => e.stopPropagation()}>⋯</button>
+            <button
+              style={{ ...ghostBtnSm, width: 28, padding: 0, justifyContent: "center" }}
+              onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === wf.id ? null : wf.id); }}
+            >⋯</button>
+            {openMenu === wf.id && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, background: "var(--bg-elev-3)", border: "1px solid var(--border-strong)", borderRadius: "var(--r-2)", zIndex: 50, minWidth: 140, boxShadow: "0 4px 16px rgba(0,0,0,0.4)", overflow: "hidden" }}
+              >
+                <button
+                  onClick={() => { setOpenMenu(null); onDelete(wf.id); }}
+                  style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", background: "transparent", border: "none", color: "#f87171", fontSize: 13, cursor: "pointer", fontFamily: "var(--font-sans)" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(248,113,113,0.08)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  Delete workflow
+                </button>
+              </div>
+            )}
           </div>
         </div>
       ))}

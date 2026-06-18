@@ -168,6 +168,14 @@ export const workflows = {
     await delay(100);
   },
 
+  delete: async (id: string): Promise<void> => {
+    if (BASE) {
+      await fetch(`${BASE}/workflows/${id}`, { method: "DELETE", credentials: "include" });
+      return;
+    }
+    await delay(100);
+  },
+
   createFromTemplate: async (name: string, nodes: unknown[], edges: unknown[]): Promise<Workflow> => {
     if (BASE) {
       const createRes = await fetch(`${BASE}/workflows`, {

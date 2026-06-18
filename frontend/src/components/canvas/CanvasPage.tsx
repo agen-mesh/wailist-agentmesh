@@ -32,6 +32,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   const [publishOpen, setPublishOpen] = useState(false);
   const [savedWorkflows, setSavedWorkflows] = useState<Workflow[]>([]);
   const [spend, setSpend] = useState<{ total: number; last24h: number }>({ total: 0, last24h: 0 });
+  const [scrollTo, setScrollTo] = useState<{ x: number; y: number } | null>(null);
   const justLoaded = useRef(true);
 
   const refreshSpend = useCallback(() => {
@@ -47,6 +48,8 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+
     setLoading(true);
     setSelectedId(null);
     setDeployed(false);
@@ -54,13 +57,14 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
 
     if (workflowId === "new") {
       workflowsApi.create("Untitled workflow")
-        .then((wf) => router.replace(`/workflows/${wf.id}`))
-        .catch(() => setLoading(false));
-      return;
+        .then((wf) => { if (isMounted) router.replace(`/workflows/${wf.id}`); })
+        .catch(() => { if (isMounted) setLoading(false); });
+      return () => { isMounted = false; };
     }
 
     workflowsApi.get(workflowId)
       .then((wf) => {
+        if (!isMounted) return;
         justLoaded.current = true;
         // Inject any node that was queued from the marketplace
         const raw = localStorage.getItem("agentmesh:pendingNode");
@@ -69,9 +73,18 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
             const raw2 = JSON.parse(raw);
             const { type, name, endpoint, description, discoveredParams } = raw2 as Partial<WorkflowNode>;
             const id = `n_${Date.now()}`;
-            const pendingNode: WorkflowNode = { id, x: 280, y: 180, type: type ?? "tool402", name, endpoint, description, discoveredParams } as WorkflowNode;
+            // Place to the right of existing nodes (or at a default position)
+            let nx = 280, ny = 200;
+            if (wf.nodes.length > 0) {
+              const maxX = Math.max(...wf.nodes.map((n) => (n.x ?? 0) + 200));
+              const avgY = wf.nodes.reduce((s, n) => s + (n.y ?? 0), 0) / wf.nodes.length;
+              nx = maxX + 60;
+              ny = avgY;
+            }
+            const pendingNode: WorkflowNode = { id, x: nx, y: ny, type: type ?? "tool402", name, endpoint, description, discoveredParams } as WorkflowNode;
             wf = { ...wf, nodes: [...wf.nodes, pendingNode] };
             setTimeout(() => setSelectedId(id), 0);
+            setScrollTo({ x: nx, y: ny });
             justLoaded.current = false; // ensure auto-save fires for the injected node
           } catch {
             // malformed JSON — ignore
@@ -85,7 +98,9 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         }
         setLoading(false);
       })
-      .catch(() => { router.push("/workflows"); });
+      .catch(() => { if (isMounted) router.push("/workflows"); });
+
+    return () => { isMounted = false; };
   }, [workflowId, router]);
 
   // Auto-save: debounce 1.5s after any change, skip on initial load.
@@ -295,6 +310,25 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     [setWorkflow]
   ) as React.Dispatch<React.SetStateAction<Workflow>>;
 
+  // T2W apply — update state AND save immediately so navigation before the
+  // debounce fires can't drop the changes.
+  const handleT2WApply = useCallback((newNodes: WorkflowNode[], newEdges: WorkflowEdge[]) => {
+    if (!workflow) return;
+    const updated: Workflow = {
+      ...workflow,
+      nodes: [...workflow.nodes, ...newNodes],
+      edges: [...workflow.edges, ...newEdges],
+    };
+    setWorkflow(updated);
+    setSaveLabel("saving…");
+    workflowsApi.update(updated.id, { name: updated.name, nodes: updated.nodes, edges: updated.edges })
+      .then(() => {
+        const now = new Date();
+        setSaveLabel(`saved · ${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`);
+      })
+      .catch(() => setSaveLabel("save failed"));
+  }, [workflow]);
+
   if (loading || !workflow) {
     return (
       <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", color: "var(--fg-dim)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
@@ -325,6 +359,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
             selectedId={selectedId} setSelectedId={setSelectedId}
             deployed={deployed} running={running}
             attachedSummaries={attachedSummaries}
+            scrollTo={scrollTo} onScrolled={() => setScrollTo(null)}
           />
           <LogDrawer
             open={logOpen} onToggle={() => setLogOpen((o) => !o)}
@@ -352,7 +387,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
 
       {t2wOpen && (
         <TextToWorkflowModal
-          setWorkflow={setWorkflowNN}
+          onApply={handleT2WApply}
           onClose={() => setT2wOpen(false)}
         />
       )}
