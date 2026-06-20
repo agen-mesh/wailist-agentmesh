@@ -81,6 +81,23 @@ html, body {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.4; }
 }
+@keyframes node-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(167,140,250,0.25), 0 0 16px rgba(167,140,250,0.08); border-color: rgba(167,140,250,0.40); }
+  50%      { box-shadow: 0 0 0 5px rgba(167,140,250,0.0), 0 0 28px rgba(167,140,250,0.18); border-color: rgba(167,140,250,0.80); }
+}
+@keyframes paying-blink {
+  0%, 100% { opacity: 0.65; }
+  50%      { opacity: 1; }
+}
+@keyframes draw-edge {
+  from { stroke-dashoffset: 350; }
+  to   { stroke-dashoffset: 0; }
+}
+@keyframes signal-flow {
+  0%   { stroke-dashoffset: 28; opacity: 1; }
+  80%  { opacity: 0.8; }
+  100% { stroke-dashoffset: 0;  opacity: 0; }
+}
 
 /* ── Utility classes ──────────────────────────────────────────────────── */
 .pulse { animation: pulse 1.6s ease-in-out infinite; }
