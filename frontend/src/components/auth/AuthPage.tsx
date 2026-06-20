@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useMobile } from "@/hooks/useMobile";
 import { useRouter } from "next/navigation";
 import { Logo, IconArrow, Pill, Tag } from "@/components/ui";
 import { useAuth } from "@/hooks/useAuth";
@@ -25,6 +26,7 @@ interface AuthPageProps {
 
 export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
   const router = useRouter();
+  const isMobile = useMobile();
   const { signIn, signUp } = useAuth();
   const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState("");
@@ -70,9 +72,9 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
   };
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", height: "100vh", overflow: "hidden", background: "var(--bg)" }}>
+    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", height: "100vh", overflow: "hidden", background: "var(--bg)" }}>
       {/* Left — form */}
-      <div style={{ padding: "40px 56px", display: "flex", flexDirection: "column", background: "var(--bg)", overflow: "auto" }}>
+      <div style={{ padding: isMobile ? "32px 24px" : "40px 56px", display: "flex", flexDirection: "column", background: "var(--bg)", overflow: "auto" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <button onClick={() => router.push("/")} style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
             <Logo size={18} />
@@ -150,15 +152,17 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
         </div>
       </div>
 
-      {/* Right — visual */}
-      <div style={{
-        background: "var(--bg-elev-1)", borderLeft: "1px solid var(--border)",
-        position: "relative", overflow: "hidden",
-        backgroundImage: "radial-gradient(var(--border-strong) 1px, transparent 1px)",
-        backgroundSize: "20px 20px",
-      }}>
-        <AuthVisual />
-      </div>
+      {/* Right — visual (desktop only) */}
+      {!isMobile && (
+        <div style={{
+          background: "var(--bg-elev-1)", borderLeft: "1px solid var(--border)",
+          position: "relative", overflow: "hidden",
+          backgroundImage: "radial-gradient(var(--border-strong) 1px, transparent 1px)",
+          backgroundSize: "20px 20px",
+        }}>
+          <AuthVisual />
+        </div>
+      )}
     </div>
   );
 }

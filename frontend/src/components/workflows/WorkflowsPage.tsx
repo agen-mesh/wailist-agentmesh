@@ -1,5 +1,6 @@
 "use client";
 import { useState, useMemo, useEffect, useCallback } from "react";
+import { useMobile } from "@/hooks/useMobile";
 import { useRouter } from "next/navigation";
 import { Logo, Pill, Tag, Hairline, IconSearch, IconGrid } from "@/components/ui";
 import { Workflow } from "@/lib/types";
@@ -9,6 +10,7 @@ import { WORKFLOW_TEMPLATES, WorkflowTemplate } from "@/lib/data";
 
 export function WorkflowsPage() {
   const router = useRouter();
+  const isMobile = useMobile();
   const { signOut } = useAuth();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
@@ -88,33 +90,33 @@ export function WorkflowsPage() {
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)" }}>
       {/* Topbar */}
-      <div style={{ height: 56, flexShrink: 0, background: "var(--bg-elev-1)", borderBottom: "1px solid var(--border)", padding: "0 24px", display: "flex", alignItems: "center", gap: 14 }}>
+      <div style={{ height: 56, flexShrink: 0, background: "var(--bg-elev-1)", borderBottom: "1px solid var(--border)", padding: "0 16px", display: "flex", alignItems: "center", gap: isMobile ? 10 : 14 }}>
         <button onClick={() => router.push("/")} style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
           <Logo size={18} />
         </button>
-        <Hairline vertical length={22} />
-        <button onClick={() => router.push("/marketplace")} style={navBtnStyle}>Marketplace</button>
-        <button onClick={() => router.push("/billing")} style={navBtnStyle}>Billing</button>
-        <Hairline vertical length={22} />
-        <button style={ghostBtnSm}>Acme Capital ▾</button>
-        <Pill mono dot tone="ok">testnet</Pill>
+        {!isMobile && <Hairline vertical length={22} />}
+        {!isMobile && <button onClick={() => router.push("/marketplace")} style={navBtnStyle}>Marketplace</button>}
+        {!isMobile && <button onClick={() => router.push("/billing")} style={navBtnStyle}>Billing</button>}
+        {!isMobile && <Hairline vertical length={22} />}
+        {!isMobile && <button style={ghostBtnSm}>Acme Capital ▾</button>}
+        {!isMobile && <Pill mono dot tone="ok">testnet</Pill>}
         <div style={{ flex: 1 }} />
-        <Hairline vertical length={22} />
+        {!isMobile && <Hairline vertical length={22} />}
         <button style={ghostBtnSm} onClick={handleSignOut}>Sign out</button>
         <div style={{ width: 28, height: 28, borderRadius: 999, background: "var(--accent)", color: "var(--accent-fg)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>AC</div>
       </div>
 
       {/* Main */}
       <div style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>
-        <div style={{ maxWidth: 1280, margin: "0 auto", padding: "36px 24px 80px" }}>
+        <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "24px 16px 60px" : "36px 24px 80px" }}>
           {/* Header */}
-          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 28 }}>
+          <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "flex-start" : "flex-end", justifyContent: "space-between", gap: isMobile ? 16 : 0, marginBottom: 24 }}>
             <div>
               <Tag>your workspace</Tag>
-              <h1 style={{ margin: "12px 0 4px", fontSize: 36, fontWeight: 500, letterSpacing: "-0.025em" }}>Workflows</h1>
+              <h1 style={{ margin: "12px 0 4px", fontSize: isMobile ? 28 : 36, fontWeight: 500, letterSpacing: "-0.025em" }}>Workflows</h1>
               <p style={{ margin: 0, color: "var(--fg-muted)", fontSize: 14 }}>Design, deploy, and monitor agent pipelines.</p>
             </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               {/* Credits widget */}
               <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 14px", background: "var(--bg-elev-2)", border: "1px solid var(--border)", borderRadius: "var(--r-2)", height: 36 }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
@@ -135,7 +137,7 @@ export function WorkflowsPage() {
           </div>
 
           {/* KPI row */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
             <KpiCard label="Active workflows" value={loading ? "…" : activeCount} sub={loading ? "" : `of ${wfList.length} total`} />
             <KpiCard label="Agents deployed" value="—" sub="deploy a workflow" />
             <KpiCard label="Spend · 30d" value="—" unit="ALGO" sub="run a workflow" />
@@ -143,8 +145,8 @@ export function WorkflowsPage() {
           </div>
 
           {/* Controls */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-            <div style={{ position: "relative", flex: 1, maxWidth: 360 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <div style={{ position: "relative", flex: 1, minWidth: 180, maxWidth: 360 }}>
               <span style={{ position: "absolute", left: 12, top: 12, color: "var(--fg-dim)" }}><IconSearch size={12} /></span>
               <input
                 style={{ height: 36, paddingLeft: 32, paddingRight: 12, width: "100%", background: "var(--bg-elev-1)", border: "1px solid var(--border)", borderRadius: "var(--r-2)", color: "var(--fg)", fontFamily: "var(--font-sans)", fontSize: 13, outline: "none" }}
@@ -174,10 +176,10 @@ export function WorkflowsPage() {
             <div style={{ padding: 48, textAlign: "center", color: "var(--fg-dim)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
               loading workflows…
             </div>
-          ) : view === "rows" ? (
-            <WorkflowRows items={filtered} onOpen={(id) => router.push(`/workflows/${id}`)} onDelete={handleDelete} />
-          ) : (
+          ) : (isMobile || view === "grid") ? (
             <WorkflowGrid items={filtered} onOpen={(id) => router.push(`/workflows/${id}`)} />
+          ) : (
+            <WorkflowRows items={filtered} onOpen={(id) => router.push(`/workflows/${id}`)} onDelete={handleDelete} />
           )}
 
           {!loading && filtered.length === 0 && wfList.length === 0 && (
