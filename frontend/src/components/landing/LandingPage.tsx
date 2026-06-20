@@ -1,7 +1,7 @@
 "use client";
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Logo, Tag, IconArrow } from "@/components/ui";
+import { Logo, Tag, IconArrow, IconMenu } from "@/components/ui";
 import { WAITLIST_COUNT } from "@/lib/data";
 import { waitlist } from "@/lib/api";
 import { useMobile } from "@/hooks/useMobile";
@@ -104,24 +104,34 @@ function HeroSection({ openStudio, signedIn, scrollToId }: {
 }) {
   const router = useRouter();
   const isMobile = useMobile();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const handleNavClick = (id: string) => { setMenuOpen(false); scrollToId(id); };
+
+  // Lock scroll behind the full-screen menu
+  useEffect(() => {
+    document.body.style.overflow = menuOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [menuOpen]);
+
   return (
     <section style={{ position: "relative", minHeight: "100vh", display: "flex", flexDirection: "column", background: "transparent" }}>
       {/* Readability bloom behind headline */}
       <div style={{
         position: "absolute", top: "50%", left: "50%",
         transform: "translate(-50%, -50%)",
-        width: 984, height: 527,
-        opacity: 0.88,
-        background: "hsl(260 60% 4%)",
-        filter: "blur(82px)",
+        width: 984, height: 527, opacity: 0.88,
+        background: "hsl(260 60% 4%)", filter: "blur(82px)",
         pointerEvents: "none", zIndex: 1,
       }} />
 
       <div style={{ position: "relative", zIndex: 10, display: "flex", flexDirection: "column", flex: 1, minHeight: "100vh" }}>
         {/* Nav */}
         <div style={{ position: "relative", zIndex: 11 }}>
-          <div style={{ padding: "20px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ padding: isMobile ? "16px 20px" : "20px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <Logo size={20} />
+
+            {/* Desktop center nav */}
             <nav style={{
               display: isMobile ? "none" : "flex", alignItems: "center", gap: 4,
               position: "absolute", left: "50%", transform: "translateX(-50%)",
@@ -130,73 +140,57 @@ function HeroSection({ openStudio, signedIn, scrollToId }: {
                 <button key={label} onClick={() => scrollToId(["pillars", "flow", "waitlist"][i])}
                   style={{
                     background: "transparent", border: "none", cursor: "pointer",
-                    color: "rgba(242, 240, 247, 0.9)", fontSize: 14, fontWeight: 400,
+                    color: "rgba(242,240,247,0.9)", fontSize: 14, fontWeight: 400,
                     fontFamily: "var(--font-sans)", padding: "8px 14px",
-                    display: "inline-flex", alignItems: "center", gap: 6,
-                    transition: "color .15s",
+                    display: "inline-flex", alignItems: "center", gap: 6, transition: "color .15s",
                   }}
                   onMouseEnter={(e) => (e.currentTarget.style.color = "#fff")}
-                  onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(242, 240, 247, 0.9)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(242,240,247,0.9)")}
                 >{label}</button>
               ))}
             </nav>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {!signedIn && (
-                <button onClick={() => router.push("/signup")} className="liquid-glass"
-                  style={{
-                    padding: "8px 18px", borderRadius: 999,
-                    background: "rgba(255,255,255,0.04)", color: "rgba(242, 240, 247, 0.92)",
-                    fontSize: 13, fontWeight: 500, border: "none", cursor: "pointer",
-                    fontFamily: "var(--font-sans)",
-                  }}>Sign Up</button>
-              )}
-              <button onClick={openStudio}
-                style={{
-                  padding: "8px 18px", borderRadius: 999,
-                  background: "var(--accent)", color: "var(--accent-fg)",
-                  fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer",
-                  fontFamily: "var(--font-sans)",
-                  display: "inline-flex", alignItems: "center", gap: 6,
-                }}>
-                Open Studio <IconArrow size={11} />
+
+            {/* Desktop right buttons */}
+            {!isMobile && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {!signedIn && (
+                  <button onClick={() => router.push("/signup")} className="liquid-glass"
+                    style={{ padding: "8px 18px", borderRadius: 999, background: "rgba(255,255,255,0.04)", color: "rgba(242,240,247,0.92)", fontSize: 13, fontWeight: 500, border: "none", cursor: "pointer", fontFamily: "var(--font-sans)" }}>
+                    Sign Up
+                  </button>
+                )}
+                <button onClick={openStudio}
+                  style={{ padding: "8px 18px", borderRadius: 999, background: "var(--accent)", color: "var(--accent-fg)", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  Open Studio <IconArrow size={11} />
+                </button>
+              </div>
+            )}
+
+            {/* Mobile hamburger */}
+            {isMobile && (
+              <button
+                onClick={() => setMenuOpen(!menuOpen)}
+                style={{ background: "transparent", border: "none", cursor: "pointer", padding: "10px", color: "rgba(242,240,247,0.9)", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, marginRight: -4 }}
+              >
+                <IconMenu open={menuOpen} />
               </button>
-            </div>
+            )}
           </div>
-          <div style={{ height: 1, marginTop: 3, background: "linear-gradient(90deg, transparent, rgba(242, 240, 247, 0.20), transparent)" }} />
+          <div style={{ height: 1, marginTop: 3, background: "linear-gradient(90deg, transparent, rgba(242,240,247,0.20), transparent)" }} />
         </div>
 
         {/* Hero content */}
-        <div style={{
-          flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-          padding: isMobile ? "0 20px" : "0 32px", position: "relative",
-        }}>
-          <div style={{
-            position: "relative", zIndex: 12, display: "flex", flexDirection: "column",
-            alignItems: "center", textAlign: "center",
-          }}>
-            <h1 style={{
-              margin: 0, fontFamily: "var(--font-sans)", fontWeight: 400,
-              fontSize: "clamp(44px, 12vw, 220px)", lineHeight: 1.02,
-              letterSpacing: "-0.024em", color: "rgba(242, 240, 247, 0.98)",
-            }}>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? "0 20px" : "0 32px", position: "relative" }}>
+          <div style={{ position: "relative", zIndex: 12, display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
+            <h1 style={{ margin: 0, fontFamily: "var(--font-sans)", fontWeight: 400, fontSize: "clamp(44px, 12vw, 220px)", lineHeight: 1.02, letterSpacing: "-0.024em", color: "rgba(242,240,247,0.98)" }}>
               Agent<span className="hero-gradient">Mesh</span>
             </h1>
-            <p style={{
-              margin: 0, marginTop: 9, maxWidth: 460,
-              fontSize: isMobile ? 15 : 18, lineHeight: 1.55, color: "rgba(242, 240, 247, 0.82)",
-              opacity: 0.85, fontFamily: "var(--font-sans)", letterSpacing: "-0.005em",
-            }}>
+            <p style={{ margin: 0, marginTop: 9, maxWidth: 460, fontSize: isMobile ? 15 : 18, lineHeight: 1.55, color: "rgba(242,240,247,0.82)", opacity: 0.85, fontFamily: "var(--font-sans)", letterSpacing: "-0.005em" }}>
               The visual canvas for autonomous<br />agent networks on Algorand.
             </p>
             <div style={{ display: "flex", gap: 12, marginTop: 25 }}>
               <button onClick={openStudio} className="liquid-glass"
-                style={{
-                  padding: isMobile ? "16px 22px" : "24px 29px", borderRadius: 999,
-                  background: "rgba(255,255,255,0.04)", color: "#fff",
-                  fontSize: isMobile ? 14 : 15, fontWeight: 500, border: "none", cursor: "pointer",
-                  fontFamily: "var(--font-sans)",
-                  display: "inline-flex", alignItems: "center", gap: 8,
-                }}>
+                style={{ padding: isMobile ? "16px 22px" : "24px 29px", borderRadius: 999, background: "rgba(255,255,255,0.04)", color: "#fff", fontSize: isMobile ? 14 : 15, fontWeight: 500, border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", display: "inline-flex", alignItems: "center", gap: 8 }}>
                 Open Studio <IconArrow size={13} />
               </button>
             </div>
@@ -206,6 +200,90 @@ function HeroSection({ openStudio, signedIn, scrollToId }: {
         {/* Logo marquee */}
         <LogoMarquee />
       </div>
+
+      {/* ── Mobile full-screen menu ── */}
+      {menuOpen && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 200,
+          background: "rgba(6,5,14,0.98)",
+          backdropFilter: "blur(28px)", WebkitBackdropFilter: "blur(28px)",
+          display: "flex", flexDirection: "column",
+          animation: "fade-in 0.16s ease-out",
+        }}>
+          {/* Menu topbar */}
+          <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            <Logo size={20} />
+            <button onClick={() => setMenuOpen(false)} style={{ background: "transparent", border: "none", cursor: "pointer", padding: "10px", color: "rgba(242,240,247,0.9)", display: "flex", alignItems: "center", borderRadius: 8 }}>
+              <IconMenu open={true} />
+            </button>
+          </div>
+
+          {/* Nav links */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "4px 0" }}>
+            {[
+              { label: "Overview",      id: "pillars"  },
+              { label: "How it works",  id: "flow"     },
+              { label: "Waitlist",      id: "waitlist" },
+            ].map(({ label, id }, i) => (
+              <button key={label} onClick={() => handleNavClick(id)}
+                style={{
+                  background: "transparent", border: "none", cursor: "pointer",
+                  textAlign: "left", padding: "0 24px",
+                  height: 72,
+                  borderBottom: "1px solid rgba(255,255,255,0.055)",
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  fontFamily: "var(--font-sans)", fontSize: 22, fontWeight: 500,
+                  letterSpacing: "-0.02em", color: "rgba(242,240,247,0.82)",
+                  animation: `fade-up 0.28s ease-out ${0.04 + i * 0.06}s both`,
+                  transition: "background 0.12s, color 0.12s",
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.03)"; (e.currentTarget as HTMLElement).style.color = "#fff"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = "rgba(242,240,247,0.82)"; }}
+              >
+                <span>{label}</span>
+                <span style={{ color: "rgba(255,255,255,0.20)", fontSize: 16, lineHeight: 1 }}>›</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Bottom CTA area */}
+          <div style={{ padding: "20px 20px 44px", display: "flex", flexDirection: "column", gap: 10, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+            <button
+              onClick={() => { setMenuOpen(false); openStudio(); }}
+              style={{
+                height: 56, borderRadius: 999,
+                background: "var(--accent)", color: "var(--accent-fg)",
+                fontSize: 16, fontWeight: 600, border: "none", cursor: "pointer",
+                fontFamily: "var(--font-sans)",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                boxShadow: "0 0 36px rgba(167,140,250,0.32)",
+                animation: "fade-up 0.28s ease-out 0.20s both",
+              }}
+            >
+              Open Studio <IconArrow size={14} />
+            </button>
+            {!signedIn && (
+              <button
+                onClick={() => { setMenuOpen(false); router.push("/signup"); }}
+                className="liquid-glass"
+                style={{
+                  height: 56, borderRadius: 999,
+                  background: "rgba(255,255,255,0.05)", color: "rgba(242,240,247,0.80)",
+                  fontSize: 16, fontWeight: 500, border: "none", cursor: "pointer",
+                  fontFamily: "var(--font-sans)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  animation: "fade-up 0.28s ease-out 0.26s both",
+                }}
+              >
+                Create account
+              </button>
+            )}
+            <div style={{ textAlign: "center", marginTop: 4, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-dim)", animation: "fade-in 0.3s ease-out 0.32s both" }}>
+              testnet · free access · no spam
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

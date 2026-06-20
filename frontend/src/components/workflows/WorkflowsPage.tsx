@@ -2,7 +2,7 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useMobile } from "@/hooks/useMobile";
 import { useRouter } from "next/navigation";
-import { Logo, Pill, Tag, Hairline, IconSearch, IconGrid } from "@/components/ui";
+import { Logo, Pill, Tag, Hairline, IconSearch, IconGrid, IconMenu, IconArrow } from "@/components/ui";
 import { Workflow } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
 import { workflows as workflowsApi, auth as authApi } from "@/lib/api";
@@ -11,6 +11,7 @@ import { WORKFLOW_TEMPLATES, WorkflowTemplate } from "@/lib/data";
 export function WorkflowsPage() {
   const router = useRouter();
   const isMobile = useMobile();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { signOut } = useAuth();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
@@ -90,7 +91,7 @@ export function WorkflowsPage() {
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)" }}>
       {/* Topbar */}
-      <div style={{ height: 56, flexShrink: 0, background: "var(--bg-elev-1)", borderBottom: "1px solid var(--border)", padding: "0 16px", display: "flex", alignItems: "center", gap: isMobile ? 10 : 14 }}>
+      <div style={{ height: 56, flexShrink: 0, background: "var(--bg-elev-1)", borderBottom: "1px solid var(--border)", padding: "0 16px", display: "flex", alignItems: "center", gap: 14, position: "relative", zIndex: 60 }}>
         <button onClick={() => router.push("/")} style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
           <Logo size={18} />
         </button>
@@ -102,9 +103,70 @@ export function WorkflowsPage() {
         {!isMobile && <Pill mono dot tone="ok">testnet</Pill>}
         <div style={{ flex: 1 }} />
         {!isMobile && <Hairline vertical length={22} />}
-        <button style={ghostBtnSm} onClick={handleSignOut}>Sign out</button>
+        {!isMobile && <button style={ghostBtnSm} onClick={handleSignOut}>Sign out</button>}
         <div style={{ width: 28, height: 28, borderRadius: 999, background: "var(--accent)", color: "var(--accent-fg)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>AC</div>
+        {isMobile && (
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            style={{ background: "transparent", border: "none", cursor: "pointer", padding: "10px", color: "var(--fg)", display: "flex", alignItems: "center", borderRadius: 8, marginRight: -6 }}
+          >
+            <IconMenu open={mobileMenuOpen} />
+          </button>
+        )}
       </div>
+
+      {/* Mobile nav dropdown */}
+      {isMobile && mobileMenuOpen && (
+        <>
+          {/* Backdrop */}
+          <div onClick={() => setMobileMenuOpen(false)} style={{ position: "fixed", inset: 0, top: 56, zIndex: 49, background: "rgba(0,0,0,0.45)" }} />
+          {/* Panel */}
+          <div style={{
+            position: "fixed", top: 56, left: 0, right: 0, zIndex: 50,
+            background: "var(--bg-elev-1)", borderBottom: "1px solid var(--border)",
+            boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+            animation: "slide-down 0.18s ease-out",
+          }}>
+            {/* New workflow CTA */}
+            <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+              <button onClick={() => { setMobileMenuOpen(false); handleNewWorkflow(); }}
+                style={{ width: "100%", height: 48, borderRadius: "var(--r-2)", background: "var(--accent)", color: "var(--accent-fg)", fontSize: 14, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                + New workflow
+              </button>
+            </div>
+
+            {/* Nav links */}
+            {[
+              { label: "Marketplace", path: "/marketplace" },
+              { label: "Billing",     path: "/billing"     },
+            ].map(({ label, path }) => (
+              <button key={label} onClick={() => { setMobileMenuOpen(false); router.push(path); }}
+                style={{ width: "100%", height: 52, padding: "0 20px", background: "transparent", border: "none", borderBottom: "1px solid var(--border-soft)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", fontFamily: "var(--font-sans)", fontSize: 15, color: "var(--fg)", transition: "background .1s" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-elev-2)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              >
+                <span>{label}</span>
+                <span style={{ color: "var(--fg-dim)", fontSize: 13 }}><IconArrow size={13} /></span>
+              </button>
+            ))}
+
+            {/* Workspace + testnet */}
+            <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border-soft)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontFamily: "var(--font-sans)", fontSize: 14, color: "var(--fg-muted)" }}>Acme Capital</span>
+              <Pill mono dot tone="ok">testnet</Pill>
+            </div>
+
+            {/* Sign out */}
+            <button onClick={() => { setMobileMenuOpen(false); handleSignOut(); }}
+              style={{ width: "100%", height: 52, padding: "0 20px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: "var(--font-sans)", fontSize: 15, color: "#f87171", transition: "background .1s" }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(248,113,113,0.06)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              Sign out
+            </button>
+          </div>
+        </>
+      )}
 
       {/* Main */}
       <div style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>

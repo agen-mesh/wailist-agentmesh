@@ -139,6 +139,20 @@ export const IconGrid = ({ size = 14 }: { size?: number }) => (
   </svg>
 );
 
+export function IconMenu({ open }: { open: boolean }) {
+  const bar: CSSProperties = {
+    display: "block", height: 1.5, background: "currentColor",
+    borderRadius: 999, transformOrigin: "center",
+  };
+  return (
+    <div style={{ width: 20, height: 13, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+      <span style={{ ...bar, transition: "transform 0.22s ease", transform: open ? "translateY(5.75px) rotate(45deg)" : "none" }} />
+      <span style={{ ...bar, transition: "opacity 0.15s ease", opacity: open ? 0 : 1 }} />
+      <span style={{ ...bar, transition: "transform 0.22s ease", transform: open ? "translateY(-5.75px) rotate(-45deg)" : "none" }} />
+    </div>
+  );
+}
+
 export const IconWallet = ({ size = 14 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
     <rect x="2" y="4" width="12" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
