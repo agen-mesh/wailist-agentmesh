@@ -98,3 +98,28 @@ func TestTeamsAction_PostsMessageCard(t *testing.T) {
 		t.Errorf("want MessageCard payload with text, got %v", received)
 	}
 }
+
+func TestGoogleChatAction_PostsMessageText(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{
+		ID: "g1", Type: models.NodeTypeAction, Template: "google_chat",
+		Secrets: map[string]string{"googleChatWebhookURL": srv.URL},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"hello chat"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "google_chat_sent" {
+		t.Errorf("want 'google_chat_sent', got %v", result)
+	}
+	if received["text"] != "hello chat" {
+		t.Errorf("want text field with message, got %v", received)
+	}
+}

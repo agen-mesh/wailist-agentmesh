@@ -581,6 +581,13 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
             placeholder="https://…webhook.office.com/webhookb2/…" />
         </Section>
       )}
+
+      {node.template === "google_chat" && (
+        <Section label="Google Chat config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="googleChatWebhookURL" label="Webhook URL"
+            placeholder="https://chat.googleapis.com/v1/spaces/…" />
+        </Section>
+      )}
     </>
   );
 }

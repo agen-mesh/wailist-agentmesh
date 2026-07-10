@@ -45,3 +45,15 @@ func sendTeams(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 	}
 	return postJSON(ctx, webhookURL, nil, payload, "teams_sent", "Teams")
 }
+
+func sendGoogleChat(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	webhookURL := secretVal(node, "googleChatWebhookURL")
+	if webhookURL == "" {
+		return "google_chat_skipped_no_webhook_url", nil
+	}
+	if err := urlValidator(webhookURL); err != nil {
+		return nil, err
+	}
+	payload := map[string]any{"text": rc.Message()}
+	return postJSON(ctx, webhookURL, nil, payload, "google_chat_sent", "Google Chat")
+}

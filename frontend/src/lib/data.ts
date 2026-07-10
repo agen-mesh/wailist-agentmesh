@@ -54,6 +54,7 @@ export const ACTION_TEMPLATES = [
   { id: "db",      name: "Database Insert",desc: "Postgres / Neon",   icon: "▤" },
   { id: "discord", name: "Discord Message",desc: "Webhook post",      icon: "d" },
   { id: "teams",   name: "Teams Message",  desc: "Webhook post",      icon: "T" },
+  { id: "google_chat", name: "Google Chat Message", desc: "Webhook post", icon: "G" },
 ];
 
 export const END_TEMPLATES = [
