@@ -29,3 +29,19 @@ func sendDiscord(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	payload := map[string]any{"content": rc.Message()}
 	return postJSON(ctx, webhookURL, nil, payload, "discord_sent", "Discord")
 }
+
+func sendTeams(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	webhookURL := secretVal(node, "teamsWebhookURL")
+	if webhookURL == "" {
+		return "teams_skipped_no_webhook_url", nil
+	}
+	if err := urlValidator(webhookURL); err != nil {
+		return nil, err
+	}
+	payload := map[string]any{
+		"@type":    "MessageCard",
+		"@context": "http://schema.org/extensions",
+		"text":     rc.Message(),
+	}
+	return postJSON(ctx, webhookURL, nil, payload, "teams_sent", "Teams")
+}

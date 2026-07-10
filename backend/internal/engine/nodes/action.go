@@ -22,6 +22,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendSlack(ctx, node, rc)
 	case "discord":
 		return sendDiscord(ctx, node, rc)
+	case "teams":
+		return sendTeams(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

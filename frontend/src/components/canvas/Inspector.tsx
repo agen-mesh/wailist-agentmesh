@@ -574,6 +574,13 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
             placeholder="https://discord.com/api/webhooks/…" />
         </Section>
       )}
+
+      {node.template === "teams" && (
+        <Section label="Teams config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="teamsWebhookURL" label="Webhook URL"
+            placeholder="https://…webhook.office.com/webhookb2/…" />
+        </Section>
+      )}
     </>
   );
 }

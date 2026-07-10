@@ -53,6 +53,7 @@ export const ACTION_TEMPLATES = [
   { id: "slack",   name: "Slack Message",  desc: "Post to channel",   icon: "#" },
   { id: "db",      name: "Database Insert",desc: "Postgres / Neon",   icon: "▤" },
   { id: "discord", name: "Discord Message",desc: "Webhook post",      icon: "d" },
+  { id: "teams",   name: "Teams Message",  desc: "Webhook post",      icon: "T" },
 ];
 
 export const END_TEMPLATES = [

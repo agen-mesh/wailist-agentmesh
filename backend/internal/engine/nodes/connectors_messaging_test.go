@@ -73,3 +73,28 @@ func TestDiscordAction_PostsMessageContent(t *testing.T) {
 		t.Errorf("want content field with message, got %v", received)
 	}
 }
+
+func TestTeamsAction_PostsMessageCard(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{
+		ID: "t1", Type: models.NodeTypeAction, Template: "teams",
+		Secrets: map[string]string{"teamsWebhookURL": srv.URL},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"hello teams"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "teams_sent" {
+		t.Errorf("want 'teams_sent', got %v", result)
+	}
+	if received["text"] != "hello teams" || received["@type"] != "MessageCard" {
+		t.Errorf("want MessageCard payload with text, got %v", received)
+	}
+}
