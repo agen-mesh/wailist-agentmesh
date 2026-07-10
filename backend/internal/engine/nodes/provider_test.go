@@ -33,7 +33,7 @@ func TestExecuteAgentOpenAI(t *testing.T) {
 	rc := engine.NewRunContext("run1", []byte(`{"message":"hello"}`))
 	nodes.SetOpenAIBaseURL(srv.URL)
 
-	result, err := nodes.ExecuteAgent(context.Background(), node, attach, rc)
+	result, err := nodes.ExecuteAgent(context.Background(), node, attach, models.AgentWallet{}, nil, rc)
 	if err != nil {
 		t.Fatal(err)
 	}
