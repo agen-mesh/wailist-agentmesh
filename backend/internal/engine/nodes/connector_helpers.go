@@ -1,0 +1,102 @@
+package nodes
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+
+	"github.com/agentmesh/backend/internal/models"
+)
+
+// secretVal reads a per-connector credential stored on the node's Secrets map.
+// Returns "" if the node has no Secrets map or the key is unset.
+func secretVal(node models.WorkflowNode, key string) string {
+	if node.Secrets == nil {
+		return ""
+	}
+	return node.Secrets[key]
+}
+
+// configVal reads a per-connector non-secret setting from the node's Config map,
+// falling back to def when unset.
+func configVal(node models.WorkflowNode, key, def string) string {
+	if node.Config == nil || node.Config[key] == "" {
+		return def
+	}
+	return node.Config[key]
+}
+
+// newJSONRequest builds a JSON request with the given method, target, and headers.
+// Content-Type is always application/json; extraHeaders may add Authorization etc.
+func newJSONRequest(ctx context.Context, method, target string, extraHeaders map[string]string, payload any) (*http.Request, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("encode payload: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, target, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range extraHeaders {
+		req.Header.Set(k, v)
+	}
+	return req, nil
+}
+
+// postJSON POSTs payload as JSON to target and returns sentinel on success.
+func postJSON(ctx context.Context, target string, extraHeaders map[string]string, payload any, sentinel, serviceName string) (any, error) {
+	req, err := newJSONRequest(ctx, http.MethodPost, target, extraHeaders, payload)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", serviceName, err)
+	}
+	return doAndCheck(req, sentinel, serviceName)
+}
+
+// doAndCheck executes req on the shared toolHTTPClient, treats any status >= 400
+// as an error carrying a bounded body excerpt, and returns sentinel otherwise.
+func doAndCheck(req *http.Request, sentinel, serviceName string) (any, error) {
+	resp, err := toolHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", serviceName, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
+		return nil, fmt.Errorf("%s API %d: %s", serviceName, resp.StatusCode, string(b))
+	}
+	return sentinel, nil
+}
+
+// issueTitle derives a short title from a longer message: its first non-blank
+// line, capped at 120 runes, falling back to a generic title when blank.
+func issueTitle(message string) string {
+	line := message
+	if i := strings.IndexByte(message, '\n'); i >= 0 {
+		line = message[:i]
+	}
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return "AgentMesh workflow result"
+	}
+	r := []rune(line)
+	if len(r) > 120 {
+		return string(r[:120])
+	}
+	return line
+}
+
+// PostJSONForTest and IssueTitleForTest are test-only exported wrappers, used by
+// connector_helpers_test.go (package nodes_test) to test the unexported helpers
+// above without exporting them from the package's real API.
+func PostJSONForTest(ctx context.Context, target string, extraHeaders map[string]string, payload any, sentinel, serviceName string) (any, error) {
+	return postJSON(ctx, target, extraHeaders, payload, sentinel, serviceName)
+}
+
+func IssueTitleForTest(message string) string {
+	return issueTitle(message)
+}
