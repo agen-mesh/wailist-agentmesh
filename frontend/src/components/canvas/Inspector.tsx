@@ -96,6 +96,56 @@ function Field({ label, hint, children }: { label: string; hint?: React.ReactNod
   );
 }
 
+// ── Generic per-connector fields (Secrets/Config maps) ─────────────────────
+function SecretField({
+  node, onUpdate, secretKey, label, hint, placeholder,
+}: {
+  node: WorkflowNode;
+  onUpdate: (n: WorkflowNode) => void;
+  secretKey: string;
+  label: string;
+  hint?: string;
+  placeholder: string;
+}) {
+  const val = node.secrets?.[secretKey];
+  const isSet = val === "__enc__";
+  return (
+    <Field label={label} hint={hint ?? "encrypted at rest"}>
+      <input
+        style={monoInputStyle}
+        type="password"
+        value={isSet ? "" : (val ?? "")}
+        placeholder={isSet ? "Key set — enter to replace" : placeholder}
+        onChange={(e) => {
+          const next = e.target.value || (isSet ? "__enc__" : "");
+          onUpdate({ ...node, secrets: { ...node.secrets, [secretKey]: next } });
+        }}
+      />
+    </Field>
+  );
+}
+
+function ConfigField({
+  node, onUpdate, configKey, label, placeholder,
+}: {
+  node: WorkflowNode;
+  onUpdate: (n: WorkflowNode) => void;
+  configKey: string;
+  label: string;
+  placeholder?: string;
+}) {
+  return (
+    <Field label={label}>
+      <input
+        style={monoInputStyle}
+        value={node.config?.[configKey] ?? ""}
+        placeholder={placeholder}
+        onChange={(e) => onUpdate({ ...node, config: { ...node.config, [configKey]: e.target.value } })}
+      />
+    </Field>
+  );
+}
+
 const iconBtnStyle: React.CSSProperties = {
   width: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center",
   background: "transparent", border: "1px solid var(--border-strong)", borderRadius: "var(--r-2)",
