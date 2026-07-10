@@ -20,6 +20,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendEmail(ctx, node, rc)
 	case "slack":
 		return sendSlack(ctx, node, rc)
+	case "discord":
+		return sendDiscord(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

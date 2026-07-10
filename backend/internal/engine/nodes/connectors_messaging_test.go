@@ -48,3 +48,28 @@ func TestSlackAction_SkipsWhenNoWebhookURL(t *testing.T) {
 		t.Errorf("want skip sentinel, got %v", result)
 	}
 }
+
+func TestDiscordAction_PostsMessageContent(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{
+		ID: "d1", Type: models.NodeTypeAction, Template: "discord",
+		Secrets: map[string]string{"discordWebhookURL": srv.URL},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"hello discord"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "discord_sent" {
+		t.Errorf("want 'discord_sent', got %v", result)
+	}
+	if received["content"] != "hello discord" {
+		t.Errorf("want content field with message, got %v", received)
+	}
+}

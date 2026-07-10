@@ -567,6 +567,13 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
             placeholder="https://hooks.slack.com/services/…" />
         </Section>
       )}
+
+      {node.template === "discord" && (
+        <Section label="Discord config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="discordWebhookURL" label="Webhook URL"
+            placeholder="https://discord.com/api/webhooks/…" />
+        </Section>
+      )}
     </>
   );
 }
