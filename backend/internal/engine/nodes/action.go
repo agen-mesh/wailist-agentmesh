@@ -26,6 +26,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendTeams(ctx, node, rc)
 	case "google_chat":
 		return sendGoogleChat(ctx, node, rc)
+	case "ntfy":
+		return sendNtfy(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

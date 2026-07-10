@@ -123,3 +123,51 @@ func TestGoogleChatAction_PostsMessageText(t *testing.T) {
 		t.Errorf("want text field with message, got %v", received)
 	}
 }
+
+func TestNtfyAction_PostsPlainTextToTopic(t *testing.T) {
+	var gotPath, gotBody, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		b := make([]byte, r.ContentLength)
+		r.Body.Read(b)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{
+		ID: "nt1", Type: models.NodeTypeAction, Template: "ntfy",
+		Config:  map[string]string{"ntfyTopic": "agentmesh-alerts", "ntfyServerURL": srv.URL},
+		Secrets: map[string]string{"ntfyAuthToken": "tk_123"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"disk full"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "ntfy_sent" {
+		t.Errorf("want 'ntfy_sent', got %v", result)
+	}
+	if gotPath != "/agentmesh-alerts" {
+		t.Errorf("want path /agentmesh-alerts, got %q", gotPath)
+	}
+	if gotBody != "disk full" {
+		t.Errorf("want plain-text body, got %q", gotBody)
+	}
+	if gotAuth != "Bearer tk_123" {
+		t.Errorf("want bearer auth header, got %q", gotAuth)
+	}
+}
+
+func TestNtfyAction_SkipsWhenNoTopic(t *testing.T) {
+	node := models.WorkflowNode{ID: "nt2", Type: models.NodeTypeAction, Template: "ntfy"}
+	rc := engine.NewRunContext("r1", []byte(`"hi"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "ntfy_skipped_no_topic" {
+		t.Errorf("want skip sentinel, got %v", result)
+	}
+}

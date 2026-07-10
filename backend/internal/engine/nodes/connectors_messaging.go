@@ -2,6 +2,9 @@ package nodes
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"strings"
 
 	"github.com/agentmesh/backend/internal/models"
 )
@@ -56,4 +59,25 @@ func sendGoogleChat(ctx context.Context, node models.WorkflowNode, rc RunContext
 	}
 	payload := map[string]any{"text": rc.Message()}
 	return postJSON(ctx, webhookURL, nil, payload, "google_chat_sent", "Google Chat")
+}
+
+func sendNtfy(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	topic := configVal(node, "ntfyTopic", "")
+	if topic == "" {
+		return "ntfy_skipped_no_topic", nil
+	}
+	server := configVal(node, "ntfyServerURL", "https://ntfy.sh")
+	target := strings.TrimRight(server, "/") + "/" + topic
+	if err := urlValidator(target); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(rc.Message()))
+	if err != nil {
+		return nil, fmt.Errorf("ntfy: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "text/plain")
+	if token := secretVal(node, "ntfyAuthToken"); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	return doAndCheck(req, "ntfy_sent", "ntfy")
 }

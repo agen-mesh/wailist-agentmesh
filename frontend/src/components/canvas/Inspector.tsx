@@ -588,6 +588,15 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
             placeholder="https://chat.googleapis.com/v1/spaces/…" />
         </Section>
       )}
+
+      {node.template === "ntfy" && (
+        <Section label="Ntfy config">
+          <ConfigField node={node} onUpdate={onUpdate} configKey="ntfyTopic" label="Topic" placeholder="agentmesh-alerts" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="ntfyServerURL" label="Server URL" placeholder="https://ntfy.sh (default)" />
+          <SecretField node={node} onUpdate={onUpdate} secretKey="ntfyAuthToken" label="Auth Token" hint="optional, for private topics"
+            placeholder="tk_xxxxxxxxxxxx" />
+        </Section>
+      )}
     </>
   );
 }

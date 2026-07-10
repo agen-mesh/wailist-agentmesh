@@ -55,6 +55,7 @@ export const ACTION_TEMPLATES = [
   { id: "discord", name: "Discord Message",desc: "Webhook post",      icon: "d" },
   { id: "teams",   name: "Teams Message",  desc: "Webhook post",      icon: "T" },
   { id: "google_chat", name: "Google Chat Message", desc: "Webhook post", icon: "G" },
+  { id: "ntfy", name: "Ntfy Push", desc: "Topic notification", icon: "n" },
 ];
 
 export const END_TEMPLATES = [
