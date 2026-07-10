@@ -563,10 +563,8 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
 
       {node.template === "slack" && (
         <Section label="Slack config">
-          <Field label="Channel">
-            <input style={monoInputStyle} value={node.source ?? ""} placeholder="#agent-output"
-              onChange={(e) => onUpdate({ ...node, source: e.target.value })} />
-          </Field>
+          <SecretField node={node} onUpdate={onUpdate} secretKey="slackWebhookURL" label="Webhook URL"
+            placeholder="https://hooks.slack.com/services/…" />
         </Section>
       )}
     </>

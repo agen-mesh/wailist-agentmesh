@@ -18,6 +18,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return callWebhook(ctx, node, rc)
 	case "email":
 		return sendEmail(ctx, node, rc)
+	case "slack":
+		return sendSlack(ctx, node, rc)
 	default:
 		return "logged", nil
 	}
