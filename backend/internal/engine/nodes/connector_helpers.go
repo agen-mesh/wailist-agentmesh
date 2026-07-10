@@ -60,6 +60,9 @@ func postJSON(ctx context.Context, target string, extraHeaders map[string]string
 // doAndCheck executes req on the shared toolHTTPClient, treats any status >= 400
 // as an error carrying a bounded body excerpt, and returns sentinel otherwise.
 func doAndCheck(req *http.Request, sentinel, serviceName string) (any, error) {
+	if err := urlValidator(req.URL.String()); err != nil {
+		return nil, err
+	}
 	resp, err := toolHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", serviceName, err)
