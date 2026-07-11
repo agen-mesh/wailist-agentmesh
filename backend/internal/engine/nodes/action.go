@@ -30,6 +30,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendNtfy(ctx, node, rc)
 	case "telegram":
 		return sendTelegram(ctx, node, rc)
+	case "github":
+		return sendGitHub(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

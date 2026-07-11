@@ -605,6 +605,14 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
           <ConfigField node={node} onUpdate={onUpdate} configKey="telegramChatID" label="Chat ID" placeholder="-1001234567890" />
         </Section>
       )}
+
+      {node.template === "github" && (
+        <Section label="GitHub config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="githubToken" label="Personal Access Token"
+            placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="githubRepo" label="Repository" placeholder="owner/repo" />
+        </Section>
+      )}
     </>
   );
 }

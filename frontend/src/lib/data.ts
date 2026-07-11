@@ -57,6 +57,7 @@ export const ACTION_TEMPLATES = [
   { id: "google_chat", name: "Google Chat Message", desc: "Webhook post", icon: "G" },
   { id: "ntfy", name: "Ntfy Push", desc: "Topic notification", icon: "n" },
   { id: "telegram", name: "Telegram Message", desc: "Bot API send", icon: "t" },
+  { id: "github", name: "GitHub Issue", desc: "Create an issue", icon: "gh" },
 ];
 
 export const END_TEMPLATES = [
