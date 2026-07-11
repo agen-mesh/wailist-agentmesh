@@ -60,6 +60,7 @@ export const ACTION_TEMPLATES = [
   { id: "github", name: "GitHub Issue", desc: "Create an issue", icon: "gh" },
   { id: "notion", name: "Notion Block", desc: "Append to a page", icon: "N" },
   { id: "airtable", name: "Airtable Record", desc: "Create a record", icon: "A" },
+  { id: "hubspot", name: "HubSpot Note", desc: "Log a CRM note", icon: "hs" },
 ];
 
 export const END_TEMPLATES = [

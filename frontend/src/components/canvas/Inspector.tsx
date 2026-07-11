@@ -631,6 +631,13 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
           <ConfigField node={node} onUpdate={onUpdate} configKey="airtableFieldName" label="Field Name" placeholder="Notes (default)" />
         </Section>
       )}
+
+      {node.template === "hubspot" && (
+        <Section label="HubSpot config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="hubspotAPIKey" label="Private App Token"
+            placeholder="pat-na1-xxxxxxxxxxxxxxxxxxxx" />
+        </Section>
+      )}
     </>
   );
 }
