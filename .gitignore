@@ -65,8 +65,13 @@ frontend/next-env.d.ts
 # root-level node_modules
 /node_modules/
 
-# local planning / preview artifacts (not for PR — remove a line to track it)
+# Local dev scratch: planning notes and a static preview, intentionally untracked.
+# Not referenced by the app or build. Delete a line to start tracking that file.
+# connector/integration strategy notes
 /CONNECTOR_STRATEGY.md
+# planning doc for the credits/usage dashboard
 /CREDITS_DASHBOARD_PLAN.md
+# change log kept while iterating on the dashboard
 /Dashboard_change.md
+# standalone static mock of the usage page
 /usage-preview.html
