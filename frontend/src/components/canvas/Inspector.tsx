@@ -621,6 +621,16 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
           <ConfigField node={node} onUpdate={onUpdate} configKey="notionPageID" label="Page ID" placeholder="the target page's UUID" />
         </Section>
       )}
+
+      {node.template === "airtable" && (
+        <Section label="Airtable config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="airtableAPIKey" label="Personal Access Token"
+            placeholder="pat_xxxxxxxxxxxxxxxxxxxx" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="airtableBaseID" label="Base ID" placeholder="appXXXXXXXXXXXXXX" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="airtableTable" label="Table" placeholder="Tasks" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="airtableFieldName" label="Field Name" placeholder="Notes (default)" />
+        </Section>
+      )}
     </>
   );
 }

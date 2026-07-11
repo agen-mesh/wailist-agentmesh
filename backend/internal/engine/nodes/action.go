@@ -34,6 +34,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendGitHub(ctx, node, rc)
 	case "notion":
 		return sendNotion(ctx, node, rc)
+	case "airtable":
+		return sendAirtable(ctx, node, rc)
 	default:
 		return "logged", nil
 	}
