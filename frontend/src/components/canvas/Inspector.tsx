@@ -597,6 +597,14 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
             placeholder="tk_xxxxxxxxxxxx" />
         </Section>
       )}
+
+      {node.template === "telegram" && (
+        <Section label="Telegram config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="telegramBotToken" label="Bot Token"
+            placeholder="123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="telegramChatID" label="Chat ID" placeholder="-1001234567890" />
+        </Section>
+      )}
     </>
   );
 }

@@ -81,3 +81,31 @@ func sendNtfy(ctx context.Context, node models.WorkflowNode, rc RunContexter) (a
 	}
 	return doAndCheck(req, "ntfy_sent", "ntfy")
 }
+
+// telegramAPIBase is overridden in tests via SetTelegramAPIBaseForTest so requests
+// hit an httptest server instead of the real Telegram Bot API.
+var telegramAPIBase = "https://api.telegram.org"
+
+// SetTelegramAPIBaseForTest overrides the Telegram API base URL. Call only from
+// tests. Pass "" to reset to the real API.
+func SetTelegramAPIBaseForTest(base string) {
+	if base == "" {
+		telegramAPIBase = "https://api.telegram.org"
+	} else {
+		telegramAPIBase = base
+	}
+}
+
+func sendTelegram(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	token := secretVal(node, "telegramBotToken")
+	if token == "" {
+		return "telegram_skipped_no_bot_token", nil
+	}
+	chatID := configVal(node, "telegramChatID", "")
+	if chatID == "" {
+		return "telegram_skipped_no_chat_id", nil
+	}
+	target := telegramAPIBase + "/bot" + token + "/sendMessage"
+	payload := map[string]any{"chat_id": chatID, "text": rc.Message()}
+	return postJSON(ctx, target, nil, payload, "telegram_sent", "Telegram")
+}

@@ -171,3 +171,33 @@ func TestNtfyAction_SkipsWhenNoTopic(t *testing.T) {
 		t.Errorf("want skip sentinel, got %v", result)
 	}
 }
+
+func TestTelegramAction_SendsMessageToChatID(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{
+		ID: "tg1", Type: models.NodeTypeAction, Template: "telegram",
+		Secrets: map[string]string{"telegramBotToken": "123:ABC"},
+		Config:  map[string]string{"telegramChatID": "999"},
+	}
+	// telegramTargetOverride lets the test point at httptest instead of api.telegram.org.
+	nodes.SetTelegramAPIBaseForTest(srv.URL)
+	defer nodes.SetTelegramAPIBaseForTest("")
+
+	rc := engine.NewRunContext("r1", []byte(`"build finished"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "telegram_sent" {
+		t.Errorf("want 'telegram_sent', got %v", result)
+	}
+	if received["chat_id"] != "999" || received["text"] != "build finished" {
+		t.Errorf("want chat_id/text in payload, got %v", received)
+	}
+}
