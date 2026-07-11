@@ -60,6 +60,7 @@ export function WorkflowsPage() {
         <button style={ghostBtnSm}>Acme Capital ▾</button>
         <Pill mono dot tone="ok">testnet</Pill>
         <div style={{ flex: 1 }} />
+        <button style={ghostBtnSm} onClick={() => router.push("/usage")}>Usage</button>
         <button style={ghostBtnSm}>Credentials</button>
         <button style={ghostBtnSm}>Settings</button>
         <Hairline vertical length={22} />

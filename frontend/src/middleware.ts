@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PROTECTED = ["/workflows"];
+const PROTECTED = ["/workflows", "/usage"];
 // agentmesh_ui is a non-sensitive first-party cookie set by useAuth on the
 // frontend domain. The real auth is the HttpOnly agentmesh_token cookie sent
 // directly to the backend — that cookie lives on the API domain and is never
@@ -25,5 +25,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/workflows", "/workflows/:path*"],
+  matcher: ["/workflows", "/workflows/:path*", "/usage", "/usage/:path*"],
 };
