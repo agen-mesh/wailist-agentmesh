@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/engine"
@@ -148,5 +149,66 @@ func TestAirtableAction_SkipsWhenMissingConfig(t *testing.T) {
 	}
 	if result != "airtable_skipped_missing_config" {
 		t.Errorf("want 'airtable_skipped_missing_config', got %v", result)
+	}
+}
+
+func TestTrelloAction_CreatesCard(t *testing.T) {
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	nodes.SetTrelloAPIBaseForTest(srv.URL)
+	defer nodes.SetTrelloAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "tr1", Type: models.NodeTypeAction, Template: "trello",
+		Secrets: map[string]string{"trelloAPIKey": "key123", "trelloToken": "tok456"},
+		Config:  map[string]string{"trelloListID": "list789"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"ship the release"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "trello_card_created" {
+		t.Errorf("want 'trello_card_created', got %v", result)
+	}
+	if gotQuery.Get("key") != "key123" || gotQuery.Get("token") != "tok456" || gotQuery.Get("idList") != "list789" {
+		t.Errorf("want key/token/idList in query, got %v", gotQuery)
+	}
+	if gotQuery.Get("name") != "ship the release" {
+		t.Errorf("want name in query, got %v", gotQuery)
+	}
+}
+
+func TestTrelloAction_SkipsWhenNoCredentials(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "tr2", Type: models.NodeTypeAction, Template: "trello",
+		Config: map[string]string{"trelloListID": "list789"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"ship the release"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "trello_skipped_no_credentials" {
+		t.Errorf("want 'trello_skipped_no_credentials', got %v", result)
+	}
+}
+
+func TestTrelloAction_SkipsWhenNoListID(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "tr3", Type: models.NodeTypeAction, Template: "trello",
+		Secrets: map[string]string{"trelloAPIKey": "key123", "trelloToken": "tok456"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"ship the release"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "trello_skipped_no_list_id" {
+		t.Errorf("want 'trello_skipped_no_list_id', got %v", result)
 	}
 }

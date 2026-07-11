@@ -38,6 +38,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendAirtable(ctx, node, rc)
 	case "hubspot":
 		return sendHubSpot(ctx, node, rc)
+	case "trello":
+		return sendTrello(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

@@ -84,3 +84,40 @@ func sendAirtable(ctx context.Context, node models.WorkflowNode, rc RunContexter
 	headers := map[string]string{"Authorization": "Bearer " + apiKey}
 	return postJSON(ctx, target, headers, payload, "airtable_record_created", "Airtable")
 }
+
+// trelloAPIBase is overridden in tests via SetTrelloAPIBaseForTest.
+var trelloAPIBase = "https://api.trello.com"
+
+// SetTrelloAPIBaseForTest overrides the Trello API base URL. Call only
+// from tests. Pass "" to reset to the real API.
+func SetTrelloAPIBaseForTest(base string) {
+	if base == "" {
+		trelloAPIBase = "https://api.trello.com"
+	} else {
+		trelloAPIBase = base
+	}
+}
+
+func sendTrello(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	apiKey := secretVal(node, "trelloAPIKey")
+	token := secretVal(node, "trelloToken")
+	if apiKey == "" || token == "" {
+		return "trello_skipped_no_credentials", nil
+	}
+	listID := configVal(node, "trelloListID", "")
+	if listID == "" {
+		return "trello_skipped_no_list_id", nil
+	}
+	q := url.Values{}
+	q.Set("key", apiKey)
+	q.Set("token", token)
+	q.Set("idList", listID)
+	q.Set("name", issueTitle(rc.Message()))
+	q.Set("desc", rc.Message())
+	target := trelloAPIBase + "/1/cards?" + q.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("Trello: build request: %w", err)
+	}
+	return doAndCheck(req, "trello_card_created", "Trello")
+}

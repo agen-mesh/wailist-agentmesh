@@ -638,6 +638,14 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
             placeholder="pat-na1-xxxxxxxxxxxxxxxxxxxx" />
         </Section>
       )}
+
+      {node.template === "trello" && (
+        <Section label="Trello config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="trelloAPIKey" label="API Key" placeholder="your Trello API key" />
+          <SecretField node={node} onUpdate={onUpdate} secretKey="trelloToken" label="Token" placeholder="your Trello token" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="trelloListID" label="List ID" placeholder="target list id" />
+        </Section>
+      )}
     </>
   );
 }
