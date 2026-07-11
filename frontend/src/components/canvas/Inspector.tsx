@@ -613,6 +613,14 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
           <ConfigField node={node} onUpdate={onUpdate} configKey="githubRepo" label="Repository" placeholder="owner/repo" />
         </Section>
       )}
+
+      {node.template === "notion" && (
+        <Section label="Notion config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="notionAPIKey" label="Internal Integration Secret"
+            placeholder="secret_xxxxxxxxxxxxxxxxxxxx" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="notionPageID" label="Page ID" placeholder="the target page's UUID" />
+        </Section>
+      )}
     </>
   );
 }

@@ -58,6 +58,7 @@ export const ACTION_TEMPLATES = [
   { id: "ntfy", name: "Ntfy Push", desc: "Topic notification", icon: "n" },
   { id: "telegram", name: "Telegram Message", desc: "Bot API send", icon: "t" },
   { id: "github", name: "GitHub Issue", desc: "Create an issue", icon: "gh" },
+  { id: "notion", name: "Notion Block", desc: "Append to a page", icon: "N" },
 ];
 
 export const END_TEMPLATES = [
