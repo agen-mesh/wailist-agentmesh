@@ -185,7 +185,7 @@ func TestTelegramAction_SendsMessageToChatID(t *testing.T) {
 		Secrets: map[string]string{"telegramBotToken": "123:ABC"},
 		Config:  map[string]string{"telegramChatID": "999"},
 	}
-	// telegramTargetOverride lets the test point at httptest instead of api.telegram.org.
+	// SetTelegramAPIBaseForTest lets the test point at httptest instead of api.telegram.org.
 	nodes.SetTelegramAPIBaseForTest(srv.URL)
 	defer nodes.SetTelegramAPIBaseForTest("")
 
@@ -199,5 +199,35 @@ func TestTelegramAction_SendsMessageToChatID(t *testing.T) {
 	}
 	if received["chat_id"] != "999" || received["text"] != "build finished" {
 		t.Errorf("want chat_id/text in payload, got %v", received)
+	}
+}
+
+func TestTelegramAction_SkipsWhenNoBotToken(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "tg2", Type: models.NodeTypeAction, Template: "telegram",
+		Config: map[string]string{"telegramChatID": "999"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"build finished"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "telegram_skipped_no_bot_token" {
+		t.Errorf("want 'telegram_skipped_no_bot_token', got %v", result)
+	}
+}
+
+func TestTelegramAction_SkipsWhenNoChatID(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "tg3", Type: models.NodeTypeAction, Template: "telegram",
+		Secrets: map[string]string{"telegramBotToken": "123:ABC"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"build finished"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "telegram_skipped_no_chat_id" {
+		t.Errorf("want 'telegram_skipped_no_chat_id', got %v", result)
 	}
 }
