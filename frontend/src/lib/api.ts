@@ -1,8 +1,11 @@
 // TODO: Replace all stubs with real FastAPI calls when backend is ready.
 // Base URL will come from env: process.env.NEXT_PUBLIC_API_URL
 
-import { Workflow } from "./types";
-import { WORKFLOWS, SAMPLE_WORKFLOW } from "./data";
+import {
+  Workflow,
+  UsageRange, UsageSummary, UsagePoint, WorkflowSpend, EndpointUsage, Settlement,
+} from "./types";
+import { WORKFLOWS, SAMPLE_WORKFLOW, buildUsage } from "./data";
 
 // In the browser, always route through /api so the cookie stays same-site.
 // NEXT_PUBLIC_API_URL still controls mock vs real (empty = mock data).
@@ -216,6 +219,63 @@ export const waitlist = {
     }
     void email;
     await delay(600);
+  },
+};
+
+// -- Usage & Credits ------------------------------------------------------
+// Real endpoints don't exist yet (see plan §5 — needs a metering change in
+// tool402.go + provider.go). Until then these return fixtures in mock mode,
+// and in real mode call the proposed /usage/* routes once the backend adds them.
+export const usage = {
+  summary: async (range: UsageRange): Promise<UsageSummary> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/usage/summary?range=${range}`, { credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "usage summary failed");
+      return data;
+    }
+    await delay(220);
+    return buildUsage(range).summary;
+  },
+
+  timeseries: async (range: UsageRange): Promise<UsagePoint[]> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/usage/timeseries?range=${range}&bucket=day`, { credentials: "include" });
+      if (!res.ok) throw new Error("usage timeseries failed");
+      return res.json();
+    }
+    await delay(220);
+    return buildUsage(range).timeseries;
+  },
+
+  byWorkflow: async (range: UsageRange): Promise<WorkflowSpend[]> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/usage/by-workflow?range=${range}`, { credentials: "include" });
+      if (!res.ok) throw new Error("usage by-workflow failed");
+      return res.json();
+    }
+    await delay(220);
+    return buildUsage(range).byWorkflow;
+  },
+
+  byEndpoint: async (range: UsageRange): Promise<EndpointUsage[]> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/usage/by-endpoint?range=${range}`, { credentials: "include" });
+      if (!res.ok) throw new Error("usage by-endpoint failed");
+      return res.json();
+    }
+    await delay(220);
+    return buildUsage(range).byEndpoint;
+  },
+
+  settlements: async (limit = 20): Promise<Settlement[]> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/usage/settlements?limit=${limit}`, { credentials: "include" });
+      if (!res.ok) throw new Error("usage settlements failed");
+      return res.json();
+    }
+    await delay(220);
+    return buildUsage("30d").settlements.slice(0, limit);
   },
 };
 

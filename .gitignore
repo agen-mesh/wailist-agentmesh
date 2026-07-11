@@ -64,3 +64,9 @@ frontend/next-env.d.ts
 
 # root-level node_modules
 /node_modules/
+
+# local planning / preview artifacts (not for PR — remove a line to track it)
+/CONNECTOR_STRATEGY.md
+/CREDITS_DASHBOARD_PLAN.md
+/Dashboard_change.md
+/usage-preview.html

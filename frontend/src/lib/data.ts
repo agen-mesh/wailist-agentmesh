@@ -1,4 +1,7 @@
-import { NodeTypeMeta, Workflow } from "./types";
+import {
+  NodeTypeMeta, Workflow,
+  UsageRange, UsageCategory, UsagePayload, EndpointUsage, Settlement, UsagePoint, WorkflowSpend,
+} from "./types";
 
 export const NODE_TYPES: Record<string, NodeTypeMeta> = {
   trigger:  { w: 200, h: 60,  ports: ["out"] },
@@ -114,3 +117,160 @@ export const LOG_LINES = [
 ];
 
 export const WAITLIST_COUNT = 142;
+
+// ── Usage & Credits fixtures ────────────────────────────────────────────────
+// Deterministic mock data so the Usage page is fully developable/demoable
+// before the backend exposes /usage/* aggregation endpoints. All numbers are
+// synthetic. Kept range-aware: 30d is the base, smaller ranges scale down.
+
+const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
+
+const RANGE_BUCKETS: Record<UsageRange, number> = { "24h": 24, "7d": 7, "30d": 30 };
+const RANGE_MULT: Record<UsageRange, number> = { "24h": 0.04, "7d": 0.256, "30d": 1 };
+const RANGE_DELTA: Record<UsageRange, number> = { "24h": 6, "7d": 12, "30d": 18 };
+
+interface EPSeed {
+  endpoint: string; host: string; provider: string; type: UsageCategory;
+  unitPrice: number | null; unit: string; calls30: number;
+  success: number | null; lastUsedMin: number;
+  tokens30?: number; estAlgo30?: number;
+}
+
+const EP_SEEDS: EPSeed[] = [
+  { endpoint: "x402 Weather",     host: "localhost:4402/weather",             provider: "weatherkit.x402", type: "x402",   unitPrice: 0.065, unit: "call",   calls30: 1204, success: 99.2, lastUsedMin: 2 },
+  { endpoint: "Tavily Search",    host: "api.tavily.x402/search",             provider: "tavily.x402",     type: "x402",   unitPrice: 0.002, unit: "call",   calls30: 3820, success: 99.8, lastUsedMin: 8 },
+  { endpoint: "Firecrawl Scrape", host: "api.firecrawl.x402/scrape",          provider: "firecrawl.x402",  type: "x402",   unitPrice: 0.005, unit: "page",   calls30: 940,  success: 97.4, lastUsedMin: 26 },
+  { endpoint: "AlpacaQuote",      host: "alpaca.x402/quote",                  provider: "alpaca.x402",     type: "x402",   unitPrice: 0.001, unit: "quote",  calls30: 6110, success: 99.9, lastUsedMin: 1 },
+  { endpoint: "OCR.space",        host: "ocr.x402/parse",                     provider: "ocr.x402",        type: "x402",   unitPrice: 0.003, unit: "page",   calls30: 412,  success: 95.1, lastUsedMin: 140 },
+  { endpoint: "FluxImage",        host: "flux.x402/generate",                 provider: "flux.x402",       type: "x402",   unitPrice: 0.020, unit: "image",  calls30: 168,  success: 98.8, lastUsedMin: 55 },
+  { endpoint: "Gemini 2.5 Flash", host: "generativelanguage.googleapis.com",  provider: "google",          type: "llm",    unitPrice: null,  unit: "1K tok", calls30: 2140, success: 99.6, lastUsedMin: 2,  tokens30: 1_180_000, estAlgo30: 0.41 },
+  { endpoint: "OpenAI gpt-4o",    host: "api.openai.com",                     provider: "openai",          type: "llm",    unitPrice: null,  unit: "1K tok", calls30: 890,  success: 99.1, lastUsedMin: 12, tokens30: 640_000,   estAlgo30: 0.53 },
+  { endpoint: "Resend Email",     host: "api.resend.com",                     provider: "resend",          type: "action", unitPrice: 0,     unit: "send",   calls30: 320,  success: 100,  lastUsedMin: 4 },
+];
+
+const WF_SEEDS = [
+  { workflowId: "wf-triage",  name: "Customer Support Triage",   status: "active", share: 0.34, calls30: 4200 },
+  { workflowId: "wf-onchain", name: "On-chain Compliance Watch", status: "active", share: 0.24, calls30: 3100 },
+  { workflowId: "wf-brief",   name: "Daily Market Brief",        status: "active", share: 0.18, calls30: 1400 },
+  { workflowId: "wf-invoice", name: "Invoice Reconciliation",    status: "paused", share: 0.14, calls30: 900 },
+  { workflowId: "wf-leads",   name: "Lead Enrichment v2",        status: "draft",  share: 0.10, calls30: 480 },
+];
+
+const TX_B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+function fakeTx(seed: number): string {
+  let x = (seed * 2654435761) % 2147483647;
+  if (x <= 0) x += 2147483646;
+  let s = "";
+  for (let i = 0; i < 52; i++) { x = (x * 48271) % 2147483647; s += TX_B32[x % 32]; }
+  return s;
+}
+
+function bucketLabels(range: UsageRange): string[] {
+  const n = RANGE_BUCKETS[range];
+  const now = Date.now();
+  const out: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const back = n - 1 - i;
+    if (range === "24h") {
+      const d = new Date(now - back * 3_600_000);
+      out.push(`${String(d.getHours()).padStart(2, "0")}:00`);
+    } else {
+      const d = new Date(now - back * 86_400_000);
+      out.push(new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(d));
+    }
+  }
+  return out;
+}
+
+function buildTimeseries(range: UsageRange, x402Total: number, llmTotal: number, x402Calls: number): UsagePoint[] {
+  const labels = bucketLabels(range);
+  const n = labels.length;
+  const weights: number[] = [];
+  let wsum = 0;
+  for (let i = 0; i < n; i++) {
+    const w = Math.max(0.15, 0.6 + 0.4 * Math.sin(i * 0.7) + 0.3 * Math.cos(i * 0.31) + (i / n) * 0.5);
+    weights.push(w); wsum += w;
+  }
+  return labels.map((ts, i) => {
+    const frac = weights[i] / wsum;
+    return { ts, x402Algo: r6(x402Total * frac), llmAlgo: r6(llmTotal * frac), calls: Math.round(x402Calls * frac) };
+  });
+}
+
+export function buildUsage(range: UsageRange): UsagePayload {
+  const mult = RANGE_MULT[range];
+
+  // Endpoints
+  const rows: EndpointUsage[] = EP_SEEDS.map((s) => {
+    const calls = Math.round(s.calls30 * mult);
+    let totalAlgo = 0;
+    if (s.type === "x402" && s.unitPrice != null) totalAlgo = r6(calls * s.unitPrice);
+    else if (s.type === "llm") totalAlgo = r6((s.estAlgo30 ?? 0) * mult);
+    return {
+      endpoint: s.endpoint, host: s.host, provider: s.provider, type: s.type,
+      calls, unitPrice: s.unitPrice, unit: s.unit, totalAlgo,
+      pctOfSpend: 0, successRate: s.success,
+      lastUsedAt: new Date(Date.now() - s.lastUsedMin * 60_000).toISOString(),
+    };
+  });
+  const sumSpend = rows.reduce((a, r) => a + r.totalAlgo, 0) || 1;
+  rows.forEach((r) => { r.pctOfSpend = Math.round((r.totalAlgo / sumSpend) * 1000) / 10; });
+  rows.sort((a, b) => b.totalAlgo - a.totalAlgo);
+
+  const x402Total = r6(rows.filter((r) => r.type === "x402").reduce((a, r) => a + r.totalAlgo, 0));
+  const llmTotal = r6(rows.filter((r) => r.type === "llm").reduce((a, r) => a + r.totalAlgo, 0));
+  const x402Calls = rows.filter((r) => r.type === "x402").reduce((a, r) => a + r.calls, 0);
+  const llmTokens = Math.round(EP_SEEDS.reduce((a, s) => a + (s.tokens30 ?? 0), 0) * mult);
+
+  // Credit balance is account-level — it must NOT change with the selected chart
+  // range. Compute lifetime spend at full scale (no range multiplier) so
+  // "credits left" reads the same across 24h / 7d / 30d.
+  const lifetimeSpend = r6(EP_SEEDS.reduce((a, s) => {
+    if (s.type === "x402" && s.unitPrice != null) return a + s.calls30 * s.unitPrice;
+    if (s.type === "llm") return a + (s.estAlgo30 ?? 0);
+    return a;
+  }, 0));
+
+  // No spending cap — an account just holds a credit balance (grows on top-up,
+  // shrinks on spend). "Total bought" = balance + lifetime spend, and % left is
+  // computed against that, so there is no fixed limit.
+  const creditsBalance = 250; // mock remaining balance (ALGO) — real value comes from the account
+
+  // Workflows
+  const byWorkflow: WorkflowSpend[] = WF_SEEDS
+    .map((w) => ({
+      workflowId: w.workflowId, name: w.name, status: w.status,
+      algo: r6(x402Total * w.share), calls: Math.round(w.calls30 * mult),
+    }))
+    .sort((a, b) => b.algo - a.algo);
+
+  // Settlements (most recent x402 payments — independent of range)
+  const x402Seeds = EP_SEEDS.filter((s) => s.type === "x402");
+  const settlements: Settlement[] = Array.from({ length: 18 }, (_, i) => {
+    const s = x402Seeds[i % x402Seeds.length];
+    const tx = fakeTx(i + 1);
+    return {
+      ts: new Date(Date.now() - i * 7 * 60_000).toISOString(),
+      endpoint: s.endpoint,
+      amountAlgo: r6(s.unitPrice ?? 0),
+      txId: tx,
+      explorerURL: `https://lora.algokit.io/testnet/transaction/${tx}`,
+      workflowId: WF_SEEDS[i % WF_SEEDS.length].workflowId,
+    };
+  });
+
+  return {
+    summary: {
+      totalAlgo: x402Total,
+      x402Calls,
+      llmTokens,
+      llmEstAlgo: llmTotal,
+      budget: { limit: r6(creditsBalance + lifetimeSpend), used: lifetimeSpend, resetsAt: "Aug 1" },
+      deltas: { totalAlgoPct: RANGE_DELTA[range] },
+    },
+    timeseries: buildTimeseries(range, x402Total, llmTotal, x402Calls),
+    byWorkflow,
+    byEndpoint: rows,
+    settlements,
+  };
+}
