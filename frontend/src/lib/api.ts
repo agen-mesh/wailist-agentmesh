@@ -226,6 +226,15 @@ export const waitlist = {
 // Real endpoints don't exist yet (see plan §5 — needs a metering change in
 // tool402.go + provider.go). Until then these return fixtures in mock mode,
 // and in real mode call the proposed /usage/* routes once the backend adds them.
+// Mock fixtures depend on Date.now(); memoize per range so every panel in a
+// render shares one consistent payload instead of regenerating timestamps.
+const _usageCache = new Map<UsageRange, ReturnType<typeof buildUsage>>();
+function mockUsage(range: UsageRange): ReturnType<typeof buildUsage> {
+  let u = _usageCache.get(range);
+  if (!u) { u = buildUsage(range); _usageCache.set(range, u); }
+  return u;
+}
+
 export const usage = {
   summary: async (range: UsageRange): Promise<UsageSummary> => {
     if (BASE) {
@@ -235,7 +244,7 @@ export const usage = {
       return data;
     }
     await delay(220);
-    return buildUsage(range).summary;
+    return mockUsage(range).summary;
   },
 
   timeseries: async (range: UsageRange): Promise<UsagePoint[]> => {
@@ -245,7 +254,7 @@ export const usage = {
       return res.json();
     }
     await delay(220);
-    return buildUsage(range).timeseries;
+    return mockUsage(range).timeseries;
   },
 
   byWorkflow: async (range: UsageRange): Promise<WorkflowSpend[]> => {
@@ -255,7 +264,7 @@ export const usage = {
       return res.json();
     }
     await delay(220);
-    return buildUsage(range).byWorkflow;
+    return mockUsage(range).byWorkflow;
   },
 
   byEndpoint: async (range: UsageRange): Promise<EndpointUsage[]> => {
@@ -265,7 +274,7 @@ export const usage = {
       return res.json();
     }
     await delay(220);
-    return buildUsage(range).byEndpoint;
+    return mockUsage(range).byEndpoint;
   },
 
   settlements: async (limit = 20): Promise<Settlement[]> => {
@@ -275,7 +284,7 @@ export const usage = {
       return res.json();
     }
     await delay(220);
-    return buildUsage("30d").settlements.slice(0, limit);
+    return mockUsage("30d").settlements.slice(0, limit);
   },
 };
 
