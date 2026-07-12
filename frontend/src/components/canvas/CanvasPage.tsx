@@ -113,6 +113,20 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     setSelectedId(null);
   }, [selectedId]);
 
+  // Delete/Backspace removes the selected node — ignored while typing in a field.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      if (!selectedId) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      e.preventDefault();
+      onDelete();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedId, onDelete]);
+
   const onDeploy = useCallback(async () => {
     if (!workflow) return;
     if (deployed) { showToast("Re-deployed · wallets preserved"); return; }
