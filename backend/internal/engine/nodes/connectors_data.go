@@ -130,3 +130,24 @@ func sendSupabase(ctx context.Context, node models.WorkflowNode, rc RunContexter
 	}
 	return postJSON(ctx, target, headers, payload, "supabase_row_inserted", "Supabase")
 }
+
+func sendWooCommerce(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	consumerKey := secretVal(node, "woocommerceConsumerKey")
+	consumerSecret := secretVal(node, "woocommerceConsumerSecret")
+	if consumerKey == "" || consumerSecret == "" {
+		return "woocommerce_skipped_no_credentials", nil
+	}
+	storeURL := configVal(node, "woocommerceStoreURL", "")
+	orderID := configVal(node, "woocommerceOrderID", "")
+	if storeURL == "" || orderID == "" {
+		return "woocommerce_skipped_missing_config", nil
+	}
+	target := strings.TrimRight(storeURL, "/") + "/wp-json/wc/v3/orders/" + url.PathEscape(orderID) + "/notes"
+	if err := urlValidator(target); err != nil {
+		return nil, err
+	}
+	payload := map[string]any{"note": rc.Message(), "customer_note": false}
+	auth := base64.StdEncoding.EncodeToString([]byte(consumerKey + ":" + consumerSecret))
+	headers := map[string]string{"Authorization": "Basic " + auth}
+	return postJSON(ctx, target, headers, payload, "woocommerce_note_added", "WooCommerce")
+}

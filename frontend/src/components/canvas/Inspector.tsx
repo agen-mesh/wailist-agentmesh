@@ -709,6 +709,14 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
           <ConfigField node={node} onUpdate={onUpdate} configKey="supabaseColumn" label="Column" placeholder="content (default)" />
         </Section>
       )}
+      {node.template === "woocommerce" && (
+        <Section label="WooCommerce config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="woocommerceConsumerKey" label="Consumer Key" placeholder="ck_xxxxxxxxxxxxxxxxxxxx" />
+          <SecretField node={node} onUpdate={onUpdate} secretKey="woocommerceConsumerSecret" label="Consumer Secret" placeholder="cs_xxxxxxxxxxxxxxxxxxxx" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="woocommerceStoreURL" label="Store URL" placeholder="https://yourstore.com" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="woocommerceOrderID" label="Order ID" placeholder="target order id" />
+        </Section>
+      )}
     </>
   );
 }

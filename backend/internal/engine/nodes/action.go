@@ -58,6 +58,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendSentry(ctx, node, rc)
 	case "supabase":
 		return sendSupabase(ctx, node, rc)
+	case "woocommerce":
+		return sendWooCommerce(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

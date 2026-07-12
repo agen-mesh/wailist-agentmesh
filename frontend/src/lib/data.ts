@@ -71,6 +71,7 @@ export const ACTION_TEMPLATES = [
   { id: "gitlab", name: "GitLab Issue", desc: "Create an issue", icon: "gl" },
   { id: "sentry", name: "Sentry Event", desc: "Capture a message", icon: "S" },
   { id: "supabase", name: "Supabase Insert", desc: "Insert a row", icon: "sb" },
+  { id: "woocommerce", name: "WooCommerce Note", desc: "Add an order note", icon: "wc" },
 ];
 
 export const END_TEMPLATES = [

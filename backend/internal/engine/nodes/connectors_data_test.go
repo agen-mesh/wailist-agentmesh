@@ -228,3 +228,69 @@ func TestSupabaseAction_SkipsWhenMissingConfig(t *testing.T) {
 		t.Errorf("want 'supabase_skipped_missing_config', got %v", result)
 	}
 }
+
+func TestWooCommerceAction_AddsOrderNote(t *testing.T) {
+	var gotPath, gotAuth string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{
+		ID: "wc1", Type: models.NodeTypeAction, Template: "woocommerce",
+		Secrets: map[string]string{"woocommerceConsumerKey": "ck_xxx", "woocommerceConsumerSecret": "cs_xxx"},
+		Config:  map[string]string{"woocommerceStoreURL": srv.URL, "woocommerceOrderID": "77"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"refund processed"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "woocommerce_note_added" {
+		t.Errorf("want 'woocommerce_note_added', got %v", result)
+	}
+	if gotPath != "/wp-json/wc/v3/orders/77/notes" {
+		t.Errorf("want order notes path, got %q", gotPath)
+	}
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("ck_xxx:cs_xxx"))
+	if gotAuth != wantAuth {
+		t.Errorf("want basic auth, got %q", gotAuth)
+	}
+	if gotBody["note"] != "refund processed" {
+		t.Errorf("want note from message, got %v", gotBody)
+	}
+}
+
+func TestWooCommerceAction_SkipsWhenNoCredentials(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "wc2", Type: models.NodeTypeAction, Template: "woocommerce",
+		Config: map[string]string{"woocommerceStoreURL": "https://x.com", "woocommerceOrderID": "77"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"refund processed"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "woocommerce_skipped_no_credentials" {
+		t.Errorf("want 'woocommerce_skipped_no_credentials', got %v", result)
+	}
+}
+
+func TestWooCommerceAction_SkipsWhenMissingConfig(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "wc3", Type: models.NodeTypeAction, Template: "woocommerce",
+		Secrets: map[string]string{"woocommerceConsumerKey": "ck_xxx", "woocommerceConsumerSecret": "cs_xxx"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"refund processed"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "woocommerce_skipped_missing_config" {
+		t.Errorf("want 'woocommerce_skipped_missing_config', got %v", result)
+	}
+}
