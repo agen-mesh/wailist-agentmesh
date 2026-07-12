@@ -49,6 +49,7 @@ export function Pill({
     <span style={{
       display: "inline-flex", alignItems: "center", gap: 6,
       height: 22, padding: "0 8px",
+      whiteSpace: "nowrap", flexShrink: 0,
       borderRadius: 999,
       border: `1px solid ${s.border}`,
       background: s.bg, color: s.fg,
