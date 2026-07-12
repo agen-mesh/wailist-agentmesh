@@ -526,6 +526,7 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
               <option value="resend">Resend</option>
               <option value="postmark">Postmark</option>
               <option value="sendgrid">SendGrid</option>
+              <option value="brevo">Brevo</option>
             </select>
           </Field>
           <Field label="API Key" hint="encrypted at rest">

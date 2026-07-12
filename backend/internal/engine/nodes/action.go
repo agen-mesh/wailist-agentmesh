@@ -122,6 +122,8 @@ func sendEmail(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 		return sendViaResend(ctx, apiKey, from, to, subject, bodyText)
 	case "sendgrid":
 		return sendViaSendGrid(ctx, apiKey, from, to, subject, bodyText)
+	case "brevo":
+		return sendViaBrevo(ctx, apiKey, from, to, subject, bodyText)
 	default:
 		return sendViaResend(ctx, apiKey, from, to, subject, bodyText)
 	}
@@ -181,6 +183,35 @@ func sendViaSendGrid(ctx context.Context, apiKey, from, to, subject, body string
 	}
 	headers := map[string]string{"Authorization": "Bearer " + apiKey}
 	return postJSON(ctx, sendGridAPIBase+"/v3/mail/send", headers, payload, "email_sent", "SendGrid")
+}
+
+// brevoAPIBase is overridden in tests via SetBrevoAPIBaseForTest.
+var brevoAPIBase = "https://api.brevo.com"
+
+// SetBrevoAPIBaseForTest overrides the Brevo API base URL. Call only from
+// tests. Pass "" to reset to the real API.
+func SetBrevoAPIBaseForTest(base string) {
+	if base == "" {
+		brevoAPIBase = "https://api.brevo.com"
+	} else {
+		brevoAPIBase = base
+	}
+}
+
+func sendViaBrevo(ctx context.Context, apiKey, from, to, subject, body string) (any, error) {
+	fromName, fromEmail := parseEmailAddress(from)
+	senderObj := map[string]any{"email": fromEmail}
+	if fromName != "" {
+		senderObj["name"] = fromName
+	}
+	payload := map[string]any{
+		"sender":      senderObj,
+		"to":          []map[string]any{{"email": to}},
+		"subject":     subject,
+		"textContent": body,
+	}
+	headers := map[string]string{"api-key": apiKey}
+	return postJSON(ctx, brevoAPIBase+"/v3/smtp/email", headers, payload, "email_sent", "Brevo")
 }
 
 // parseEmailAddress splits an RFC5322-style "Name <email>" string into name and

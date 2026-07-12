@@ -76,6 +76,40 @@ func TestEmailAction_SendGridProvider(t *testing.T) {
 	}
 }
 
+func TestEmailAction_BrevoProvider(t *testing.T) {
+	var gotAPIKeyHeader string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAPIKeyHeader = r.Header.Get("api-key")
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	nodes.SetBrevoAPIBaseForTest(srv.URL)
+	defer nodes.SetBrevoAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "e2", Type: models.NodeTypeAction, Template: "email",
+		EmailProvider: "brevo", EmailAPIKey: "xkeysib-xxx",
+		EmailFrom: "AgentMesh <you@yourdomain.com>", EmailTo: "user@example.com", EmailSubject: "Result",
+	}
+	rc := engine.NewRunContext("r1", []byte(`"done"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "email_sent" {
+		t.Errorf("want 'email_sent', got %v", result)
+	}
+	if gotAPIKeyHeader != "xkeysib-xxx" {
+		t.Errorf("want api-key header, got %q", gotAPIKeyHeader)
+	}
+	sender, _ := gotBody["sender"].(map[string]any)
+	if sender["email"] != "you@yourdomain.com" {
+		t.Errorf("want parsed sender email, got %v", sender)
+	}
+}
+
 func TestParseEmailAddress(t *testing.T) {
 	name, email := nodes.ParseEmailAddressForTest("AgentMesh <you@yourdomain.com>")
 	if name != "AgentMesh" || email != "you@yourdomain.com" {
