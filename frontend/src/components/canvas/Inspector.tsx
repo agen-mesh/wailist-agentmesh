@@ -11,9 +11,10 @@ interface InspectorProps {
   workflowId: string;
   onUpdate: (n: WorkflowNode) => void;
   onDelete: () => void;
+  onClose: () => void;
 }
 
-export function Inspector({ selected, deployed, workflowId, onUpdate, onDelete }: InspectorProps) {
+export function Inspector({ selected, deployed, workflowId, onUpdate, onDelete, onClose }: InspectorProps) {
   if (!selected) return <EmptyInspector />;
 
   const meta = nodeMeta(selected);
@@ -29,7 +30,7 @@ export function Inspector({ selected, deployed, workflowId, onUpdate, onDelete }
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-dim)" }}>{selected.type} · {selected.id}</div>
           </div>
         </div>
-        <button onClick={onDelete} style={{ width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", color: "var(--fg-muted)", cursor: "pointer", borderRadius: "var(--r-2)" }}>
+        <button onClick={onClose} aria-label="Close inspector" title="Close" style={{ width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", color: "var(--fg-muted)", cursor: "pointer", borderRadius: "var(--r-2)" }}>
           <IconClose size={12} />
         </button>
       </div>

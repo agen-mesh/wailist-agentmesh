@@ -228,7 +228,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
 
         <Inspector
           selected={selected} deployed={deployed} workflowId={workflow.id}
-          onUpdate={onUpdate} onDelete={onDelete}
+          onUpdate={onUpdate} onDelete={onDelete} onClose={() => setSelectedId(null)}
         />
       </div>
 
