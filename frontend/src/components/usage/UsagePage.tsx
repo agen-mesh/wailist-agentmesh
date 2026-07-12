@@ -21,7 +21,7 @@ const CAT_COLOR: Record<UsageCategory, string> = {
 // Endpoint type pill keeps the x402 magenta used elsewhere (tx links / tool402).
 const TYPE_PILL: Record<UsageCategory, string> = {
   x402: "#E879F9",
-  llm: "var(--info)",
+  llm: "#6EA8FF", // hex (matches --info) so the `${c}55`/`${c}1A` alpha suffixes stay valid
   action: "#FB923C",
 };
 const CAT_LABEL: Record<UsageCategory, string> = { x402: "x402", llm: "LLM", action: "Actions" };
