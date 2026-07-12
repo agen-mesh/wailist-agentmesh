@@ -102,6 +102,8 @@ func sendEmail(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 	switch provider {
 	case "resend":
 		return sendViaResend(ctx, apiKey, from, to, subject, bodyText)
+	case "sendgrid":
+		return sendViaSendGrid(ctx, apiKey, from, to, subject, bodyText)
 	default:
 		return sendViaResend(ctx, apiKey, from, to, subject, bodyText)
 	}
@@ -132,4 +134,49 @@ func sendViaResend(ctx context.Context, apiKey, from, to, subject, body string) 
 		return nil, fmt.Errorf("Resend API %d: %s", resp.StatusCode, string(rb))
 	}
 	return "email_sent", nil
+}
+
+// sendGridAPIBase is overridden in tests via SetSendGridAPIBaseForTest.
+var sendGridAPIBase = "https://api.sendgrid.com"
+
+// SetSendGridAPIBaseForTest overrides the SendGrid API base URL. Call only
+// from tests. Pass "" to reset to the real API.
+func SetSendGridAPIBaseForTest(base string) {
+	if base == "" {
+		sendGridAPIBase = "https://api.sendgrid.com"
+	} else {
+		sendGridAPIBase = base
+	}
+}
+
+func sendViaSendGrid(ctx context.Context, apiKey, from, to, subject, body string) (any, error) {
+	fromName, fromEmail := parseEmailAddress(from)
+	fromObj := map[string]any{"email": fromEmail}
+	if fromName != "" {
+		fromObj["name"] = fromName
+	}
+	payload := map[string]any{
+		"personalizations": []map[string]any{{"to": []map[string]any{{"email": to}}}},
+		"from":             fromObj,
+		"subject":          subject,
+		"content":          []map[string]any{{"type": "text/plain", "value": body}},
+	}
+	headers := map[string]string{"Authorization": "Bearer " + apiKey}
+	return postJSON(ctx, sendGridAPIBase+"/v3/mail/send", headers, payload, "email_sent", "SendGrid")
+}
+
+// parseEmailAddress splits an RFC5322-style "Name <email>" string into name and
+// email. Falls back to treating the whole string as the email when there's no
+// angle-bracket form.
+func parseEmailAddress(raw string) (name, email string) {
+	raw = strings.TrimSpace(raw)
+	if i := strings.IndexByte(raw, '<'); i >= 0 && strings.HasSuffix(raw, ">") {
+		return strings.TrimSpace(raw[:i]), raw[i+1 : len(raw)-1]
+	}
+	return "", raw
+}
+
+// ParseEmailAddressForTest is a test-only exported wrapper for parseEmailAddress.
+func ParseEmailAddressForTest(raw string) (name, email string) {
+	return parseEmailAddress(raw)
 }
