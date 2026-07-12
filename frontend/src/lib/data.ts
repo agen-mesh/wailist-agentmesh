@@ -65,6 +65,7 @@ export const ACTION_TEMPLATES = [
   { id: "asana", name: "Asana Task", desc: "Create a task", icon: "as" },
   { id: "clickup", name: "ClickUp Task", desc: "Create a task", icon: "cu" },
   { id: "jira", name: "Jira Issue", desc: "Create an issue", icon: "J" },
+  { id: "mailchimp", name: "Mailchimp Subscriber", desc: "Add to a list", icon: "mc" },
 ];
 
 export const END_TEMPLATES = [

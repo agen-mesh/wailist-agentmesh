@@ -669,6 +669,13 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
           <ConfigField node={node} onUpdate={onUpdate} configKey="jiraIssueType" label="Issue Type" placeholder="Task (default)" />
         </Section>
       )}
+      {node.template === "mailchimp" && (
+        <Section label="Mailchimp config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="mailchimpAPIKey" label="API Key" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-us21" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="mailchimpListID" label="Audience (List) ID" placeholder="target list id" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="mailchimpEmail" label="Email" hint="optional, defaults to the run's output" placeholder="leave blank to use the agent's message as the email" />
+        </Section>
+      )}
     </>
   );
 }

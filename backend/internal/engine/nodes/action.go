@@ -46,6 +46,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendClickUp(ctx, node, rc)
 	case "jira":
 		return sendJira(ctx, node, rc)
+	case "mailchimp":
+		return sendMailchimp(ctx, node, rc)
 	default:
 		return "logged", nil
 	}
