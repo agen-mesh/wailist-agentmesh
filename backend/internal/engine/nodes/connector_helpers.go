@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -65,7 +67,7 @@ func doAndCheck(req *http.Request, sentinel, serviceName string) (any, error) {
 	}
 	resp, err := toolHTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", serviceName, err)
+		return nil, fmt.Errorf("%s: request to %s failed: %w", serviceName, redactedURL(req.URL), unwrapURLError(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
@@ -73,6 +75,29 @@ func doAndCheck(req *http.Request, sentinel, serviceName string) (any, error) {
 		return nil, fmt.Errorf("%s API %d: %s", serviceName, resp.StatusCode, string(b))
 	}
 	return sentinel, nil
+}
+
+// redactedURL renders a URL with its query string stripped, so request-failure
+// errors never echo query-string credentials (e.g. Trello's key/token params)
+// into logs or SSE run output.
+func redactedURL(u *url.URL) string {
+	c := *u
+	if c.RawQuery != "" {
+		c.RawQuery = "REDACTED"
+	}
+	return c.String()
+}
+
+// unwrapURLError returns the underlying transport error for a *url.Error,
+// whose own Error() string embeds the full request URL (including any query
+// string). Returning the wrapped reason instead of err itself keeps error
+// messages informative without leaking query-string credentials.
+func unwrapURLError(err error) error {
+	var uerr *url.Error
+	if errors.As(err, &uerr) {
+		return uerr.Err
+	}
+	return err
 }
 
 // issueTitle derives a short title from a longer message: its first non-blank
