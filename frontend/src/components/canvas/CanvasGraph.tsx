@@ -59,10 +59,17 @@ export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, 
   const onBgMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0 && e.button !== 1) return;
     const target = e.target as HTMLElement;
-    if (target.closest("[data-node]") || target.closest("[data-port]")) return;
+    const onNode = !!(target.closest("[data-node]") || target.closest("[data-port]"));
+    if (e.button === 0) {
+      // Left button pans only from empty background, and deselects.
+      if (onNode) return;
+      setSelectedId(null);
+    } else {
+      // Middle (scroll) button pans anywhere; suppress the OS autoscroll.
+      e.preventDefault();
+    }
     panRef.current = { active: true, sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y };
     setPanning(true);
-    setSelectedId(null);
   };
 
   useEffect(() => {
@@ -130,6 +137,7 @@ export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, 
   };
 
   const startNodeDrag = (e: React.MouseEvent, n: WorkflowNode) => {
+    if (e.button !== 0) return; // only the left button moves a node; middle-button falls through to pan
     if ((e.target as HTMLElement).closest("[data-port]")) return;
     e.stopPropagation();
     setSelectedId(n.id);
