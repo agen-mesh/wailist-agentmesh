@@ -72,6 +72,7 @@ export const ACTION_TEMPLATES = [
   { id: "sentry", name: "Sentry Event", desc: "Capture a message", icon: "S" },
   { id: "supabase", name: "Supabase Insert", desc: "Insert a row", icon: "sb" },
   { id: "woocommerce", name: "WooCommerce Note", desc: "Add an order note", icon: "wc" },
+  { id: "elevenlabs", name: "ElevenLabs Speech", desc: "Text to speech", icon: "11" },
 ];
 
 export const END_TEMPLATES = [

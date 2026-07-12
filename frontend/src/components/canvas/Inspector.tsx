@@ -717,6 +717,12 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
           <ConfigField node={node} onUpdate={onUpdate} configKey="woocommerceOrderID" label="Order ID" placeholder="target order id" />
         </Section>
       )}
+      {node.template === "elevenlabs" && (
+        <Section label="ElevenLabs config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="elevenlabsAPIKey" label="API Key" placeholder="your ElevenLabs API key" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="elevenlabsVoiceID" label="Voice ID" placeholder="21m00Tcm4TlvDq8ikWAM (Rachel, default)" />
+        </Section>
+      )}
     </>
   );
 }
