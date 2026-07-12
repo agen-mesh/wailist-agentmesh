@@ -154,7 +154,7 @@ func sendViaResend(ctx context.Context, apiKey, from, to, subject, body string) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		rb, _ := io.ReadAll(resp.Body)
+		rb, _ := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
 		return nil, fmt.Errorf("Resend API %d: %s", resp.StatusCode, string(rb))
 	}
 	return "email_sent", nil

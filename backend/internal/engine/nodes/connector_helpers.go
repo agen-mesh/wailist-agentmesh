@@ -77,14 +77,19 @@ func doAndCheck(req *http.Request, sentinel, serviceName string) (any, error) {
 	return sentinel, nil
 }
 
-// redactedURL renders a URL with its query string stripped, so request-failure
-// errors never echo query-string credentials (e.g. Trello's key/token params)
-// into logs or SSE run output.
+// redactedURL renders just a URL's scheme and host, so request-failure errors
+// never echo credentials embedded in the query string (e.g. Trello's
+// key/token params) or the path (e.g. Telegram's bot token) into logs or SSE
+// run output. The path/query never help diagnose a transport failure anyway —
+// serviceName already identifies which connector failed.
 func redactedURL(u *url.URL) string {
 	c := *u
-	if c.RawQuery != "" {
-		c.RawQuery = "REDACTED"
-	}
+	c.User = nil
+	c.Path = ""
+	c.RawPath = ""
+	c.RawQuery = ""
+	c.Fragment = ""
+	c.RawFragment = ""
 	return c.String()
 }
 
