@@ -53,10 +53,10 @@ export function PalettePanel({ onDragNodeStart }: PalettePanelProps) {
     <div style={{ width: 280, flexShrink: 0, borderRight: "1px solid var(--border)", background: "var(--bg-elev-1)", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       <div style={{ padding: "14px 14px 8px" }}>
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-dim)", marginBottom: 10 }}>library</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, background: "var(--bg)", padding: 3, borderRadius: "var(--r-2)", border: "1px solid var(--border)" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4, background: "var(--bg)", padding: 3, borderRadius: "var(--r-2)", border: "1px solid var(--border)" }}>
           {PALETTE_TABS.map((t) => (
             <button key={t.id} onClick={() => setTab(t.id as TabId)}
-              style={{ flex: "1 0 calc(33% - 4px)", height: 26, border: "none", cursor: "pointer", background: tab === t.id ? "var(--bg-elev-3)" : "transparent", color: tab === t.id ? "var(--fg)" : "var(--fg-muted)", borderRadius: 5, fontSize: 11, fontWeight: 500, fontFamily: "var(--font-sans)" }}>
+              style={{ height: 26, border: "none", cursor: "pointer", background: tab === t.id ? "var(--bg-elev-3)" : "transparent", color: tab === t.id ? "var(--fg)" : "var(--fg-muted)", borderRadius: 5, fontSize: 11, fontWeight: 500, fontFamily: "var(--font-sans)" }}>
               {t.label}
             </button>
           ))}
