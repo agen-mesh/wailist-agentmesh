@@ -280,7 +280,7 @@ function CanvasTopbar({ workflow, setWorkflow, deployed, running, onDeploy, onRu
       <input
         value={workflow.name}
         onChange={(e) => setWorkflow((wf) => ({ ...wf, name: e.target.value }))}
-        style={{ background: "transparent", border: "none", outline: "none", color: "var(--fg)", fontSize: 13, fontWeight: 500, fontFamily: "var(--font-sans)", minWidth: 200, padding: "4px 6px", borderRadius: 4 }}
+        style={{ background: "transparent", border: "none", outline: "none", color: "var(--fg)", fontSize: 13, fontWeight: 500, fontFamily: "var(--font-sans)", flex: "0 1 200px", minWidth: 0, padding: "4px 6px", borderRadius: 4 }}
       />
       <Pill mono dot tone={deployed ? "ok" : "default"}>{deployed ? "deployed · testnet" : "draft"}</Pill>
       {saveLabel && <Pill mono>{saveLabel}</Pill>}
