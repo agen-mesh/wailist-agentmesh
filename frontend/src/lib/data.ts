@@ -64,6 +64,7 @@ export const ACTION_TEMPLATES = [
   { id: "trello", name: "Trello Card", desc: "Create a card", icon: "tr" },
   { id: "asana", name: "Asana Task", desc: "Create a task", icon: "as" },
   { id: "clickup", name: "ClickUp Task", desc: "Create a task", icon: "cu" },
+  { id: "jira", name: "Jira Issue", desc: "Create an issue", icon: "J" },
 ];
 
 export const END_TEMPLATES = [

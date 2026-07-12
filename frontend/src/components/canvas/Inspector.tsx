@@ -660,6 +660,15 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
           <ConfigField node={node} onUpdate={onUpdate} configKey="clickupListID" label="List ID" placeholder="target list id" />
         </Section>
       )}
+      {node.template === "jira" && (
+        <Section label="Jira config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="jiraAPIToken" label="API Token" placeholder="your Atlassian API token" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="jiraEmail" label="Account Email" placeholder="bot@yourcompany.com" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="jiraDomain" label="Site Domain" placeholder="yourcompany (as in yourcompany.atlassian.net)" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="jiraProjectKey" label="Project Key" placeholder="ENG" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="jiraIssueType" label="Issue Type" placeholder="Task (default)" />
+        </Section>
+      )}
     </>
   );
 }

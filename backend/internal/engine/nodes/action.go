@@ -44,6 +44,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendAsana(ctx, node, rc)
 	case "clickup":
 		return sendClickUp(ctx, node, rc)
+	case "jira":
+		return sendJira(ctx, node, rc)
 	default:
 		return "logged", nil
 	}
