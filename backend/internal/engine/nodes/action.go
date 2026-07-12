@@ -56,6 +56,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendGitLab(ctx, node, rc)
 	case "sentry":
 		return sendSentry(ctx, node, rc)
+	case "supabase":
+		return sendSupabase(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

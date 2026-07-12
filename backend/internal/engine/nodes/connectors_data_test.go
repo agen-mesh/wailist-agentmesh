@@ -162,3 +162,69 @@ func TestMailchimpAction_SkipsWhenNoEmail(t *testing.T) {
 		t.Errorf("want 'mailchimp_skipped_no_email', got %v", result)
 	}
 }
+
+func TestSupabaseAction_InsertsRow(t *testing.T) {
+	var gotPath, gotAPIKey, gotAuth string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAPIKey = r.Header.Get("apikey")
+		gotAuth = r.Header.Get("Authorization")
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{
+		ID: "sb1", Type: models.NodeTypeAction, Template: "supabase",
+		Secrets: map[string]string{"supabaseAPIKey": "svc_key_xxx"},
+		Config:  map[string]string{"supabaseProjectURL": srv.URL, "supabaseTable": "logs"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"agent finished run"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "supabase_row_inserted" {
+		t.Errorf("want 'supabase_row_inserted', got %v", result)
+	}
+	if gotPath != "/rest/v1/logs" {
+		t.Errorf("want rest/v1/table path, got %q", gotPath)
+	}
+	if gotAPIKey != "svc_key_xxx" || gotAuth != "Bearer svc_key_xxx" {
+		t.Errorf("want apikey and bearer auth headers, got apikey=%q auth=%q", gotAPIKey, gotAuth)
+	}
+	if gotBody["content"] != "agent finished run" {
+		t.Errorf("want default column 'content' with message, got %v", gotBody)
+	}
+}
+
+func TestSupabaseAction_SkipsWhenNoAPIKey(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "sb2", Type: models.NodeTypeAction, Template: "supabase",
+		Config: map[string]string{"supabaseProjectURL": "https://x.supabase.co", "supabaseTable": "logs"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"test"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "supabase_skipped_no_api_key" {
+		t.Errorf("want 'supabase_skipped_no_api_key', got %v", result)
+	}
+}
+
+func TestSupabaseAction_SkipsWhenMissingConfig(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "sb3", Type: models.NodeTypeAction, Template: "supabase",
+		Secrets: map[string]string{"supabaseAPIKey": "svc_key_xxx"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"test"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "supabase_skipped_missing_config" {
+		t.Errorf("want 'supabase_skipped_missing_config', got %v", result)
+	}
+}

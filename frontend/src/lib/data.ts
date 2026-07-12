@@ -70,6 +70,7 @@ export const ACTION_TEMPLATES = [
   { id: "todoist", name: "Todoist Task", desc: "Create a task", icon: "td" },
   { id: "gitlab", name: "GitLab Issue", desc: "Create an issue", icon: "gl" },
   { id: "sentry", name: "Sentry Event", desc: "Capture a message", icon: "S" },
+  { id: "supabase", name: "Supabase Insert", desc: "Insert a row", icon: "sb" },
 ];
 
 export const END_TEMPLATES = [

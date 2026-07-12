@@ -700,6 +700,14 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
           <SecretField node={node} onUpdate={onUpdate} secretKey="sentryDSN" label="DSN" placeholder="https://xxxx@o000000.ingest.sentry.io/000000" />
         </Section>
       )}
+      {node.template === "supabase" && (
+        <Section label="Supabase config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="supabaseAPIKey" label="Service Role Key" placeholder="eyJhbGciOi…" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="supabaseProjectURL" label="Project URL" placeholder="https://xxxxxxxx.supabase.co" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="supabaseTable" label="Table" placeholder="logs" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="supabaseColumn" label="Column" placeholder="content (default)" />
+        </Section>
+      )}
     </>
   );
 }

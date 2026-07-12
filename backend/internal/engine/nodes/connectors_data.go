@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -104,4 +105,28 @@ func mailchimpDatacenter(apiKey string) (string, error) {
 // MailchimpDatacenterForTest is a test-only exported wrapper for mailchimpDatacenter.
 func MailchimpDatacenterForTest(apiKey string) (string, error) {
 	return mailchimpDatacenter(apiKey)
+}
+
+func sendSupabase(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	apiKey := secretVal(node, "supabaseAPIKey")
+	if apiKey == "" {
+		return "supabase_skipped_no_api_key", nil
+	}
+	projectURL := configVal(node, "supabaseProjectURL", "")
+	table := configVal(node, "supabaseTable", "")
+	if projectURL == "" || table == "" {
+		return "supabase_skipped_missing_config", nil
+	}
+	column := configVal(node, "supabaseColumn", "content")
+	target := strings.TrimRight(projectURL, "/") + "/rest/v1/" + url.PathEscape(table)
+	if err := urlValidator(target); err != nil {
+		return nil, err
+	}
+	payload := map[string]any{column: rc.Message()}
+	headers := map[string]string{
+		"apikey":        apiKey,
+		"Authorization": "Bearer " + apiKey,
+		"Prefer":        "return=minimal",
+	}
+	return postJSON(ctx, target, headers, payload, "supabase_row_inserted", "Supabase")
 }
