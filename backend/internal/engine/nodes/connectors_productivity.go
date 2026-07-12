@@ -182,3 +182,29 @@ func sendClickUp(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	headers := map[string]string{"Authorization": apiKey}
 	return postJSON(ctx, target, headers, payload, "clickup_task_created", "ClickUp")
 }
+
+// todoistAPIBase is overridden in tests via SetTodoistAPIBaseForTest.
+var todoistAPIBase = "https://api.todoist.com"
+
+// SetTodoistAPIBaseForTest overrides the Todoist API base URL. Call only
+// from tests. Pass "" to reset to the real API.
+func SetTodoistAPIBaseForTest(base string) {
+	if base == "" {
+		todoistAPIBase = "https://api.todoist.com"
+	} else {
+		todoistAPIBase = base
+	}
+}
+
+func sendTodoist(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	apiKey := secretVal(node, "todoistAPIKey")
+	if apiKey == "" {
+		return "todoist_skipped_no_api_key", nil
+	}
+	payload := map[string]any{"content": issueTitle(rc.Message()), "description": rc.Message()}
+	if projectID := configVal(node, "todoistProjectID", ""); projectID != "" {
+		payload["project_id"] = projectID
+	}
+	headers := map[string]string{"Authorization": "Bearer " + apiKey}
+	return postJSON(ctx, todoistAPIBase+"/rest/v2/tasks", headers, payload, "todoist_task_created", "Todoist")
+}

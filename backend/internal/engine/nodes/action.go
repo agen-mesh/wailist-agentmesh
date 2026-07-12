@@ -50,6 +50,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendMailchimp(ctx, node, rc)
 	case "linear":
 		return sendLinear(ctx, node, rc)
+	case "todoist":
+		return sendTodoist(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

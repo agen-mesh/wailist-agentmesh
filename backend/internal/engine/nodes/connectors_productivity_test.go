@@ -347,3 +347,76 @@ func TestClickUpAction_SkipsWhenNoListID(t *testing.T) {
 		t.Errorf("want 'clickup_skipped_no_list_id', got %v", result)
 	}
 }
+
+func TestTodoistAction_CreatesTask(t *testing.T) {
+	var gotAuth string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	nodes.SetTodoistAPIBaseForTest(srv.URL)
+	defer nodes.SetTodoistAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "td1", Type: models.NodeTypeAction, Template: "todoist",
+		Secrets: map[string]string{"todoistAPIKey": "tok_xxx"},
+		Config:  map[string]string{"todoistProjectID": "proj42"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"buy milk"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "todoist_task_created" {
+		t.Errorf("want 'todoist_task_created', got %v", result)
+	}
+	if gotAuth != "Bearer tok_xxx" {
+		t.Errorf("want bearer auth, got %q", gotAuth)
+	}
+	if gotBody["content"] != "buy milk" {
+		t.Errorf("want content from message, got %v", gotBody)
+	}
+	if gotBody["project_id"] != "proj42" {
+		t.Errorf("want project_id when configured, got %v", gotBody)
+	}
+}
+
+func TestTodoistAction_OmitsProjectIDWhenUnset(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	nodes.SetTodoistAPIBaseForTest(srv.URL)
+	defer nodes.SetTodoistAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "td2", Type: models.NodeTypeAction, Template: "todoist",
+		Secrets: map[string]string{"todoistAPIKey": "tok_xxx"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"buy eggs"`))
+	if _, err := nodes.ExecuteAction(context.Background(), node, rc); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := gotBody["project_id"]; ok {
+		t.Errorf("want project_id omitted when unset, got %v", gotBody)
+	}
+}
+
+func TestTodoistAction_SkipsWhenNoAPIKey(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "td3", Type: models.NodeTypeAction, Template: "todoist",
+	}
+	rc := engine.NewRunContext("r1", []byte(`"buy eggs"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "todoist_skipped_no_api_key" {
+		t.Errorf("want 'todoist_skipped_no_api_key', got %v", result)
+	}
+}

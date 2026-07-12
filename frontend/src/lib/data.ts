@@ -67,6 +67,7 @@ export const ACTION_TEMPLATES = [
   { id: "jira", name: "Jira Issue", desc: "Create an issue", icon: "J" },
   { id: "mailchimp", name: "Mailchimp Subscriber", desc: "Add to a list", icon: "mc" },
   { id: "linear", name: "Linear Issue", desc: "Create an issue", icon: "L" },
+  { id: "todoist", name: "Todoist Task", desc: "Create a task", icon: "td" },
 ];
 
 export const END_TEMPLATES = [

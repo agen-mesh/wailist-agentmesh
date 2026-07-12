@@ -682,6 +682,12 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
           <ConfigField node={node} onUpdate={onUpdate} configKey="linearTeamID" label="Team ID" placeholder="target team id" />
         </Section>
       )}
+      {node.template === "todoist" && (
+        <Section label="Todoist config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="todoistAPIKey" label="API Token" placeholder="your Todoist API token" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="todoistProjectID" label="Project ID" hint="optional" placeholder="leave blank for Inbox" />
+        </Section>
+      )}
     </>
   );
 }
