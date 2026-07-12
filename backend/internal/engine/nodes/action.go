@@ -54,6 +54,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendTodoist(ctx, node, rc)
 	case "gitlab":
 		return sendGitLab(ctx, node, rc)
+	case "sentry":
+		return sendSentry(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

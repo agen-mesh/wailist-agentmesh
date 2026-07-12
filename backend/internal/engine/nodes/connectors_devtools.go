@@ -2,12 +2,16 @@ package nodes
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/agentmesh/backend/internal/models"
 )
@@ -164,4 +168,77 @@ func sendGitLab(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	}
 	req.Header.Set("PRIVATE-TOKEN", token)
 	return doAndCheck(req, "gitlab_issue_created", "GitLab")
+}
+
+func sendSentry(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	dsn := secretVal(node, "sentryDSN")
+	if dsn == "" {
+		return "sentry_skipped_no_dsn", nil
+	}
+	publicKey, host, projectID, err := parseSentryDSN(dsn)
+	if err != nil {
+		return nil, err
+	}
+	eventID, err := randomHex32()
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	header := fmt.Sprintf(`{"event_id":%q,"sent_at":%q}`, eventID, now.Format(time.RFC3339))
+	itemHeader := `{"type":"event"}`
+	itemBody, err := json.Marshal(map[string]any{
+		"event_id":  eventID,
+		"timestamp": now.Unix(),
+		"platform":  "other",
+		"level":     "info",
+		"message":   map[string]any{"formatted": rc.Message()},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("Sentry: encode event: %w", err)
+	}
+	envelope := header + "\n" + itemHeader + "\n" + string(itemBody) + "\n"
+	scheme := "https"
+	if strings.HasPrefix(dsn, "http://") {
+		scheme = "http" // only ever true for the local httptest server in tests
+	}
+	target := scheme + "://" + host + "/api/" + projectID + "/envelope/"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(envelope))
+	if err != nil {
+		return nil, fmt.Errorf("Sentry: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-sentry-envelope")
+	req.Header.Set("X-Sentry-Auth", fmt.Sprintf("Sentry sentry_version=7, sentry_key=%s, sentry_client=agentmesh/1.0", publicKey))
+	return doAndCheck(req, "sentry_event_sent", "Sentry")
+}
+
+// parseSentryDSN extracts the public key, ingest host, and numeric project ID
+// from a DSN of the form scheme://<publicKey>@<host>/<projectID>.
+func parseSentryDSN(dsn string) (publicKey, host, projectID string, err error) {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return "", "", "", fmt.Errorf("Sentry: invalid DSN: %w", err)
+	}
+	if u.User == nil {
+		return "", "", "", fmt.Errorf("Sentry: DSN missing public key")
+	}
+	publicKey = u.User.Username()
+	host = u.Host
+	projectID = strings.Trim(u.Path, "/")
+	if publicKey == "" || host == "" || projectID == "" {
+		return "", "", "", fmt.Errorf("Sentry: DSN missing host or project id")
+	}
+	return publicKey, host, projectID, nil
+}
+
+func randomHex32() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("Sentry: generate event id: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// ParseSentryDSNForTest is a test-only exported wrapper for parseSentryDSN.
+func ParseSentryDSNForTest(dsn string) (publicKey, host, projectID string, err error) {
+	return parseSentryDSN(dsn)
 }

@@ -695,6 +695,11 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
           <ConfigField node={node} onUpdate={onUpdate} configKey="gitlabBaseURL" label="Base URL" hint="optional, for self-hosted" placeholder="https://gitlab.com (default)" />
         </Section>
       )}
+      {node.template === "sentry" && (
+        <Section label="Sentry config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="sentryDSN" label="DSN" placeholder="https://xxxx@o000000.ingest.sentry.io/000000" />
+        </Section>
+      )}
     </>
   );
 }

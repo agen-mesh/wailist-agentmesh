@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/engine"
@@ -335,5 +337,76 @@ func TestGitLabAction_SkipsWhenNoProjectID(t *testing.T) {
 	}
 	if result != "gitlab_skipped_no_project_id" {
 		t.Errorf("want 'gitlab_skipped_no_project_id', got %v", result)
+	}
+}
+
+func TestSentryAction_SendsEnvelope(t *testing.T) {
+	var gotPath, gotAuth, gotContentType string
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("X-Sentry-Auth")
+		gotContentType = r.Header.Get("Content-Type")
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	srvHost := strings.TrimPrefix(srv.URL, "http://")
+
+	node := models.WorkflowNode{
+		ID: "se1", Type: models.NodeTypeAction, Template: "sentry",
+		Secrets: map[string]string{"sentryDSN": "http://pubkey123@" + srvHost + "/9"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"job queue backed up"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "sentry_event_sent" {
+		t.Errorf("want 'sentry_event_sent', got %v", result)
+	}
+	if gotPath != "/api/9/envelope/" {
+		t.Errorf("want envelope path, got %q", gotPath)
+	}
+	if !strings.Contains(gotAuth, "sentry_key=pubkey123") {
+		t.Errorf("want sentry_key in X-Sentry-Auth, got %q", gotAuth)
+	}
+	if gotContentType != "application/x-sentry-envelope" {
+		t.Errorf("want envelope content type, got %q", gotContentType)
+	}
+	lines := strings.Split(strings.TrimRight(gotBody, "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("want 3-line envelope (header, item header, item body), got %d: %v", len(lines), lines)
+	}
+	if !strings.Contains(lines[2], "job queue backed up") {
+		t.Errorf("want message in item body, got %q", lines[2])
+	}
+}
+
+func TestParseSentryDSN(t *testing.T) {
+	publicKey, host, projectID, err := nodes.ParseSentryDSNForTest("https://abc@o123.ingest.sentry.io/456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if publicKey != "abc" || host != "o123.ingest.sentry.io" || projectID != "456" {
+		t.Errorf("want abc/o123.ingest.sentry.io/456, got %s/%s/%s", publicKey, host, projectID)
+	}
+	if _, _, _, err := nodes.ParseSentryDSNForTest("not-a-dsn"); err == nil {
+		t.Error("want error for malformed DSN")
+	}
+}
+
+func TestSentryAction_SkipsWhenNoDSN(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "se2", Type: models.NodeTypeAction, Template: "sentry",
+	}
+	rc := engine.NewRunContext("r1", []byte(`"job queue backed up"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "sentry_skipped_no_dsn" {
+		t.Errorf("want 'sentry_skipped_no_dsn', got %v", result)
 	}
 }
