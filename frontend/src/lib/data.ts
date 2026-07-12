@@ -68,6 +68,7 @@ export const ACTION_TEMPLATES = [
   { id: "mailchimp", name: "Mailchimp Subscriber", desc: "Add to a list", icon: "mc" },
   { id: "linear", name: "Linear Issue", desc: "Create an issue", icon: "L" },
   { id: "todoist", name: "Todoist Task", desc: "Create a task", icon: "td" },
+  { id: "gitlab", name: "GitLab Issue", desc: "Create an issue", icon: "gl" },
 ];
 
 export const END_TEMPLATES = [

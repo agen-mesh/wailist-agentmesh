@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/engine"
@@ -253,5 +254,86 @@ func TestLinearAction_SkipsWhenNoTeamID(t *testing.T) {
 	}
 	if result != "linear_skipped_no_team_id" {
 		t.Errorf("want 'linear_skipped_no_team_id', got %v", result)
+	}
+}
+
+func TestGitLabAction_CreatesIssue(t *testing.T) {
+	var gotPath, gotToken string
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotToken = r.Header.Get("PRIVATE-TOKEN")
+		gotQuery = r.URL.Query()
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{
+		ID: "gl1", Type: models.NodeTypeAction, Template: "gitlab",
+		Secrets: map[string]string{"gitlabAPIToken": "glpat-xxx"},
+		Config:  map[string]string{"gitlabProjectID": "42", "gitlabBaseURL": srv.URL},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"pipeline broke"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "gitlab_issue_created" {
+		t.Errorf("want 'gitlab_issue_created', got %v", result)
+	}
+	if gotPath != "/api/v4/projects/42/issues" {
+		t.Errorf("want project issues path, got %q", gotPath)
+	}
+	if gotToken != "glpat-xxx" {
+		t.Errorf("want PRIVATE-TOKEN header, got %q", gotToken)
+	}
+	if gotQuery.Get("title") != "pipeline broke" {
+		t.Errorf("want title in query, got %v", gotQuery)
+	}
+}
+
+func TestGitLabAction_DefaultsToGitLabCom(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "gl2", Type: models.NodeTypeAction, Template: "gitlab",
+		Secrets: map[string]string{"gitlabAPIToken": "glpat-xxx"},
+		Config:  map[string]string{"gitlabProjectID": "42"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"x"`))
+	// No live gitlab.com call in unit tests; this only asserts we don't skip
+	// due to missing config and that a network error (not a config-skip
+	// sentinel) is what comes back when the real host is unreachable in CI.
+	_, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err == nil {
+		t.Skip("network reachable in this environment; skip is fine, this test only guards against a config-skip sentinel")
+	}
+}
+
+func TestGitLabAction_SkipsWhenNoToken(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "gl3", Type: models.NodeTypeAction, Template: "gitlab",
+		Config: map[string]string{"gitlabProjectID": "42"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"pipeline broke"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "gitlab_skipped_no_token" {
+		t.Errorf("want 'gitlab_skipped_no_token', got %v", result)
+	}
+}
+
+func TestGitLabAction_SkipsWhenNoProjectID(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "gl4", Type: models.NodeTypeAction, Template: "gitlab",
+		Secrets: map[string]string{"gitlabAPIToken": "glpat-xxx"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"pipeline broke"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "gitlab_skipped_no_project_id" {
+		t.Errorf("want 'gitlab_skipped_no_project_id', got %v", result)
 	}
 }

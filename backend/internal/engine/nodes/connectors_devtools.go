@@ -3,7 +3,11 @@ package nodes
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
+	"net/http"
+	"net/url"
 	"regexp"
+	"strings"
 
 	"github.com/agentmesh/backend/internal/models"
 )
@@ -135,4 +139,29 @@ func sendLinear(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	}
 	headers := map[string]string{"Authorization": apiKey}
 	return postJSON(ctx, linearAPIBase+"/graphql", headers, payload, "linear_issue_created", "Linear")
+}
+
+func sendGitLab(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	token := secretVal(node, "gitlabAPIToken")
+	if token == "" {
+		return "gitlab_skipped_no_token", nil
+	}
+	projectID := configVal(node, "gitlabProjectID", "")
+	if projectID == "" {
+		return "gitlab_skipped_no_project_id", nil
+	}
+	base := strings.TrimRight(configVal(node, "gitlabBaseURL", "https://gitlab.com"), "/")
+	target := base + "/api/v4/projects/" + url.PathEscape(projectID) + "/issues"
+	if err := urlValidator(target); err != nil {
+		return nil, err
+	}
+	q := url.Values{}
+	q.Set("title", issueTitle(rc.Message()))
+	q.Set("description", rc.Message())
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target+"?"+q.Encode(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("GitLab: build request: %w", err)
+	}
+	req.Header.Set("PRIVATE-TOKEN", token)
+	return doAndCheck(req, "gitlab_issue_created", "GitLab")
 }

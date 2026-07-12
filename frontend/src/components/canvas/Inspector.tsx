@@ -688,6 +688,13 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
           <ConfigField node={node} onUpdate={onUpdate} configKey="todoistProjectID" label="Project ID" hint="optional" placeholder="leave blank for Inbox" />
         </Section>
       )}
+      {node.template === "gitlab" && (
+        <Section label="GitLab config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="gitlabAPIToken" label="Personal Access Token" placeholder="glpat-xxxxxxxxxxxxxxxxxxxx" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="gitlabProjectID" label="Project ID" placeholder="numeric project id" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="gitlabBaseURL" label="Base URL" hint="optional, for self-hosted" placeholder="https://gitlab.com (default)" />
+        </Section>
+      )}
     </>
   );
 }
