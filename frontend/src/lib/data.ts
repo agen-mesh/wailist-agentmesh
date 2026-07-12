@@ -62,6 +62,7 @@ export const ACTION_TEMPLATES = [
   { id: "airtable", name: "Airtable Record", desc: "Create a record", icon: "A" },
   { id: "hubspot", name: "HubSpot Note", desc: "Log a CRM note", icon: "hs" },
   { id: "trello", name: "Trello Card", desc: "Create a card", icon: "tr" },
+  { id: "asana", name: "Asana Task", desc: "Create a task", icon: "as" },
 ];
 
 export const END_TEMPLATES = [

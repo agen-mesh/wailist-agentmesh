@@ -212,3 +212,71 @@ func TestTrelloAction_SkipsWhenNoListID(t *testing.T) {
 		t.Errorf("want 'trello_skipped_no_list_id', got %v", result)
 	}
 }
+
+func TestAsanaAction_CreatesTask(t *testing.T) {
+	var gotAuth string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	nodes.SetAsanaAPIBaseForTest(srv.URL)
+	defer nodes.SetAsanaAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "as1", Type: models.NodeTypeAction, Template: "asana",
+		Secrets: map[string]string{"asanaAPIKey": "1/xxx"},
+		Config:  map[string]string{"asanaProjectID": "proj123"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"review pull request"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "asana_task_created" {
+		t.Errorf("want 'asana_task_created', got %v", result)
+	}
+	if gotAuth != "Bearer 1/xxx" {
+		t.Errorf("want bearer auth, got %q", gotAuth)
+	}
+	data, _ := gotBody["data"].(map[string]any)
+	if data["name"] != "review pull request" {
+		t.Errorf("want task name from message, got %v", gotBody)
+	}
+	projects, _ := data["projects"].([]any)
+	if len(projects) != 1 || projects[0] != "proj123" {
+		t.Errorf("want project id in projects, got %v", data["projects"])
+	}
+}
+
+func TestAsanaAction_SkipsWhenNoAPIKey(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "as2", Type: models.NodeTypeAction, Template: "asana",
+		Config: map[string]string{"asanaProjectID": "proj123"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"review pull request"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "asana_skipped_no_api_key" {
+		t.Errorf("want 'asana_skipped_no_api_key', got %v", result)
+	}
+}
+
+func TestAsanaAction_SkipsWhenNoProjectID(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "as3", Type: models.NodeTypeAction, Template: "asana",
+		Secrets: map[string]string{"asanaAPIKey": "1/xxx"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"review pull request"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "asana_skipped_no_project_id" {
+		t.Errorf("want 'asana_skipped_no_project_id', got %v", result)
+	}
+}

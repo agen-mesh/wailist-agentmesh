@@ -646,6 +646,14 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
           <ConfigField node={node} onUpdate={onUpdate} configKey="trelloListID" label="List ID" placeholder="target list id" />
         </Section>
       )}
+
+      {node.template === "asana" && (
+        <Section label="Asana config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="asanaAPIKey" label="Personal Access Token"
+            placeholder="1/1234567890:xxxxxxxxxxxxxxxxxxxx" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="asanaProjectID" label="Project ID" placeholder="target project id" />
+        </Section>
+      )}
     </>
   );
 }

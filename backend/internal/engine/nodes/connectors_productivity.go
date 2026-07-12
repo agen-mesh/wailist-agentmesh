@@ -121,3 +121,36 @@ func sendTrello(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	}
 	return doAndCheck(req, "trello_card_created", "Trello")
 }
+
+// asanaAPIBase is overridden in tests via SetAsanaAPIBaseForTest.
+var asanaAPIBase = "https://app.asana.com"
+
+// SetAsanaAPIBaseForTest overrides the Asana API base URL. Call only
+// from tests. Pass "" to reset to the real API.
+func SetAsanaAPIBaseForTest(base string) {
+	if base == "" {
+		asanaAPIBase = "https://app.asana.com"
+	} else {
+		asanaAPIBase = base
+	}
+}
+
+func sendAsana(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	apiKey := secretVal(node, "asanaAPIKey")
+	if apiKey == "" {
+		return "asana_skipped_no_api_key", nil
+	}
+	projectID := configVal(node, "asanaProjectID", "")
+	if projectID == "" {
+		return "asana_skipped_no_project_id", nil
+	}
+	payload := map[string]any{
+		"data": map[string]any{
+			"name":     issueTitle(rc.Message()),
+			"notes":    rc.Message(),
+			"projects": []string{projectID},
+		},
+	}
+	headers := map[string]string{"Authorization": "Bearer " + apiKey}
+	return postJSON(ctx, asanaAPIBase+"/api/1.0/tasks", headers, payload, "asana_task_created", "Asana")
+}
