@@ -126,16 +126,17 @@ function SecretField({
 }
 
 function ConfigField({
-  node, onUpdate, configKey, label, placeholder,
+  node, onUpdate, configKey, label, hint, placeholder,
 }: {
   node: WorkflowNode;
   onUpdate: (n: WorkflowNode) => void;
   configKey: string;
   label: string;
+  hint?: string;
   placeholder?: string;
 }) {
   return (
-    <Field label={label}>
+    <Field label={label} hint={hint}>
       <input
         style={monoInputStyle}
         value={node.config?.[configKey] ?? ""}
