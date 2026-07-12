@@ -287,7 +287,7 @@ function CanvasTopbar({ workflow, setWorkflow, deployed, running, onDeploy, onRu
 
       <div style={{ flex: 1 }} />
 
-      <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "0 14px", borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)", height: 36 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "0 14px", borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)", height: 36, flexShrink: 0 }}>
         <Stat label="agents" value={workflow.nodes.filter((n) => n.type === "agent").length} />
         <Stat label="tools"  value={workflow.nodes.filter((n) => n.type === "tool" || n.type === "tool402").length} />
         <Stat label="x402"   value={workflow.nodes.filter((n) => n.type === "tool402").length} color="#E879F9" />
