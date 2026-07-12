@@ -168,8 +168,9 @@ export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: Log
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-dim)" }}>{logs.length} step{logs.length !== 1 ? "s" : ""}</span>
           )}
         </div>
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-dim)" }}>
-          {open ? "▾ collapse" : "▴ expand"}
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--fg-muted)" }}>
+          <span style={{ fontSize: 15, lineHeight: 1 }}>{open ? "▾" : "▴"}</span>
+          {open ? "collapse" : "expand"}
         </span>
       </div>
 
