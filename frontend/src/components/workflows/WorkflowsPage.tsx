@@ -61,10 +61,25 @@ export function WorkflowsPage() {
         <Pill mono dot tone="ok">testnet</Pill>
         <div style={{ flex: 1 }} />
         <button style={ghostBtnSm} onClick={() => router.push("/workflows")}>Workflow</button>
-        <button style={ghostBtnSm}>Settings</button>
-        <Hairline vertical length={22} />
-        <button style={ghostBtnSm} onClick={handleSignOut}>Sign out</button>
-        <div style={{ width: 28, height: 28, borderRadius: 999, background: "var(--accent)", color: "var(--accent-fg)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>AC</div>
+        <div className="profile-menu">
+          <button className="profile-menu__trigger" aria-haspopup="menu" aria-label="Account menu">AC</button>
+          <div className="profile-menu__panel" role="menu">
+            <div className="profile-menu__card">
+              <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 30, height: 30, borderRadius: 999, background: "var(--accent)", color: "var(--accent-fg)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>AC</div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>Acme Capital</div>
+                  <div style={{ fontSize: 11, color: "var(--fg-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>testnet workspace</div>
+                </div>
+              </div>
+              <div className="profile-menu__divider" />
+              <button className="profile-menu__item" role="menuitem">Credentials</button>
+              <button className="profile-menu__item" role="menuitem">Settings</button>
+              <div className="profile-menu__divider" />
+              <button className="profile-menu__item profile-menu__item--danger" role="menuitem" onClick={handleSignOut}>Sign out</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Main */}
