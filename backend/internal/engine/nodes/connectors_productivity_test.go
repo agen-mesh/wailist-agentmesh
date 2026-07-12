@@ -280,3 +280,70 @@ func TestAsanaAction_SkipsWhenNoProjectID(t *testing.T) {
 		t.Errorf("want 'asana_skipped_no_project_id', got %v", result)
 	}
 }
+
+func TestClickUpAction_CreatesTask(t *testing.T) {
+	var gotPath, gotAuth string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	nodes.SetClickUpAPIBaseForTest(srv.URL)
+	defer nodes.SetClickUpAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "cu1", Type: models.NodeTypeAction, Template: "clickup",
+		Secrets: map[string]string{"clickupAPIKey": "pk_xxx"},
+		Config:  map[string]string{"clickupListID": "list42"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"triage bug reports"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "clickup_task_created" {
+		t.Errorf("want 'clickup_task_created', got %v", result)
+	}
+	if gotPath != "/api/v2/list/list42/task" {
+		t.Errorf("want list task path, got %q", gotPath)
+	}
+	if gotAuth != "pk_xxx" {
+		t.Errorf("want raw token (no Bearer prefix), got %q", gotAuth)
+	}
+	if gotBody["name"] != "triage bug reports" {
+		t.Errorf("want task name from message, got %v", gotBody)
+	}
+}
+
+func TestClickUpAction_SkipsWhenNoAPIKey(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "cu2", Type: models.NodeTypeAction, Template: "clickup",
+		Config: map[string]string{"clickupListID": "list42"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"triage bug reports"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "clickup_skipped_no_api_key" {
+		t.Errorf("want 'clickup_skipped_no_api_key', got %v", result)
+	}
+}
+
+func TestClickUpAction_SkipsWhenNoListID(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "cu3", Type: models.NodeTypeAction, Template: "clickup",
+		Secrets: map[string]string{"clickupAPIKey": "pk_xxx"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"triage bug reports"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "clickup_skipped_no_list_id" {
+		t.Errorf("want 'clickup_skipped_no_list_id', got %v", result)
+	}
+}

@@ -654,6 +654,12 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
           <ConfigField node={node} onUpdate={onUpdate} configKey="asanaProjectID" label="Project ID" placeholder="target project id" />
         </Section>
       )}
+      {node.template === "clickup" && (
+        <Section label="ClickUp config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="clickupAPIKey" label="API Token" placeholder="pk_xxxxxxxxxxxxxxxxxxxx" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="clickupListID" label="List ID" placeholder="target list id" />
+        </Section>
+      )}
     </>
   );
 }

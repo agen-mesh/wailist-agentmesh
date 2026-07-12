@@ -42,6 +42,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendTrello(ctx, node, rc)
 	case "asana":
 		return sendAsana(ctx, node, rc)
+	case "clickup":
+		return sendClickUp(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

@@ -63,6 +63,7 @@ export const ACTION_TEMPLATES = [
   { id: "hubspot", name: "HubSpot Note", desc: "Log a CRM note", icon: "hs" },
   { id: "trello", name: "Trello Card", desc: "Create a card", icon: "tr" },
   { id: "asana", name: "Asana Task", desc: "Create a task", icon: "as" },
+  { id: "clickup", name: "ClickUp Task", desc: "Create a task", icon: "cu" },
 ];
 
 export const END_TEMPLATES = [

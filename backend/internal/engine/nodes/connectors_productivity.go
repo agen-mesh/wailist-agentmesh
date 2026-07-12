@@ -154,3 +154,31 @@ func sendAsana(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 	headers := map[string]string{"Authorization": "Bearer " + apiKey}
 	return postJSON(ctx, asanaAPIBase+"/api/1.0/tasks", headers, payload, "asana_task_created", "Asana")
 }
+
+// clickupAPIBase is overridden in tests via SetClickUpAPIBaseForTest.
+var clickupAPIBase = "https://api.clickup.com"
+
+// SetClickUpAPIBaseForTest overrides the ClickUp API base URL. Call only
+// from tests. Pass "" to reset to the real API.
+func SetClickUpAPIBaseForTest(base string) {
+	if base == "" {
+		clickupAPIBase = "https://api.clickup.com"
+	} else {
+		clickupAPIBase = base
+	}
+}
+
+func sendClickUp(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	apiKey := secretVal(node, "clickupAPIKey")
+	if apiKey == "" {
+		return "clickup_skipped_no_api_key", nil
+	}
+	listID := configVal(node, "clickupListID", "")
+	if listID == "" {
+		return "clickup_skipped_no_list_id", nil
+	}
+	target := clickupAPIBase + "/api/v2/list/" + url.PathEscape(listID) + "/task"
+	payload := map[string]any{"name": issueTitle(rc.Message()), "description": rc.Message()}
+	headers := map[string]string{"Authorization": apiKey}
+	return postJSON(ctx, target, headers, payload, "clickup_task_created", "ClickUp")
+}
