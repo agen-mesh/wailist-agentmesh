@@ -204,13 +204,13 @@ function WorkflowIcon({ name }: { name: string }) {
 
 function WorkflowRows({ items, onOpen }: { items: Workflow[]; onOpen: (id: string) => void }) {
   return (
-    <div style={{ background: "var(--bg-elev-1)", border: "1px solid var(--border)", borderRadius: "var(--r-3)", overflow: "hidden" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 100px 80px 110px 130px 160px 80px", gap: 12, padding: "10px 16px", background: "var(--bg-elev-2)", borderBottom: "1px solid var(--border)", fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-dim)" }}>
+    <div style={{ background: "var(--bg-elev-1)", border: "1px solid var(--border)", borderRadius: "var(--r-3)", overflowX: "auto" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(180px, 240px) minmax(96px, 1fr) minmax(80px, 1fr) minmax(96px, 1fr) minmax(110px, 1fr) minmax(120px, 1fr) 80px", gap: 12, padding: "10px 16px", background: "var(--bg-elev-2)", borderBottom: "1px solid var(--border)", fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-dim)" }}>
         <span>Name</span><span>Status</span><span>Agents</span><span>Runs · 30d</span><span>Spend · 30d</span><span>Updated</span><span></span>
       </div>
       {items.map((wf, i) => (
         <div key={wf.id} onClick={() => onOpen(wf.id)}
-          style={{ display: "grid", gridTemplateColumns: "1.6fr 100px 80px 110px 130px 160px 80px", gap: 12, padding: "14px 16px", alignItems: "center", borderBottom: i < items.length - 1 ? "1px solid var(--border-soft)" : "none", cursor: "pointer", transition: "background .12s" }}
+          style={{ display: "grid", gridTemplateColumns: "minmax(180px, 240px) minmax(96px, 1fr) minmax(80px, 1fr) minmax(96px, 1fr) minmax(110px, 1fr) minmax(120px, 1fr) 80px", gap: 12, padding: "14px 16px", alignItems: "center", borderBottom: i < items.length - 1 ? "1px solid var(--border-soft)" : "none", cursor: "pointer", transition: "background .12s" }}
           onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-elev-2)")}
           onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
         >
