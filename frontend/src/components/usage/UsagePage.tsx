@@ -76,8 +76,8 @@ export function UsagePage() {
         <Pill mono dot tone="ok">testnet</Pill>
         <div style={{ flex: 1 }} />
         <button style={{ ...ghostBtnSm, borderColor: "var(--accent-line)", color: "var(--accent)" }}>Usage</button>
-        <button style={ghostBtnSm} onClick={() => router.push("/workflows")}>Credentials</button>
-        <button style={ghostBtnSm} onClick={() => router.push("/workflows")}>Settings</button>
+        <button style={ghostBtnSm}>Credentials</button>
+        <button style={ghostBtnSm}>Settings</button>
         <Hairline vertical length={22} />
         <button style={ghostBtnSm} onClick={handleSignOut}>Sign out</button>
         <div style={{ width: 28, height: 28, borderRadius: 999, background: "var(--accent)", color: "var(--accent-fg)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>AC</div>
