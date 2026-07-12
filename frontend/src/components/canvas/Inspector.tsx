@@ -676,6 +676,12 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
           <ConfigField node={node} onUpdate={onUpdate} configKey="mailchimpEmail" label="Email" hint="optional, defaults to the run's output" placeholder="leave blank to use the agent's message as the email" />
         </Section>
       )}
+      {node.template === "linear" && (
+        <Section label="Linear config">
+          <SecretField node={node} onUpdate={onUpdate} secretKey="linearAPIKey" label="Personal API Key" placeholder="lin_api_xxxxxxxxxxxxxxxxxxxx" />
+          <ConfigField node={node} onUpdate={onUpdate} configKey="linearTeamID" label="Team ID" placeholder="target team id" />
+        </Section>
+      )}
     </>
   );
 }

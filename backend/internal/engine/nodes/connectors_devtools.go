@@ -100,3 +100,39 @@ func sendJira(ctx context.Context, node models.WorkflowNode, rc RunContexter) (a
 	headers := map[string]string{"Authorization": "Basic " + auth}
 	return postJSON(ctx, target, headers, payload, "jira_issue_created", "Jira")
 }
+
+// linearAPIBase is overridden in tests via SetLinearAPIBaseForTest.
+var linearAPIBase = "https://api.linear.app"
+
+// SetLinearAPIBaseForTest overrides the Linear API base URL. Call only
+// from tests. Pass "" to reset to the real API.
+func SetLinearAPIBaseForTest(base string) {
+	if base == "" {
+		linearAPIBase = "https://api.linear.app"
+	} else {
+		linearAPIBase = base
+	}
+}
+
+func sendLinear(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	apiKey := secretVal(node, "linearAPIKey")
+	if apiKey == "" {
+		return "linear_skipped_no_api_key", nil
+	}
+	teamID := configVal(node, "linearTeamID", "")
+	if teamID == "" {
+		return "linear_skipped_no_team_id", nil
+	}
+	payload := map[string]any{
+		"query": `mutation IssueCreate($input: IssueCreateInput!) { issueCreate(input: $input) { success } }`,
+		"variables": map[string]any{
+			"input": map[string]any{
+				"teamId":      teamID,
+				"title":       issueTitle(rc.Message()),
+				"description": rc.Message(),
+			},
+		},
+	}
+	headers := map[string]string{"Authorization": apiKey}
+	return postJSON(ctx, linearAPIBase+"/graphql", headers, payload, "linear_issue_created", "Linear")
+}

@@ -187,3 +187,71 @@ func TestJiraAction_SkipsWhenDomainInvalid(t *testing.T) {
 		t.Error("expected no HTTP request to be dispatched for an invalid domain")
 	}
 }
+
+func TestLinearAction_CreatesIssueViaGraphQL(t *testing.T) {
+	var gotAuth string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	nodes.SetLinearAPIBaseForTest(srv.URL)
+	defer nodes.SetLinearAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "li1", Type: models.NodeTypeAction, Template: "linear",
+		Secrets: map[string]string{"linearAPIKey": "lin_api_xxx"},
+		Config:  map[string]string{"linearTeamID": "team123"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"flaky test in CI"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "linear_issue_created" {
+		t.Errorf("want 'linear_issue_created', got %v", result)
+	}
+	if gotAuth != "lin_api_xxx" {
+		t.Errorf("want raw API key (no Bearer prefix), got %q", gotAuth)
+	}
+	if gotBody["query"] == nil {
+		t.Fatal("want a GraphQL query in the body")
+	}
+	variables, _ := gotBody["variables"].(map[string]any)
+	input, _ := variables["input"].(map[string]any)
+	if input["teamId"] != "team123" || input["title"] != "flaky test in CI" {
+		t.Errorf("want teamId/title in GraphQL variables, got %v", input)
+	}
+}
+
+func TestLinearAction_SkipsWhenNoAPIKey(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "li2", Type: models.NodeTypeAction, Template: "linear",
+		Config: map[string]string{"linearTeamID": "team123"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"test message"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "linear_skipped_no_api_key" {
+		t.Errorf("want 'linear_skipped_no_api_key', got %v", result)
+	}
+}
+
+func TestLinearAction_SkipsWhenNoTeamID(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "li3", Type: models.NodeTypeAction, Template: "linear",
+		Secrets: map[string]string{"linearAPIKey": "lin_api_xxx"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"test message"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "linear_skipped_no_team_id" {
+		t.Errorf("want 'linear_skipped_no_team_id', got %v", result)
+	}
+}

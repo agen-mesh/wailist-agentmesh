@@ -48,6 +48,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendJira(ctx, node, rc)
 	case "mailchimp":
 		return sendMailchimp(ctx, node, rc)
+	case "linear":
+		return sendLinear(ctx, node, rc)
 	default:
 		return "logged", nil
 	}
