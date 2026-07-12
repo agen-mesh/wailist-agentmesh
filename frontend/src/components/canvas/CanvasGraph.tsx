@@ -217,7 +217,7 @@ export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, 
 
       {/* Hints */}
       <div style={{ position: "absolute", bottom: 44, left: 16, zIndex: 4, display: "flex", flexWrap: "wrap", columnGap: 12, rowGap: 6, alignItems: "center", maxWidth: "calc(100% - 96px)", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-dim)" }}>
-        {[["drag bg", "pan"], ["scroll", "zoom"], ["drag port", "connect"], ["click edge", "delete edge"], ["⌫", "delete node"]].map(([k, v]) => (
+        {[["drag bg", "pan"], ["scroll", "zoom"], ["drag port", "connect"], ["⌫", "delete node"]].map(([k, v]) => (
           <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap", flexShrink: 0 }}>
             <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 18, height: 18, padding: "0 4px", borderRadius: 4, border: "1px solid var(--border-strong)", background: "var(--bg-elev-1)", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-muted)", whiteSpace: "nowrap", flexShrink: 0 }}>{k}</span>
             {v}
