@@ -43,6 +43,19 @@ export function Inspector({ selected, deployed, workflowId, onUpdate, onDelete }
         {selected.type === "action"   && <ActionInspector   node={selected} onUpdate={onUpdate} />}
         {selected.type === "end"      && <EndInspector      node={selected} onUpdate={onUpdate} />}
       </div>
+
+      <div style={{ padding: 16, borderTop: "1px solid var(--border)" }}>
+        <button onClick={onDelete}
+          style={{ width: "100%", height: 36, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "transparent", border: "1px solid var(--danger)", borderRadius: "var(--r-2)", color: "var(--danger)", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500 }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(255, 92, 92, 0.08)"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+        >
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M2.5 3.5h9M5.5 3.5V2.5h3v1M4 3.5l.5 8h5l.5-8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Delete node
+        </button>
+      </div>
     </div>
   );
 }
