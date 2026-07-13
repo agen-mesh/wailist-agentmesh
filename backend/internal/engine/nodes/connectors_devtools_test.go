@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 
@@ -261,11 +260,11 @@ func TestLinearAction_SkipsWhenNoTeamID(t *testing.T) {
 
 func TestGitLabAction_CreatesIssue(t *testing.T) {
 	var gotPath, gotToken string
-	var gotQuery url.Values
+	var gotBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotToken = r.Header.Get("PRIVATE-TOKEN")
-		gotQuery = r.URL.Query()
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		w.WriteHeader(http.StatusCreated)
 	}))
 	defer srv.Close()
@@ -289,8 +288,11 @@ func TestGitLabAction_CreatesIssue(t *testing.T) {
 	if gotToken != "glpat-xxx" {
 		t.Errorf("want PRIVATE-TOKEN header, got %q", gotToken)
 	}
-	if gotQuery.Get("title") != "pipeline broke" {
-		t.Errorf("want title in query, got %v", gotQuery)
+	if gotBody["title"] != "pipeline broke" {
+		t.Errorf("want title in JSON body, got %v", gotBody)
+	}
+	if gotBody["description"] != "pipeline broke" {
+		t.Errorf("want description in JSON body, got %v", gotBody)
 	}
 }
 

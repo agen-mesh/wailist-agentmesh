@@ -159,15 +159,9 @@ func sendGitLab(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	if err := urlValidator(target); err != nil {
 		return nil, err
 	}
-	q := url.Values{}
-	q.Set("title", issueTitle(rc.Message()))
-	q.Set("description", rc.Message())
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target+"?"+q.Encode(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("GitLab: build request: %w", err)
-	}
-	req.Header.Set("PRIVATE-TOKEN", token)
-	return doAndCheck(req, "gitlab_issue_created", "GitLab")
+	payload := map[string]any{"title": issueTitle(rc.Message()), "description": rc.Message()}
+	headers := map[string]string{"PRIVATE-TOKEN": token}
+	return postJSON(ctx, target, headers, payload, "gitlab_issue_created", "GitLab")
 }
 
 func sendSentry(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {

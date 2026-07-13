@@ -128,6 +128,8 @@ func sendEmail(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 		return sendViaSendGrid(ctx, apiKey, from, to, subject, bodyText)
 	case "brevo":
 		return sendViaBrevo(ctx, apiKey, from, to, subject, bodyText)
+	case "postmark":
+		return sendViaPostmark(ctx, apiKey, from, to, subject, bodyText)
 	default:
 		return sendViaResend(ctx, apiKey, from, to, subject, bodyText)
 	}
@@ -216,6 +218,30 @@ func sendViaBrevo(ctx context.Context, apiKey, from, to, subject, body string) (
 	}
 	headers := map[string]string{"api-key": apiKey}
 	return postJSON(ctx, brevoAPIBase+"/v3/smtp/email", headers, payload, "email_sent", "Brevo")
+}
+
+// postmarkAPIBase is overridden in tests via SetPostmarkAPIBaseForTest.
+var postmarkAPIBase = "https://api.postmarkapp.com"
+
+// SetPostmarkAPIBaseForTest overrides the Postmark API base URL. Call only
+// from tests. Pass "" to reset to the real API.
+func SetPostmarkAPIBaseForTest(base string) {
+	if base == "" {
+		postmarkAPIBase = "https://api.postmarkapp.com"
+	} else {
+		postmarkAPIBase = base
+	}
+}
+
+func sendViaPostmark(ctx context.Context, apiKey, from, to, subject, body string) (any, error) {
+	payload := map[string]any{
+		"From":     from,
+		"To":       to,
+		"Subject":  subject,
+		"TextBody": body,
+	}
+	headers := map[string]string{"X-Postmark-Server-Token": apiKey}
+	return postJSON(ctx, postmarkAPIBase+"/email", headers, payload, "email_sent", "Postmark")
 }
 
 // parseEmailAddress splits an RFC5322-style "Name <email>" string into name and

@@ -46,7 +46,7 @@ func sendElevenLabs(ctx context.Context, node models.WorkflowNode, rc RunContext
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
 		return nil, fmt.Errorf("ElevenLabs API %d: %s", resp.StatusCode, string(b))
 	}
-	audio, err := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
+	audio, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("ElevenLabs: read audio: %w", err)
 	}
