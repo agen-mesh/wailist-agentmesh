@@ -377,7 +377,7 @@ function EndpointTable({ rows, className, style }: { rows: EndpointUsage[]; clas
               <span style={numCell}>{r.calls.toLocaleString()}</span>
               {/* LLM unit prices are estimates (see footer) — the * marks the price,
                   not the total, so the cost column stays clean. */}
-              <span style={{ ...numCell, color: "var(--fg-muted)" }}>{r.unitPrice != null ? `${trim(r.unitPrice)}${r.type === "llm" ? "*" : ""}/${r.unit.split(" ")[0]}` : "—"}</span>
+              <span style={{ ...numCell, color: "var(--fg-muted)" }}>{r.unitPrice != null ? `${trim(r.unitPrice)}${r.type === "llm" ? "*" : ""}/${r.unit}` : "—"}</span>
               <span style={{ ...numCell, color: "var(--accent)" }}>{algo(r.totalAlgo, 3)}</span>
               <span style={{ ...numCell, display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
                 <span style={{ width: 34, height: 5, background: "var(--accent-soft)", borderRadius: 999, overflow: "hidden", flexShrink: 0 }}>
