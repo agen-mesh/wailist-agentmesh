@@ -179,11 +179,10 @@ function UsageBody({ data, range, onRangeChange, scopedWf, onOpenWorkflow, loadi
                 borderRadius: "var(--r-3)", padding: "16px 20px",
                 display: "flex", flexDirection: "column", gap: 8, position: "relative",
               }}>
-                <button className="credit-topup" aria-label="Credit top-up">
+                <button className="credit-topup" aria-label="Credit top-up" title="Credit top-up">
                   <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
                     <path d="M7.5 2v11M2 7.5h11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
                   </svg>
-                  <span className="credit-topup__tip">credits top-up</span>
                 </button>
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--fg-dim)" }}>
                   credits left

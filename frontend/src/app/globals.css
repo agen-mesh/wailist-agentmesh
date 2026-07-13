@@ -169,7 +169,7 @@ html, body {
   .usage-split { grid-template-columns: 1fr; }
 }
 
-/* "+" top-up button in the credits-box corner; tooltip appears to its left on hover. */
+/* "+" top-up button in the credits-box corner; the icon spins a quarter turn on hover. */
 .credit-topup {
   position: absolute;
   top: 12px;
@@ -185,29 +185,13 @@ html, body {
   transition: color 0.18s var(--ease);
 }
 .credit-topup:hover { color: var(--accent); }
-.credit-topup svg { display: block; }
-
-.credit-topup__tip {
-  position: absolute;
-  right: calc(100% + 8px);
-  top: 50%;
-  transform: translateY(-50%) translateX(4px);
-  padding: 4px 9px;
-  white-space: nowrap;
-  background: var(--bg-elev-3);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r-2);
-  color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.18s var(--ease), transform 0.18s var(--ease);
+.credit-topup svg {
+  display: block;
+  transition: transform 0.3s var(--ease);
 }
-.credit-topup:hover .credit-topup__tip { opacity: 1; transform: translateY(-50%) translateX(0); }
+.credit-topup:hover svg { transform: rotate(90deg) scale(1.15); }
 @media (prefers-reduced-motion: reduce) {
   .credit-topup,
-  .credit-topup__tip { transition: none; }
+  .credit-topup svg { transition: none; }
 }
 
