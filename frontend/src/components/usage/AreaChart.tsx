@@ -21,6 +21,11 @@ export function AreaChart({ data, height = 210, algoUsd = 1 }: { data: UsagePoin
 
   if (n === 0) return null;
 
+  // Hover is a stored index; when the range switches to a shorter series the old
+  // index can point past the new array. Clamp to a valid slot (else no hover) so
+  // data[active] never reads undefined and crashes the chart.
+  const active = hover != null && hover < n ? hover : null;
+
   // Spend (ALGO) and usage (calls) differ by orders of magnitude, so each series
   // maps to its own vertical scale — both lines fill the height and stay legible.
   const maxSpend = Math.max(1e-9, ...data.map((d) => d.x402Algo + d.llmAlgo));
@@ -63,11 +68,11 @@ export function AreaChart({ data, height = 210, algoUsd = 1 }: { data: UsagePoin
         <path d={areaSpend} fill="url(#am-gx402)" />
         <path d={lineSpend} fill="none" stroke="var(--accent)" strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
         <path d={lineUsage} fill="none" stroke="var(--warm)" strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
-        {hover != null && (
+        {active != null && (
           <>
-            <line x1={x(hover)} y1={padT} x2={x(hover)} y2={base} stroke="var(--border-strong)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-            <circle cx={x(hover)} cy={yS(data[hover].x402Algo + data[hover].llmAlgo)} r="3.5" fill="var(--accent)" vectorEffect="non-scaling-stroke" />
-            <circle cx={x(hover)} cy={yU(data[hover].calls)} r="3.5" fill="var(--warm)" vectorEffect="non-scaling-stroke" />
+            <line x1={x(active)} y1={padT} x2={x(active)} y2={base} stroke="var(--border-strong)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+            <circle cx={x(active)} cy={yS(data[active].x402Algo + data[active].llmAlgo)} r="3.5" fill="var(--accent)" vectorEffect="non-scaling-stroke" />
+            <circle cx={x(active)} cy={yU(data[active].calls)} r="3.5" fill="var(--warm)" vectorEffect="non-scaling-stroke" />
           </>
         )}
       </svg>
@@ -84,7 +89,7 @@ export function AreaChart({ data, height = 210, algoUsd = 1 }: { data: UsagePoin
         )}
       </div>
 
-      {hover != null && <ChartTip data={data[hover]} leftPct={(x(hover) / W) * 100} algoUsd={algoUsd} />}
+      {active != null && <ChartTip data={data[active]} leftPct={(x(active) / W) * 100} algoUsd={algoUsd} />}
     </div>
   );
 }
