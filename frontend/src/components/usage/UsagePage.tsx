@@ -293,7 +293,7 @@ function UsageBody({ data, range, onRangeChange, scopedWf, onOpenWorkflow, loadi
 
       {/* ⑥ Footer note */}
       <p style={{ margin: "20px 4px 0", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-dim)", letterSpacing: "0.02em" }}>
-        settled on Algorand testnet · figures update ~every run · LLM costs (*) are estimated
+        settled on Algorand testnet · figures update ~every run · LLM prices (*) estimated from provider list rates at ~3:1 in:out tokens
       </p>
     </div>
   );
@@ -375,9 +375,9 @@ function EndpointTable({ rows, className, style }: { rows: EndpointUsage[]; clas
               <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.provider}</span>
               <TypeTag type={r.type} />
               <span style={numCell}>{r.calls.toLocaleString()}</span>
-              {/* LLM rows have no fixed unit price — the * (see footer: estimated)
-                  belongs here, not beside the total, so the cost column stays clean. */}
-              <span style={{ ...numCell, color: "var(--fg-muted)" }}>{r.unitPrice != null ? `${trim(r.unitPrice)}/${r.unit.split(" ")[0]}` : r.type === "llm" ? "—*" : "—"}</span>
+              {/* LLM unit prices are estimates (see footer) — the * marks the price,
+                  not the total, so the cost column stays clean. */}
+              <span style={{ ...numCell, color: "var(--fg-muted)" }}>{r.unitPrice != null ? `${trim(r.unitPrice)}${r.type === "llm" ? "*" : ""}/${r.unit.split(" ")[0]}` : "—"}</span>
               <span style={{ ...numCell, color: "var(--accent)" }}>{algo(r.totalAlgo, 3)}</span>
               <span style={{ ...numCell, display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
                 <span style={{ width: 34, height: 5, background: "var(--accent-soft)", borderRadius: 999, overflow: "hidden", flexShrink: 0 }}>
