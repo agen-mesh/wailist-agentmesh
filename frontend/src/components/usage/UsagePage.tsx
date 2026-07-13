@@ -33,6 +33,8 @@ export function UsagePage() {
   const [range, setRange] = useState<UsageRange>("30d");
   const [data, setData] = useState<UsagePayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<Error | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [scopedWf, setScopedWf] = useState<string | null>(null);
 
   // ?workflow=<id> deep-link filter (read without useSearchParams to avoid a
@@ -46,6 +48,7 @@ export function UsagePage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setLoadError(null);
     Promise.all([
       usageApi.summary(range),
       usageApi.timeseries(range),
@@ -57,10 +60,17 @@ export function UsagePage() {
         if (cancelled) return;
         setData({ summary, timeseries, byWorkflow, byEndpoint, settlements });
       })
-      .catch(() => { if (!cancelled) setData(null); })
+      .catch((e) => {
+        if (cancelled) return;
+        // Surface the real failure — an empty payload and a fetch error are
+        // different states and must not render the same "no usage yet" copy.
+        console.error("usage load failed", e);
+        setLoadError(e instanceof Error ? e : new Error(String(e)));
+        setData(null);
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [range]);
+  }, [range, reloadNonce]);
 
   const handleSignOut = async () => { await signOut(); router.push("/"); };
 
@@ -95,6 +105,12 @@ export function UsagePage() {
 
           {loading && !data ? (
             <div style={{ padding: 64, textAlign: "center", color: "var(--fg-dim)", fontFamily: "var(--font-mono)", fontSize: 12 }}>loading usage…</div>
+          ) : loadError ? (
+            <div style={{ padding: 48, textAlign: "center", border: "1px dashed var(--danger)", borderRadius: "var(--r-3)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
+              <div style={{ color: "var(--danger)", marginBottom: 8 }}>couldn&apos;t load usage</div>
+              <div style={{ color: "var(--fg-dim)", marginBottom: 16 }}>the usage service didn&apos;t respond — this is different from having no usage yet</div>
+              <button onClick={() => setReloadNonce((n) => n + 1)} style={ghostBtnSm}>retry</button>
+            </div>
           ) : !data ? (
             <div style={{ padding: 48, textAlign: "center", border: "1px dashed var(--border)", borderRadius: "var(--r-3)", color: "var(--fg-dim)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
               no usage yet — run a workflow to see spend here
