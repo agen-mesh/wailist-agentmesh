@@ -73,6 +73,16 @@ export function UsagePage() {
 
   const handleSignOut = async () => { await signOut(); router.push("/"); };
 
+  // Clearing the scope must also drop ?workflow= from the URL, otherwise a
+  // refresh or back-navigation silently reapplies the filter the user just cleared.
+  const clearScope = () => {
+    setScopedWf(null);
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("workflow");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+  };
+
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)" }}>
       {/* Topbar */}
@@ -98,7 +108,7 @@ export function UsagePage() {
           {scopedWf && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "8px 12px", background: "var(--accent-soft)", border: "1px solid var(--accent-line)", borderRadius: "var(--r-2)", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--accent)" }}>
               Workflows by spend · filtered to {scopedWf}
-              <button onClick={() => setScopedWf(null)} style={{ marginLeft: "auto", background: "transparent", border: "none", color: "var(--accent)", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, textDecoration: "underline" }}>clear</button>
+              <button onClick={clearScope} style={{ marginLeft: "auto", background: "transparent", border: "none", color: "var(--accent)", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, textDecoration: "underline" }}>clear</button>
             </div>
           )}
 
