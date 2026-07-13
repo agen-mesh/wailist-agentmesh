@@ -249,7 +249,9 @@ export function buildUsage(range: UsageRange): UsagePayload {
 
   // Settlements (most recent x402 payments — independent of range)
   const x402Seeds = EP_SEEDS.filter((s) => s.type === "x402");
-  const settlements: Settlement[] = Array.from({ length: 18 }, (_, i) => {
+  // Guard the modulo below: with no x402 seeds, `i % 0` is NaN and the indexed
+  // seed is undefined, which throws and takes the whole page down.
+  const settlements: Settlement[] = x402Seeds.length === 0 ? [] : Array.from({ length: 18 }, (_, i) => {
     const s = x402Seeds[i % x402Seeds.length];
     const tx = fakeTx(i + 1);
     return {
