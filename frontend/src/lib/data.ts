@@ -147,8 +147,13 @@ const EP_SEEDS: EPSeed[] = [
   { endpoint: "AlpacaQuote",      host: "alpaca.x402/quote",                  provider: "alpaca.x402",     type: "x402",   unitPrice: 0.001, unit: "quote",  calls30: 6110, success: 99.9, lastUsedMin: 1 },
   { endpoint: "OCR.space",        host: "ocr.x402/parse",                     provider: "ocr.x402",        type: "x402",   unitPrice: 0.003, unit: "page",   calls30: 412,  success: 95.1, lastUsedMin: 140 },
   { endpoint: "FluxImage",        host: "flux.x402/generate",                 provider: "flux.x402",       type: "x402",   unitPrice: 0.020, unit: "image",  calls30: 168,  success: 98.8, lastUsedMin: 55 },
-  { endpoint: "Gemini 2.5 Flash", host: "generativelanguage.googleapis.com",  provider: "google",          type: "llm",    unitPrice: null,  unit: "1K tok", calls30: 2140, success: 99.6, lastUsedMin: 2,  tokens30: 1_180_000, estAlgo30: 0.41 },
-  { endpoint: "OpenAI gpt-4o",    host: "api.openai.com",                     provider: "openai",          type: "llm",    unitPrice: null,  unit: "1K tok", calls30: 890,  success: 99.1, lastUsedMin: 12, tokens30: 640_000,   estAlgo30: 0.53 },
+  // LLM unit prices are estimates (hence the * in the UI): provider list prices
+  // blended at ~3:1 input:output tokens, converted at the app's 0.17 USD/ALGO
+  // display rate. Gemini 2.5 Flash $0.30/$2.50 per 1M → ~$0.85/1M → 0.005 ALGO/1K.
+  // gpt-4o $2.50/$10.00 per 1M → ~$4.375/1M → 0.026 ALGO/1K. estAlgo30 stays
+  // consistent with the price: tokens30/1000 × unitPrice.
+  { endpoint: "Gemini 2.5 Flash", host: "generativelanguage.googleapis.com",  provider: "google",          type: "llm",    unitPrice: 0.005, unit: "1K tok", calls30: 2140, success: 99.6, lastUsedMin: 2,  tokens30: 1_180_000, estAlgo30: 5.9 },
+  { endpoint: "OpenAI gpt-4o",    host: "api.openai.com",                     provider: "openai",          type: "llm",    unitPrice: 0.026, unit: "1K tok", calls30: 890,  success: 99.1, lastUsedMin: 12, tokens30: 640_000,   estAlgo30: 16.64 },
   { endpoint: "Resend Email",     host: "api.resend.com",                     provider: "resend",          type: "action", unitPrice: 0,     unit: "send",   calls30: 320,  success: 100,  lastUsedMin: 4 },
 ];
 
