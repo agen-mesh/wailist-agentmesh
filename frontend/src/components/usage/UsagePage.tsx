@@ -62,11 +62,10 @@ export function UsagePage() {
       })
       .catch((e) => {
         if (cancelled) return;
-        // Surface the real failure — an empty payload and a fetch error are
-        // different states and must not render the same "no usage yet" copy.
+        // Surface the failure but keep the last good payload — a transient error
+        // on a range switch shouldn't blank a page that was already working.
         console.error("usage load failed", e);
         setLoadError(e instanceof Error ? e : new Error(String(e)));
-        setData(null);
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -103,9 +102,16 @@ export function UsagePage() {
             </div>
           )}
 
+          {loadError && data && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "8px 12px", background: "rgba(255,92,92,0.10)", border: "1px solid rgba(255,92,92,0.35)", borderRadius: "var(--r-2)", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--danger)" }}>
+              couldn&apos;t refresh — showing the last loaded data
+              <button onClick={() => setReloadNonce((n) => n + 1)} style={{ marginLeft: "auto", background: "transparent", border: "none", color: "var(--danger)", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, textDecoration: "underline" }}>retry</button>
+            </div>
+          )}
+
           {loading && !data ? (
             <div style={{ padding: 64, textAlign: "center", color: "var(--fg-dim)", fontFamily: "var(--font-mono)", fontSize: 12 }}>loading usage…</div>
-          ) : loadError ? (
+          ) : loadError && !data ? (
             <div style={{ padding: 48, textAlign: "center", border: "1px dashed var(--danger)", borderRadius: "var(--r-3)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
               <div style={{ color: "var(--danger)", marginBottom: 8 }}>couldn&apos;t load usage</div>
               <div style={{ color: "var(--fg-dim)", marginBottom: 16 }}>the usage service didn&apos;t respond — this is different from having no usage yet</div>
