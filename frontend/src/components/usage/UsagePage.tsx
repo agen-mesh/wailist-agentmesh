@@ -381,7 +381,9 @@ function EndpointTable({ rows, className, style }: { rows: EndpointUsage[]; clas
                 <span style={{ width: 34, height: 5, background: "var(--accent-soft)", borderRadius: 999, overflow: "hidden", flexShrink: 0 }}>
                   <span style={{ display: "block", height: "100%", width: `${Math.min(100, r.pctOfSpend)}%`, background: "var(--accent)" }} />
                 </span>
-                {r.pctOfSpend}%
+                {/* Fixed-width value box so the bars line up in a column — with the
+                    text free-width, wider values pushed each row's bar to a different x. */}
+                <span style={{ minWidth: 40, textAlign: "right" }}>{r.pctOfSpend}%</span>
               </span>
               <span style={{ ...numCell, color: r.successRate == null ? "var(--fg-dim)" : r.successRate < 90 ? "var(--danger)" : r.successRate < 98 ? "var(--warm)" : "var(--fg-muted)" }}>
                 {r.successRate == null ? "—" : `${r.successRate}%`}
