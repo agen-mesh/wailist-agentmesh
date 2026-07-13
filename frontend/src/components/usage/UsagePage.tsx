@@ -302,7 +302,8 @@ function UsageBody({ data, range, onRangeChange, scopedWf, onOpenWorkflow, loadi
 // ── Endpoints table ─────────────────────────────────────────────────────────
 type SortKey = "endpoint" | "calls" | "unitPrice" | "totalAlgo" | "pctOfSpend" | "successRate" | "lastUsedAt";
 
-const EP_GRID = "1.9fr 1.15fr 66px 66px 96px 108px 116px 78px 92px";
+// Unit price gets 120px so "0.026*/1K token" fits on one line (cell is nowrap).
+const EP_GRID = "1.9fr 1.15fr 66px 66px 120px 108px 116px 78px 92px";
 const SETTLE_GRID = "minmax(0,1.9fr) minmax(0,1.15fr) 140px 114px 108px"; // Endpoint · Hash · Workflow · Amount · Time
 
 function EndpointTable({ rows, className, style }: { rows: EndpointUsage[]; className?: string; style?: React.CSSProperties }) {
@@ -351,7 +352,7 @@ function EndpointTable({ rows, className, style }: { rows: EndpointUsage[]; clas
       </div>
 
       <div style={{ overflowX: "auto" }}>
-        <div style={{ minWidth: 960 }}>
+        <div style={{ minWidth: 984 }}>
           <div style={{ display: "grid", gridTemplateColumns: EP_GRID, gap: 10, padding: "8px 10px", background: "var(--bg-elev-2)", borderRadius: "var(--r-2)", alignItems: "center" }}>
             <Th k="endpoint" sort={sort} onToggle={toggle}>Endpoint</Th>
             <span style={hcell}>Provider</span>
@@ -377,7 +378,7 @@ function EndpointTable({ rows, className, style }: { rows: EndpointUsage[]; clas
               <span style={numCell}>{r.calls.toLocaleString()}</span>
               {/* LLM unit prices are estimates (see footer) — the * marks the price,
                   not the total, so the cost column stays clean. */}
-              <span style={{ ...numCell, color: "var(--fg-muted)" }}>{r.unitPrice != null ? `${trim(r.unitPrice)}${r.type === "llm" ? "*" : ""}/${r.unit}` : "—"}</span>
+              <span style={{ ...numCell, color: "var(--fg-muted)", whiteSpace: "nowrap" }}>{r.unitPrice != null ? `${trim(r.unitPrice)}${r.type === "llm" ? "*" : ""}/${r.unit}` : "—"}</span>
               <span style={{ ...numCell, color: "var(--accent)" }}>{algo(r.totalAlgo, 3)}</span>
               <span style={{ ...numCell, display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
                 <span style={{ width: 34, height: 5, background: "var(--accent-soft)", borderRadius: 999, overflow: "hidden", flexShrink: 0 }}>
