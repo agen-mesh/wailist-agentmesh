@@ -128,6 +128,10 @@ const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
 const RANGE_BUCKETS: Record<UsageRange, number> = { "24h": 24, "7d": 7, "30d": 30 };
 const RANGE_MULT: Record<UsageRange, number> = { "24h": 0.04, "7d": 0.256, "30d": 1 };
 const RANGE_DELTA: Record<UsageRange, number> = { "24h": 6, "7d": 12, "30d": 18 };
+// Rows the settlements fixture generates. Keep >= the largest `limit` any caller
+// requests (the settlements API default is 20) so a default request isn't
+// silently truncated to fewer rows than asked for.
+const SETTLEMENT_ROWS = 24;
 
 interface EPSeed {
   endpoint: string; host: string; provider: string; type: UsageCategory;
@@ -251,7 +255,7 @@ export function buildUsage(range: UsageRange): UsagePayload {
   const x402Seeds = EP_SEEDS.filter((s) => s.type === "x402");
   // Guard the modulo below: with no x402 seeds, `i % 0` is NaN and the indexed
   // seed is undefined, which throws and takes the whole page down.
-  const settlements: Settlement[] = x402Seeds.length === 0 ? [] : Array.from({ length: 18 }, (_, i) => {
+  const settlements: Settlement[] = x402Seeds.length === 0 ? [] : Array.from({ length: SETTLEMENT_ROWS }, (_, i) => {
     const s = x402Seeds[i % x402Seeds.length];
     const tx = fakeTx(i + 1);
     return {
