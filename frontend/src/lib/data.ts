@@ -204,8 +204,11 @@ export function buildUsage(range: UsageRange): UsagePayload {
   const rows: EndpointUsage[] = EP_SEEDS.map((s) => {
     const calls = Math.round(s.calls30 * mult);
     let totalAlgo = 0;
-    if (s.type === "x402" && s.unitPrice != null) totalAlgo = r6(calls * s.unitPrice);
-    else if (s.type === "llm") totalAlgo = r6((s.estAlgo30 ?? 0) * mult);
+    // LLM spend comes from a token estimate; everything else with a unit price
+    // (x402 and priced actions alike) is calls × unitPrice. Keying on type only
+    // meant a future priced action endpoint would always be costed at zero.
+    if (s.type === "llm") totalAlgo = r6((s.estAlgo30 ?? 0) * mult);
+    else if (s.unitPrice != null) totalAlgo = r6(calls * s.unitPrice);
     return {
       endpoint: s.endpoint, host: s.host, provider: s.provider, type: s.type,
       calls, unitPrice: s.unitPrice, unit: s.unit, totalAlgo,
@@ -226,8 +229,8 @@ export function buildUsage(range: UsageRange): UsagePayload {
   // range. Compute lifetime spend at full scale (no range multiplier) so
   // "credits left" reads the same across 24h / 7d / 30d.
   const lifetimeSpend = r6(EP_SEEDS.reduce((a, s) => {
-    if (s.type === "x402" && s.unitPrice != null) return a + s.calls30 * s.unitPrice;
     if (s.type === "llm") return a + (s.estAlgo30 ?? 0);
+    if (s.unitPrice != null) return a + s.calls30 * s.unitPrice;
     return a;
   }, 0));
 
