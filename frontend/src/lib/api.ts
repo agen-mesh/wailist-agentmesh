@@ -284,6 +284,9 @@ export const usage = {
       return res.json();
     }
     await delay(220);
+    // Settlements are the latest on-chain payments, not a range-scoped metric —
+    // the real endpoint takes only `limit`. Any range yields the same rows, so
+    // "30d" just picks a canonical memoized payload to slice from.
     return mockUsage("30d").settlements.slice(0, limit);
   },
 };

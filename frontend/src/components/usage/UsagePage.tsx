@@ -271,7 +271,7 @@ function UsageBody({ data, range, onRangeChange, scopedWf, onOpenWorkflow, loadi
 
       {/* ⑤ Recent settlements — on-chain, kept in ALGO */}
       <Card style={{ marginBottom: 16 }}>
-        <CardHead title="Recent settlements" right={<span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-dim)" }}>on-chain · testnet</span>} />
+        <CardHead title="Recent settlements" right={<span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-dim)" }}>latest {settlements.length} · on-chain · testnet</span>} />
         <div style={{ display: "grid", gridTemplateColumns: SETTLE_GRID, gap: 14, padding: "8px 10px", background: "var(--bg-elev-2)", borderRadius: "var(--r-2)", marginTop: 4, alignItems: "center" }}>
           <span style={hcell}>Endpoint</span>
           <span style={hcell}>Hash</span>
