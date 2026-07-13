@@ -377,8 +377,18 @@ function EndpointTable({ rows, className, style }: { rows: EndpointUsage[]; clas
               <TypeTag type={r.type} />
               <span style={numCell}>{r.calls.toLocaleString()}</span>
               {/* LLM unit prices are estimates (see footer) — the * marks the price,
-                  not the total, so the cost column stays clean. */}
-              <span style={{ ...numCell, color: "var(--fg-muted)", whiteSpace: "nowrap" }}>{r.unitPrice != null ? `${trim(r.unitPrice)}${r.type === "llm" ? "*" : ""}/${r.unit}` : "—"}</span>
+                  not the total, so the cost column stays clean. Units vary in length
+                  (call vs 1K token), so the cell anchors on the slash: number
+                  right-aligned, unit left-aligned in a fixed box — slashes and
+                  numbers each form a clean vertical line. */}
+              <span style={{ ...numCell, color: "var(--fg-muted)", whiteSpace: "nowrap", display: "flex", justifyContent: "flex-end" }}>
+                {r.unitPrice != null ? (
+                  <>
+                    <span>{trim(r.unitPrice)}{r.type === "llm" && "*"}</span>
+                    <span style={{ color: "var(--fg-dim)", minWidth: 66, textAlign: "left" }}>/{r.unit}</span>
+                  </>
+                ) : "—"}
+              </span>
               <span style={{ ...numCell, color: "var(--accent)" }}>{algo(r.totalAlgo, 3)}</span>
               <span style={{ ...numCell, display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
                 <span style={{ width: 34, height: 5, background: "var(--accent-soft)", borderRadius: 999, overflow: "hidden", flexShrink: 0 }}>
