@@ -302,7 +302,7 @@ function UsageBody({ data, range, onRangeChange, scopedWf, onOpenWorkflow, loadi
 // ── Endpoints table ─────────────────────────────────────────────────────────
 type SortKey = "endpoint" | "calls" | "unitPrice" | "totalAlgo" | "pctOfSpend" | "successRate" | "lastUsedAt";
 
-// Unit price gets 120px so "0.026*/1K token" fits on one line (cell is nowrap).
+// Unit price gets 120px so "26*/1M" fits on one line (cell is nowrap).
 const EP_GRID = "1.9fr 1.15fr 66px 66px 120px 108px 116px 78px 92px";
 const SETTLE_GRID = "minmax(0,1.9fr) minmax(0,1.15fr) 140px 114px 108px"; // Endpoint · Hash · Workflow · Amount · Time
 
@@ -377,15 +377,13 @@ function EndpointTable({ rows, className, style }: { rows: EndpointUsage[]; clas
               <TypeTag type={r.type} />
               <span style={numCell}>{r.calls.toLocaleString()}</span>
               {/* LLM unit prices are estimates (see footer) — the * marks the price,
-                  not the total, so the cost column stays clean. Units vary in length
-                  (call vs 1K token), so the cell anchors on the slash: number
-                  right-aligned, unit left-aligned in a fixed box — slashes and
-                  numbers each form a clean vertical line. */}
-              <span style={{ ...numCell, color: "var(--fg-muted)", whiteSpace: "nowrap", display: "flex", justifyContent: "flex-end" }}>
+                  not the total, so the cost column stays clean. The whole line
+                  right-aligns so every row's trailing edge forms one vertical line. */}
+              <span style={{ ...numCell, color: "var(--fg-muted)", whiteSpace: "nowrap" }}>
                 {r.unitPrice != null ? (
                   <>
-                    <span>{trim(r.unitPrice)}{r.type === "llm" && "*"}</span>
-                    <span style={{ color: "var(--fg-dim)", minWidth: 66, textAlign: "left" }}>/{r.unit}</span>
+                    {trim(r.unitPrice)}{r.type === "llm" && "*"}
+                    <span style={{ color: "var(--fg-dim)" }}>/{r.unit}</span>
                   </>
                 ) : "—"}
               </span>
