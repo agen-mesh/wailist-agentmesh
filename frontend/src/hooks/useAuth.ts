@@ -16,11 +16,12 @@ function clearUICookie() {
 export function useAuth() {
   const [signedIn, setSignedIn] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<{ id: string; email: string } | null>(null);
 
   useEffect(() => {
     auth.me()
-      .then(() => { setUICookie(); setSignedIn(true); })
-      .catch(() => { clearUICookie(); setSignedIn(false); })
+      .then((u) => { setUICookie(); setSignedIn(true); setUser(u); })
+      .catch(() => { clearUICookie(); setSignedIn(false); setUser(null); })
       .finally(() => setLoading(false));
   }, []);
 
@@ -40,7 +41,8 @@ export function useAuth() {
     await auth.signOut();
     clearUICookie();
     setSignedIn(false);
+    setUser(null);
   }, []);
 
-  return { signedIn, loading, signIn, signUp, signOut };
+  return { signedIn, loading, user, signIn, signUp, signOut };
 }

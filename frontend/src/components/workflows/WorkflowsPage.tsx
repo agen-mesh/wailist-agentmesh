@@ -9,7 +9,7 @@ import { workflows as workflowsApi } from "@/lib/api";
 export function WorkflowsPage() {
   const router = useRouter();
   const pathname = usePathname();
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
   const [view, setView] = useState<"rows" | "grid">("rows");
@@ -89,10 +89,10 @@ export function WorkflowsPage() {
           <div className="profile-menu__panel" role="menu">
             <div className="profile-menu__card">
               <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 30, height: 30, borderRadius: 999, background: "var(--accent)", color: "var(--accent-fg)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>AC</div>
+                <div style={{ width: 28, height: 28, borderRadius: 999, background: "var(--accent)", color: "var(--accent-fg)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>AC</div>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>Profile</div>
-                  <div style={{ fontSize: 11, color: "var(--fg-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>testnet workspace</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>Acme Capital</div>
+                  <div style={{ fontSize: 11, color: "var(--fg-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.email ?? "—"}</div>
                 </div>
               </div>
               <div className="profile-menu__divider" />
