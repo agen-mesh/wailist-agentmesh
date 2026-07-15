@@ -16,17 +16,43 @@ export function WorkflowsPage() {
   const [wfList, setWfList] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
+  // Account menu opens two ways: hovering with a mouse (soft — closes shortly
+  // after the pointer leaves the avatar and panel) or clicking/tapping (pinned —
+  // survives mouse-leave, closes on outside press, Escape, or item selection).
+  // Touch pointers skip the hover path entirely, so mobile is tap-only.
+  const [menuState, setMenuState] = useState<"closed" | "hover" | "pinned">("closed");
+  const menuOpen = menuState !== "closed";
   const menuRef = useRef<HTMLDivElement>(null);
+  const hoverCloseTimer = useRef<number | null>(null);
 
-  // Close the account menu on Escape or a click/tap outside it. Click-to-toggle
-  // (not hover) is what makes the menu usable on touch and announceable to
-  // screen readers via aria-expanded.
+  const cancelHoverClose = useCallback(() => {
+    if (hoverCloseTimer.current != null) {
+      window.clearTimeout(hoverCloseTimer.current);
+      hoverCloseTimer.current = null;
+    }
+  }, []);
+
+  const onMenuPointerEnter = (e: React.PointerEvent) => {
+    if (e.pointerType === "touch") return;
+    cancelHoverClose();
+    setMenuState((s) => (s === "closed" ? "hover" : s));
+  };
+  // Grace delay so a brief slip off the menu doesn't snap it shut.
+  const onMenuPointerLeave = (e: React.PointerEvent) => {
+    if (e.pointerType === "touch") return;
+    cancelHoverClose();
+    hoverCloseTimer.current = window.setTimeout(() => {
+      setMenuState((s) => (s === "hover" ? "closed" : s));
+    }, 160);
+  };
+
+  useEffect(() => cancelHoverClose, [cancelHoverClose]);
+
   useEffect(() => {
     if (!menuOpen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuState("closed"); };
     const onPointer = (e: PointerEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuState("closed");
     };
     document.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onPointer);
@@ -91,8 +117,8 @@ export function WorkflowsPage() {
             <NavLink label="Workflows" active={pathname.startsWith("/workflows")} onClick={() => router.push("/workflows")} />
           </nav>
           <Hairline vertical length={22} />
-          <div className="profile-menu" ref={menuRef}>
-          <button className="profile-menu__trigger" aria-haspopup="menu" aria-expanded={menuOpen} aria-label="Account menu" onClick={() => setMenuOpen((o) => !o)}>AC</button>
+          <div className="profile-menu" ref={menuRef} onPointerEnter={onMenuPointerEnter} onPointerLeave={onMenuPointerLeave}>
+          <button className="profile-menu__trigger" aria-haspopup="menu" aria-expanded={menuOpen} aria-label="Account menu" onClick={() => setMenuState((s) => (s === "pinned" ? "closed" : "pinned"))}>AC</button>
           {menuOpen && (
           <div className="profile-menu__panel" role="menu">
             <div className="profile-menu__card">
@@ -104,9 +130,9 @@ export function WorkflowsPage() {
                 </div>
               </div>
               <div className="profile-menu__divider" />
-              <button className="profile-menu__item" role="menuitem" onClick={() => setMenuOpen(false)}>Settings</button>
+              <button className="profile-menu__item" role="menuitem" onClick={() => setMenuState("closed")}>Settings</button>
               <div className="profile-menu__divider" />
-              <button className="profile-menu__item profile-menu__item--danger" role="menuitem" onClick={() => { setMenuOpen(false); handleSignOut(); }}>Sign out</button>
+              <button className="profile-menu__item profile-menu__item--danger" role="menuitem" onClick={() => { setMenuState("closed"); handleSignOut(); }}>Sign out</button>
             </div>
           </div>
           )}
