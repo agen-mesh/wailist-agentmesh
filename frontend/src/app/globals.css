@@ -170,17 +170,17 @@ html, body {
   font-size: 11px; font-weight: 700; font-family: var(--font-sans);
 }
 
-/* Dropdown. padding-top (not margin) bridges the gap so hover isn't lost
-   while the cursor travels from the avatar to the panel. */
+/* Dropdown. The panel is mounted only while open (click-to-toggle), so there is
+   no hidden state to fight — it just animates in. padding-top (not margin)
+   bridges the gap between the avatar and the card so the hit area is continuous. */
 .profile-menu__panel {
   position: absolute; top: 100%; right: 0; padding-top: 8px;
-  opacity: 0; visibility: hidden; transform: translateY(-4px);
-  transition: opacity 0.18s var(--ease), transform 0.18s var(--ease), visibility 0.18s;
   z-index: 50;
+  animation: profile-menu-in 0.16s var(--ease);
 }
-.profile-menu:hover .profile-menu__panel,
-.profile-menu:focus-within .profile-menu__panel {
-  opacity: 1; visibility: visible; transform: translateY(0);
+@keyframes profile-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .profile-menu__card {
@@ -200,5 +200,5 @@ html, body {
 .profile-menu__divider { height: 1px; background: var(--border); }
 
 @media (prefers-reduced-motion: reduce) {
-  .profile-menu__panel { transition: none; }
+  .profile-menu__panel { animation: none; }
 }

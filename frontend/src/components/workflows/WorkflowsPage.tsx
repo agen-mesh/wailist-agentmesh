@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Logo, Pill, Tag, Hairline, IconSearch, IconGrid } from "@/components/ui";
 import { Workflow } from "@/lib/types";
@@ -16,6 +16,25 @@ export function WorkflowsPage() {
   const [wfList, setWfList] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close the account menu on Escape or a click/tap outside it. Click-to-toggle
+  // (not hover) is what makes the menu usable on touch and announceable to
+  // screen readers via aria-expanded.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuOpen(false); };
+    const onPointer = (e: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointer);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointer);
+    };
+  }, [menuOpen]);
 
   useEffect(() => {
     workflowsApi.list()
@@ -64,8 +83,9 @@ export function WorkflowsPage() {
         <nav style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
           <NavLink label="Workflows" active={pathname.startsWith("/workflows")} onClick={() => router.push("/workflows")} />
         </nav>
-        <div className="profile-menu">
-          <button className="profile-menu__trigger" aria-haspopup="menu" aria-label="Account menu">AC</button>
+        <div className="profile-menu" ref={menuRef}>
+          <button className="profile-menu__trigger" aria-haspopup="menu" aria-expanded={menuOpen} aria-label="Account menu" onClick={() => setMenuOpen((o) => !o)}>AC</button>
+          {menuOpen && (
           <div className="profile-menu__panel" role="menu">
             <div className="profile-menu__card">
               <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
@@ -76,11 +96,12 @@ export function WorkflowsPage() {
                 </div>
               </div>
               <div className="profile-menu__divider" />
-              <button className="profile-menu__item" role="menuitem">Settings</button>
+              <button className="profile-menu__item" role="menuitem" onClick={() => setMenuOpen(false)}>Settings</button>
               <div className="profile-menu__divider" />
-              <button className="profile-menu__item profile-menu__item--danger" role="menuitem" onClick={handleSignOut}>Sign out</button>
+              <button className="profile-menu__item profile-menu__item--danger" role="menuitem" onClick={() => { setMenuOpen(false); handleSignOut(); }}>Sign out</button>
             </div>
           </div>
+          )}
         </div>
       </div>
 
