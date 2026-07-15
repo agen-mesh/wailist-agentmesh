@@ -81,7 +81,7 @@ export function WorkflowsPage() {
           <Hairline vertical length={22} />
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button style={ghostBtnSm}>Acme Capital ▾</button>
-            <Pill mono dot tone="ok">testnet</Pill>
+            <Pill mono dot tone="warm">testnet</Pill>
           </div>
         </div>
         <div style={{ flex: 1 }} />
