@@ -72,18 +72,26 @@ export function WorkflowsPage() {
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)" }}>
       {/* Topbar */}
-      <div style={{ height: 56, flexShrink: 0, background: "var(--bg-elev-1)", borderBottom: "1px solid var(--border)", padding: "0 24px", display: "flex", alignItems: "center", gap: 14 }}>
-        <button onClick={() => router.push("/")} style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
-          <Logo size={18} />
-        </button>
-        <Hairline vertical length={22} />
-        <button style={ghostBtnSm}>Acme Capital ▾</button>
-        <Pill mono dot tone="ok">testnet</Pill>
+      <div style={{ height: 56, flexShrink: 0, background: "var(--bg-elev-1)", borderBottom: "1px solid var(--border)", padding: "0 24px", display: "flex", alignItems: "center", gap: 20 }}>
+        {/* Brand + workspace context — one visual group */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={() => router.push("/")} style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
+            <Logo size={18} />
+          </button>
+          <Hairline vertical length={22} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button style={ghostBtnSm}>Acme Capital ▾</button>
+            <Pill mono dot tone="ok">testnet</Pill>
+          </div>
+        </div>
         <div style={{ flex: 1 }} />
-        <nav style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
-          <NavLink label="Workflows" active={pathname.startsWith("/workflows")} onClick={() => router.push("/workflows")} />
-        </nav>
-        <div className="profile-menu" ref={menuRef}>
+        {/* Navigation + account — the other group */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <nav style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+            <NavLink label="Workflows" active={pathname.startsWith("/workflows")} onClick={() => router.push("/workflows")} />
+          </nav>
+          <Hairline vertical length={22} />
+          <div className="profile-menu" ref={menuRef}>
           <button className="profile-menu__trigger" aria-haspopup="menu" aria-expanded={menuOpen} aria-label="Account menu" onClick={() => setMenuOpen((o) => !o)}>AC</button>
           {menuOpen && (
           <div className="profile-menu__panel" role="menu">
@@ -102,6 +110,7 @@ export function WorkflowsPage() {
             </div>
           </div>
           )}
+          </div>
         </div>
       </div>
 
