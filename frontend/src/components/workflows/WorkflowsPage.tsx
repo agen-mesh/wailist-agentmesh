@@ -1,6 +1,6 @@
 "use client";
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { Logo, Pill, Tag, Hairline, IconSearch, IconGrid } from "@/components/ui";
 import { Workflow } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
@@ -8,6 +8,7 @@ import { workflows as workflowsApi } from "@/lib/api";
 
 export function WorkflowsPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const { signOut } = useAuth();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
@@ -60,7 +61,9 @@ export function WorkflowsPage() {
         <button style={ghostBtnSm}>Acme Capital ▾</button>
         <Pill mono dot tone="ok">testnet</Pill>
         <div style={{ flex: 1 }} />
-        <button style={ghostBtnSm} onClick={() => router.push("/workflows")}>Workflow</button>
+        <nav style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+          <NavLink label="Workflows" active={pathname.startsWith("/workflows")} onClick={() => router.push("/workflows")} />
+        </nav>
         <div className="profile-menu">
           <button className="profile-menu__trigger" aria-haspopup="menu" aria-label="Account menu">AC</button>
           <div className="profile-menu__panel" role="menu">
@@ -73,8 +76,6 @@ export function WorkflowsPage() {
                 </div>
               </div>
               <div className="profile-menu__divider" />
-              <button className="profile-menu__item" role="menuitem">Usage</button>
-              <button className="profile-menu__item" role="menuitem" onClick={() => router.push("/workflows")}>Workflow</button>
               <button className="profile-menu__item" role="menuitem">Settings</button>
               <div className="profile-menu__divider" />
               <button className="profile-menu__item profile-menu__item--danger" role="menuitem" onClick={handleSignOut}>Sign out</button>
@@ -279,6 +280,30 @@ function fmtDate(iso?: string): string {
 }
 
 // Shared styles
+// Top-bar navigation link. Active route is filled + full-contrast; others are
+// muted and lighten on hover, so the bar always signals "you are here".
+function NavLink({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "var(--bg-elev-2)"; }}
+      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
+      style={{
+        height: 28, padding: "0 12px", fontSize: 12.5, fontWeight: 500,
+        background: active ? "var(--bg-elev-3)" : "transparent",
+        border: "none", borderRadius: "var(--r-2)",
+        color: active ? "var(--fg)" : "var(--fg-muted)",
+        cursor: "pointer", fontFamily: "var(--font-sans)",
+        display: "inline-flex", alignItems: "center", gap: 6,
+        transition: "background .15s var(--ease), color .15s var(--ease)",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 const ghostBtnSm: React.CSSProperties = {
   height: 28, padding: "0 10px", fontSize: 12, fontWeight: 500,
   background: "transparent", border: "1px solid var(--border-strong)",
