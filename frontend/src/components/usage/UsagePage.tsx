@@ -42,13 +42,15 @@ export function UsagePage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const wf = new URLSearchParams(window.location.search).get("workflow");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- post-mount URL read; a lazy initializer would render the filter banner on the server and break hydration
     if (wf) setScopedWf(wf);
   }, []);
 
+  // The fetch effect only fetches — loading/error resets live in the event
+  // handlers (changeRange/retry) that trigger it, and the initial state
+  // already starts as loading. Sync setState in effects cascades renders.
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setLoadError(null);
     Promise.all([
       usageApi.summary(range),
       usageApi.timeseries(range),
@@ -73,9 +75,11 @@ export function UsagePage() {
 
   const handleSignOut = async () => { await signOut(); router.push("/"); };
 
+  const changeRange = (r: UsageRange) => { setLoading(true); setLoadError(null); setRange(r); };
+
   // Retry must bust the mock-mode cache, otherwise the refetch resolves from
   // the memoized payload and the figures visibly never change.
-  const retry = () => { usageApi.invalidate(); setReloadNonce((n) => n + 1); };
+  const retry = () => { usageApi.invalidate(); setLoading(true); setLoadError(null); setReloadNonce((n) => n + 1); };
 
   // Clearing the scope must also drop ?workflow= from the URL, otherwise a
   // refresh or back-navigation silently reapplies the filter the user just cleared.
@@ -136,7 +140,7 @@ export function UsagePage() {
               no usage yet — run a workflow to see spend here
             </div>
           ) : (
-            <UsageBody data={data} range={range} onRangeChange={setRange} scopedWf={scopedWf} onOpenWorkflow={(id) => router.push(`/workflows/${id}`)} loading={loading} />
+            <UsageBody data={data} range={range} onRangeChange={changeRange} scopedWf={scopedWf} onOpenWorkflow={(id) => router.push(`/workflows/${id}`)} loading={loading} />
           )}
         </div>
       </div>
