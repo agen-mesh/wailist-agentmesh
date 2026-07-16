@@ -1,7 +1,7 @@
 "use client";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Logo, Pill, Tag, Hairline, IconSearch, IconGrid, Card } from "@/components/ui";
+import { Logo, Pill, Tag, Hairline, IconSearch, IconGrid, Card, ghostBtnSm } from "@/components/ui";
 import { Workflow } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
 import { workflows as workflowsApi } from "@/lib/api";
@@ -264,12 +264,6 @@ function fmtDate(iso?: string): string {
 }
 
 // Shared styles
-const ghostBtnSm: React.CSSProperties = {
-  height: 28, padding: "0 10px", fontSize: 12, fontWeight: 500,
-  background: "transparent", border: "1px solid var(--border-strong)",
-  borderRadius: "var(--r-2)", color: "var(--fg-muted)", cursor: "pointer",
-  fontFamily: "var(--font-sans)", display: "inline-flex", alignItems: "center", gap: 4,
-};
 const ghostBtn: React.CSSProperties = {
   height: 36, padding: "0 14px", fontSize: 13, fontWeight: 500,
   background: "var(--bg-elev-2)", border: "1px solid var(--border-strong)",

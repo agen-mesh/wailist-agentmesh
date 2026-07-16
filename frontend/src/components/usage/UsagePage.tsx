@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Logo, Pill, Hairline, IconSearch, Card } from "@/components/ui";
+import { Logo, Pill, Hairline, IconSearch, Card, ghostBtnSm } from "@/components/ui";
 import { useAuth } from "@/hooks/useAuth";
 import { usage as usageApi } from "@/lib/api";
 import {
@@ -512,10 +512,4 @@ const numCell: React.CSSProperties = { fontFamily: "var(--font-mono)", fontSize:
 const spendRowStyle: React.CSSProperties = {
   display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "9px 4px",
   background: "transparent", border: "none", borderBottom: "1px solid var(--border-soft)", cursor: "pointer",
-};
-const ghostBtnSm: React.CSSProperties = {
-  height: 28, padding: "0 10px", fontSize: 12, fontWeight: 500,
-  background: "transparent", border: "1px solid var(--border-strong)",
-  borderRadius: "var(--r-2)", color: "var(--fg-muted)", cursor: "pointer",
-  fontFamily: "var(--font-sans)", display: "inline-flex", alignItems: "center", gap: 4,
 };

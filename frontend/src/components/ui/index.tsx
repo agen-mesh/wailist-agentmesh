@@ -75,6 +75,17 @@ export function Card({ style, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
   );
 }
 
+// ── Shared button styles ─────────────────────────────────────────────────
+// Small ghost button used in topbars and row actions on the workflows and
+// usage pages. A style const (not a component) so callers can spread-extend
+// it: { ...ghostBtnSm, width: 28 }.
+export const ghostBtnSm: CSSProperties = {
+  height: 28, padding: "0 10px", fontSize: 12, fontWeight: 500,
+  background: "transparent", border: "1px solid var(--border-strong)",
+  borderRadius: "var(--r-2)", color: "var(--fg-muted)", cursor: "pointer",
+  fontFamily: "var(--font-sans)", display: "inline-flex", alignItems: "center", gap: 4,
+};
+
 // ── Tag ──────────────────────────────────────────────────────────────────
 export function Tag({ children }: { children: React.ReactNode }) {
   return (
