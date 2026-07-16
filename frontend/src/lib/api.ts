@@ -235,6 +235,20 @@ function mockUsage(range: UsageRange): ReturnType<typeof buildUsage> {
   return u;
 }
 
+// One fetch/mock branch for every usage endpoint. Always reads the response
+// body for a server-provided `error` message — before this was shared, only
+// summary did, and the other four threw fixed strings that discarded detail.
+async function usageFetch<T>(path: string, mock: () => T): Promise<T> {
+  if (BASE) {
+    const res = await fetch(`${BASE}${path}`, { credentials: "include" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((data as { error?: string }).error ?? `usage request failed: ${path}`);
+    return data as T;
+  }
+  await delay(220);
+  return mock();
+}
+
 export const usage = {
   // Drops the memoized mock payloads so the next fetch regenerates them.
   // Called by the retry action: without this, retry re-resolves from the cache
@@ -242,59 +256,24 @@ export const usage = {
   // only read for fixtures).
   invalidate: (): void => { _usageCache.clear(); },
 
-  summary: async (range: UsageRange): Promise<UsageSummary> => {
-    if (BASE) {
-      const res = await fetch(`${BASE}/usage/summary?range=${range}`, { credentials: "include" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "usage summary failed");
-      return data;
-    }
-    await delay(220);
-    return mockUsage(range).summary;
-  },
+  summary: (range: UsageRange): Promise<UsageSummary> =>
+    usageFetch(`/usage/summary?range=${range}`, () => mockUsage(range).summary),
 
-  timeseries: async (range: UsageRange): Promise<UsagePoint[]> => {
-    if (BASE) {
-      const res = await fetch(`${BASE}/usage/timeseries?range=${range}&bucket=day`, { credentials: "include" });
-      if (!res.ok) throw new Error("usage timeseries failed");
-      return res.json();
-    }
-    await delay(220);
-    return mockUsage(range).timeseries;
-  },
+  timeseries: (range: UsageRange): Promise<UsagePoint[]> =>
+    usageFetch(`/usage/timeseries?range=${range}&bucket=day`, () => mockUsage(range).timeseries),
 
-  byWorkflow: async (range: UsageRange): Promise<WorkflowSpend[]> => {
-    if (BASE) {
-      const res = await fetch(`${BASE}/usage/by-workflow?range=${range}`, { credentials: "include" });
-      if (!res.ok) throw new Error("usage by-workflow failed");
-      return res.json();
-    }
-    await delay(220);
-    return mockUsage(range).byWorkflow;
-  },
+  byWorkflow: (range: UsageRange): Promise<WorkflowSpend[]> =>
+    usageFetch(`/usage/by-workflow?range=${range}`, () => mockUsage(range).byWorkflow),
 
-  byEndpoint: async (range: UsageRange): Promise<EndpointUsage[]> => {
-    if (BASE) {
-      const res = await fetch(`${BASE}/usage/by-endpoint?range=${range}`, { credentials: "include" });
-      if (!res.ok) throw new Error("usage by-endpoint failed");
-      return res.json();
-    }
-    await delay(220);
-    return mockUsage(range).byEndpoint;
-  },
+  byEndpoint: (range: UsageRange): Promise<EndpointUsage[]> =>
+    usageFetch(`/usage/by-endpoint?range=${range}`, () => mockUsage(range).byEndpoint),
 
-  settlements: async (limit = 20): Promise<Settlement[]> => {
-    if (BASE) {
-      const res = await fetch(`${BASE}/usage/settlements?limit=${limit}`, { credentials: "include" });
-      if (!res.ok) throw new Error("usage settlements failed");
-      return res.json();
-    }
-    await delay(220);
-    // Settlements are the latest on-chain payments, not a range-scoped metric —
-    // the real endpoint takes only `limit`. Any range yields the same rows, so
-    // "30d" just picks a canonical memoized payload to slice from.
-    return mockUsage("30d").settlements.slice(0, limit);
-  },
+  // Settlements are the latest on-chain payments, not a range-scoped metric —
+  // the real endpoint takes only `limit`, and the panel deliberately ignores
+  // the 24h/7d/30d selector. Any range yields the same rows in mock mode, so
+  // "30d" just picks a canonical memoized payload to slice from.
+  settlements: (limit = 20): Promise<Settlement[]> =>
+    usageFetch(`/usage/settlements?limit=${limit}`, () => mockUsage("30d").settlements.slice(0, limit)),
 };
 
 // -- Helpers --------------------------------------------------------------
