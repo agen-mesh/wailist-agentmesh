@@ -3,8 +3,10 @@ package nodes_test
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/engine"
@@ -68,5 +70,27 @@ func TestElevenLabsAction_SkipsWhenNoAPIKey(t *testing.T) {
 	}
 	if resStr != "elevenlabs_skipped_no_api_key" {
 		t.Errorf("want skip sentinel, got %v", resStr)
+	}
+}
+
+func TestElevenLabsAction_RejectsBlockedURL(t *testing.T) {
+	blockErr := errors.New("requests to private/internal addresses are not allowed")
+	nodes.SetURLValidatorForTest(func(string) error { return blockErr })
+	// Restore the package-wide permissive validator (set once in TestMain)
+	// rather than passing nil, which would flip global state to the real
+	// strict validator for every test that runs after this one in the binary.
+	defer nodes.SetURLValidatorForTest(func(string) error { return nil })
+
+	node := models.WorkflowNode{
+		ID: "el3", Type: models.NodeTypeAction, Template: "elevenlabs",
+		Secrets: map[string]string{"elevenlabsAPIKey": "xi_xxx"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"read this aloud"`))
+	_, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err == nil {
+		t.Fatal("want error when urlValidator rejects the target, got nil")
+	}
+	if !strings.Contains(err.Error(), "private/internal addresses") {
+		t.Errorf("want validator error to propagate, got %v", err)
 	}
 }

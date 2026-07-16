@@ -37,6 +37,9 @@ func sendElevenLabs(ctx context.Context, node models.WorkflowNode, rc RunContext
 	if err != nil {
 		return nil, fmt.Errorf("ElevenLabs: %w", err)
 	}
+	if err := urlValidator(req.URL.String()); err != nil {
+		return nil, err
+	}
 	resp, err := toolHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ElevenLabs: %w", err)
