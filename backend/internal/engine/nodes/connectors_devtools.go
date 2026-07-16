@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -142,7 +143,47 @@ func sendLinear(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 		},
 	}
 	headers := map[string]string{"Authorization": apiKey}
-	return postJSON(ctx, linearAPIBase+"/graphql", headers, payload, "linear_issue_created", "Linear")
+	// Linear's GraphQL API returns HTTP 200 for application-level failures
+	// (bad auth, bad team ID, validation errors), putting them in a top-level
+	// "errors" array or issueCreate.success:false instead of the status code —
+	// postJSON/doAndCheck only inspects the status code, so this can't route
+	// through them the way the REST connectors do.
+	req, err := newJSONRequest(ctx, http.MethodPost, linearAPIBase+"/graphql", headers, payload)
+	if err != nil {
+		return nil, fmt.Errorf("Linear: %w", err)
+	}
+	if err := urlValidator(req.URL.String()); err != nil {
+		return nil, err
+	}
+	resp, err := toolHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("Linear: request to %s failed: %w", redactedURL(req.URL), unwrapURLError(err))
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("Linear API %d: %s", resp.StatusCode, body)
+	}
+	var result struct {
+		Data struct {
+			IssueCreate struct {
+				Success bool `json:"success"`
+			} `json:"issueCreate"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("Linear: decode response: %w", err)
+	}
+	if len(result.Errors) > 0 {
+		return nil, fmt.Errorf("Linear: %s", result.Errors[0].Message)
+	}
+	if !result.Data.IssueCreate.Success {
+		return nil, fmt.Errorf("Linear: issueCreate returned success:false")
+	}
+	return "linear_issue_created", nil
 }
 
 func sendGitLab(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {

@@ -197,6 +197,7 @@ func TestLinearAction_CreatesIssueViaGraphQL(t *testing.T) {
 		gotAuth = r.Header.Get("Authorization")
 		json.NewDecoder(r.Body).Decode(&gotBody)
 		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":{"issueCreate":{"success":true}}}`))
 	}))
 	defer srv.Close()
 	nodes.SetLinearAPIBaseForTest(srv.URL)
@@ -225,6 +226,48 @@ func TestLinearAction_CreatesIssueViaGraphQL(t *testing.T) {
 	input, _ := variables["input"].(map[string]any)
 	if input["teamId"] != "team123" || input["title"] != "flaky test in CI" {
 		t.Errorf("want teamId/title in GraphQL variables, got %v", input)
+	}
+}
+
+func TestLinearAction_FailsOnGraphQLErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":null,"errors":[{"message":"Entity not found: Team"}]}`))
+	}))
+	defer srv.Close()
+	nodes.SetLinearAPIBaseForTest(srv.URL)
+	defer nodes.SetLinearAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "li3", Type: models.NodeTypeAction, Template: "linear",
+		Secrets: map[string]string{"linearAPIKey": "lin_api_xxx"},
+		Config:  map[string]string{"linearTeamID": "bad-team"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"test message"`))
+	_, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err == nil {
+		t.Fatal("want error on GraphQL-level failure returned with HTTP 200, got nil")
+	}
+}
+
+func TestLinearAction_FailsOnIssueCreateSuccessFalse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":{"issueCreate":{"success":false}}}`))
+	}))
+	defer srv.Close()
+	nodes.SetLinearAPIBaseForTest(srv.URL)
+	defer nodes.SetLinearAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "li4", Type: models.NodeTypeAction, Template: "linear",
+		Secrets: map[string]string{"linearAPIKey": "lin_api_xxx"},
+		Config:  map[string]string{"linearTeamID": "team123"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"test message"`))
+	_, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err == nil {
+		t.Fatal("want error when issueCreate.success is false, got nil")
 	}
 }
 
