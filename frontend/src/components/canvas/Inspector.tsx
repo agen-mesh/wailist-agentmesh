@@ -510,6 +510,177 @@ function TriggerInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n
   );
 }
 
+// ── Per-connector config field tables ───────────────────────────────────────
+type ConnectorField =
+  | { kind: "secret"; key: string; label: string; hint?: string; placeholder: string }
+  | { kind: "config"; key: string; label: string; hint?: string; placeholder?: string };
+
+const CONNECTOR_CONFIG_FIELDS: Record<string, { label: string; fields: ConnectorField[] }> = {
+  slack: {
+    label: "Slack config",
+    fields: [{ kind: "secret", key: "slackWebhookURL", label: "Webhook URL", placeholder: "https://hooks.slack.com/services/…" }],
+  },
+  discord: {
+    label: "Discord config",
+    fields: [{ kind: "secret", key: "discordWebhookURL", label: "Webhook URL", placeholder: "https://discord.com/api/webhooks/…" }],
+  },
+  teams: {
+    label: "Teams config",
+    fields: [{ kind: "secret", key: "teamsWebhookURL", label: "Webhook URL", placeholder: "https://…webhook.office.com/webhookb2/…" }],
+  },
+  google_chat: {
+    label: "Google Chat config",
+    fields: [{ kind: "secret", key: "googleChatWebhookURL", label: "Webhook URL", placeholder: "https://chat.googleapis.com/v1/spaces/…" }],
+  },
+  ntfy: {
+    label: "Ntfy config",
+    fields: [
+      { kind: "config", key: "ntfyTopic", label: "Topic", placeholder: "agentmesh-alerts" },
+      { kind: "config", key: "ntfyServerURL", label: "Server URL", placeholder: "https://ntfy.sh (default)" },
+      { kind: "secret", key: "ntfyAuthToken", label: "Auth Token", hint: "optional, for private topics", placeholder: "tk_xxxxxxxxxxxx" },
+    ],
+  },
+  telegram: {
+    label: "Telegram config",
+    fields: [
+      { kind: "secret", key: "telegramBotToken", label: "Bot Token", placeholder: "123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "telegramChatID", label: "Chat ID", placeholder: "-1001234567890" },
+    ],
+  },
+  github: {
+    label: "GitHub config",
+    fields: [
+      { kind: "secret", key: "githubToken", label: "Personal Access Token", placeholder: "ghp_xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "githubRepo", label: "Repository", placeholder: "owner/repo" },
+    ],
+  },
+  notion: {
+    label: "Notion config",
+    fields: [
+      { kind: "secret", key: "notionAPIKey", label: "Internal Integration Secret", placeholder: "secret_xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "notionPageID", label: "Page ID", placeholder: "the target page's UUID" },
+    ],
+  },
+  airtable: {
+    label: "Airtable config",
+    fields: [
+      { kind: "secret", key: "airtableAPIKey", label: "Personal Access Token", placeholder: "pat_xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "airtableBaseID", label: "Base ID", placeholder: "appXXXXXXXXXXXXXX" },
+      { kind: "config", key: "airtableTable", label: "Table", placeholder: "Tasks" },
+      { kind: "config", key: "airtableFieldName", label: "Field Name", placeholder: "Notes (default)" },
+    ],
+  },
+  hubspot: {
+    label: "HubSpot config",
+    fields: [{ kind: "secret", key: "hubspotAPIKey", label: "Private App Token", placeholder: "pat-na1-xxxxxxxxxxxxxxxxxxxx" }],
+  },
+  trello: {
+    label: "Trello config",
+    fields: [
+      { kind: "secret", key: "trelloAPIKey", label: "API Key", placeholder: "your Trello API key" },
+      { kind: "secret", key: "trelloToken", label: "Token", placeholder: "your Trello token" },
+      { kind: "config", key: "trelloListID", label: "List ID", placeholder: "target list id" },
+    ],
+  },
+  asana: {
+    label: "Asana config",
+    fields: [
+      { kind: "secret", key: "asanaAPIKey", label: "Personal Access Token", placeholder: "1/1234567890:xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "asanaProjectID", label: "Project ID", placeholder: "target project id" },
+    ],
+  },
+  clickup: {
+    label: "ClickUp config",
+    fields: [
+      { kind: "secret", key: "clickupAPIKey", label: "API Token", placeholder: "pk_xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "clickupListID", label: "List ID", placeholder: "target list id" },
+    ],
+  },
+  jira: {
+    label: "Jira config",
+    fields: [
+      { kind: "secret", key: "jiraAPIToken", label: "API Token", placeholder: "your Atlassian API token" },
+      { kind: "config", key: "jiraEmail", label: "Account Email", placeholder: "bot@yourcompany.com" },
+      { kind: "config", key: "jiraDomain", label: "Site Domain", placeholder: "yourcompany (as in yourcompany.atlassian.net)" },
+      { kind: "config", key: "jiraProjectKey", label: "Project Key", placeholder: "ENG" },
+      { kind: "config", key: "jiraIssueType", label: "Issue Type", placeholder: "Task (default)" },
+    ],
+  },
+  mailchimp: {
+    label: "Mailchimp config",
+    fields: [
+      { kind: "secret", key: "mailchimpAPIKey", label: "API Key", placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-us21" },
+      { kind: "config", key: "mailchimpListID", label: "Audience (List) ID", placeholder: "target list id" },
+      { kind: "config", key: "mailchimpEmail", label: "Email", hint: "optional, defaults to the run's output", placeholder: "leave blank to use the agent's message as the email" },
+    ],
+  },
+  linear: {
+    label: "Linear config",
+    fields: [
+      { kind: "secret", key: "linearAPIKey", label: "Personal API Key", placeholder: "lin_api_xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "linearTeamID", label: "Team ID", placeholder: "target team id" },
+    ],
+  },
+  todoist: {
+    label: "Todoist config",
+    fields: [
+      { kind: "secret", key: "todoistAPIKey", label: "API Token", placeholder: "your Todoist API token" },
+      { kind: "config", key: "todoistProjectID", label: "Project ID", hint: "optional", placeholder: "leave blank for Inbox" },
+    ],
+  },
+  gitlab: {
+    label: "GitLab config",
+    fields: [
+      { kind: "secret", key: "gitlabAPIToken", label: "Personal Access Token", placeholder: "glpat-xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "gitlabProjectID", label: "Project ID", placeholder: "numeric project id" },
+      { kind: "config", key: "gitlabBaseURL", label: "Base URL", hint: "optional, for self-hosted", placeholder: "https://gitlab.com (default)" },
+    ],
+  },
+  sentry: {
+    label: "Sentry config",
+    fields: [{ kind: "secret", key: "sentryDSN", label: "DSN", placeholder: "https://xxxx@o000000.ingest.sentry.io/000000" }],
+  },
+  supabase: {
+    label: "Supabase config",
+    fields: [
+      { kind: "secret", key: "supabaseAPIKey", label: "Service Role Key", placeholder: "eyJhbGciOi…" },
+      { kind: "config", key: "supabaseProjectURL", label: "Project URL", placeholder: "https://xxxxxxxx.supabase.co" },
+      { kind: "config", key: "supabaseTable", label: "Table", placeholder: "logs" },
+      { kind: "config", key: "supabaseColumn", label: "Column", placeholder: "content (default)" },
+    ],
+  },
+  woocommerce: {
+    label: "WooCommerce config",
+    fields: [
+      { kind: "secret", key: "woocommerceConsumerKey", label: "Consumer Key", placeholder: "ck_xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "secret", key: "woocommerceConsumerSecret", label: "Consumer Secret", placeholder: "cs_xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "woocommerceStoreURL", label: "Store URL", placeholder: "https://yourstore.com" },
+      { kind: "config", key: "woocommerceOrderID", label: "Order ID", placeholder: "target order id" },
+    ],
+  },
+  elevenlabs: {
+    label: "ElevenLabs config",
+    fields: [
+      { kind: "secret", key: "elevenlabsAPIKey", label: "API Key", placeholder: "your ElevenLabs API key" },
+      { kind: "config", key: "elevenlabsVoiceID", label: "Voice ID", placeholder: "21m00Tcm4TlvDq8ikWAM (Rachel, default)" },
+    ],
+  },
+};
+
+function ConnectorConfigSection({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n: WorkflowNode) => void }) {
+  const spec = CONNECTOR_CONFIG_FIELDS[node.template ?? ""];
+  if (!spec) return null;
+  return (
+    <Section label={spec.label}>
+      {spec.fields.map((f) =>
+        f.kind === "secret"
+          ? <SecretField key={f.key} node={node} onUpdate={onUpdate} secretKey={f.key} label={f.label} hint={f.hint} placeholder={f.placeholder} />
+          : <ConfigField key={f.key} node={node} onUpdate={onUpdate} configKey={f.key} label={f.label} hint={f.hint} placeholder={f.placeholder} />
+      )}
+    </Section>
+  );
+}
+
 // ── Action Inspector ───────────────────────────────────────────────────────
 function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n: WorkflowNode) => void }) {
   return (
@@ -563,167 +734,7 @@ function ActionInspector({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n:
         </Section>
       )}
 
-      {node.template === "slack" && (
-        <Section label="Slack config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="slackWebhookURL" label="Webhook URL"
-            placeholder="https://hooks.slack.com/services/…" />
-        </Section>
-      )}
-
-      {node.template === "discord" && (
-        <Section label="Discord config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="discordWebhookURL" label="Webhook URL"
-            placeholder="https://discord.com/api/webhooks/…" />
-        </Section>
-      )}
-
-      {node.template === "teams" && (
-        <Section label="Teams config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="teamsWebhookURL" label="Webhook URL"
-            placeholder="https://…webhook.office.com/webhookb2/…" />
-        </Section>
-      )}
-
-      {node.template === "google_chat" && (
-        <Section label="Google Chat config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="googleChatWebhookURL" label="Webhook URL"
-            placeholder="https://chat.googleapis.com/v1/spaces/…" />
-        </Section>
-      )}
-
-      {node.template === "ntfy" && (
-        <Section label="Ntfy config">
-          <ConfigField node={node} onUpdate={onUpdate} configKey="ntfyTopic" label="Topic" placeholder="agentmesh-alerts" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="ntfyServerURL" label="Server URL" placeholder="https://ntfy.sh (default)" />
-          <SecretField node={node} onUpdate={onUpdate} secretKey="ntfyAuthToken" label="Auth Token" hint="optional, for private topics"
-            placeholder="tk_xxxxxxxxxxxx" />
-        </Section>
-      )}
-
-      {node.template === "telegram" && (
-        <Section label="Telegram config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="telegramBotToken" label="Bot Token"
-            placeholder="123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="telegramChatID" label="Chat ID" placeholder="-1001234567890" />
-        </Section>
-      )}
-
-      {node.template === "github" && (
-        <Section label="GitHub config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="githubToken" label="Personal Access Token"
-            placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="githubRepo" label="Repository" placeholder="owner/repo" />
-        </Section>
-      )}
-
-      {node.template === "notion" && (
-        <Section label="Notion config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="notionAPIKey" label="Internal Integration Secret"
-            placeholder="secret_xxxxxxxxxxxxxxxxxxxx" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="notionPageID" label="Page ID" placeholder="the target page's UUID" />
-        </Section>
-      )}
-
-      {node.template === "airtable" && (
-        <Section label="Airtable config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="airtableAPIKey" label="Personal Access Token"
-            placeholder="pat_xxxxxxxxxxxxxxxxxxxx" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="airtableBaseID" label="Base ID" placeholder="appXXXXXXXXXXXXXX" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="airtableTable" label="Table" placeholder="Tasks" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="airtableFieldName" label="Field Name" placeholder="Notes (default)" />
-        </Section>
-      )}
-
-      {node.template === "hubspot" && (
-        <Section label="HubSpot config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="hubspotAPIKey" label="Private App Token"
-            placeholder="pat-na1-xxxxxxxxxxxxxxxxxxxx" />
-        </Section>
-      )}
-
-      {node.template === "trello" && (
-        <Section label="Trello config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="trelloAPIKey" label="API Key" placeholder="your Trello API key" />
-          <SecretField node={node} onUpdate={onUpdate} secretKey="trelloToken" label="Token" placeholder="your Trello token" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="trelloListID" label="List ID" placeholder="target list id" />
-        </Section>
-      )}
-
-      {node.template === "asana" && (
-        <Section label="Asana config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="asanaAPIKey" label="Personal Access Token"
-            placeholder="1/1234567890:xxxxxxxxxxxxxxxxxxxx" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="asanaProjectID" label="Project ID" placeholder="target project id" />
-        </Section>
-      )}
-      {node.template === "clickup" && (
-        <Section label="ClickUp config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="clickupAPIKey" label="API Token" placeholder="pk_xxxxxxxxxxxxxxxxxxxx" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="clickupListID" label="List ID" placeholder="target list id" />
-        </Section>
-      )}
-      {node.template === "jira" && (
-        <Section label="Jira config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="jiraAPIToken" label="API Token" placeholder="your Atlassian API token" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="jiraEmail" label="Account Email" placeholder="bot@yourcompany.com" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="jiraDomain" label="Site Domain" placeholder="yourcompany (as in yourcompany.atlassian.net)" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="jiraProjectKey" label="Project Key" placeholder="ENG" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="jiraIssueType" label="Issue Type" placeholder="Task (default)" />
-        </Section>
-      )}
-      {node.template === "mailchimp" && (
-        <Section label="Mailchimp config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="mailchimpAPIKey" label="API Key" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-us21" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="mailchimpListID" label="Audience (List) ID" placeholder="target list id" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="mailchimpEmail" label="Email" hint="optional, defaults to the run's output" placeholder="leave blank to use the agent's message as the email" />
-        </Section>
-      )}
-      {node.template === "linear" && (
-        <Section label="Linear config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="linearAPIKey" label="Personal API Key" placeholder="lin_api_xxxxxxxxxxxxxxxxxxxx" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="linearTeamID" label="Team ID" placeholder="target team id" />
-        </Section>
-      )}
-      {node.template === "todoist" && (
-        <Section label="Todoist config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="todoistAPIKey" label="API Token" placeholder="your Todoist API token" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="todoistProjectID" label="Project ID" hint="optional" placeholder="leave blank for Inbox" />
-        </Section>
-      )}
-      {node.template === "gitlab" && (
-        <Section label="GitLab config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="gitlabAPIToken" label="Personal Access Token" placeholder="glpat-xxxxxxxxxxxxxxxxxxxx" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="gitlabProjectID" label="Project ID" placeholder="numeric project id" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="gitlabBaseURL" label="Base URL" hint="optional, for self-hosted" placeholder="https://gitlab.com (default)" />
-        </Section>
-      )}
-      {node.template === "sentry" && (
-        <Section label="Sentry config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="sentryDSN" label="DSN" placeholder="https://xxxx@o000000.ingest.sentry.io/000000" />
-        </Section>
-      )}
-      {node.template === "supabase" && (
-        <Section label="Supabase config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="supabaseAPIKey" label="Service Role Key" placeholder="eyJhbGciOi…" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="supabaseProjectURL" label="Project URL" placeholder="https://xxxxxxxx.supabase.co" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="supabaseTable" label="Table" placeholder="logs" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="supabaseColumn" label="Column" placeholder="content (default)" />
-        </Section>
-      )}
-      {node.template === "woocommerce" && (
-        <Section label="WooCommerce config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="woocommerceConsumerKey" label="Consumer Key" placeholder="ck_xxxxxxxxxxxxxxxxxxxx" />
-          <SecretField node={node} onUpdate={onUpdate} secretKey="woocommerceConsumerSecret" label="Consumer Secret" placeholder="cs_xxxxxxxxxxxxxxxxxxxx" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="woocommerceStoreURL" label="Store URL" placeholder="https://yourstore.com" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="woocommerceOrderID" label="Order ID" placeholder="target order id" />
-        </Section>
-      )}
-      {node.template === "elevenlabs" && (
-        <Section label="ElevenLabs config">
-          <SecretField node={node} onUpdate={onUpdate} secretKey="elevenlabsAPIKey" label="API Key" placeholder="your ElevenLabs API key" />
-          <ConfigField node={node} onUpdate={onUpdate} configKey="elevenlabsVoiceID" label="Voice ID" placeholder="21m00Tcm4TlvDq8ikWAM (Rachel, default)" />
-        </Section>
-      )}
+      <ConnectorConfigSection node={node} onUpdate={onUpdate} />
     </>
   );
 }
