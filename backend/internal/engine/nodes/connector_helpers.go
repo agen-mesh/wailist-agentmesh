@@ -75,6 +75,7 @@ func doAndCheck(req *http.Request, sentinel, serviceName string) (any, error) {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
 		return nil, fmt.Errorf("%s API %d: %s", serviceName, resp.StatusCode, string(b))
 	}
+	io.Copy(io.Discard, resp.Body)
 	return sentinel, nil
 }
 

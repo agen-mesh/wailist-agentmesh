@@ -42,14 +42,14 @@ func sendElevenLabs(ctx context.Context, node models.WorkflowNode, rc RunContext
 	}
 	resp, err := toolHTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("ElevenLabs: %w", err)
+		return nil, fmt.Errorf("ElevenLabs: request to %s failed: %w", redactedURL(req.URL), unwrapURLError(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
 		return nil, fmt.Errorf("ElevenLabs API %d: %s", resp.StatusCode, string(b))
 	}
-	audio, err := io.ReadAll(resp.Body)
+	audio, err := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
 	if err != nil {
 		return nil, fmt.Errorf("ElevenLabs: read audio: %w", err)
 	}
