@@ -77,7 +77,7 @@ func sendMailchimp(ctx context.Context, node models.WorkflowNode, rc RunContexte
 	}
 	hash := md5.Sum([]byte(strings.ToLower(email)))
 	subscriberHash := hex.EncodeToString(hash[:])
-	target := base + "/3.0/lists/" + listID + "/members/" + subscriberHash
+	target := base + "/3.0/lists/" + url.PathEscape(listID) + "/members/" + subscriberHash
 	payload := map[string]any{
 		"email_address": email,
 		"status_if_new": "subscribed",

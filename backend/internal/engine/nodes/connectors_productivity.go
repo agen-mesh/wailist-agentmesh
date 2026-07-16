@@ -31,7 +31,7 @@ func sendNotion(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	if pageID == "" {
 		return "notion_skipped_no_page_id", nil
 	}
-	target := notionAPIBase + "/v1/blocks/" + pageID + "/children"
+	target := notionAPIBase + "/v1/blocks/" + url.PathEscape(pageID) + "/children"
 	payload := map[string]any{
 		"children": []map[string]any{{
 			"object": "block",
@@ -79,7 +79,7 @@ func sendAirtable(ctx context.Context, node models.WorkflowNode, rc RunContexter
 		return "airtable_skipped_missing_config", nil
 	}
 	fieldName := configVal(node, "airtableFieldName", "Notes")
-	target := airtableAPIBase + "/v0/" + baseID + "/" + url.PathEscape(table)
+	target := airtableAPIBase + "/v0/" + url.PathEscape(baseID) + "/" + url.PathEscape(table)
 	payload := map[string]any{"fields": map[string]any{fieldName: rc.Message()}}
 	headers := map[string]string{"Authorization": "Bearer " + apiKey}
 	return postJSON(ctx, target, headers, payload, "airtable_record_created", "Airtable")
