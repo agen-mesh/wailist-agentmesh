@@ -376,18 +376,23 @@ function EndpointTable({ rows, className, style }: { rows: EndpointUsage[]; clas
               <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.provider}</span>
               <TypeTag type={r.type} />
               <span style={numCell}>{r.calls.toLocaleString()}</span>
-              {/* LLM unit prices are estimates (see footer) — the * marks the price,
-                  not the total, so the cost column stays clean. The whole line
-                  right-aligns so every row's trailing edge forms one vertical line. */}
-              <span style={{ ...numCell, color: "var(--fg-muted)", whiteSpace: "nowrap" }}>
+              {/* Both money columns are USD like every other figure on the page —
+                  a bare "6.110" reads as dollars but is ALGO (~6× off). The exact
+                  on-chain ALGO amount stays available via the hover title for
+                  anyone cross-checking settlements. LLM unit prices are estimates
+                  (see footer) — the * marks the price, not the total. */}
+              <span
+                title={r.unitPrice != null ? `${trim(r.unitPrice)} ALGO/${r.unit}` : undefined}
+                style={{ ...numCell, color: "var(--fg-muted)", whiteSpace: "nowrap" }}
+              >
                 {r.unitPrice != null ? (
                   <>
-                    {trim(r.unitPrice)}{r.type === "llm" && "*"}
+                    ${usdPrice(r.unitPrice)}{r.type === "llm" && "*"}
                     <span style={{ color: "var(--fg-dim)" }}>/{r.unit}</span>
                   </>
                 ) : "—"}
               </span>
-              <span style={{ ...numCell, color: "var(--accent)" }}>{algo(r.totalAlgo, 3)}</span>
+              <span title={`${trim(r.totalAlgo)} ALGO`} style={{ ...numCell, color: "var(--accent)" }}>${usd(r.totalAlgo)}</span>
               <span style={{ ...numCell, display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
                 <span style={{ width: 34, height: 5, background: "var(--accent-soft)", borderRadius: 999, overflow: "hidden", flexShrink: 0 }}>
                   <span style={{ display: "block", height: "100%", width: `${Math.min(100, r.pctOfSpend)}%`, background: "var(--accent)" }} />
@@ -484,8 +489,10 @@ function usd(algoAmount: number, dp = 2) {
 function compactUsd(algoAmount: number) {
   return Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(algoAmount * ALGO_USD);
 }
-function algo(n: number, dp: number) {
-  return n.toLocaleString("en", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+// Per-unit prices are often sub-cent ($0.00034/quote), so unlike usd() this
+// keeps up to 5 fraction digits instead of rounding everything to 2.
+function usdPrice(algoAmount: number) {
+  return (algoAmount * ALGO_USD).toLocaleString("en", { maximumFractionDigits: 5 });
 }
 function trim(n: number) {
   return n.toLocaleString("en", { minimumFractionDigits: 0, maximumFractionDigits: 4 });
