@@ -236,6 +236,12 @@ function mockUsage(range: UsageRange): ReturnType<typeof buildUsage> {
 }
 
 export const usage = {
+  // Drops the memoized mock payloads so the next fetch regenerates them.
+  // Called by the retry action: without this, retry re-resolves from the cache
+  // and looks like a no-op in mock mode. Harmless in real mode (the cache is
+  // only read for fixtures).
+  invalidate: (): void => { _usageCache.clear(); },
+
   summary: async (range: UsageRange): Promise<UsageSummary> => {
     if (BASE) {
       const res = await fetch(`${BASE}/usage/summary?range=${range}`, { credentials: "include" });

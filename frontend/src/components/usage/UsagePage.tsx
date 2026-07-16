@@ -73,6 +73,10 @@ export function UsagePage() {
 
   const handleSignOut = async () => { await signOut(); router.push("/"); };
 
+  // Retry must bust the mock-mode cache, otherwise the refetch resolves from
+  // the memoized payload and the figures visibly never change.
+  const retry = () => { usageApi.invalidate(); setReloadNonce((n) => n + 1); };
+
   // Clearing the scope must also drop ?workflow= from the URL, otherwise a
   // refresh or back-navigation silently reapplies the filter the user just cleared.
   const clearScope = () => {
@@ -115,7 +119,7 @@ export function UsagePage() {
           {loadError && data && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "8px 12px", background: "rgba(255,92,92,0.10)", border: "1px solid rgba(255,92,92,0.35)", borderRadius: "var(--r-2)", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--danger)" }}>
               couldn&apos;t refresh — showing the last loaded data
-              <button onClick={() => setReloadNonce((n) => n + 1)} style={{ marginLeft: "auto", background: "transparent", border: "none", color: "var(--danger)", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, textDecoration: "underline" }}>retry</button>
+              <button onClick={retry} style={{ marginLeft: "auto", background: "transparent", border: "none", color: "var(--danger)", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, textDecoration: "underline" }}>retry</button>
             </div>
           )}
 
@@ -125,7 +129,7 @@ export function UsagePage() {
             <div style={{ padding: 48, textAlign: "center", border: "1px dashed var(--danger)", borderRadius: "var(--r-3)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
               <div style={{ color: "var(--danger)", marginBottom: 8 }}>couldn&apos;t load usage</div>
               <div style={{ color: "var(--fg-dim)", marginBottom: 16 }}>the usage service didn&apos;t respond — this is different from having no usage yet</div>
-              <button onClick={() => setReloadNonce((n) => n + 1)} style={ghostBtnSm}>retry</button>
+              <button onClick={retry} style={ghostBtnSm}>retry</button>
             </div>
           ) : !data ? (
             <div style={{ padding: 48, textAlign: "center", border: "1px dashed var(--border)", borderRadius: "var(--r-3)", color: "var(--fg-dim)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
