@@ -106,16 +106,6 @@ export const WORKFLOWS: Workflow[] = [
   { id: "wf-content", name: "Content Pipeline",           status: "draft",  updated: "1w ago",    agents: 5, runs: 0,    spend: "0.000", tags: ["marketing"],               nodes: [], edges: [] },
 ];
 
-export const LOG_LINES = [
-  { t: "09:00:00.012", lvl: "info", src: "trigger",        msg: "Chat trigger fired · run r-1842" },
-  { t: "09:00:00.118", lvl: "info", src: "agent/support",  msg: "Routing classification → billing-question" },
-  { t: "09:00:00.402", lvl: "pay",  src: "agent → alpaca", msg: "x402 settle 0.001 ALGO · ack 0x7a2f…" },
-  { t: "09:00:01.118", lvl: "info", src: "agent/support",  msg: "Gemini 1.5 Pro · 412 tokens in, 218 out" },
-  { t: "09:00:01.402", lvl: "a2a",  src: "agent → email",  msg: "Handoff payload · 1.4 KB · anchored 0x9b1c…" },
-  { t: "09:00:02.221", lvl: "info", src: "action/email",   msg: "Sent to user@acme.com · 202 OK" },
-  { t: "09:00:02.310", lvl: "ok",   src: "runtime",        msg: "Run r-1842 complete · 0.001 ALGO spent" },
-];
-
 export const WAITLIST_COUNT = 142;
 
 // ── Usage & Credits fixtures ────────────────────────────────────────────────
