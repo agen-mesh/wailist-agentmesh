@@ -39,9 +39,12 @@ func encryptNodes(nodes []models.WorkflowNode, key string, existing []models.Wor
 // the same secret name so sentinel-preservation works per key, not per node.
 func encryptSecretsMap(newVals, existingVals map[string]string, key string) map[string]string {
 	if newVals == nil {
-		return nil
+		return existingVals
 	}
-	out := make(map[string]string, len(newVals))
+	out := make(map[string]string, len(existingVals)+len(newVals))
+	for k, v := range existingVals {
+		out[k] = v
+	}
 	for k, v := range newVals {
 		out[k] = encryptField(v, existingVals[k], key)
 	}
