@@ -25,16 +25,21 @@ export function Donut({
   const r = (size - thickness) / 2;
   const c = 2 * Math.PI * r;
   const cx = size / 2;
-  let acc = 0;
+  // Cumulative start fraction per segment, precomputed — mutating a shared
+  // accumulator from inside the map callback reassigns render-scope state.
+  const starts: number[] = [];
+  for (let a = 0, i = 0; i < segments.length; i++) {
+    starts.push(a);
+    a += segments[i].value / total;
+  }
 
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: "block" }}>
       <g transform={`rotate(-90 ${cx} ${cx})`}>
         <circle cx={cx} cy={cx} r={r} fill="none" stroke="var(--border-soft)" strokeWidth={thickness} />
         {segments.map((s, i) => {
-          const frac = s.value / total;
-          const dash = frac * c;
-          const el = (
+          const dash = (s.value / total) * c;
+          return (
             <circle
               key={i}
               cx={cx}
@@ -44,11 +49,9 @@ export function Donut({
               stroke={s.color}
               strokeWidth={thickness}
               strokeDasharray={`${dash} ${c - dash}`}
-              strokeDashoffset={-acc * c}
+              strokeDashoffset={-starts[i] * c}
             />
           );
-          acc += frac;
-          return el;
         })}
       </g>
       {centerLabel && (
