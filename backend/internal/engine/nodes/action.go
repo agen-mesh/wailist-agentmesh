@@ -139,6 +139,19 @@ func replaceVar(s, key, val string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, "{{ "+key+" }}", val), "{{"+key+"}}", val)
 }
 
+// resendAPIBase is overridden in tests via SetResendAPIBaseForTest.
+var resendAPIBase = "https://api.resend.com"
+
+// SetResendAPIBaseForTest overrides the Resend API base URL. Call only
+// from tests. Pass "" to reset to the real API.
+func SetResendAPIBaseForTest(base string) {
+	if base == "" {
+		resendAPIBase = "https://api.resend.com"
+	} else {
+		resendAPIBase = base
+	}
+}
+
 func sendViaResend(ctx context.Context, apiKey, from, to, subject, body string) (any, error) {
 	payload := map[string]any{
 		"from":    from,
@@ -146,20 +159,8 @@ func sendViaResend(ctx context.Context, apiKey, from, to, subject, body string) 
 		"subject": subject,
 		"text":    body,
 	}
-	b, _ := json.Marshal(payload)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.resend.com/emails", bytes.NewReader(b))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	resp, err := toolHTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		rb, _ := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
-		return nil, fmt.Errorf("Resend API %d: %s", resp.StatusCode, string(rb))
-	}
-	return "email_sent", nil
+	headers := map[string]string{"Authorization": "Bearer " + apiKey}
+	return postJSON(ctx, resendAPIBase+"/emails", headers, payload, "email_sent", "Resend")
 }
 
 // sendGridAPIBase is overridden in tests via SetSendGridAPIBaseForTest.
@@ -249,7 +250,7 @@ func sendViaPostmark(ctx context.Context, apiKey, from, to, subject, body string
 // angle-bracket form.
 func parseEmailAddress(raw string) (name, email string) {
 	raw = strings.TrimSpace(raw)
-	if i := strings.IndexByte(raw, '<'); i >= 0 && strings.HasSuffix(raw, ">") {
+	if i := strings.LastIndexByte(raw, '<'); i >= 0 && strings.HasSuffix(raw, ">") {
 		return strings.TrimSpace(raw[:i]), raw[i+1 : len(raw)-1]
 	}
 	return "", raw
