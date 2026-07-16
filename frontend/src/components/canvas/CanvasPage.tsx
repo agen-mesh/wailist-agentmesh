@@ -28,12 +28,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   const [chatPrompt, setChatPrompt] = useState<string | null>(null); // null = closed
   const justLoaded = useRef(true);
 
+  // No state resets here: the route passes key={workflowId}, so navigating to
+  // a different workflow remounts this component and every piece of state
+  // returns to its initial value (loading=true, selectedId=null, …).
   useEffect(() => {
-    setLoading(true);
-    setSelectedId(null);
-    setDeployed(false);
-    setRunning(false);
-
     if (workflowId === "new") {
       workflowsApi.create("Untitled workflow")
         .then((wf) => router.replace(`/workflows/${wf.id}`))
@@ -219,7 +217,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
             deployed={deployed} running={running}
             attachedSummaries={attachedSummaries}
           />
+          {/* key remounts the drawer per run, so logs/elapsed/done reset via
+              initial state instead of a setState cascade inside its effect. */}
           <LogDrawer
+            key={runId ?? "idle"}
             open={logOpen} onToggle={() => setLogOpen((o) => !o)}
             runId={runId} running={running}
             onRunComplete={() => setRunning(false)}

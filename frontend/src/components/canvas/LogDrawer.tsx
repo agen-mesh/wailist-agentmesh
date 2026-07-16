@@ -44,12 +44,10 @@ export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: Log
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Reset and connect SSE when runId changes
+  // Connect SSE for the run. No state resets needed: the parent renders this
+  // drawer with key={runId}, so a new run remounts it with fresh initial state.
   useEffect(() => {
     if (!runId) return;
-    setLogs([]);
-    setDone(false);
-    setElapsed(null);
     startRef.current = Date.now();
 
     // Start elapsed timer

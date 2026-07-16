@@ -37,6 +37,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
   useEffect(() => {
     const code = new URLSearchParams(window.location.search).get("error");
     if (code) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- post-mount URL read; a lazy initializer would render the error on the server and break hydration
       setError(OAUTH_ERRORS[code] ?? "Something went wrong. Please try again.");
       window.history.replaceState({}, "", window.location.pathname);
     }
