@@ -1,7 +1,7 @@
 "use client";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Logo, Pill, Tag, Hairline, IconSearch, IconGrid } from "@/components/ui";
+import { Logo, Pill, Tag, Hairline, IconSearch, IconGrid, Card } from "@/components/ui";
 import { Workflow } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
 import { workflows as workflowsApi } from "@/lib/api";
@@ -145,14 +145,14 @@ export function WorkflowsPage() {
 
 function KpiCard({ label, value, unit, sub, tone }: { label: string; value: string | number; unit?: string; sub?: string; tone?: string }) {
   return (
-    <div style={{ background: "var(--bg-elev-1)", border: "1px solid var(--border)", borderRadius: "var(--r-3)", padding: 16 }}>
+    <Card>
       <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-dim)", marginBottom: 10 }}>{label}</div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
         <span style={{ fontSize: 26, fontWeight: 500, letterSpacing: "-0.02em", color: tone === "ok" ? "var(--accent)" : "var(--fg)" }}>{value}</span>
         {unit && <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--fg-muted)" }}>{unit}</span>}
       </div>
       {sub && <div style={{ marginTop: 4, fontSize: 11, color: "var(--fg-muted)" }}>{sub}</div>}
-    </div>
+    </Card>
   );
 }
 
@@ -189,7 +189,7 @@ function WorkflowIcon({ name }: { name: string }) {
 
 function WorkflowRows({ items, onOpen }: { items: Workflow[]; onOpen: (id: string) => void }) {
   return (
-    <div style={{ background: "var(--bg-elev-1)", border: "1px solid var(--border)", borderRadius: "var(--r-3)", overflow: "hidden" }}>
+    <Card style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ display: "grid", gridTemplateColumns: "1.6fr 100px 80px 110px 130px 160px 80px", gap: 12, padding: "10px 16px", background: "var(--bg-elev-2)", borderBottom: "1px solid var(--border)", fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-dim)" }}>
         <span>Name</span><span>Status</span><span>Agents</span><span>Runs · 30d</span><span>Spend · 30d</span><span>Updated</span><span></span>
       </div>
@@ -219,7 +219,7 @@ function WorkflowRows({ items, onOpen }: { items: Workflow[]; onOpen: (id: strin
           </div>
         </div>
       ))}
-    </div>
+    </Card>
   );
 }
 
@@ -227,8 +227,8 @@ function WorkflowGrid({ items, onOpen }: { items: Workflow[]; onOpen: (id: strin
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
       {items.map((wf) => (
-        <div key={wf.id} onClick={() => onOpen(wf.id)}
-          style={{ background: "var(--bg-elev-1)", border: "1px solid var(--border)", borderRadius: "var(--r-3)", padding: 16, cursor: "pointer", transition: "border-color .15s, transform .15s" }}
+        <Card key={wf.id} onClick={() => onOpen(wf.id)}
+          style={{ cursor: "pointer", transition: "border-color .15s, transform .15s" }}
           onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border-strong)"; (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border)"; (e.currentTarget as HTMLElement).style.transform = "translateY(0)"; }}
         >
@@ -248,7 +248,7 @@ function WorkflowGrid({ items, onOpen }: { items: Workflow[]; onOpen: (id: strin
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       ))}
     </div>
   );

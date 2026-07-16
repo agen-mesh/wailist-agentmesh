@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Logo, Pill, Hairline, IconSearch } from "@/components/ui";
+import { Logo, Pill, Hairline, IconSearch, Card } from "@/components/ui";
 import { useAuth } from "@/hooks/useAuth";
 import { usage as usageApi } from "@/lib/api";
 import {
@@ -451,10 +451,6 @@ function TypeTag({ type }: { type: UsageCategory }) {
       {type === "llm" ? "LLM" : type}
     </span>
   );
-}
-
-function Card({ children, className, style }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) {
-  return <div className={className} style={{ background: "var(--bg-elev-1)", border: "1px solid var(--border)", borderRadius: "var(--r-3)", padding: 16, ...style }}>{children}</div>;
 }
 
 function CardHead({ title, right }: { title: string; right?: React.ReactNode }) {

@@ -62,6 +62,19 @@ export function Pill({
   );
 }
 
+// ── Card ─────────────────────────────────────────────────────────────────
+// The standard elevated panel (bg-elev-1 / border / r-3 / 16px padding) used
+// across the workflows and usage pages. Override via style (e.g. padding: 0)
+// and attach handlers as needed — extra props spread onto the div.
+export function Card({ style, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      {...rest}
+      style={{ background: "var(--bg-elev-1)", border: "1px solid var(--border)", borderRadius: "var(--r-3)", padding: 16, ...style }}
+    />
+  );
+}
+
 // ── Tag ──────────────────────────────────────────────────────────────────
 export function Tag({ children }: { children: React.ReactNode }) {
   return (
