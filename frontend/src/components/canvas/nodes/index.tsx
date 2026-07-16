@@ -182,8 +182,8 @@ function AgentNode({ node, selected, deployed, onMouseDown, onPortHover, onPortL
 
       {/* Sub-port labels */}
       <div style={{ position: "absolute", bottom: -22, left: 0, right: 0, display: "flex", pointerEvents: "none", padding: "0 8px" }}>
-        <SubPortLabel label="Model" x={0.28} filled={!!attachedSummary?.model} hint={attachedSummary?.model ?? "none"} nodeW={t.w} />
-        <SubPortLabel label="Tools" x={0.72} filled={(attachedSummary?.tools ?? 0) > 0} hint={attachedSummary?.tools ? `${attachedSummary.tools} tool${attachedSummary.tools > 1 ? "s" : ""}` : "none"} nodeW={t.w} />
+        <SubPortLabel label="Model" x={0.28} filled={!!attachedSummary?.model} hint={attachedSummary?.model ?? "none"} />
+        <SubPortLabel label="Tools" x={0.72} filled={(attachedSummary?.tools ?? 0) > 0} hint={attachedSummary?.tools ? `${attachedSummary.tools} tool${attachedSummary.tools > 1 ? "s" : ""}` : "none"} />
       </div>
 
       <SidePort side="left"  color="var(--accent)" node={node} port="in"    onHover={() => onPortHover("in")}    onLeave={onPortLeave} top={38} />
@@ -194,7 +194,7 @@ function AgentNode({ node, selected, deployed, onMouseDown, onPortHover, onPortL
   );
 }
 
-function SubPortLabel({ label, x, filled, hint, nodeW }: { label: string; x: number; filled: boolean; hint: string; nodeW: number }) {
+function SubPortLabel({ label, x, filled, hint }: { label: string; x: number; filled: boolean; hint: string }) {
   return (
     <div style={{ position: "absolute", left: `calc(${x * 100}% - 36px)`, top: 22, width: 72, display: "flex", flexDirection: "column", alignItems: "center", gap: 1, fontFamily: "var(--font-mono)", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em" }}>
       <span style={{ color: filled ? "var(--accent)" : "var(--fg-dim)" }}>{label}</span>

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { WorkflowNode, WorkflowEdge, Workflow } from "@/lib/types";
+import { WorkflowNode, Workflow } from "@/lib/types";
 import { Toast, Logo, Pill, Hairline, IconPlay, IconStop } from "@/components/ui";
 import { workflows as workflowsApi } from "@/lib/api";
 import { CanvasGraph } from "./CanvasGraph";

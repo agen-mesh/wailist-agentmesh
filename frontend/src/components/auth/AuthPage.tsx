@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Logo, IconArrow, Pill, Tag } from "@/components/ui";
+import { Logo, IconArrow, Tag } from "@/components/ui";
 import { useAuth } from "@/hooks/useAuth";
 import { auth } from "@/lib/api";
 

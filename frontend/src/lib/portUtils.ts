@@ -6,8 +6,8 @@ type PortFn = (W: number, H: number) => PortCoord;
 const PORT_POS: Record<NodeType, Partial<Record<PortName, PortFn>>> = {
   trigger:  { out:   (W, H) => ({ x: W,        y: H / 2 }) },
   agent:    {
-    in:    (W, H) => ({ x: 0,          y: 38 }),
-    out:   (W, H) => ({ x: W,          y: 38 }),
+    in:    ()     => ({ x: 0,          y: 38 }),
+    out:   (W)    => ({ x: W,          y: 38 }),
     model: (W, H) => ({ x: W * 0.28,   y: H }),
     tools: (W, H) => ({ x: W * 0.72,   y: H }),
   },
