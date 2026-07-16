@@ -160,6 +160,31 @@ func TestNtfyAction_PostsPlainTextToTopic(t *testing.T) {
 	}
 }
 
+func TestNtfyAction_EscapesTopicWithSpecialChars(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{
+		ID: "nt3", Type: models.NodeTypeAction, Template: "ntfy",
+		Config: map[string]string{"ntfyTopic": "alerts/../admin", "ntfyServerURL": srv.URL},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"disk full"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "ntfy_sent" {
+		t.Errorf("want 'ntfy_sent', got %v", result)
+	}
+	if gotPath != "/alerts%2F..%2Fadmin" {
+		t.Errorf("want escaped topic, got %q", gotPath)
+	}
+}
+
 func TestNtfyAction_SkipsWhenNoTopic(t *testing.T) {
 	node := models.WorkflowNode{ID: "nt2", Type: models.NodeTypeAction, Template: "ntfy"}
 	rc := engine.NewRunContext("r1", []byte(`"hi"`))

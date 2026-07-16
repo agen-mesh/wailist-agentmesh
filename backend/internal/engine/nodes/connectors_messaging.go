@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -14,9 +15,6 @@ func sendSlack(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 	if webhookURL == "" {
 		return "slack_skipped_no_webhook_url", nil
 	}
-	if err := urlValidator(webhookURL); err != nil {
-		return nil, err
-	}
 	payload := map[string]any{"text": rc.Message()}
 	return postJSON(ctx, webhookURL, nil, payload, "slack_sent", "Slack")
 }
@@ -26,9 +24,6 @@ func sendDiscord(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	if webhookURL == "" {
 		return "discord_skipped_no_webhook_url", nil
 	}
-	if err := urlValidator(webhookURL); err != nil {
-		return nil, err
-	}
 	payload := map[string]any{"content": rc.Message()}
 	return postJSON(ctx, webhookURL, nil, payload, "discord_sent", "Discord")
 }
@@ -37,9 +32,6 @@ func sendTeams(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 	webhookURL := secretVal(node, "teamsWebhookURL")
 	if webhookURL == "" {
 		return "teams_skipped_no_webhook_url", nil
-	}
-	if err := urlValidator(webhookURL); err != nil {
-		return nil, err
 	}
 	payload := map[string]any{
 		"@type":    "MessageCard",
@@ -54,9 +46,6 @@ func sendGoogleChat(ctx context.Context, node models.WorkflowNode, rc RunContext
 	if webhookURL == "" {
 		return "google_chat_skipped_no_webhook_url", nil
 	}
-	if err := urlValidator(webhookURL); err != nil {
-		return nil, err
-	}
 	payload := map[string]any{"text": rc.Message()}
 	return postJSON(ctx, webhookURL, nil, payload, "google_chat_sent", "Google Chat")
 }
@@ -67,10 +56,7 @@ func sendNtfy(ctx context.Context, node models.WorkflowNode, rc RunContexter) (a
 		return "ntfy_skipped_no_topic", nil
 	}
 	server := configVal(node, "ntfyServerURL", "https://ntfy.sh")
-	target := strings.TrimRight(server, "/") + "/" + topic
-	if err := urlValidator(target); err != nil {
-		return nil, err
-	}
+	target := strings.TrimRight(server, "/") + "/" + url.PathEscape(topic)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(rc.Message()))
 	if err != nil {
 		return nil, fmt.Errorf("ntfy: build request: %w", err)
