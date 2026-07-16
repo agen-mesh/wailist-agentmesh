@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { UsagePoint } from "@/lib/types";
 
 // Hand-rolled dual-line chart (no chart lib — matches the codebase's SVG-by-hand
@@ -19,7 +19,13 @@ export function AreaChart({ data, height = 210, algoUsd = 1 }: { data: UsagePoin
   // New data invalidates the stored index: without this, switching the range
   // leaves a valid-but-stale hover active, and the guideline/tooltip sit at a
   // position that no longer matches the cursor until the next mousemove.
-  useEffect(() => { setHover(null); }, [data]);
+  // Reset during render (React's "adjust state when props change" pattern)
+  // rather than in an effect, so the stale frame never paints.
+  const [prevData, setPrevData] = useState(data);
+  if (prevData !== data) {
+    setPrevData(data);
+    setHover(null);
+  }
   const H = height;
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
