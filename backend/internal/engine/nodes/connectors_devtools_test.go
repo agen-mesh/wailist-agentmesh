@@ -82,6 +82,50 @@ func TestGitHubAction_SkipsWhenNoRepo(t *testing.T) {
 	}
 }
 
+func TestGitHubAction_SkipsWhenRepoInvalid(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "gh4", Type: models.NodeTypeAction, Template: "github",
+		Secrets: map[string]string{"githubToken": "ghp_xxx"},
+		Config:  map[string]string{"githubRepo": "not-a-valid-repo"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"build failed"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "github_skipped_invalid_repo" {
+		t.Errorf("want 'github_skipped_invalid_repo', got %v", result)
+	}
+}
+
+func TestGitHubAction_EscapesExtraPathSegments(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	nodes.SetGitHubAPIBaseForTest(srv.URL)
+	defer nodes.SetGitHubAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "gh5", Type: models.NodeTypeAction, Template: "github",
+		Secrets: map[string]string{"githubToken": "ghp_xxx"},
+		Config:  map[string]string{"githubRepo": "acme/widgets/../../admin"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"build failed"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "github_issue_created" {
+		t.Errorf("want 'github_issue_created', got %v", result)
+	}
+	if gotPath != "/repos/acme/widgets%2F..%2F..%2Fadmin/issues" {
+		t.Errorf("want escaped extra segments, got %q", gotPath)
+	}
+}
+
 func TestJiraAction_CreatesIssue(t *testing.T) {
 	var gotPath, gotAuth string
 	var gotBody map[string]any

@@ -3,7 +3,6 @@ package nodes
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -48,7 +47,11 @@ func sendGitHub(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	if repo == "" {
 		return "github_skipped_no_repo", nil
 	}
-	target := githubAPIBase + "/repos/" + repo + "/issues"
+	owner, name, ok := strings.Cut(repo, "/")
+	if !ok || owner == "" || name == "" {
+		return "github_skipped_invalid_repo", nil
+	}
+	target := githubAPIBase + "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(name) + "/issues"
 	payload := map[string]any{"title": issueTitle(rc.Message()), "body": rc.Message()}
 	headers := map[string]string{
 		"Authorization": "Bearer " + token,
@@ -105,8 +108,7 @@ func sendJira(ctx context.Context, node models.WorkflowNode, rc RunContexter) (a
 			},
 		},
 	}
-	auth := base64.StdEncoding.EncodeToString([]byte(email + ":" + apiToken))
-	headers := map[string]string{"Authorization": "Basic " + auth}
+	headers := basicAuthHeader(email, apiToken)
 	return postJSON(ctx, target, headers, payload, "jira_issue_created", "Jira")
 }
 
@@ -197,9 +199,6 @@ func sendGitLab(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	}
 	base := strings.TrimRight(configVal(node, "gitlabBaseURL", "https://gitlab.com"), "/")
 	target := base + "/api/v4/projects/" + url.PathEscape(projectID) + "/issues"
-	if err := urlValidator(target); err != nil {
-		return nil, err
-	}
 	payload := map[string]any{"title": issueTitle(rc.Message()), "description": rc.Message()}
 	headers := map[string]string{"PRIVATE-TOKEN": token}
 	return postJSON(ctx, target, headers, payload, "gitlab_issue_created", "GitLab")

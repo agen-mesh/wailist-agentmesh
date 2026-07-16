@@ -3,6 +3,7 @@ package nodes
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -103,6 +104,13 @@ func unwrapURLError(err error) error {
 		return uerr.Err
 	}
 	return err
+}
+
+// basicAuthHeader builds an Authorization: Basic header map from a
+// username:password pair (RFC 7617).
+func basicAuthHeader(user, pass string) map[string]string {
+	auth := base64.StdEncoding.EncodeToString([]byte(user + ":" + pass))
+	return map[string]string{"Authorization": "Basic " + auth}
 }
 
 // issueTitle derives a short title from a longer message: its first non-blank

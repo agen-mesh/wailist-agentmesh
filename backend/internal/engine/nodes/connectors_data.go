@@ -3,7 +3,6 @@ package nodes
 import (
 	"context"
 	"crypto/md5"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -83,8 +82,7 @@ func sendMailchimp(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		"status_if_new": "subscribed",
 		"status":        "subscribed",
 	}
-	auth := base64.StdEncoding.EncodeToString([]byte("anystring:" + apiKey))
-	headers := map[string]string{"Authorization": "Basic " + auth}
+	headers := basicAuthHeader("anystring", apiKey)
 	req, err := newJSONRequest(ctx, http.MethodPut, target, headers, payload)
 	if err != nil {
 		return nil, fmt.Errorf("Mailchimp: %w", err)
@@ -119,9 +117,6 @@ func sendSupabase(ctx context.Context, node models.WorkflowNode, rc RunContexter
 	}
 	column := configVal(node, "supabaseColumn", "content")
 	target := strings.TrimRight(projectURL, "/") + "/rest/v1/" + url.PathEscape(table)
-	if err := urlValidator(target); err != nil {
-		return nil, err
-	}
 	payload := map[string]any{column: rc.Message()}
 	headers := map[string]string{
 		"apikey":        apiKey,
@@ -143,11 +138,7 @@ func sendWooCommerce(ctx context.Context, node models.WorkflowNode, rc RunContex
 		return "woocommerce_skipped_missing_config", nil
 	}
 	target := strings.TrimRight(storeURL, "/") + "/wp-json/wc/v3/orders/" + url.PathEscape(orderID) + "/notes"
-	if err := urlValidator(target); err != nil {
-		return nil, err
-	}
 	payload := map[string]any{"note": rc.Message(), "customer_note": false}
-	auth := base64.StdEncoding.EncodeToString([]byte(consumerKey + ":" + consumerSecret))
-	headers := map[string]string{"Authorization": "Basic " + auth}
+	headers := basicAuthHeader(consumerKey, consumerSecret)
 	return postJSON(ctx, target, headers, payload, "woocommerce_note_added", "WooCommerce")
 }
