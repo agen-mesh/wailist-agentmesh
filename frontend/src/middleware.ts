@@ -17,7 +17,10 @@ export function middleware(req: NextRequest) {
   if (isProtected && !req.cookies.get(AUTH_COOKIE)?.value) {
     const url = req.nextUrl.clone();
     url.pathname = "/signin";
-    url.searchParams.set("next", pathname);
+    // Keep the query string: deep links like /usage?workflow=<id> must survive
+    // the auth round-trip or the page loses its filter after sign-in.
+    url.search = "";
+    url.searchParams.set("next", pathname + req.nextUrl.search);
     return NextResponse.redirect(url);
   }
 
