@@ -2,7 +2,12 @@
 import { useState, useRef, useEffect } from "react";
 import { WorkflowNode, Workflow, PortName } from "@/lib/types";
 import { NODE_TYPES } from "@/lib/data";
-import { portWorld, portForFrom, portForTo, isValidConnection } from "@/lib/portUtils";
+import {
+  portWorld,
+  portForFrom,
+  portForTo,
+  isValidConnection,
+} from "@/lib/portUtils";
 import { CanvasNode } from "./nodes";
 
 interface CanvasGraphProps {
@@ -15,16 +20,42 @@ interface CanvasGraphProps {
   attachedSummaries: Record<string, { model: string | null; tools: number }>;
 }
 
-interface ViewState { x: number; y: number; k: number; }
-interface WireState { fromId: string; fromPort: PortName; x: number; y: number; }
-interface HoverPort { nodeId: string; port: PortName; }
+interface ViewState {
+  x: number;
+  y: number;
+  k: number;
+}
+interface WireState {
+  fromId: string;
+  fromPort: PortName;
+  x: number;
+  y: number;
+}
+interface HoverPort {
+  nodeId: string;
+  port: PortName;
+}
 
-export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, deployed, running, attachedSummaries }: CanvasGraphProps) {
+export function CanvasGraph({
+  workflow,
+  setWorkflow,
+  selectedId,
+  setSelectedId,
+  deployed,
+  running,
+  attachedSummaries,
+}: CanvasGraphProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<ViewState>({ x: 40, y: 40, k: 0.95 });
   const [panning, setPanning] = useState(false);
   const panRef = useRef({ active: false, sx: 0, sy: 0, ox: 0, oy: 0 });
-  const dragRef = useRef<{ id: string; sx: number; sy: number; ox: number; oy: number } | null>(null);
+  const dragRef = useRef<{
+    id: string;
+    sx: number;
+    sy: number;
+    ox: number;
+    oy: number;
+  } | null>(null);
   const wireRef = useRef<{ fromId: string; fromPort: PortName } | null>(null);
   const [wire, setWire] = useState<WireState | null>(null);
   const [hoverPort, setHoverPort] = useState<HoverPort | null>(null);
@@ -45,7 +76,8 @@ export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const rect = el.getBoundingClientRect();
-      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const mx = e.clientX - rect.left,
+        my = e.clientY - rect.top;
       setView((v) => {
         const dk = -e.deltaY * 0.0015;
         const k2 = Math.min(2, Math.max(0.3, v.k * (1 + dk)));
@@ -61,7 +93,13 @@ export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, 
     if (e.button !== 0 && e.button !== 1) return;
     const target = e.target as HTMLElement;
     if (target.closest("[data-node]") || target.closest("[data-port]")) return;
-    panRef.current = { active: true, sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y };
+    panRef.current = {
+      active: true,
+      sx: e.clientX,
+      sy: e.clientY,
+      ox: view.x,
+      oy: view.y,
+    };
     setPanning(true);
     setSelectedId(null);
   };
@@ -71,7 +109,11 @@ export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, 
       if (panRef.current.active) {
         const dx = e.clientX - panRef.current.sx;
         const dy = e.clientY - panRef.current.sy;
-        setView((v) => ({ ...v, x: panRef.current.ox + dx, y: panRef.current.oy + dy }));
+        setView((v) => ({
+          ...v,
+          x: panRef.current.ox + dx,
+          y: panRef.current.oy + dy,
+        }));
       }
       if (dragRef.current) {
         const { id, sx, sy, ox, oy } = dragRef.current;
@@ -79,12 +121,22 @@ export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, 
         const dy = (e.clientY - sy) / view.k;
         setWorkflow((wf) => ({
           ...wf,
-          nodes: wf.nodes.map((n) => n.id === id ? { ...n, x: ox + dx, y: oy + dy } : n),
+          nodes: wf.nodes.map((n) =>
+            n.id === id ? { ...n, x: ox + dx, y: oy + dy } : n,
+          ),
         }));
       }
       if (wireRef.current && wrapRef.current) {
         const rect = wrapRef.current.getBoundingClientRect();
-        setWire((w) => w ? { ...w, x: (e.clientX - rect.left - view.x) / view.k, y: (e.clientY - rect.top - view.y) / view.k } : w);
+        setWire((w) =>
+          w
+            ? {
+                ...w,
+                x: (e.clientX - rect.left - view.x) / view.k,
+                y: (e.clientY - rect.top - view.y) / view.k,
+              }
+            : w,
+        );
       }
     };
 
@@ -93,14 +145,41 @@ export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, 
       setPanning(false);
       dragRef.current = null;
 
-      if (wireRef.current && hoverPort && hoverPort.nodeId !== wireRef.current.fromId) {
-        const fromNode = workflow.nodes.find((n) => n.id === wireRef.current!.fromId);
+      if (
+        wireRef.current &&
+        hoverPort &&
+        hoverPort.nodeId !== wireRef.current.fromId
+      ) {
+        const fromNode = workflow.nodes.find(
+          (n) => n.id === wireRef.current!.fromId,
+        );
         const toNode = workflow.nodes.find((n) => n.id === hoverPort.nodeId);
-        if (fromNode && toNode && isValidConnection(fromNode, wireRef.current.fromPort, toNode, hoverPort.port)) {
-          const kind = (hoverPort.port === "model" || hoverPort.port === "tools") ? "attach" : "flow";
+        if (
+          fromNode &&
+          toNode &&
+          isValidConnection(
+            fromNode,
+            wireRef.current.fromPort,
+            toNode,
+            hoverPort.port,
+          )
+        ) {
+          const kind =
+            hoverPort.port === "model" || hoverPort.port === "tools"
+              ? "attach"
+              : "flow";
           setWorkflow((wf) => ({
             ...wf,
-            edges: [...wf.edges, { id: `e_${Date.now()}`, from: fromNode.id, to: toNode.id, kind, toPort: hoverPort.port }],
+            edges: [
+              ...wf.edges,
+              {
+                id: `e_${Date.now()}`,
+                from: fromNode.id,
+                to: toNode.id,
+                kind,
+                toPort: hoverPort.port,
+              },
+            ],
           }));
         }
       }
@@ -110,10 +189,17 @@ export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, 
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
   }, [view, hoverPort, workflow, setWorkflow]);
 
-  const removeEdge = (id: string) => setWorkflow((wf) => ({ ...wf, edges: wf.edges.filter((e) => e.id !== id) }));
+  const removeEdge = (id: string) =>
+    setWorkflow((wf) => ({
+      ...wf,
+      edges: wf.edges.filter((e) => e.id !== id),
+    }));
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -134,10 +220,20 @@ export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, 
     if ((e.target as HTMLElement).closest("[data-port]")) return;
     e.stopPropagation();
     setSelectedId(n.id);
-    dragRef.current = { id: n.id, sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y };
+    dragRef.current = {
+      id: n.id,
+      sx: e.clientX,
+      sy: e.clientY,
+      ox: n.x,
+      oy: n.y,
+    };
   };
 
-  const startWire = (e: React.MouseEvent, nodeId: string, fromPort: PortName) => {
+  const startWire = (
+    e: React.MouseEvent,
+    nodeId: string,
+    fromPort: PortName,
+  ) => {
     e.stopPropagation();
     const n = workflow.nodes.find((x) => x.id === nodeId);
     if (!n) return;
@@ -154,7 +250,9 @@ export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, 
       onDrop={onDrop}
       className="canvas-bg"
       style={{
-        position: "relative", flex: 1, overflow: "hidden",
+        position: "relative",
+        flex: 1,
+        overflow: "hidden",
         background: "var(--bg)",
         backgroundSize: `${20 * view.k}px ${20 * view.k}px`,
         backgroundPosition: `${view.x}px ${view.y}px`,
@@ -162,9 +260,27 @@ export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, 
         userSelect: "none",
       }}
     >
-      <div style={{ position: "absolute", top: 0, left: 0, transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, transformOrigin: "0 0", width: 0, height: 0 }}>
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`,
+          transformOrigin: "0 0",
+          width: 0,
+          height: 0,
+        }}
+      >
         {/* Edges */}
-        <svg style={{ position: "absolute", overflow: "visible", pointerEvents: "none" }} width="4000" height="3000">
+        <svg
+          style={{
+            position: "absolute",
+            overflow: "visible",
+            pointerEvents: "none",
+          }}
+          width="4000"
+          height="3000"
+        >
           {workflow.edges.map((e) => {
             const a = workflow.nodes.find((n) => n.id === e.from);
             const b = workflow.nodes.find((n) => n.id === e.to);
@@ -173,21 +289,46 @@ export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, 
             const toPort = e.toPort ?? portForTo(b);
             const p1 = portWorld(a, fromPort);
             const p2 = portWorld(b, toPort);
-            return <EdgePath key={e.id} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} kind={e.kind} running={running} onClick={() => removeEdge(e.id)} />;
+            return (
+              <EdgePath
+                key={e.id}
+                x1={p1.x}
+                y1={p1.y}
+                x2={p2.x}
+                y2={p2.y}
+                kind={e.kind}
+                running={running}
+                onClick={() => removeEdge(e.id)}
+              />
+            );
           })}
-          {wire && (() => {
-            const a = workflow.nodes.find((n) => n.id === wire.fromId);
-            if (!a) return null;
-            const p = portWorld(a, wire.fromPort);
-            const kind = (hoverPort?.port === "model" || hoverPort?.port === "tools") ? "attach" : "flow";
-            return <EdgePath x1={p.x} y1={p.y} x2={wire.x} y2={wire.y} kind={kind} ghost />;
-          })()}
+          {wire &&
+            (() => {
+              const a = workflow.nodes.find((n) => n.id === wire.fromId);
+              if (!a) return null;
+              const p = portWorld(a, wire.fromPort);
+              const kind =
+                hoverPort?.port === "model" || hoverPort?.port === "tools"
+                  ? "attach"
+                  : "flow";
+              return (
+                <EdgePath
+                  x1={p.x}
+                  y1={p.y}
+                  x2={wire.x}
+                  y2={wire.y}
+                  kind={kind}
+                  ghost
+                />
+              );
+            })()}
         </svg>
 
         {/* Nodes */}
         {workflow.nodes.map((n) => (
           <CanvasNode
-            key={n.id} node={n}
+            key={n.id}
+            node={n}
             selected={selectedId === n.id}
             deployed={deployed}
             onMouseDown={(e) => startNodeDrag(e, n)}
@@ -200,25 +341,139 @@ export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, 
       </div>
 
       {/* Controls */}
-      <div style={{ position: "absolute", bottom: 44, right: 16, zIndex: 4, display: "flex", flexDirection: "column", gap: 4, background: "var(--bg-elev-2)", border: "1px solid var(--border)", borderRadius: "var(--r-2)", padding: 4 }}>
-        <button onClick={() => setView((v) => ({ ...v, k: Math.min(2, v.k * 1.15) }))} style={ctrlBtn}>+</button>
-        <div style={{ textAlign: "center", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-dim)" }}>{Math.round(view.k * 100)}%</div>
-        <button onClick={() => setView((v) => ({ ...v, k: Math.max(0.3, v.k / 1.15) }))} style={ctrlBtn}>−</button>
-        <div style={{ height: 1, background: "var(--border)", margin: "2px 0" }} />
-        <button onClick={() => setView({ x: 40, y: 40, k: 0.95 })} style={ctrlBtn} title="Reset view">⊡</button>
+      <div
+        style={{
+          position: "absolute",
+          bottom: 44,
+          right: 16,
+          zIndex: 4,
+          display: "flex",
+          flexDirection: "column",
+          gap: 4,
+          background: "var(--bg-elev-2)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--r-2)",
+          padding: 4,
+        }}
+      >
+        <button
+          onClick={() => setView((v) => ({ ...v, k: Math.min(2, v.k * 1.15) }))}
+          style={ctrlBtn}
+        >
+          +
+        </button>
+        <div
+          style={{
+            textAlign: "center",
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            color: "var(--fg-dim)",
+          }}
+        >
+          {Math.round(view.k * 100)}%
+        </div>
+        <button
+          onClick={() =>
+            setView((v) => ({ ...v, k: Math.max(0.3, v.k / 1.15) }))
+          }
+          style={ctrlBtn}
+        >
+          −
+        </button>
+        <div
+          style={{ height: 1, background: "var(--border)", margin: "2px 0" }}
+        />
+        <button
+          onClick={() => setView({ x: 40, y: 40, k: 0.95 })}
+          style={ctrlBtn}
+          title="Reset view"
+        >
+          ⊡
+        </button>
       </div>
 
       {/* Hints */}
-      <div style={{ position: "absolute", bottom: 44, left: 16, zIndex: 4, display: "flex", gap: 12, alignItems: "center", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-dim)" }}>
-        {[["drag bg", "pan"], ["scroll", "zoom"], ["drag port", "connect"], ["click edge", "delete"]].map(([k, v]) => (
-          <span key={k}><span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 18, height: 18, padding: "0 4px", borderRadius: 4, border: "1px solid var(--border-strong)", background: "var(--bg-elev-1)", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-muted)" }}>{k}</span> {v}</span>
+      <div
+        style={{
+          position: "absolute",
+          bottom: 44,
+          left: 16,
+          zIndex: 4,
+          display: "flex",
+          gap: 12,
+          alignItems: "center",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          color: "var(--fg-dim)",
+        }}
+      >
+        {[
+          ["drag bg", "pan"],
+          ["scroll", "zoom"],
+          ["drag port", "connect"],
+          ["click edge", "delete"],
+        ].map(([k, v]) => (
+          <span key={k}>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                minWidth: 18,
+                height: 18,
+                padding: "0 4px",
+                borderRadius: 4,
+                border: "1px solid var(--border-strong)",
+                background: "var(--bg-elev-1)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                color: "var(--fg-muted)",
+              }}
+            >
+              {k}
+            </span>{" "}
+            {v}
+          </span>
         ))}
       </div>
 
       {workflow.nodes.length === 0 && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", gap: 12 }}>
-          <div style={{ width: 64, height: 64, borderRadius: 12, border: "1px dashed var(--border-strong)", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--fg-dim)", fontSize: 24 }}>+</div>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--fg-dim)" }}>empty canvas · drag a trigger from the left to begin</div>
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "none",
+            gap: 12,
+          }}
+        >
+          <div
+            style={{
+              width: 64,
+              height: 64,
+              borderRadius: 12,
+              border: "1px dashed var(--border-strong)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "var(--fg-dim)",
+              fontSize: 24,
+            }}
+          >
+            +
+          </div>
+          <div
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 12,
+              color: "var(--fg-dim)",
+            }}
+          >
+            empty canvas · drag a trigger from the left to begin
+          </div>
         </div>
       )}
     </div>
@@ -226,9 +481,24 @@ export function CanvasGraph({ workflow, setWorkflow, selectedId, setSelectedId, 
 }
 
 // ── Edge path ──────────────────────────────────────────────────────────────
-function EdgePath({ x1, y1, x2, y2, kind, running, ghost, onClick }: {
-  x1: number; y1: number; x2: number; y2: number;
-  kind?: string; running?: boolean; ghost?: boolean; onClick?: () => void;
+function EdgePath({
+  x1,
+  y1,
+  x2,
+  y2,
+  kind,
+  running,
+  ghost,
+  onClick,
+}: {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  kind?: string;
+  running?: boolean;
+  ghost?: boolean;
+  onClick?: () => void;
 }) {
   const isAttach = kind === "attach";
   const color = isAttach ? "#E879F9" : "var(--accent)";
@@ -243,8 +513,18 @@ function EdgePath({ x1, y1, x2, y2, kind, running, ghost, onClick }: {
 
   return (
     <g style={{ pointerEvents: ghost ? "none" : "auto" }}>
-      <path d={d} fill="none" stroke="transparent" strokeWidth="14" onClick={onClick} style={{ cursor: "pointer" }} />
-      <path d={d} fill="none" stroke={color}
+      <path
+        d={d}
+        fill="none"
+        stroke="transparent"
+        strokeWidth="14"
+        onClick={onClick}
+        style={{ cursor: "pointer" }}
+      />
+      <path
+        d={d}
+        fill="none"
+        stroke={color}
         strokeWidth={1.5}
         strokeDasharray={isAttach ? "4 3" : ghost ? "3 4" : undefined}
         opacity={ghost ? 0.6 : 0.78}
@@ -260,7 +540,16 @@ function EdgePath({ x1, y1, x2, y2, kind, running, ghost, onClick }: {
 }
 
 const ctrlBtn: React.CSSProperties = {
-  width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center",
-  background: "transparent", border: "none", color: "var(--fg-muted)", cursor: "pointer",
-  fontFamily: "var(--font-mono)", fontSize: 16, borderRadius: "var(--r-1)",
+  width: 28,
+  height: 28,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "transparent",
+  border: "none",
+  color: "var(--fg-muted)",
+  cursor: "pointer",
+  fontFamily: "var(--font-mono)",
+  fontSize: 16,
+  borderRadius: "var(--r-1)",
 };

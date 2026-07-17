@@ -33,9 +33,16 @@ interface LogDrawerProps {
 }
 
 const _CONFIGURED = process.env.NEXT_PUBLIC_API_URL ?? "";
-const BASE = _CONFIGURED && typeof window !== "undefined" ? "/api" : _CONFIGURED;
+const BASE =
+  _CONFIGURED && typeof window !== "undefined" ? "/api" : _CONFIGURED;
 
-export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: LogDrawerProps) {
+export function LogDrawer({
+  open,
+  onToggle,
+  runId,
+  running,
+  onRunComplete,
+}: LogDrawerProps) {
   const [logs, setLogs] = useState<LogEvent[]>([]);
   const [elapsed, setElapsed] = useState<number | null>(null);
   const [done, setDone] = useState(false);
@@ -55,9 +62,7 @@ export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: Log
       setElapsed(Math.floor((Date.now() - startRef.current!) / 100) / 10);
     }, 100);
 
-    const url = BASE
-      ? `${BASE}/runs/${runId}/stream`
-      : null;
+    const url = BASE ? `${BASE}/runs/${runId}/stream` : null;
 
     if (!url) return;
 
@@ -70,7 +75,9 @@ export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: Log
         const ev: LogEvent = JSON.parse((e as MessageEvent).data);
         setLogs((prev) => {
           // Replace running entry for same nodeId, or append
-          const idx = prev.findIndex((l) => l.nodeId === ev.nodeId && l.status === "running");
+          const idx = prev.findIndex(
+            (l) => l.nodeId === ev.nodeId && l.status === "running",
+          );
           if (idx >= 0) {
             const next = [...prev];
             next[idx] = ev;
@@ -78,7 +85,9 @@ export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: Log
           }
           return [...prev, ev];
         });
-      } catch { /* ignore parse errors */ }
+      } catch {
+        /* ignore parse errors */
+      }
     });
 
     es.addEventListener("done", () => {
@@ -99,7 +108,7 @@ export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: Log
       clearInterval(timerRef.current!);
       es.close();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId]);
 
   // Close SSE when stopped externally
@@ -118,14 +127,14 @@ export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: Log
 
   const statusColor = (s: LogEvent["status"]) => {
     if (s === "success") return "var(--accent)";
-    if (s === "failed")  return "#F87171";
+    if (s === "failed") return "#F87171";
     if (s === "stopped") return "#FB923C";
     return "var(--fg-dim)";
   };
 
   const statusLabel = (s: LogEvent["status"]) => {
     if (s === "success") return "OK";
-    if (s === "failed")  return "ERR";
+    if (s === "failed") return "ERR";
     if (s === "stopped") return "STP";
     return "RUN";
   };
@@ -137,63 +146,174 @@ export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: Log
       const m = output as Record<string, unknown>;
       if (typeof m.message === "string") return m.message;
     }
-    try { return JSON.stringify(output); }
-    catch { return String(output); }
+    try {
+      return JSON.stringify(output);
+    } catch {
+      return String(output);
+    }
   };
 
   const elapsedStr = (elapsed ?? 0).toFixed(1);
   const headerPill = runId
-    ? (done ? `run · ${runId.slice(0, 8)} · ${elapsedStr}s` : running ? `running · ${elapsedStr}s` : `run · ${runId.slice(0, 8)}`)
+    ? done
+      ? `run · ${runId.slice(0, 8)} · ${elapsedStr}s`
+      : running
+        ? `running · ${elapsedStr}s`
+        : `run · ${runId.slice(0, 8)}`
     : "console";
 
   const pillTone = done ? "ok" : running ? "warm" : "default";
 
   return (
-    <div style={{
-      position: "absolute", left: 0, right: 0, bottom: 0,
-      background: "var(--bg-elev-1)", borderTop: "1px solid var(--border)",
-      height: open ? 240 : 32,
-      transition: "height .2s cubic-bezier(.2,.8,.2,1)",
-      display: "flex", flexDirection: "column",
-      zIndex: 5,
-    }}>
+    <div
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "var(--bg-elev-1)",
+        borderTop: "1px solid var(--border)",
+        height: open ? 240 : 32,
+        transition: "height .2s cubic-bezier(.2,.8,.2,1)",
+        display: "flex",
+        flexDirection: "column",
+        zIndex: 5,
+      }}
+    >
       {/* Header bar */}
-      <div onClick={onToggle} style={{ height: 32, padding: "0 14px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", borderBottom: open ? "1px solid var(--border)" : "none", flexShrink: 0 }}>
+      <div
+        onClick={onToggle}
+        style={{
+          height: 32,
+          padding: "0 14px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          cursor: "pointer",
+          borderBottom: open ? "1px solid var(--border)" : "none",
+          flexShrink: 0,
+        }}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>console</span>
-          <Pill mono tone={pillTone} dot={running}>{headerPill}</Pill>
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: "var(--fg-muted)",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+            }}
+          >
+            console
+          </span>
+          <Pill mono tone={pillTone} dot={running}>
+            {headerPill}
+          </Pill>
           {logs.length > 0 && (
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-dim)" }}>{logs.length} step{logs.length !== 1 ? "s" : ""}</span>
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                color: "var(--fg-dim)",
+              }}
+            >
+              {logs.length} step{logs.length !== 1 ? "s" : ""}
+            </span>
           )}
         </div>
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-dim)" }}>
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            color: "var(--fg-dim)",
+          }}
+        >
           {open ? "▾ collapse" : "▴ expand"}
         </span>
       </div>
 
       {/* Log lines */}
       {open && (
-        <div style={{ flex: 1, overflow: "auto", padding: "6px 14px 10px", fontFamily: "var(--font-mono)", fontSize: 11, lineHeight: 1.7 }}>
+        <div
+          style={{
+            flex: 1,
+            overflow: "auto",
+            padding: "6px 14px 10px",
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            lineHeight: 1.7,
+          }}
+        >
           {logs.length === 0 && !running && !runId && (
-            <div style={{ color: "var(--fg-dim)", paddingTop: 8 }}>run a workflow to see execution logs here.</div>
+            <div style={{ color: "var(--fg-dim)", paddingTop: 8 }}>
+              run a workflow to see execution logs here.
+            </div>
           )}
           {logs.length === 0 && running && (
-            <div style={{ color: "var(--fg-dim)", paddingTop: 8 }}>waiting for first node…</div>
+            <div style={{ color: "var(--fg-dim)", paddingTop: 8 }}>
+              waiting for first node…
+            </div>
           )}
           {logs.map((l, i) => (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "52px 34px 110px 1fr", gap: 10, alignItems: "baseline", borderBottom: "1px solid var(--border-soft)", padding: "3px 0" }}>
+            <div
+              key={i}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "52px 34px 110px 1fr",
+                gap: 10,
+                alignItems: "baseline",
+                borderBottom: "1px solid var(--border-soft)",
+                padding: "3px 0",
+              }}
+            >
               <span style={{ color: "var(--fg-dim)", fontSize: 9.5 }}>
-                {new Date(l.ts).toLocaleTimeString("en", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                {new Date(l.ts).toLocaleTimeString("en", {
+                  hour12: false,
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })}
               </span>
-              <span style={{ color: statusColor(l.status), fontWeight: 600, fontSize: 9.5 }}>{statusLabel(l.status)}</span>
-              <span style={{ color: "var(--fg-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                <span style={{ color: nodeTypeColor(l.nodeType) }}>{l.nodeType}</span>
-                {l.durationMs > 0 && <span style={{ color: "var(--fg-dim)" }}> · {l.durationMs}ms</span>}
+              <span
+                style={{
+                  color: statusColor(l.status),
+                  fontWeight: 600,
+                  fontSize: 9.5,
+                }}
+              >
+                {statusLabel(l.status)}
+              </span>
+              <span
+                style={{
+                  color: "var(--fg-muted)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <span style={{ color: nodeTypeColor(l.nodeType) }}>
+                  {l.nodeType}
+                </span>
+                {l.durationMs > 0 && (
+                  <span style={{ color: "var(--fg-dim)" }}>
+                    {" "}
+                    · {l.durationMs}ms
+                  </span>
+                )}
               </span>
               {isX402Payment(l.output) ? (
-                <span style={{ display: "flex", alignItems: "center", gap: 5, overflow: "hidden" }}>
+                <span
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                    overflow: "hidden",
+                  }}
+                >
                   <span style={{ color: "var(--fg)" }}>
-                    {l.output.amount ? `${parseFloat(l.output.amount).toFixed(6)} ALGO` : "paid"}
+                    {l.output.amount
+                      ? `${parseFloat(l.output.amount).toFixed(6)} ALGO`
+                      : "paid"}
                   </span>
                   {l.output.txId && l.output.explorerURL && (
                     <>
@@ -202,7 +322,13 @@ export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: Log
                         href={l.output.explorerURL}
                         target="_blank"
                         rel="noopener noreferrer"
-                        style={{ color: "#E879F9", textDecoration: "underline", fontFamily: "var(--font-mono)", fontSize: 9.5, whiteSpace: "nowrap" }}
+                        style={{
+                          color: "#E879F9",
+                          textDecoration: "underline",
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 9.5,
+                          whiteSpace: "nowrap",
+                        }}
                         onClick={(e) => e.stopPropagation()}
                       >
                         {l.output.txId.slice(0, 8)}…
@@ -211,13 +337,25 @@ export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: Log
                   )}
                 </span>
               ) : (
-                <span style={{ color: "var(--fg)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{outputPreview(l.output)}</span>
+                <span
+                  style={{
+                    color: "var(--fg)",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {outputPreview(l.output)}
+                </span>
               )}
             </div>
           ))}
           {done && (
-            <div style={{ color: "var(--accent)", paddingTop: 6, fontSize: 10 }}>
-              ✓ run complete · {(elapsed ?? 0).toFixed(1)}s · {logs.filter(l => l.status === "success").length}/{logs.length} nodes succeeded
+            <div
+              style={{ color: "var(--accent)", paddingTop: 6, fontSize: 10 }}
+            >
+              ✓ run complete · {(elapsed ?? 0).toFixed(1)}s ·{" "}
+              {logs.filter((l) => l.status === "success").length}/{logs.length}{" "}
+              nodes succeeded
             </div>
           )}
           <div ref={bottomRef} />
@@ -228,8 +366,8 @@ export function LogDrawer({ open, onToggle, runId, running, onRunComplete }: Log
 }
 
 function nodeTypeColor(t: string): string {
-  if (t === "agent")   return "var(--accent)";
+  if (t === "agent") return "var(--accent)";
   if (t === "tool402") return "#E879F9";
-  if (t === "action")  return "#FB923C";
+  if (t === "action") return "#FB923C";
   return "var(--fg-dim)";
 }

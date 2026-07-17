@@ -1,4 +1,5 @@
-export type NodeType = "trigger" | "agent" | "provider" | "tool" | "tool402" | "action" | "end";
+export type NodeType =
+  "trigger" | "agent" | "provider" | "tool" | "tool402" | "action" | "end";
 export type EdgeKind = "flow" | "attach";
 export type PortName = "in" | "out" | "model" | "tools" | "top";
 
@@ -32,7 +33,13 @@ export interface WorkflowNode {
   unit?: string;
   provider?: string;
   priceLive?: boolean;
-  discoveredParams?: Array<{ name: string; type: string; required: boolean; description: string; default?: string }>;
+  discoveredParams?: Array<{
+    name: string;
+    type: string;
+    required: boolean;
+    description: string;
+    default?: string;
+  }>;
   paramDefaults?: Record<string, string>;
   // trigger-specific
   source?: string;
@@ -78,19 +85,19 @@ export type UsageRange = "24h" | "7d" | "30d";
 export type UsageCategory = "x402" | "llm" | "action";
 
 export interface UsageSummary {
-  totalAlgo: number;              // x402 spend actually settled on-chain
+  totalAlgo: number; // x402 spend actually settled on-chain
   x402Calls: number;
   llmTokens: number;
-  llmEstAlgo: number | null;      // null = backend can't price tokens yet
+  llmEstAlgo: number | null; // null = backend can't price tokens yet
   budget: { limit: number; used: number; resetsAt: string } | null;
   deltas: { totalAlgoPct: number };
 }
 
 export interface UsagePoint {
-  ts: string;                     // pre-formatted bucket label (day / hour)
+  ts: string; // pre-formatted bucket label (day / hour)
   x402Algo: number;
   llmAlgo: number;
-  calls: number;                  // x402 calls in this bucket (usage series)
+  calls: number; // x402 calls in this bucket (usage series)
 }
 
 export interface WorkflowSpend {
@@ -107,16 +114,16 @@ export interface EndpointUsage {
   provider: string;
   type: UsageCategory;
   calls: number;
-  unitPrice: number | null;       // null for token-priced LLM rows
+  unitPrice: number | null; // null for token-priced LLM rows
   unit: string;
   totalAlgo: number;
   pctOfSpend: number;
   successRate: number | null;
-  lastUsedAt: string;             // ISO
+  lastUsedAt: string; // ISO
 }
 
 export interface Settlement {
-  ts: string;                     // ISO
+  ts: string; // ISO
   endpoint: string;
   amountAlgo: number;
   txId: string;

@@ -34,9 +34,21 @@ export function Donut({
   }
 
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: "block" }}>
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      style={{ display: "block" }}
+    >
       <g transform={`rotate(-90 ${cx} ${cx})`}>
-        <circle cx={cx} cy={cx} r={r} fill="none" stroke="var(--border-soft)" strokeWidth={thickness} />
+        <circle
+          cx={cx}
+          cy={cx}
+          r={r}
+          fill="none"
+          stroke="var(--border-soft)"
+          strokeWidth={thickness}
+        />
         {segments.map((s, i) => {
           const dash = (s.value / total) * c;
           return (
@@ -55,12 +67,28 @@ export function Donut({
         })}
       </g>
       {centerLabel && (
-        <text x={cx} y={cx - 2} textAnchor="middle" fontFamily="var(--font-sans)" fontSize="20" fontWeight="500" fill="var(--fg)">
+        <text
+          x={cx}
+          y={cx - 2}
+          textAnchor="middle"
+          fontFamily="var(--font-sans)"
+          fontSize="20"
+          fontWeight="500"
+          fill="var(--fg)"
+        >
           {centerLabel}
         </text>
       )}
       {centerSub && (
-        <text x={cx} y={cx + 14} textAnchor="middle" fontFamily="var(--font-mono)" fontSize="9" fill="var(--fg-dim)" letterSpacing="0.06em">
+        <text
+          x={cx}
+          y={cx + 14}
+          textAnchor="middle"
+          fontFamily="var(--font-mono)"
+          fontSize="9"
+          fill="var(--fg-dim)"
+          letterSpacing="0.06em"
+        >
           {centerSub}
         </text>
       )}
