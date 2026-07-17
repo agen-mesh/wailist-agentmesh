@@ -20,6 +20,23 @@ const OAUTH_ERRORS: Record<string, string> = {
 
 type Mode = "signin" | "signup";
 
+const DEFAULT_DEST = "/workflows";
+
+// middleware redirects protected deep links here as ?next=<path>, so this value
+// is attacker-controlled: anyone can hand out /signin?next=<anywhere>. Only a
+// same-origin absolute path is allowed through — "//evil.com" is protocol-
+// relative and "https://evil.com" absolute, and either would turn the sign-in
+// form into an open redirect that lands a just-authenticated user off-site.
+function safeNext(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return DEFAULT_DEST;
+  return raw;
+}
+
+function nextPath(): string {
+  if (typeof window === "undefined") return DEFAULT_DEST;
+  return safeNext(new URLSearchParams(window.location.search).get("next"));
+}
+
 interface AuthPageProps {
   initialMode?: Mode;
 }
@@ -40,7 +57,12 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
     if (code) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- post-mount URL read; a lazy initializer would render the error on the server and break hydration
       setError(OAUTH_ERRORS[code] ?? "Something went wrong. Please try again.");
-      window.history.replaceState({}, "", window.location.pathname);
+      // Drop only ?error= — rewriting to a bare pathname would also discard the
+      // ?next= deep link the user is still trying to reach after a failed OAuth
+      // attempt, sending them to /workflows once they retry with a password.
+      const url = new URL(window.location.href);
+      url.searchParams.delete("error");
+      window.history.replaceState({}, "", url.pathname + url.search + url.hash);
     }
   }, []);
 
@@ -63,7 +85,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
       } else {
         await signUp(email, password, org);
       }
-      router.push("/workflows");
+      router.push(nextPath());
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {
