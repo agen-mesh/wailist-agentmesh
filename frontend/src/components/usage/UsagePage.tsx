@@ -308,7 +308,17 @@ function UsageBody({ data, range, onRangeChange, scopedWf, onOpenWorkflow, loadi
 }
 
 // ── Endpoints table ─────────────────────────────────────────────────────────
-type SortKey = "endpoint" | "calls" | "unitPrice" | "totalAlgo" | "pctOfSpend" | "successRate" | "lastUsedAt";
+// "type" sorts by the rank below, not alphabetically — a-l-x (action, llm,
+// x402) reads as noise. x402 first matches the filter pills and the spend
+// order the rest of the page is built around.
+type SortKey = "endpoint" | "type" | "calls" | "unitPrice" | "totalAlgo" | "pctOfSpend" | "successRate" | "lastUsedAt";
+
+const TYPE_RANK: Record<UsageCategory, number> = { x402: 0, llm: 1, action: 2 };
+
+// A column's first click should land on the direction that reads best for its
+// data: text/category ascending (A→Z, x402 first), numbers descending (biggest
+// spend first). Without this every column opened reversed.
+const ASC_FIRST: readonly SortKey[] = ["endpoint", "type"];
 
 // Unit price gets 120px so "26*/1M" fits on one line (cell is nowrap).
 const EP_GRID = "1.9fr 1.15fr 66px 66px 120px 108px 116px 78px 92px";
@@ -326,7 +336,10 @@ function EndpointTable({ rows, className, style }: { rows: EndpointUsage[]; clas
     out.sort((a, b) => {
       const av = a[sort.key], bv = b[sort.key];
       let cmp: number;
-      if (typeof av === "string" && typeof bv === "string") cmp = av.localeCompare(bv);
+      // Type only has 3 values, so it leaves big ties — order those by spend
+      // (desc) rather than leaving each group in arbitrary fixture order.
+      if (sort.key === "type") cmp = TYPE_RANK[a.type] - TYPE_RANK[b.type] || b.totalAlgo - a.totalAlgo;
+      else if (typeof av === "string" && typeof bv === "string") cmp = av.localeCompare(bv);
       else {
         const an = av == null ? -Infinity : Number(av);
         const bn = bv == null ? -Infinity : Number(bv);
@@ -338,7 +351,9 @@ function EndpointTable({ rows, className, style }: { rows: EndpointUsage[]; clas
   }, [rows, cat, q, sort]);
 
   const toggle = (key: SortKey) =>
-    setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
+    setSort((s) => (s.key === key
+      ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
+      : { key, dir: ASC_FIRST.includes(key) ? "asc" : "desc" }));
 
   return (
     <Card className={className} style={style}>
@@ -364,7 +379,7 @@ function EndpointTable({ rows, className, style }: { rows: EndpointUsage[]; clas
           <div style={{ display: "grid", gridTemplateColumns: EP_GRID, gap: 10, padding: "8px 10px", background: "var(--bg-elev-2)", borderRadius: "var(--r-2)", alignItems: "center" }}>
             <Th k="endpoint" sort={sort} onToggle={toggle}>Endpoint</Th>
             <span style={hcell}>Provider</span>
-            <span style={hcell}>Type</span>
+            <Th k="type" sort={sort} onToggle={toggle}>Type</Th>
             <Th k="calls" align="right" sort={sort} onToggle={toggle}>Calls</Th>
             <Th k="unitPrice" align="right" sort={sort} onToggle={toggle}>Unit price</Th>
             <Th k="totalAlgo" align="right" sort={sort} onToggle={toggle}>Total</Th>
