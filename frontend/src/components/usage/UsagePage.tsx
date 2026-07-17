@@ -401,11 +401,12 @@ function EndpointTable({ rows, className, style }: { rows: EndpointUsage[]; clas
               <span style={numCell}>{r.calls.toLocaleString()}</span>
               {/* Both money columns are USD like every other figure on the page —
                   a bare "6.110" reads as dollars but is ALGO (~6× off). The exact
-                  on-chain ALGO amount stays available via the hover title for
-                  anyone cross-checking settlements. LLM unit prices are estimates
+                  on-chain ALGO amount stays available on hover for anyone
+                  cross-checking settlements. LLM unit prices are estimates
                   (see footer) — the * marks the price, not the total. */}
               <span
-                title={r.unitPrice != null ? `${trim(r.unitPrice)} ALGO/${r.unit}` : undefined}
+                className={r.unitPrice != null ? "cell-tip" : undefined}
+                data-tip={r.unitPrice != null ? `${trim(r.unitPrice)} ALGO/${r.unit}` : undefined}
                 style={{ ...numCell, color: "var(--fg-muted)", whiteSpace: "nowrap" }}
               >
                 {r.unitPrice != null ? (
@@ -415,7 +416,7 @@ function EndpointTable({ rows, className, style }: { rows: EndpointUsage[]; clas
                   </>
                 ) : "—"}
               </span>
-              <span title={`${trim(r.totalAlgo)} ALGO`} style={{ ...numCell, color: "var(--accent)" }}>${usd(r.totalAlgo)}</span>
+              <span className="cell-tip" data-tip={`${trim(r.totalAlgo)} ALGO`} style={{ ...numCell, color: "var(--accent)" }}>${usd(r.totalAlgo)}</span>
               <span style={{ ...numCell, display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
                 <span style={{ width: 34, height: 5, background: "var(--accent-soft)", borderRadius: 999, overflow: "hidden", flexShrink: 0 }}>
                   <span style={{ display: "block", height: "100%", width: `${Math.min(100, r.pctOfSpend)}%`, background: "var(--accent)" }} />

@@ -195,3 +195,37 @@ html, body {
   .credit-topup svg { transition: none; }
 }
 
+/* Cell tooltip — the exact-ALGO hover on the endpoints table. Replaces the
+   native `title`, which was ~1s delayed, OS-styled and cursor-anchored, so it
+   read as foreign next to the chart's own tooltip. Surface deliberately mirrors
+   ChartTip (AreaChart.tsx). Pure CSS: this is one tooltip per table row and
+   needs no per-row React state.
+   Anchored above the cell: the table's scroll wrapper sets `overflow-x: auto`,
+   which computes the y-axis to `auto` too, so it clips vertically — and below
+   the last row there is nothing left to clip into. Above, the header row
+   guarantees headroom for even the first row. */
+.cell-tip { position: relative; }
+.cell-tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 4px);
+  right: 0;
+  z-index: 3;
+  padding: 4px 7px;
+  background: var(--bg-elev-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s var(--ease);
+}
+.cell-tip:hover::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .cell-tip::after { transition: none; }
+}
+
