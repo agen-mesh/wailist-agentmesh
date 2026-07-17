@@ -76,6 +76,16 @@ func doValidatedRequest(req *http.Request, serviceName string) (*http.Response, 
 	return resp, nil
 }
 
+// readErrorBody reads a bounded excerpt of a non-2xx response body for the
+// error message, then drains any remainder so the underlying connection can
+// be returned to the transport's idle pool instead of being torn down on
+// Close() — the same reason doAndCheck's success path drains in full.
+func readErrorBody(resp *http.Response) string {
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
+	io.Copy(io.Discard, resp.Body)
+	return string(b)
+}
+
 // doAndCheck executes req on the shared toolHTTPClient, treats any status >= 400
 // as an error carrying a bounded body excerpt, and returns sentinel otherwise.
 func doAndCheck(req *http.Request, sentinel, serviceName string) (any, error) {
@@ -85,8 +95,7 @@ func doAndCheck(req *http.Request, sentinel, serviceName string) (any, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
-		return nil, fmt.Errorf("%s API %d: %s", serviceName, resp.StatusCode, string(b))
+		return nil, fmt.Errorf("%s API %d: %s", serviceName, resp.StatusCode, readErrorBody(resp))
 	}
 	io.Copy(io.Discard, resp.Body)
 	return sentinel, nil
@@ -94,7 +103,17 @@ func doAndCheck(req *http.Request, sentinel, serviceName string) (any, error) {
 
 // mediaResponseLimit bounds binary media payloads (e.g. generated audio),
 // distinct from httpResponseLimit which only bounds error-body excerpts.
-const mediaResponseLimit = 25 << 20 // 25 MiB (~25-30 min of 128kbps audio)
+//
+// Kept well below what the underlying API allows: a node's result — audio
+// included, base64-encoded — is JSON-marshaled into a run-log DB row and
+// broadcast over the run's SSE stream in full, and the frontend log viewer
+// renders it inline with no truncation. 5 MiB of audio (~6.7 MiB base64,
+// ~5 min at 128kbps) keeps a single action node's worst case from bloating
+// the DB or freezing that viewer; it is not meant as a generation-quality
+// limit. Longer-form audio needs the node to return a storage reference
+// instead of inline bytes, which is a larger change to the run-log/SSE
+// pipeline than this connector alone should make.
+const mediaResponseLimit = 5 << 20 // 5 MiB (~5 min of 128kbps audio)
 
 // readBounded reads r fully but errors if it exceeds limit bytes, instead
 // of silently truncating like io.ReadAll(io.LimitReader(r, limit)) would.

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 
@@ -43,8 +42,7 @@ func sendElevenLabs(ctx context.Context, node models.WorkflowNode, rc RunContext
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
-		return nil, fmt.Errorf("ElevenLabs API %d: %s", resp.StatusCode, string(b))
+		return nil, fmt.Errorf("ElevenLabs API %d: %s", resp.StatusCode, readErrorBody(resp))
 	}
 	audio, err := readBounded(resp.Body, mediaResponseLimit)
 	if err != nil {

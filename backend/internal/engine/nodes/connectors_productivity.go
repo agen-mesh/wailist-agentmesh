@@ -115,10 +115,11 @@ func sendTrello(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	q.Set("key", apiKey)
 	q.Set("token", token)
 	target := trelloAPIBase + "/1/cards?" + q.Encode()
+	msg := rc.Message()
 	payload := map[string]any{
 		"idList": listID,
-		"name":   issueTitle(rc.Message()),
-		"desc":   rc.Message(),
+		"name":   issueTitle(msg),
+		"desc":   msg,
 	}
 	return postJSON(ctx, target, nil, payload, "trello_card_created", "Trello")
 }
@@ -145,10 +146,11 @@ func sendAsana(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 	if projectID == "" {
 		return "asana_skipped_no_project_id", nil
 	}
+	msg := rc.Message()
 	payload := map[string]any{
 		"data": map[string]any{
-			"name":     issueTitle(rc.Message()),
-			"notes":    rc.Message(),
+			"name":     issueTitle(msg),
+			"notes":    msg,
 			"projects": []string{projectID},
 		},
 	}
@@ -179,7 +181,8 @@ func sendClickUp(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 		return "clickup_skipped_no_list_id", nil
 	}
 	target := clickupAPIBase + "/api/v2/list/" + url.PathEscape(listID) + "/task"
-	payload := map[string]any{"name": issueTitle(rc.Message()), "description": rc.Message()}
+	msg := rc.Message()
+	payload := map[string]any{"name": issueTitle(msg), "description": msg}
 	headers := map[string]string{"Authorization": apiKey}
 	return postJSON(ctx, target, headers, payload, "clickup_task_created", "ClickUp")
 }
@@ -202,7 +205,8 @@ func sendTodoist(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	if apiKey == "" {
 		return "todoist_skipped_no_api_key", nil
 	}
-	payload := map[string]any{"content": issueTitle(rc.Message()), "description": rc.Message()}
+	msg := rc.Message()
+	payload := map[string]any{"content": issueTitle(msg), "description": msg}
 	if projectID := configVal(node, "todoistProjectID", ""); projectID != "" {
 		payload["project_id"] = projectID
 	}

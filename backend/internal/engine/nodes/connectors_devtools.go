@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -52,7 +51,8 @@ func sendGitHub(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 		return "github_skipped_invalid_repo", nil
 	}
 	target := githubAPIBase + "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(name) + "/issues"
-	payload := map[string]any{"title": issueTitle(rc.Message()), "body": rc.Message()}
+	msg := rc.Message()
+	payload := map[string]any{"title": issueTitle(msg), "body": msg}
 	headers := map[string]string{
 		"Authorization": "Bearer " + token,
 		"Accept":        "application/vnd.github+json",
@@ -93,17 +93,18 @@ func sendJira(ctx context.Context, node models.WorkflowNode, rc RunContexter) (a
 		base = "https://" + domain + ".atlassian.net"
 	}
 	target := base + "/rest/api/3/issue"
+	msg := rc.Message()
 	payload := map[string]any{
 		"fields": map[string]any{
 			"project":   map[string]any{"key": projectKey},
-			"summary":   issueTitle(rc.Message()),
+			"summary":   issueTitle(msg),
 			"issuetype": map[string]any{"name": issueType},
 			"description": map[string]any{
 				"type":    "doc",
 				"version": 1,
 				"content": []map[string]any{{
 					"type":    "paragraph",
-					"content": []map[string]any{{"type": "text", "text": rc.Message()}},
+					"content": []map[string]any{{"type": "text", "text": msg}},
 				}},
 			},
 		},
@@ -134,13 +135,14 @@ func sendLinear(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	if teamID == "" {
 		return "linear_skipped_no_team_id", nil
 	}
+	msg := rc.Message()
 	payload := map[string]any{
 		"query": `mutation IssueCreate($input: IssueCreateInput!) { issueCreate(input: $input) { success } }`,
 		"variables": map[string]any{
 			"input": map[string]any{
 				"teamId":      teamID,
-				"title":       issueTitle(rc.Message()),
-				"description": rc.Message(),
+				"title":       issueTitle(msg),
+				"description": msg,
 			},
 		},
 	}
@@ -159,9 +161,12 @@ func sendLinear(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("Linear API %d: %s", resp.StatusCode, body)
+		return nil, fmt.Errorf("Linear API %d: %s", resp.StatusCode, readErrorBody(resp))
+	}
+	body, err := readBounded(resp.Body, httpResponseLimit)
+	if err != nil {
+		return nil, fmt.Errorf("Linear: read response: %w", err)
 	}
 	var result struct {
 		Data struct {
@@ -196,7 +201,8 @@ func sendGitLab(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	}
 	base := strings.TrimRight(configVal(node, "gitlabBaseURL", "https://gitlab.com"), "/")
 	target := base + "/api/v4/projects/" + url.PathEscape(projectID) + "/issues"
-	payload := map[string]any{"title": issueTitle(rc.Message()), "description": rc.Message()}
+	msg := rc.Message()
+	payload := map[string]any{"title": issueTitle(msg), "description": msg}
 	headers := map[string]string{"PRIVATE-TOKEN": token}
 	return postJSON(ctx, target, headers, payload, "gitlab_issue_created", "GitLab")
 }
