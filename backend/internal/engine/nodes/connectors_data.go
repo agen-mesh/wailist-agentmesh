@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -90,6 +91,15 @@ func sendMailchimp(ctx context.Context, node models.WorkflowNode, rc RunContexte
 	return doAndCheck(req, "mailchimp_subscriber_added", "Mailchimp")
 }
 
+// mailchimpDatacenterPattern matches Mailchimp's datacenter suffix format
+// (e.g. "us21"): letters and digits only. The suffix is interpolated
+// directly into the request host in sendMailchimp, so it must be validated
+// before use — otherwise an API key containing a crafted suffix like
+// "evil.com/x" could redirect the request (carrying the real key in the
+// Basic-auth header) to an attacker-controlled host. Mirrors jiraDomainPattern
+// in connectors_devtools.go, which guards the same class of host injection.
+var mailchimpDatacenterPattern = regexp.MustCompile(`^[a-zA-Z0-9]+$`)
+
 // mailchimpDatacenter extracts the data-center suffix (e.g. "us21") from a
 // Mailchimp API key of the form "<key>-<dc>".
 func mailchimpDatacenter(apiKey string) (string, error) {
@@ -97,7 +107,11 @@ func mailchimpDatacenter(apiKey string) (string, error) {
 	if i < 0 || i == len(apiKey)-1 {
 		return "", fmt.Errorf("Mailchimp: API key missing datacenter suffix")
 	}
-	return apiKey[i+1:], nil
+	dc := apiKey[i+1:]
+	if !mailchimpDatacenterPattern.MatchString(dc) {
+		return "", fmt.Errorf("Mailchimp: API key has invalid datacenter suffix")
+	}
+	return dc, nil
 }
 
 // MailchimpDatacenterForTest is a test-only exported wrapper for mailchimpDatacenter.

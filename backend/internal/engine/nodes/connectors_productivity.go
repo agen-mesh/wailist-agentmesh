@@ -108,18 +108,19 @@ func sendTrello(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	if listID == "" {
 		return "trello_skipped_no_list_id", nil
 	}
+	// Trello requires key/token as query params, but name/desc go in the JSON
+	// body — putting the (unbounded) agent message in the query string risked
+	// exceeding common proxy/server URL-length limits for long messages.
 	q := url.Values{}
 	q.Set("key", apiKey)
 	q.Set("token", token)
-	q.Set("idList", listID)
-	q.Set("name", issueTitle(rc.Message()))
-	q.Set("desc", rc.Message())
 	target := trelloAPIBase + "/1/cards?" + q.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, nil)
-	if err != nil {
-		return nil, fmt.Errorf("Trello: build request: %w", err)
+	payload := map[string]any{
+		"idList": listID,
+		"name":   issueTitle(rc.Message()),
+		"desc":   rc.Message(),
 	}
-	return doAndCheck(req, "trello_card_created", "Trello")
+	return postJSON(ctx, target, nil, payload, "trello_card_created", "Trello")
 }
 
 // asanaAPIBase is overridden in tests via SetAsanaAPIBaseForTest.

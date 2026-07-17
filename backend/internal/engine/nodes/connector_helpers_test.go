@@ -3,6 +3,7 @@ package nodes_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -67,6 +68,23 @@ func TestReadBoundedForTest_PassesUnderLimit(t *testing.T) {
 	}
 	if string(got) != "hi" {
 		t.Errorf("want 'hi', got %q", got)
+	}
+}
+
+func TestPostJSON_RejectsBlockedURL(t *testing.T) {
+	blockErr := errors.New("requests to private/internal addresses are not allowed")
+	nodes.SetURLValidatorForTest(func(string) error { return blockErr })
+	// Restore the package-wide permissive validator (set once in TestMain)
+	// rather than passing nil, which would flip global state to the real
+	// strict validator for every test that runs after this one in the binary.
+	defer nodes.SetURLValidatorForTest(func(string) error { return nil })
+
+	_, err := nodes.PostJSONForTest(context.Background(), "http://127.0.0.1:1/x", nil, map[string]any{}, "sent", "TestSvc")
+	if err == nil {
+		t.Fatal("want error when urlValidator rejects the target, got nil")
+	}
+	if !strings.Contains(err.Error(), "private/internal addresses") {
+		t.Errorf("want validator error to propagate, got %v", err)
 	}
 }
 

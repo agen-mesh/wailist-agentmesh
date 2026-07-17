@@ -99,9 +99,20 @@ func sendEmail(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 	if to == "" {
 		return "email_skipped_no_recipient", nil
 	}
+	provider := node.EmailProvider
+	if provider == "" {
+		provider = "resend"
+	}
+
 	from := node.EmailFrom
 	if from == "" {
-		from = "AgentMesh <onboarding@resend.dev>"
+		if provider == "resend" {
+			// Resend's shared sandbox sender — only usable on Resend itself,
+			// so it must not leak into the other providers' requests below.
+			from = "AgentMesh <onboarding@resend.dev>"
+		} else {
+			return "email_skipped_no_from_address", nil
+		}
 	}
 	subject := node.EmailSubject
 	if subject == "" {
@@ -114,11 +125,6 @@ func sendEmail(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 		bodyText = "Hi,\n\nHere is your result:\n\n" + agentOutput + "\n\n— AgentMesh"
 	} else {
 		bodyText = replaceVar(bodyText, "result", agentOutput)
-	}
-
-	provider := node.EmailProvider
-	if provider == "" {
-		provider = "resend"
 	}
 
 	switch provider {

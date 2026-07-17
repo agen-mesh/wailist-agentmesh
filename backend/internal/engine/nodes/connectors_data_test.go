@@ -151,6 +151,12 @@ func TestMailchimpDatacenter(t *testing.T) {
 	}
 }
 
+func TestMailchimpDatacenter_RejectsHostInjection(t *testing.T) {
+	if _, err := nodes.MailchimpDatacenterForTest("abc123-evil.com/x"); err == nil {
+		t.Error("want error for datacenter suffix containing host-breaking characters")
+	}
+}
+
 func TestMailchimpAction_SkipsWhenNoAPIKey(t *testing.T) {
 	node := models.WorkflowNode{
 		ID: "mc2", Type: models.NodeTypeAction, Template: "mailchimp",

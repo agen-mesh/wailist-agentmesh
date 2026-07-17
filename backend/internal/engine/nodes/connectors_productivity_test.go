@@ -154,8 +154,10 @@ func TestAirtableAction_SkipsWhenMissingConfig(t *testing.T) {
 
 func TestTrelloAction_CreatesCard(t *testing.T) {
 	var gotQuery url.Values
+	var gotBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.Query()
+		json.NewDecoder(r.Body).Decode(&gotBody)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -175,11 +177,17 @@ func TestTrelloAction_CreatesCard(t *testing.T) {
 	if result != "trello_card_created" {
 		t.Errorf("want 'trello_card_created', got %v", result)
 	}
-	if gotQuery.Get("key") != "key123" || gotQuery.Get("token") != "tok456" || gotQuery.Get("idList") != "list789" {
-		t.Errorf("want key/token/idList in query, got %v", gotQuery)
+	if gotQuery.Get("key") != "key123" || gotQuery.Get("token") != "tok456" {
+		t.Errorf("want key/token in query, got %v", gotQuery)
 	}
-	if gotQuery.Get("name") != "ship the release" {
-		t.Errorf("want name in query, got %v", gotQuery)
+	if gotBody["idList"] != "list789" {
+		t.Errorf("want idList in body, got %v", gotBody)
+	}
+	if gotBody["name"] != "ship the release" {
+		t.Errorf("want name in body, got %v", gotBody)
+	}
+	if gotBody["desc"] != "ship the release" {
+		t.Errorf("want desc in body, got %v", gotBody)
 	}
 }
 

@@ -232,7 +232,7 @@ func sendSentry(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	if strings.HasPrefix(dsn, "http://") {
 		scheme = "http" // only ever true for the local httptest server in tests
 	}
-	target := scheme + "://" + host + "/api/" + projectID + "/envelope/"
+	target := scheme + "://" + host + "/api/" + url.PathEscape(projectID) + "/envelope/"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(envelope))
 	if err != nil {
 		return nil, fmt.Errorf("Sentry: build request: %w", err)

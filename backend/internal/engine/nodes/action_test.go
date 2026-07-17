@@ -110,6 +110,22 @@ func TestEmailAction_BrevoProvider(t *testing.T) {
 	}
 }
 
+func TestEmailAction_SkipsWhenNonResendProviderHasNoFromAddress(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "e3", Type: models.NodeTypeAction, Template: "email",
+		EmailProvider: "sendgrid", EmailAPIKey: "SG.xxx",
+		EmailTo: "user@example.com", EmailSubject: "Result",
+	}
+	rc := engine.NewRunContext("r1", []byte(`"done"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "email_skipped_no_from_address" {
+		t.Errorf("want 'email_skipped_no_from_address', got %v", result)
+	}
+}
+
 func TestParseEmailAddress(t *testing.T) {
 	name, email := nodes.ParseEmailAddressForTest("AgentMesh <you@yourdomain.com>")
 	if name != "AgentMesh" || email != "you@yourdomain.com" {
