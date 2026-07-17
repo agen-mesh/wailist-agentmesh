@@ -315,6 +315,13 @@ function mockUsage(range: UsageRange): ReturnType<typeof buildUsage> {
   return u;
 }
 
+// Bucket granularity has to track the range the chart actually plots: 24h is
+// charted as 24 hourly points, 7d/30d as daily ones. Hardcoding bucket=day
+// would collapse 24h to a single point once the backend honours the param.
+function bucketFor(range: UsageRange): "hour" | "day" {
+  return range === "24h" ? "hour" : "day";
+}
+
 // One fetch/mock branch for every usage endpoint. Always reads the response
 // body for a server-provided `error` message — before this was shared, only
 // summary did, and the other four threw fixed strings that discarded detail.
@@ -346,7 +353,7 @@ export const usage = {
 
   timeseries: (range: UsageRange): Promise<UsagePoint[]> =>
     usageFetch(
-      `/usage/timeseries?range=${range}&bucket=day`,
+      `/usage/timeseries?range=${range}&bucket=${bucketFor(range)}`,
       () => mockUsage(range).timeseries,
     ),
 
