@@ -38,8 +38,6 @@ func TestDatetime(t *testing.T) {
 }
 
 func TestHTTPTool(t *testing.T) {
-	nodes.SetURLValidatorForTest(func(string) error { return nil })
-	t.Cleanup(func() { nodes.SetURLValidatorForTest(nil) })
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"status":"ok"}`))
 	}))

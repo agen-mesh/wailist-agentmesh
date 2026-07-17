@@ -57,8 +57,15 @@ type WorkflowNode struct {
 	EmailAPIKey   string `json:"emailApiKey,omitempty"`
 	EmailProvider string `json:"emailProvider,omitempty"`
 	// x402 tool discovered params (populated by frontend discover)
-	DiscoveredParams []ParamDef     `json:"discoveredParams,omitempty"`
-	Description      string         `json:"description,omitempty"`
+	DiscoveredParams []ParamDef `json:"discoveredParams,omitempty"`
+	Description      string     `json:"description,omitempty"`
+	// Secrets holds per-connector credential values for connectors added after the
+	// original dedicated fields (APIKey, EmailAPIKey, ...). Each value is encrypted
+	// independently, exactly like EmailAPIKey, via encryptNodes/maskNodes/decryptNodes.
+	Secrets map[string]string `json:"secrets,omitempty"`
+	// Config holds per-connector non-secret settings (list IDs, project keys, channel
+	// names, etc.) for the same connectors. Never encrypted.
+	Config map[string]string `json:"config,omitempty"`
 }
 
 type WorkflowEdge struct {

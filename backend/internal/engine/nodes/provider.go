@@ -153,7 +153,10 @@ func executeFunctionCall(ctx context.Context, funcName string, args map[string]a
 
 // ─── low-level HTTP helper ────────────────────────────────────────────────────
 
-func postJSON(ctx context.Context, apiURL string, headers map[string]string, payload any) (map[string]any, error) {
+// postLLMJSON posts a JSON payload to an LLM provider API and decodes the response body.
+// Distinct from the connector-oriented postJSON in connector_helpers.go, which returns a
+// caller-supplied sentinel instead of the decoded body.
+func postLLMJSON(ctx context.Context, apiURL string, headers map[string]string, payload any) (map[string]any, error) {
 	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(body))
 	if err != nil {
@@ -224,7 +227,7 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 
 	// Agentic loop — keep calling until the model returns text (no function call).
 	for iter := 0; iter < maxToolIterations; iter++ {
-		resp, err := postJSON(ctx, apiURL, apiHeaders, payload)
+		resp, err := postLLMJSON(ctx, apiURL, apiHeaders, payload)
 		if err != nil {
 			return nil, err
 		}
@@ -370,7 +373,7 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 	// Agentic loop — repeat until the model returns content with no tool calls.
 	for iter := 0; iter < maxToolIterations; iter++ {
 		payload["messages"] = messages
-		resp, err := postJSON(ctx, baseURL+"/v1/chat/completions", headers, payload)
+		resp, err := postLLMJSON(ctx, baseURL+"/v1/chat/completions", headers, payload)
 		if err != nil {
 			return nil, err
 		}
@@ -459,7 +462,7 @@ func callAnthropic(ctx context.Context, agent models.WorkflowNode, provider mode
 		"x-api-key":         provider.APIKey,
 		"anthropic-version": "2023-06-01",
 	}
-	resp, err := postJSON(ctx, "https://api.anthropic.com/v1/messages", headers, payload)
+	resp, err := postLLMJSON(ctx, "https://api.anthropic.com/v1/messages", headers, payload)
 	if err != nil {
 		return "", err
 	}
