@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/engine/nodes"
@@ -56,5 +57,22 @@ func TestIssueTitleForTest_FirstLineCapped(t *testing.T) {
 	empty := nodes.IssueTitleForTest("   \n rest")
 	if empty != "AgentMesh workflow result" {
 		t.Errorf("want fallback title for blank first line, got %q", empty)
+	}
+}
+
+func TestReadBoundedForTest_PassesUnderLimit(t *testing.T) {
+	got, err := nodes.ReadBoundedForTest(strings.NewReader("hi"), 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "hi" {
+		t.Errorf("want 'hi', got %q", got)
+	}
+}
+
+func TestReadBoundedForTest_ErrorsOverLimit(t *testing.T) {
+	_, err := nodes.ReadBoundedForTest(strings.NewReader("hello world"), 5)
+	if err == nil {
+		t.Fatal("want error when reader exceeds limit")
 	}
 }

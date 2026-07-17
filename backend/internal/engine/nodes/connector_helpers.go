@@ -60,15 +60,28 @@ func postJSON(ctx context.Context, target string, extraHeaders map[string]string
 	return doAndCheck(req, sentinel, serviceName)
 }
 
-// doAndCheck executes req on the shared toolHTTPClient, treats any status >= 400
-// as an error carrying a bounded body excerpt, and returns sentinel otherwise.
-func doAndCheck(req *http.Request, sentinel, serviceName string) (any, error) {
+// doValidatedRequest runs req through the SSRF guard and executes it on
+// the shared toolHTTPClient, wrapping any transport failure with a
+// redacted URL. Callers own reading and closing resp.Body — use this for
+// callers that need the raw response (doAndCheck wraps it for the common
+// sentinel-on-success case).
+func doValidatedRequest(req *http.Request, serviceName string) (*http.Response, error) {
 	if err := urlValidator(req.URL.String()); err != nil {
 		return nil, err
 	}
 	resp, err := toolHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%s: request to %s failed: %w", serviceName, redactedURL(req.URL), unwrapURLError(err))
+	}
+	return resp, nil
+}
+
+// doAndCheck executes req on the shared toolHTTPClient, treats any status >= 400
+// as an error carrying a bounded body excerpt, and returns sentinel otherwise.
+func doAndCheck(req *http.Request, sentinel, serviceName string) (any, error) {
+	resp, err := doValidatedRequest(req, serviceName)
+	if err != nil {
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
@@ -77,6 +90,23 @@ func doAndCheck(req *http.Request, sentinel, serviceName string) (any, error) {
 	}
 	io.Copy(io.Discard, resp.Body)
 	return sentinel, nil
+}
+
+// mediaResponseLimit bounds binary media payloads (e.g. generated audio),
+// distinct from httpResponseLimit which only bounds error-body excerpts.
+const mediaResponseLimit = 25 << 20 // 25 MiB (~25-30 min of 128kbps audio)
+
+// readBounded reads r fully but errors if it exceeds limit bytes, instead
+// of silently truncating like io.ReadAll(io.LimitReader(r, limit)) would.
+func readBounded(r io.Reader, limit int) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, int64(limit)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > limit {
+		return nil, fmt.Errorf("response exceeds %d byte limit", limit)
+	}
+	return data, nil
 }
 
 // redactedURL renders just a URL's scheme and host, so request-failure errors
@@ -141,4 +171,8 @@ func PostJSONForTest(ctx context.Context, target string, extraHeaders map[string
 
 func IssueTitleForTest(message string) string {
 	return issueTitle(message)
+}
+
+func ReadBoundedForTest(r io.Reader, limit int) ([]byte, error) {
+	return readBounded(r, limit)
 }

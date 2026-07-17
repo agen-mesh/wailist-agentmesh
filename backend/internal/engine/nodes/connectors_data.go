@@ -62,7 +62,7 @@ func sendMailchimp(ctx context.Context, node models.WorkflowNode, rc RunContexte
 	if listID == "" {
 		return "mailchimp_skipped_no_list_id", nil
 	}
-	email := configVal(node, "mailchimpEmail", strings.TrimSpace(rc.Message()))
+	email := strings.TrimSpace(configVal(node, "mailchimpEmail", rc.Message()))
 	if email == "" {
 		return "mailchimp_skipped_no_email", nil
 	}

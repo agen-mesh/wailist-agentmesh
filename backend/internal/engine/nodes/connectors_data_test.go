@@ -106,6 +106,41 @@ func TestMailchimpAction_AddsSubscriber(t *testing.T) {
 	}
 }
 
+func TestMailchimpAction_TrimsWhitespaceFromEmail(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	nodes.SetMailchimpAPIBaseForTest(srv.URL)
+	defer nodes.SetMailchimpAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "mc4", Type: models.NodeTypeAction, Template: "mailchimp",
+		Secrets: map[string]string{"mailchimpAPIKey": "abc123-us21"},
+		Config:  map[string]string{"mailchimpListID": "list42", "mailchimpEmail": "  new.user@example.com  "},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"signup"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "mailchimp_subscriber_added" {
+		t.Errorf("want 'mailchimp_subscriber_added', got %v", result)
+	}
+	wantHash := md5.Sum([]byte("new.user@example.com"))
+	wantPath := "/3.0/lists/list42/members/" + hex.EncodeToString(wantHash[:])
+	if gotPath != wantPath {
+		t.Errorf("want trimmed-email subscriber-hash path %q, got %q", wantPath, gotPath)
+	}
+	if gotBody["email_address"] != "new.user@example.com" {
+		t.Errorf("want trimmed email in body, got %v", gotBody)
+	}
+}
+
 func TestMailchimpDatacenter(t *testing.T) {
 	dc, err := nodes.MailchimpDatacenterForTest("abc123-us21")
 	if err != nil || dc != "us21" {
