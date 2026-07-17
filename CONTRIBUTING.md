@@ -91,11 +91,23 @@ agentmesh/
 
 ### Prerequisites
 
-- Go 1.22+
 - Node.js 18+
-- PostgreSQL 14+ (or use Docker: `docker run -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:16`)
+- Docker (for the bundled Postgres + backend compose setup — recommended)
+- Go 1.22+ (only needed if you'd rather run the backend natively)
 
 ### Backend
+
+**Fastest path — Docker Compose.** Spins up Postgres and the backend together, no `.env` file or external Supabase connection needed. This is the recommended setup if you're only working on the frontend and just need a working backend to point at.
+
+```bash
+docker compose up -d
+# → postgres on :5432, backend on :8080
+curl http://localhost:8080/health   # → ok
+```
+
+Migrations run automatically on first boot. Uses fixed dev-only secrets baked into `docker-compose.yml` — never reuse those values anywhere real. To reset the database: `docker compose down -v`.
+
+**Native alternative** — if you're actively developing backend code and want faster rebuild cycles:
 
 ```bash
 cd backend
@@ -104,11 +116,7 @@ go run ./cmd/server
 # → listening on :8080
 ```
 
-Migrations run automatically on startup. Verify with:
-
-```bash
-curl http://localhost:8080/health   # → ok
-```
+Requires PostgreSQL 14+ (or `docker run -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:16`). Migrations run automatically on startup either way.
 
 ### Frontend
 

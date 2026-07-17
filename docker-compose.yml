@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: agentmesh
+      POSTGRES_PASSWORD: agentmesh
+      POSTGRES_DB: agentmesh
+    ports:
+      - "5432:5432"
+    volumes:
+      - agentmesh_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentmesh"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://agentmesh:agentmesh@postgres:5432/agentmesh?sslmode=disable
+      PORT: 8080
+      BASE_URL: http://localhost:8080
+      FRONTEND_URL: http://localhost:3000
+      CORS_ORIGIN: http://localhost:3000
+      # Dev-only fixed secrets for local docker compose — never reuse these values
+      # anywhere real. ENCRYPTION_KEY must stay exactly 32 raw characters (see
+      # backend/internal/wallet/crypto.go); JWT_SECRET has no length requirement
+      # beyond "long and random."
+      JWT_SECRET: 5a06faa3d53450f33cb2d4727f7c4bc4b030e0fdd9ddd8995ea0c8a797905a0a
+      ENCRYPTION_KEY: "00000000000000000000000000000000"
+      ALGOD_URL: https://testnet-api.algonode.cloud
+      ALGORAND_NETWORK: testnet
+
+volumes:
+  agentmesh_pgdata:
