@@ -8,6 +8,8 @@ import {
   Hairline,
   IconSearch,
   IconGrid,
+  Card,
+  ghostBtnSm,
 } from "@/components/ui";
 import { Workflow } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
@@ -163,6 +165,11 @@ export function WorkflowsPage() {
               label="Workflows"
               active={pathname.startsWith("/workflows")}
               onClick={() => router.push("/workflows")}
+            />
+            <NavLink
+              label="Usage"
+              active={pathname.startsWith("/usage")}
+              onClick={() => router.push("/usage")}
             />
           </nav>
           <Hairline vertical length={22} />
@@ -508,14 +515,7 @@ function KpiCard({
   tone?: string;
 }) {
   return (
-    <div
-      style={{
-        background: "var(--bg-elev-1)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--r-3)",
-        padding: 16,
-      }}
-    >
+    <Card>
       <div
         style={{
           fontFamily: "var(--font-mono)",
@@ -556,7 +556,7 @@ function KpiCard({
           {sub}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -636,14 +636,7 @@ function WorkflowRows({
   onOpen: (id: string) => void;
 }) {
   return (
-    <div
-      style={{
-        background: "var(--bg-elev-1)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--r-3)",
-        overflowX: "auto",
-      }}
-    >
+    <Card style={{ padding: 0, overflowX: "auto" }}>
       <div
         style={{
           display: "grid",
@@ -788,7 +781,7 @@ function WorkflowRows({
           </div>
         </div>
       ))}
-    </div>
+    </Card>
   );
 }
 
@@ -808,14 +801,10 @@ function WorkflowGrid({
       }}
     >
       {items.map((wf) => (
-        <div
+        <Card
           key={wf.id}
           onClick={() => onOpen(wf.id)}
           style={{
-            background: "var(--bg-elev-1)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--r-3)",
-            padding: 16,
             cursor: "pointer",
             transition: "border-color .15s, transform .15s",
           }}
@@ -913,7 +902,7 @@ function WorkflowGrid({
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       ))}
     </div>
   );
@@ -977,21 +966,6 @@ function NavLink({
   );
 }
 
-const ghostBtnSm: React.CSSProperties = {
-  height: 28,
-  padding: "0 10px",
-  fontSize: 12,
-  fontWeight: 500,
-  background: "transparent",
-  border: "1px solid var(--border-strong)",
-  borderRadius: "var(--r-2)",
-  color: "var(--fg-muted)",
-  cursor: "pointer",
-  fontFamily: "var(--font-sans)",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 4,
-};
 const ghostBtn: React.CSSProperties = {
   height: 36,
   padding: "0 14px",
