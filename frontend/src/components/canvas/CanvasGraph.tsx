@@ -1,6 +1,6 @@
 "use client";
-import { useState, useRef, useEffect, useCallback } from "react";
-import { WorkflowNode, WorkflowEdge, Workflow, PortName } from "@/lib/types";
+import { useState, useRef, useEffect } from "react";
+import { WorkflowNode, Workflow, PortName } from "@/lib/types";
 import { NODE_TYPES } from "@/lib/data";
 import {
   portWorld,
@@ -9,7 +9,6 @@ import {
   isValidConnection,
 } from "@/lib/portUtils";
 import { CanvasNode } from "./nodes";
-import { Hairline } from "@/components/ui";
 
 interface CanvasGraphProps {
   workflow: Workflow;
@@ -60,7 +59,9 @@ export function CanvasGraph({
   const wireRef = useRef<{ fromId: string; fromPort: PortName } | null>(null);
   const [wire, setWire] = useState<WireState | null>(null);
   const [hoverPort, setHoverPort] = useState<HoverPort | null>(null);
-  const [animTick, setAnimTick] = useState(0);
+  // Value intentionally unread: the tick's only job is forcing re-renders
+  // while a run is active so the animated edges advance.
+  const [, setAnimTick] = useState(0);
 
   useEffect(() => {
     if (!running) return;

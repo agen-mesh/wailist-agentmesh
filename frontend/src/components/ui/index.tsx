@@ -108,6 +108,45 @@ export function Pill({
   );
 }
 
+// ── Card ─────────────────────────────────────────────────────────────────
+// The standard elevated panel (bg-elev-1 / border / r-3 / 16px padding) used
+// across the workflows and usage pages. Override via style (e.g. padding: 0)
+// and attach handlers as needed — extra props spread onto the div.
+export function Card({ style, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      {...rest}
+      style={{
+        background: "var(--bg-elev-1)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--r-3)",
+        padding: 16,
+        ...style,
+      }}
+    />
+  );
+}
+
+// ── Shared button styles ─────────────────────────────────────────────────
+// Small ghost button used in topbars and row actions on the workflows and
+// usage pages. A style const (not a component) so callers can spread-extend
+// it: { ...ghostBtnSm, width: 28 }.
+export const ghostBtnSm: CSSProperties = {
+  height: 28,
+  padding: "0 10px",
+  fontSize: 12,
+  fontWeight: 500,
+  background: "transparent",
+  border: "1px solid var(--border-strong)",
+  borderRadius: "var(--r-2)",
+  color: "var(--fg-muted)",
+  cursor: "pointer",
+  fontFamily: "var(--font-sans)",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 4,
+};
+
 // ── Tag ──────────────────────────────────────────────────────────────────
 export function Tag({ children }: { children: React.ReactNode }) {
   return (

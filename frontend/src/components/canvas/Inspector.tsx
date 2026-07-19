@@ -502,10 +502,6 @@ function AgentInspector({
     }
   }, [node, workflowId, onUpdate]);
 
-  const shortAddr = node.wallet
-    ? `${node.wallet.slice(0, 6)}…${node.wallet.slice(-4)}`
-    : "";
-
   return (
     <>
       <Section label="Identity">
