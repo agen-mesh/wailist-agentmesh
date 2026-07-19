@@ -2,43 +2,48 @@
 
 /* ── Design tokens ────────────────────────────────────────────────────── */
 :root {
-  --bg:             #08070C;
-  --bg-elev-1:      #0F0E18;
-  --bg-elev-2:      #161526;
-  --bg-elev-3:      #1F1D34;
-  --border:         #26243A;
-  --border-strong:  #34324C;
-  --border-soft:    #1B1A2C;
+  --bg: #08070c;
+  --bg-elev-1: #0f0e18;
+  --bg-elev-2: #161526;
+  --bg-elev-3: #1f1d34;
+  --border: #26243a;
+  --border-strong: #34324c;
+  --border-soft: #1b1a2c;
 
-  --fg:             #F2F0F7;
-  --fg-muted:       #8E8AA3;
-  --fg-dim:         #5C5970;
+  --fg: #f2f0f7;
+  --fg-muted: #8e8aa3;
+  --fg-dim: #5c5970;
 
-  --accent:         #A78BFA;
-  --accent-strong:  #8B5CF6;
-  --accent-fg:      #100A1E;
-  --accent-soft:    rgba(167, 140, 250, 0.14);
-  --accent-line:    rgba(167, 140, 250, 0.40);
-  --accent-glow:    rgba(167, 140, 250, 0.30);
+  --accent: #a78bfa;
+  --accent-strong: #8b5cf6;
+  --accent-fg: #100a1e;
+  --accent-soft: rgba(167, 140, 250, 0.14);
+  --accent-line: rgba(167, 140, 250, 0.4);
+  --accent-glow: rgba(167, 140, 250, 0.3);
 
-  --warm:           #FFB547;
-  --warm-soft:      rgba(255, 181, 71, 0.12);
+  --warm: #ffb547;
+  --warm-soft: rgba(255, 181, 71, 0.12);
 
-  --danger:         #FF5C5C;
-  --info:           #6EA8FF;
+  --danger: #ff5c5c;
+  --info: #6ea8ff;
 
   --r-1: 4px;
   --r-2: 8px;
   --r-3: 12px;
   --r-4: 18px;
 
-  --ease: cubic-bezier(.2, .8, .2, 1);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 /* ── Resets ───────────────────────────────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 
-html, body {
+html,
+body {
   margin: 0;
   padding: 0;
   background: var(--bg);
@@ -48,56 +53,112 @@ html, body {
   min-height: 100vh;
 }
 
-::selection { background: var(--accent); color: var(--accent-fg); }
+::selection {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
 
 /* ── Scrollbars ───────────────────────────────────────────────────────── */
-*::-webkit-scrollbar { width: 8px; height: 8px; }
-*::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
-*::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
 
 /* ── Keyframes ────────────────────────────────────────────────────────── */
 @keyframes fade-up {
-  from { opacity: 0; transform: translateY(20px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 @keyframes fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @keyframes float-y {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-8px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
 }
 @keyframes glow-pulse {
-  0%, 100% { opacity: 0.4; transform: scale(1); }
-  50%      { opacity: 0.7; transform: scale(1.05); }
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
 }
 @keyframes marquee-x {
-  from { transform: translateX(0); }
-  to   { transform: translateX(-50%); }
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
 }
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.4; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 /* ── Utility classes ──────────────────────────────────────────────────── */
-.pulse { animation: pulse 1.6s ease-in-out infinite; }
+.pulse {
+  animation: pulse 1.6s ease-in-out infinite;
+}
 
 .reveal {
   opacity: 0;
   animation: fade-up 0.8s var(--ease) forwards;
 }
-.reveal-delay-1 { animation-delay: 0.10s; }
-.reveal-delay-2 { animation-delay: 0.20s; }
-.reveal-delay-3 { animation-delay: 0.30s; }
-.reveal-delay-4 { animation-delay: 0.40s; }
+.reveal-delay-1 {
+  animation-delay: 0.1s;
+}
+.reveal-delay-2 {
+  animation-delay: 0.2s;
+}
+.reveal-delay-3 {
+  animation-delay: 0.3s;
+}
+.reveal-delay-4 {
+  animation-delay: 0.4s;
+}
 
 .in-view {
   opacity: 0;
   transform: translateY(24px);
-  transition: opacity 0.7s var(--ease), transform 0.7s var(--ease);
+  transition:
+    opacity 0.7s var(--ease),
+    transform 0.7s var(--ease);
 }
 .in-view.visible {
   opacity: 1;
@@ -112,8 +173,14 @@ html, body {
   width: max-content;
 }
 .marquee-mask {
-  -webkit-mask: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
-          mask: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  -webkit-mask: linear-gradient(
+    90deg,
+    transparent,
+    #000 8%,
+    #000 92%,
+    transparent
+  );
+  mask: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
 }
 
 /* ── Liquid glass ─────────────────────────────────────────────────────── */
@@ -122,7 +189,7 @@ html, body {
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   border: none;
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.10);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
   position: relative;
   overflow: hidden;
 }
@@ -132,16 +199,20 @@ html, body {
   inset: 0;
   border-radius: inherit;
   padding: 1.4px;
-  background: linear-gradient(180deg,
-    rgba(255,255,255,0.45) 0%,
-    rgba(255,255,255,0.15) 20%,
-    rgba(255,255,255,0)    40%,
-    rgba(255,255,255,0)    60%,
-    rgba(255,255,255,0.15) 80%,
-    rgba(255,255,255,0.45) 100%);
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.45) 0%,
+    rgba(255, 255, 255, 0.15) 20%,
+    rgba(255, 255, 255, 0) 40%,
+    rgba(255, 255, 255, 0) 60%,
+    rgba(255, 255, 255, 0.15) 80%,
+    rgba(255, 255, 255, 0.45) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
-          mask-composite: exclude;
+  mask-composite: exclude;
   pointer-events: none;
 }
 
@@ -149,7 +220,7 @@ html, body {
 .hero-gradient {
   background: linear-gradient(to left, #6366f1 0%, #a855f7 50%, #fcd34d 100%);
   -webkit-background-clip: text;
-          background-clip: text;
+  background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
 }
@@ -157,4 +228,88 @@ html, body {
 /* ── Canvas dot grid ──────────────────────────────────────────────────── */
 .canvas-bg {
   background-image: radial-gradient(var(--border-strong) 1px, transparent 1px);
+}
+
+/* ── Usage page grids (responsive) ────────────────────────────────────── */
+.usage-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 1024px) {
+  .usage-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* "+" top-up button in the credits-box corner; the icon spins a quarter turn on hover. */
+.credit-topup {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  background: transparent;
+  border: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: color 0.18s var(--ease);
+}
+.credit-topup:hover {
+  color: var(--accent);
+}
+.credit-topup svg {
+  display: block;
+  transition: transform 0.3s var(--ease);
+}
+.credit-topup:hover svg {
+  transform: rotate(90deg) scale(1.15);
+}
+@media (prefers-reduced-motion: reduce) {
+  .credit-topup,
+  .credit-topup svg {
+    transition: none;
+  }
+}
+
+/* Cell tooltip — the exact-ALGO hover on the endpoints table. Replaces the
+   native `title`, which was ~1s delayed, OS-styled and cursor-anchored, so it
+   read as foreign next to the chart's own tooltip. Surface deliberately mirrors
+   ChartTip (AreaChart.tsx). Pure CSS: this is one tooltip per table row and
+   needs no per-row React state.
+   Anchored above the cell: the table's scroll wrapper sets `overflow-x: auto`,
+   which computes the y-axis to `auto` too, so it clips vertically — and below
+   the last row there is nothing left to clip into. Above, the header row
+   guarantees headroom for even the first row. */
+.cell-tip {
+  position: relative;
+}
+.cell-tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 4px);
+  right: 0;
+  z-index: 3;
+  padding: 4px 7px;
+  background: var(--bg-elev-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s var(--ease);
+}
+.cell-tip:hover::after {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cell-tip::after {
+    transition: none;
+  }
 }
