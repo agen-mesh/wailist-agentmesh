@@ -179,3 +179,85 @@ func TestEncryptNodes_NewNodeWithSentinelHasNoKey(t *testing.T) {
 		t.Errorf("new node with sentinel: want empty got %q", result[0].APIKey)
 	}
 }
+
+func TestEncryptNodes_SecretsMapGetsEncrypted(t *testing.T) {
+	nodes := []models.WorkflowNode{
+		{ID: "n1", Secrets: map[string]string{"slackWebhookURL": "https://hooks.slack.com/services/T00/B00/xxx"}},
+	}
+	encrypted := encryptNodes(nodes, testEncKey, nil)
+	if !strings.HasPrefix(encrypted[0].Secrets["slackWebhookURL"], encPrefix) {
+		t.Errorf("secrets map value should be encrypted, got %q", encrypted[0].Secrets["slackWebhookURL"])
+	}
+}
+
+func TestMaskNodes_SecretsMapGetsSentinel(t *testing.T) {
+	nodes := []models.WorkflowNode{
+		{ID: "n1", Secrets: map[string]string{"slackWebhookURL": encPrefix + "cipher", "plain": "not-encrypted-yet"}},
+	}
+	masked := maskNodes(nodes)
+	if masked[0].Secrets["slackWebhookURL"] != EncSentinel {
+		t.Errorf("want sentinel, got %q", masked[0].Secrets["slackWebhookURL"])
+	}
+	if masked[0].Secrets["plain"] != "not-encrypted-yet" {
+		t.Errorf("unencrypted map values should pass through unmasked, got %q", masked[0].Secrets["plain"])
+	}
+}
+
+func TestDecryptNodes_SecretsMapDecrypts(t *testing.T) {
+	enc := encryptField("my-token", "", testEncKey)
+	nodes := []models.WorkflowNode{{ID: "n1", Secrets: map[string]string{"githubToken": enc}}}
+	dec := decryptNodes(nodes, testEncKey)
+	if dec[0].Secrets["githubToken"] != "my-token" {
+		t.Errorf("want decrypted value, got %q", dec[0].Secrets["githubToken"])
+	}
+}
+
+func TestEncryptNodes_SecretsMapSentinelPreservesExisting(t *testing.T) {
+	existing := []models.WorkflowNode{
+		{ID: "n1", Secrets: map[string]string{"slackWebhookURL": encPrefix + "existingcipher"}},
+	}
+	incoming := []models.WorkflowNode{
+		{ID: "n1", Secrets: map[string]string{"slackWebhookURL": EncSentinel}},
+	}
+	result := encryptNodes(incoming, testEncKey, existing)
+	if result[0].Secrets["slackWebhookURL"] != encPrefix+"existingcipher" {
+		t.Errorf("sentinel should preserve existing per-key blob: got %q", result[0].Secrets["slackWebhookURL"])
+	}
+}
+
+func TestEncryptNodes_NilSecretsMapPreservesExisting(t *testing.T) {
+	existing := []models.WorkflowNode{
+		{ID: "n1", Secrets: map[string]string{"slackWebhookURL": encPrefix + "existingcipher"}},
+	}
+	incoming := []models.WorkflowNode{
+		{ID: "n1", Template: "slack"},
+	}
+	result := encryptNodes(incoming, testEncKey, existing)
+	if result[0].Secrets["slackWebhookURL"] != encPrefix+"existingcipher" {
+		t.Errorf("omitted secrets map should preserve existing map: got %v", result[0].Secrets)
+	}
+}
+
+func TestEncryptNodes_SecretsMapPreservesOmittedKeys(t *testing.T) {
+	existing := []models.WorkflowNode{
+		{ID: "n1", Secrets: map[string]string{
+			"slackWebhookURL": encPrefix + "existingcipher",
+			"notionAPIKey":    encPrefix + "othercipher",
+		}},
+	}
+	incoming := []models.WorkflowNode{
+		{ID: "n1", Secrets: map[string]string{"slackWebhookURL": EncSentinel}},
+	}
+	result := encryptNodes(incoming, testEncKey, existing)
+	if result[0].Secrets["notionAPIKey"] != encPrefix+"othercipher" {
+		t.Errorf("key omitted from incoming map should be carried forward: got %v", result[0].Secrets)
+	}
+}
+
+func TestMaskNodes_NilSecretsMapStaysNil(t *testing.T) {
+	nodes := []models.WorkflowNode{{ID: "n1"}}
+	masked := maskNodes(nodes)
+	if masked[0].Secrets != nil {
+		t.Errorf("want nil, got %v", masked[0].Secrets)
+	}
+}

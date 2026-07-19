@@ -30,6 +30,23 @@ func encryptNodes(nodes []models.WorkflowNode, key string, existing []models.Wor
 		prev := byID[n.ID]
 		out[i].APIKey = encryptField(n.APIKey, prev.APIKey, key)
 		out[i].EmailAPIKey = encryptField(n.EmailAPIKey, prev.EmailAPIKey, key)
+		out[i].Secrets = encryptSecretsMap(n.Secrets, prev.Secrets, key)
+	}
+	return out
+}
+
+// encryptSecretsMap encrypts every value in a per-connector secrets map, keyed by
+// the same secret name so sentinel-preservation works per key, not per node.
+func encryptSecretsMap(newVals, existingVals map[string]string, key string) map[string]string {
+	if newVals == nil {
+		return existingVals
+	}
+	out := make(map[string]string, len(existingVals)+len(newVals))
+	for k, v := range existingVals {
+		out[k] = v
+	}
+	for k, v := range newVals {
+		out[k] = encryptField(v, existingVals[k], key)
 	}
 	return out
 }
@@ -62,6 +79,22 @@ func maskNodes(nodes []models.WorkflowNode) []models.WorkflowNode {
 		if strings.HasPrefix(n.EmailAPIKey, encPrefix) {
 			out[i].EmailAPIKey = EncSentinel
 		}
+		out[i].Secrets = maskSecretsMap(n.Secrets)
+	}
+	return out
+}
+
+func maskSecretsMap(vals map[string]string) map[string]string {
+	if vals == nil {
+		return nil
+	}
+	out := make(map[string]string, len(vals))
+	for k, v := range vals {
+		if strings.HasPrefix(v, encPrefix) {
+			out[k] = EncSentinel
+		} else {
+			out[k] = v
+		}
 	}
 	return out
 }
@@ -77,6 +110,18 @@ func decryptNodes(nodes []models.WorkflowNode, key string) []models.WorkflowNode
 	for i, n := range out {
 		out[i].APIKey = decryptField(n.APIKey, key)
 		out[i].EmailAPIKey = decryptField(n.EmailAPIKey, key)
+		out[i].Secrets = decryptSecretsMap(n.Secrets, key)
+	}
+	return out
+}
+
+func decryptSecretsMap(vals map[string]string, key string) map[string]string {
+	if vals == nil {
+		return nil
+	}
+	out := make(map[string]string, len(vals))
+	for k, v := range vals {
+		out[k] = decryptField(v, key)
 	}
 	return out
 }

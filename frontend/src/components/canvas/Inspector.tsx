@@ -312,6 +312,57 @@ function Field({
   );
 }
 
+// ── Generic per-connector fields (Secrets/Config maps) ─────────────────────
+function SecretField({
+  node, onUpdate, secretKey, label, hint, placeholder,
+}: {
+  node: WorkflowNode;
+  onUpdate: (n: WorkflowNode) => void;
+  secretKey: string;
+  label: string;
+  hint?: string;
+  placeholder: string;
+}) {
+  const val = node.secrets?.[secretKey];
+  const isSet = val === "__enc__";
+  return (
+    <Field label={label} hint={hint ?? "encrypted at rest"}>
+      <input
+        style={monoInputStyle}
+        type="password"
+        value={isSet ? "" : (val ?? "")}
+        placeholder={isSet ? "Key set — enter to replace" : placeholder}
+        onChange={(e) => {
+          const next = e.target.value || (isSet ? "__enc__" : "");
+          onUpdate({ ...node, secrets: { ...node.secrets, [secretKey]: next } });
+        }}
+      />
+    </Field>
+  );
+}
+
+function ConfigField({
+  node, onUpdate, configKey, label, hint, placeholder,
+}: {
+  node: WorkflowNode;
+  onUpdate: (n: WorkflowNode) => void;
+  configKey: string;
+  label: string;
+  hint?: string;
+  placeholder?: string;
+}) {
+  return (
+    <Field label={label} hint={hint}>
+      <input
+        style={monoInputStyle}
+        value={node.config?.[configKey] ?? ""}
+        placeholder={placeholder}
+        onChange={(e) => onUpdate({ ...node, config: { ...node.config, [configKey]: e.target.value } })}
+      />
+    </Field>
+  );
+}
+
 const iconBtnStyle: React.CSSProperties = {
   width: 28,
   height: 28,
@@ -1171,6 +1222,177 @@ function TriggerInspector({
   );
 }
 
+// ── Per-connector config field tables ───────────────────────────────────────
+type ConnectorField =
+  | { kind: "secret"; key: string; label: string; hint?: string; placeholder: string }
+  | { kind: "config"; key: string; label: string; hint?: string; placeholder?: string };
+
+const CONNECTOR_CONFIG_FIELDS: Record<string, { label: string; fields: ConnectorField[] }> = {
+  slack: {
+    label: "Slack config",
+    fields: [{ kind: "secret", key: "slackWebhookURL", label: "Webhook URL", placeholder: "https://hooks.slack.com/services/…" }],
+  },
+  discord: {
+    label: "Discord config",
+    fields: [{ kind: "secret", key: "discordWebhookURL", label: "Webhook URL", placeholder: "https://discord.com/api/webhooks/…" }],
+  },
+  teams: {
+    label: "Teams config",
+    fields: [{ kind: "secret", key: "teamsWebhookURL", label: "Webhook URL", placeholder: "https://…webhook.office.com/webhookb2/…" }],
+  },
+  google_chat: {
+    label: "Google Chat config",
+    fields: [{ kind: "secret", key: "googleChatWebhookURL", label: "Webhook URL", placeholder: "https://chat.googleapis.com/v1/spaces/…" }],
+  },
+  ntfy: {
+    label: "Ntfy config",
+    fields: [
+      { kind: "config", key: "ntfyTopic", label: "Topic", placeholder: "agentmesh-alerts" },
+      { kind: "config", key: "ntfyServerURL", label: "Server URL", placeholder: "https://ntfy.sh (default)" },
+      { kind: "secret", key: "ntfyAuthToken", label: "Auth Token", hint: "optional, for private topics", placeholder: "tk_xxxxxxxxxxxx" },
+    ],
+  },
+  telegram: {
+    label: "Telegram config",
+    fields: [
+      { kind: "secret", key: "telegramBotToken", label: "Bot Token", placeholder: "123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "telegramChatID", label: "Chat ID", placeholder: "-1001234567890" },
+    ],
+  },
+  github: {
+    label: "GitHub config",
+    fields: [
+      { kind: "secret", key: "githubToken", label: "Personal Access Token", placeholder: "ghp_xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "githubRepo", label: "Repository", placeholder: "owner/repo" },
+    ],
+  },
+  notion: {
+    label: "Notion config",
+    fields: [
+      { kind: "secret", key: "notionAPIKey", label: "Internal Integration Secret", placeholder: "secret_xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "notionPageID", label: "Page ID", placeholder: "the target page's UUID" },
+    ],
+  },
+  airtable: {
+    label: "Airtable config",
+    fields: [
+      { kind: "secret", key: "airtableAPIKey", label: "Personal Access Token", placeholder: "pat_xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "airtableBaseID", label: "Base ID", placeholder: "appXXXXXXXXXXXXXX" },
+      { kind: "config", key: "airtableTable", label: "Table", placeholder: "Tasks" },
+      { kind: "config", key: "airtableFieldName", label: "Field Name", placeholder: "Notes (default)" },
+    ],
+  },
+  hubspot: {
+    label: "HubSpot config",
+    fields: [{ kind: "secret", key: "hubspotAPIKey", label: "Private App Token", placeholder: "pat-na1-xxxxxxxxxxxxxxxxxxxx" }],
+  },
+  trello: {
+    label: "Trello config",
+    fields: [
+      { kind: "secret", key: "trelloAPIKey", label: "API Key", placeholder: "your Trello API key" },
+      { kind: "secret", key: "trelloToken", label: "Token", placeholder: "your Trello token" },
+      { kind: "config", key: "trelloListID", label: "List ID", placeholder: "target list id" },
+    ],
+  },
+  asana: {
+    label: "Asana config",
+    fields: [
+      { kind: "secret", key: "asanaAPIKey", label: "Personal Access Token", placeholder: "1/1234567890:xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "asanaProjectID", label: "Project ID", placeholder: "target project id" },
+    ],
+  },
+  clickup: {
+    label: "ClickUp config",
+    fields: [
+      { kind: "secret", key: "clickupAPIKey", label: "API Token", placeholder: "pk_xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "clickupListID", label: "List ID", placeholder: "target list id" },
+    ],
+  },
+  jira: {
+    label: "Jira config",
+    fields: [
+      { kind: "secret", key: "jiraAPIToken", label: "API Token", placeholder: "your Atlassian API token" },
+      { kind: "config", key: "jiraEmail", label: "Account Email", placeholder: "bot@yourcompany.com" },
+      { kind: "config", key: "jiraDomain", label: "Site Domain", placeholder: "yourcompany (as in yourcompany.atlassian.net)" },
+      { kind: "config", key: "jiraProjectKey", label: "Project Key", placeholder: "ENG" },
+      { kind: "config", key: "jiraIssueType", label: "Issue Type", placeholder: "Task (default)" },
+    ],
+  },
+  mailchimp: {
+    label: "Mailchimp config",
+    fields: [
+      { kind: "secret", key: "mailchimpAPIKey", label: "API Key", placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-us21" },
+      { kind: "config", key: "mailchimpListID", label: "Audience (List) ID", placeholder: "target list id" },
+      { kind: "config", key: "mailchimpEmail", label: "Email", hint: "optional, defaults to the run's output", placeholder: "leave blank to use the agent's message as the email" },
+    ],
+  },
+  linear: {
+    label: "Linear config",
+    fields: [
+      { kind: "secret", key: "linearAPIKey", label: "Personal API Key", placeholder: "lin_api_xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "linearTeamID", label: "Team ID", placeholder: "target team id" },
+    ],
+  },
+  todoist: {
+    label: "Todoist config",
+    fields: [
+      { kind: "secret", key: "todoistAPIKey", label: "API Token", placeholder: "your Todoist API token" },
+      { kind: "config", key: "todoistProjectID", label: "Project ID", hint: "optional", placeholder: "leave blank for Inbox" },
+    ],
+  },
+  gitlab: {
+    label: "GitLab config",
+    fields: [
+      { kind: "secret", key: "gitlabAPIToken", label: "Personal Access Token", placeholder: "glpat-xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "gitlabProjectID", label: "Project ID", placeholder: "numeric project id" },
+      { kind: "config", key: "gitlabBaseURL", label: "Base URL", hint: "optional, for self-hosted", placeholder: "https://gitlab.com (default)" },
+    ],
+  },
+  sentry: {
+    label: "Sentry config",
+    fields: [{ kind: "secret", key: "sentryDSN", label: "DSN", placeholder: "https://xxxx@o000000.ingest.sentry.io/000000" }],
+  },
+  supabase: {
+    label: "Supabase config",
+    fields: [
+      { kind: "secret", key: "supabaseAPIKey", label: "Service Role Key", placeholder: "eyJhbGciOi…" },
+      { kind: "config", key: "supabaseProjectURL", label: "Project URL", placeholder: "https://xxxxxxxx.supabase.co" },
+      { kind: "config", key: "supabaseTable", label: "Table", placeholder: "logs" },
+      { kind: "config", key: "supabaseColumn", label: "Column", placeholder: "content (default)" },
+    ],
+  },
+  woocommerce: {
+    label: "WooCommerce config",
+    fields: [
+      { kind: "secret", key: "woocommerceConsumerKey", label: "Consumer Key", placeholder: "ck_xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "secret", key: "woocommerceConsumerSecret", label: "Consumer Secret", placeholder: "cs_xxxxxxxxxxxxxxxxxxxx" },
+      { kind: "config", key: "woocommerceStoreURL", label: "Store URL", placeholder: "https://yourstore.com" },
+      { kind: "config", key: "woocommerceOrderID", label: "Order ID", placeholder: "target order id" },
+    ],
+  },
+  elevenlabs: {
+    label: "ElevenLabs config",
+    fields: [
+      { kind: "secret", key: "elevenlabsAPIKey", label: "API Key", placeholder: "your ElevenLabs API key" },
+      { kind: "config", key: "elevenlabsVoiceID", label: "Voice ID", placeholder: "21m00Tcm4TlvDq8ikWAM (Rachel, default)" },
+    ],
+  },
+};
+
+function ConnectorConfigSection({ node, onUpdate }: { node: WorkflowNode; onUpdate: (n: WorkflowNode) => void }) {
+  const spec = CONNECTOR_CONFIG_FIELDS[node.template ?? ""];
+  if (!spec) return null;
+  return (
+    <Section label={spec.label}>
+      {spec.fields.map((f) =>
+        f.kind === "secret"
+          ? <SecretField key={f.key} node={node} onUpdate={onUpdate} secretKey={f.key} label={f.label} hint={f.hint} placeholder={f.placeholder} />
+          : <ConfigField key={f.key} node={node} onUpdate={onUpdate} configKey={f.key} label={f.label} hint={f.hint} placeholder={f.placeholder} />
+      )}
+    </Section>
+  );
+}
+
 // ── Action Inspector ───────────────────────────────────────────────────────
 function ActionInspector({
   node,
@@ -1204,6 +1426,7 @@ function ActionInspector({
               <option value="resend">Resend</option>
               <option value="postmark">Postmark</option>
               <option value="sendgrid">SendGrid</option>
+              <option value="brevo">Brevo</option>
             </select>
           </Field>
           <Field label="API Key" hint="encrypted at rest">
@@ -1276,18 +1499,7 @@ function ActionInspector({
         </Section>
       )}
 
-      {node.template === "slack" && (
-        <Section label="Slack config">
-          <Field label="Channel">
-            <input
-              style={monoInputStyle}
-              value={node.source ?? ""}
-              placeholder="#agent-output"
-              onChange={(e) => onUpdate({ ...node, source: e.target.value })}
-            />
-          </Field>
-        </Section>
-      )}
+      <ConnectorConfigSection node={node} onUpdate={onUpdate} />
     </>
   );
 }

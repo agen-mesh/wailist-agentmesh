@@ -50,6 +50,10 @@ export interface WorkflowNode {
   emailBody?: string;
   emailApiKey?: string;
   emailProvider?: string;
+  // generic per-connector storage — credentials go in secrets (encrypted server-side,
+  // "__enc__" sentinel on read), non-secret settings go in config
+  secrets?: Record<string, string>;
+  config?: Record<string, string>;
 }
 
 export interface WorkflowEdge {

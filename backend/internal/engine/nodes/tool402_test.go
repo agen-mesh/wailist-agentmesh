@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -13,9 +14,14 @@ import (
 	"github.com/agentmesh/backend/internal/models"
 )
 
-func init() {
-	// Allow localhost addresses for all nodes_test tests.
+// TestMain sets the permissive URL validator once for the whole nodes_test
+// binary, so every test that dials an httptest.NewServer target works
+// regardless of file/test execution order. No test in this package exercises
+// the real SSRF-blocking validator, so there's nothing to preserve by
+// toggling it per-test.
+func TestMain(m *testing.M) {
 	nodes.SetURLValidatorForTest(func(string) error { return nil })
+	os.Exit(m.Run())
 }
 
 type mockSigner struct {

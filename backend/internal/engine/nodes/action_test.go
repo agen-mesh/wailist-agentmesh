@@ -41,3 +41,135 @@ func TestLogAction(t *testing.T) {
 		t.Fatalf("want 'logged' got %v", result)
 	}
 }
+
+func TestEmailAction_SendGridProvider(t *testing.T) {
+	var gotAuth string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+	nodes.SetSendGridAPIBaseForTest(srv.URL)
+	defer nodes.SetSendGridAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "e1", Type: models.NodeTypeAction, Template: "email",
+		EmailProvider: "sendgrid", EmailAPIKey: "SG.xxx",
+		EmailFrom: "AgentMesh <you@yourdomain.com>", EmailTo: "user@example.com", EmailSubject: "Result",
+	}
+	rc := engine.NewRunContext("r1", []byte(`"done"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "email_sent" {
+		t.Errorf("want 'email_sent', got %v", result)
+	}
+	if gotAuth != "Bearer SG.xxx" {
+		t.Errorf("want bearer auth, got %q", gotAuth)
+	}
+	from, _ := gotBody["from"].(map[string]any)
+	if from["email"] != "you@yourdomain.com" || from["name"] != "AgentMesh" {
+		t.Errorf("want parsed from name/email, got %v", from)
+	}
+}
+
+func TestEmailAction_BrevoProvider(t *testing.T) {
+	var gotAPIKeyHeader string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAPIKeyHeader = r.Header.Get("api-key")
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	nodes.SetBrevoAPIBaseForTest(srv.URL)
+	defer nodes.SetBrevoAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "e2", Type: models.NodeTypeAction, Template: "email",
+		EmailProvider: "brevo", EmailAPIKey: "xkeysib-xxx",
+		EmailFrom: "AgentMesh <you@yourdomain.com>", EmailTo: "user@example.com", EmailSubject: "Result",
+	}
+	rc := engine.NewRunContext("r1", []byte(`"done"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "email_sent" {
+		t.Errorf("want 'email_sent', got %v", result)
+	}
+	if gotAPIKeyHeader != "xkeysib-xxx" {
+		t.Errorf("want api-key header, got %q", gotAPIKeyHeader)
+	}
+	sender, _ := gotBody["sender"].(map[string]any)
+	if sender["email"] != "you@yourdomain.com" {
+		t.Errorf("want parsed sender email, got %v", sender)
+	}
+}
+
+func TestEmailAction_SkipsWhenNonResendProviderHasNoFromAddress(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "e3", Type: models.NodeTypeAction, Template: "email",
+		EmailProvider: "sendgrid", EmailAPIKey: "SG.xxx",
+		EmailTo: "user@example.com", EmailSubject: "Result",
+	}
+	rc := engine.NewRunContext("r1", []byte(`"done"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "email_skipped_no_from_address" {
+		t.Errorf("want 'email_skipped_no_from_address', got %v", result)
+	}
+}
+
+func TestParseEmailAddress(t *testing.T) {
+	name, email := nodes.ParseEmailAddressForTest("AgentMesh <you@yourdomain.com>")
+	if name != "AgentMesh" || email != "you@yourdomain.com" {
+		t.Errorf("want name=AgentMesh email=you@yourdomain.com, got name=%q email=%q", name, email)
+	}
+	name2, email2 := nodes.ParseEmailAddressForTest("plain@yourdomain.com")
+	if name2 != "" || email2 != "plain@yourdomain.com" {
+		t.Errorf("want name='' email=plain@yourdomain.com, got name=%q email=%q", name2, email2)
+	}
+	name3, email3 := nodes.ParseEmailAddressForTest("Some <Nickname> Person <real@example.com>")
+	if name3 != "Some <Nickname> Person" || email3 != "real@example.com" {
+		t.Errorf("want name='Some <Nickname> Person' email=real@example.com, got name=%q email=%q", name3, email3)
+	}
+}
+
+func TestEmailAction_ResendProvider(t *testing.T) {
+	var gotAuth string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	nodes.SetResendAPIBaseForTest(srv.URL)
+	defer nodes.SetResendAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "e3", Type: models.NodeTypeAction, Template: "email",
+		EmailProvider: "resend", EmailAPIKey: "re_xxx",
+		EmailFrom: "AgentMesh <you@yourdomain.com>", EmailTo: "user@example.com", EmailSubject: "Result",
+	}
+	rc := engine.NewRunContext("r1", []byte(`"done"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "email_sent" {
+		t.Errorf("want 'email_sent', got %v", result)
+	}
+	if gotAuth != "Bearer re_xxx" {
+		t.Errorf("want bearer auth, got %q", gotAuth)
+	}
+	if gotBody["from"] != "AgentMesh <you@yourdomain.com>" {
+		t.Errorf("want from field passed through, got %v", gotBody["from"])
+	}
+}
