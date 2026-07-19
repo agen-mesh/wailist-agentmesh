@@ -19,9 +19,18 @@ export function useAuth() {
   const [user, setUser] = useState<{ id: string; email: string } | null>(null);
 
   useEffect(() => {
-    auth.me()
-      .then((u) => { setUICookie(); setSignedIn(true); setUser(u); })
-      .catch(() => { clearUICookie(); setSignedIn(false); setUser(null); })
+    auth
+      .me()
+      .then((u) => {
+        setUICookie();
+        setSignedIn(true);
+        setUser(u);
+      })
+      .catch(() => {
+        clearUICookie();
+        setSignedIn(false);
+        setUser(null);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -31,11 +40,14 @@ export function useAuth() {
     setSignedIn(true);
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string, org: string) => {
-    await auth.signUp(email, password, org);
-    setUICookie();
-    setSignedIn(true);
-  }, []);
+  const signUp = useCallback(
+    async (email: string, password: string, org: string) => {
+      await auth.signUp(email, password, org);
+      setUICookie();
+      setSignedIn(true);
+    },
+    [],
+  );
 
   const signOut = useCallback(async () => {
     await auth.signOut();
