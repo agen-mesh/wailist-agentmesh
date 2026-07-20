@@ -339,8 +339,11 @@ function LandingWaitlist() {
     try {
       await waitlist.join(email);
       alert("Thanks — we'll be in touch.");
-    } catch {
-      alert("Thanks — we'll be in touch.");
+    } catch (err) {
+      // Showing the success message here too would silently drop the signup:
+      // the user never retries a request that visibly "worked".
+      console.error("waitlist signup failed", err);
+      alert("Could not sign you up just now — please try again.");
     }
   };
 
