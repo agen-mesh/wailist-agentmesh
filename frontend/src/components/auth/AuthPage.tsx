@@ -27,8 +27,17 @@ const DEFAULT_DEST = "/workflows";
 // same-origin absolute path is allowed through — "//evil.com" is protocol-
 // relative and "https://evil.com" absolute, and either would turn the sign-in
 // form into an open redirect that lands a just-authenticated user off-site.
+// Backslashes are rejected too: browsers normalize them to forward slashes for
+// http(s) URLs, so "/\evil.com" resolves exactly like "//evil.com" and would
+// otherwise slip past the checks above.
 function safeNext(raw: string | null): string {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return DEFAULT_DEST;
+  if (
+    !raw ||
+    !raw.startsWith("/") ||
+    raw.startsWith("//") ||
+    raw.includes("\\")
+  )
+    return DEFAULT_DEST;
   return raw;
 }
 
