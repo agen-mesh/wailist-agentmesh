@@ -224,6 +224,12 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                   style={inputStyle}
                   type="password"
                   required
+                  // Signup advertises "min 12 chars" in the hint above; enforce
+                  // it client-side too rather than only after a round trip.
+                  minLength={mode === "signup" ? 12 : undefined}
+                  autoComplete={
+                    mode === "signup" ? "new-password" : "current-password"
+                  }
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="•••••••••••"
