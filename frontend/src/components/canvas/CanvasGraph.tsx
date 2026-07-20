@@ -205,7 +205,12 @@ export function CanvasGraph({
     e.preventDefault();
     const data = e.dataTransfer.getData("application/agentmesh");
     if (!data || !wrapRef.current) return;
-    const meta: Partial<WorkflowNode> = JSON.parse(data);
+    let meta: Partial<WorkflowNode>;
+    try {
+      meta = JSON.parse(data);
+    } catch {
+      return; // malformed payload — ignore the drop rather than throw
+    }
     const rect = wrapRef.current.getBoundingClientRect();
     const t = NODE_TYPES[meta.type!];
     const x = (e.clientX - rect.left - view.x) / view.k - (t ? t.w / 2 : 90);
