@@ -91,6 +91,7 @@ export const workflows = {
   list: async (): Promise<Workflow[]> => {
     if (BASE) {
       const res = await fetch(`${BASE}/workflows`, { credentials: "include" });
+      if (!res.ok) throw new Error("workflows fetch failed");
       return res.json();
     }
     await delay(200);
@@ -296,6 +297,39 @@ export const waitlist = {
     }
     void email;
     await delay(600);
+  },
+};
+
+// -- Payments ---------------------------------------------------------------
+export const payments = {
+  createRazorpayOrder: async (
+    amountINRPaise: number
+  ): Promise<{ order_id: string; amount: number; currency: string; key_id: string }> => {
+    if (!BASE) throw new Error("payments require a configured backend");
+    const res = await fetch(`${BASE}/payments/razorpay/order`, {
+      method: "POST", credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount_inr_paise: amountINRPaise }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? "order creation failed");
+    return data;
+  },
+
+  verifyRazorpayPayment: async (payload: {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+  }): Promise<{ status: string; credited_usd_micros: number }> => {
+    if (!BASE) throw new Error("payments require a configured backend");
+    const res = await fetch(`${BASE}/payments/razorpay/verify`, {
+      method: "POST", credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? "payment verification failed");
+    return data;
   },
 };
 
