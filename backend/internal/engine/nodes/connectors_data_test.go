@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -54,8 +55,8 @@ func TestHubSpotAction_SkipsWhenNoAPIKey(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"follow up with lead"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "hubspot_skipped_no_api_key" {
 		t.Errorf("want 'hubspot_skipped_no_api_key', got %v", result)
@@ -164,8 +165,8 @@ func TestMailchimpAction_SkipsWhenNoAPIKey(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"test"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "mailchimp_skipped_no_api_key" {
 		t.Errorf("want 'mailchimp_skipped_no_api_key', got %v", result)
@@ -180,8 +181,8 @@ func TestMailchimpAction_SkipsWhenNoListID(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"test"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "mailchimp_skipped_no_list_id" {
 		t.Errorf("want 'mailchimp_skipped_no_list_id', got %v", result)
@@ -196,8 +197,8 @@ func TestMailchimpAction_SkipsWhenNoEmail(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`""`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "mailchimp_skipped_no_email" {
 		t.Errorf("want 'mailchimp_skipped_no_email', got %v", result)
@@ -247,8 +248,8 @@ func TestSupabaseAction_SkipsWhenNoAPIKey(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"test"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "supabase_skipped_no_api_key" {
 		t.Errorf("want 'supabase_skipped_no_api_key', got %v", result)
@@ -262,8 +263,8 @@ func TestSupabaseAction_SkipsWhenMissingConfig(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"test"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "supabase_skipped_missing_config" {
 		t.Errorf("want 'supabase_skipped_missing_config', got %v", result)
@@ -313,8 +314,8 @@ func TestWooCommerceAction_SkipsWhenNoCredentials(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"refund processed"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "woocommerce_skipped_no_credentials" {
 		t.Errorf("want 'woocommerce_skipped_no_credentials', got %v", result)
@@ -328,8 +329,8 @@ func TestWooCommerceAction_SkipsWhenMissingConfig(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"refund processed"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "woocommerce_skipped_missing_config" {
 		t.Errorf("want 'woocommerce_skipped_missing_config', got %v", result)

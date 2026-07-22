@@ -509,6 +509,66 @@ func TestAgentBlocksAttachedX402CallWhenBalanceInsufficientForFee(t *testing.T) 
 	}
 }
 
+func TestActionSkipPathNotBilled(t *testing.T) {
+	runner, store := newTestRunner(t)
+	ctx := context.Background()
+
+	email := fmt.Sprintf("action-skip-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fundUser(t, store, user.ID, 10_000) // exactly $0.01, would cover the fee if charged
+
+	wf, err := store.CreateWorkflow(ctx, "Action Skip Test", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.DeleteWorkflow(context.Background(), wf.ID) })
+
+	graph := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "n1", Type: models.NodeTypeTrigger},
+			// Slack action node with no webhook URL configured — skip path.
+			{ID: "a1", Type: models.NodeTypeAction, Template: "slack"},
+			{ID: "n3", Type: models.NodeTypeEnd},
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "e1", From: "n1", To: "a1", Kind: models.EdgeKindFlow},
+			{ID: "e2", From: "a1", To: "n3", Kind: models.EdgeKindFlow},
+		},
+	}
+	wf, _ = store.UpdateWorkflow(ctx, wf.ID, wf.Name, graph)
+
+	run, err := store.CreateRun(ctx, wf.ID, "test", []byte("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker := sse.NewBroker()
+	broker.Create(run.ID)
+
+	runner.Start(wf, run)
+	final := waitForRunDone(t, store, run.ID)
+	if final.Status != models.RunStatusSuccess {
+		t.Fatalf("want success got %s", final.Status)
+	}
+
+	balance, err := store.GetCreditBalance(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 10_000 {
+		t.Fatalf("want balance unchanged at 10000 (skipped action, no billable work), got %d", balance)
+	}
+	entries, err := store.ListDebitLedger(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("want 0 ledger entries (skipped action not billed), got %d", len(entries))
+	}
+}
+
 func TestInsufficientBalanceBlocksTool402BeforeExecution(t *testing.T) {
 	runner, store := newTestRunner(t)
 	ctx := context.Background()

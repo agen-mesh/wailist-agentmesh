@@ -30,7 +30,7 @@ func SetHubSpotAPIBaseForTest(base string) {
 func sendHubSpot(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	apiKey := secretVal(node, "hubspotAPIKey")
 	if apiKey == "" {
-		return "hubspot_skipped_no_api_key", nil
+		return "hubspot_skipped_no_api_key", ErrActionSkipped
 	}
 	payload := map[string]any{
 		"properties": map[string]any{
@@ -57,11 +57,11 @@ func SetMailchimpAPIBaseForTest(base string) {
 func sendMailchimp(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	apiKey := secretVal(node, "mailchimpAPIKey")
 	if apiKey == "" {
-		return "mailchimp_skipped_no_api_key", nil
+		return "mailchimp_skipped_no_api_key", ErrActionSkipped
 	}
 	listID := configVal(node, "mailchimpListID", "")
 	if listID == "" {
-		return "mailchimp_skipped_no_list_id", nil
+		return "mailchimp_skipped_no_list_id", ErrActionSkipped
 	}
 	email := configVal(node, "mailchimpEmail", "")
 	if email == "" {
@@ -69,7 +69,7 @@ func sendMailchimp(ctx context.Context, node models.WorkflowNode, rc RunContexte
 	}
 	email = strings.TrimSpace(email)
 	if email == "" {
-		return "mailchimp_skipped_no_email", nil
+		return "mailchimp_skipped_no_email", ErrActionSkipped
 	}
 	base := mailchimpAPIBase
 	if base == "" {
@@ -126,12 +126,12 @@ func MailchimpDatacenterForTest(apiKey string) (string, error) {
 func sendSupabase(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	apiKey := secretVal(node, "supabaseAPIKey")
 	if apiKey == "" {
-		return "supabase_skipped_no_api_key", nil
+		return "supabase_skipped_no_api_key", ErrActionSkipped
 	}
 	projectURL := configVal(node, "supabaseProjectURL", "")
 	table := configVal(node, "supabaseTable", "")
 	if projectURL == "" || table == "" {
-		return "supabase_skipped_missing_config", nil
+		return "supabase_skipped_missing_config", ErrActionSkipped
 	}
 	column := configVal(node, "supabaseColumn", "content")
 	target := strings.TrimRight(projectURL, "/") + "/rest/v1/" + url.PathEscape(table)
@@ -148,12 +148,12 @@ func sendWooCommerce(ctx context.Context, node models.WorkflowNode, rc RunContex
 	consumerKey := secretVal(node, "woocommerceConsumerKey")
 	consumerSecret := secretVal(node, "woocommerceConsumerSecret")
 	if consumerKey == "" || consumerSecret == "" {
-		return "woocommerce_skipped_no_credentials", nil
+		return "woocommerce_skipped_no_credentials", ErrActionSkipped
 	}
 	storeURL := configVal(node, "woocommerceStoreURL", "")
 	orderID := configVal(node, "woocommerceOrderID", "")
 	if storeURL == "" || orderID == "" {
-		return "woocommerce_skipped_missing_config", nil
+		return "woocommerce_skipped_missing_config", ErrActionSkipped
 	}
 	target := strings.TrimRight(storeURL, "/") + "/wp-json/wc/v3/orders/" + url.PathEscape(orderID) + "/notes"
 	payload := map[string]any{"note": rc.Message(), "customer_note": false}

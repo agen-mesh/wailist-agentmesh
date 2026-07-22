@@ -26,7 +26,7 @@ func SetElevenLabsAPIBaseForTest(base string) {
 func sendElevenLabs(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	apiKey := secretVal(node, "elevenlabsAPIKey")
 	if apiKey == "" {
-		return "elevenlabs_skipped_no_api_key", nil
+		return "elevenlabs_skipped_no_api_key", ErrActionSkipped
 	}
 	voiceID := configVal(node, "elevenlabsVoiceID", "21m00Tcm4TlvDq8ikWAM")
 	target := elevenLabsAPIBase + "/v1/text-to-speech/" + url.PathEscape(voiceID)

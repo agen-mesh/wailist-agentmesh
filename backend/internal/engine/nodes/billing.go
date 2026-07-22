@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"context"
+	"errors"
 
 	"github.com/agentmesh/backend/internal/models"
 )
@@ -36,6 +37,14 @@ func BillableFlatFee(nodeType models.NodeType, template string) bool {
 // access. Returns a non-nil error (matching preflightCheck's error text
 // convention) when the balance is insufficient.
 type BalanceChecker func(ctx context.Context, amountUSDMicros int64) error
+
+// ErrActionSkipped is returned by Action node implementations (email + all
+// connectors) when required credentials/config are missing, so the node
+// short-circuits before making any real network call. runner.go's
+// NodeTypeAction case treats this as a successful no-op: the descriptive
+// skip message is still returned to the workflow as the node's result, but
+// the flat BYOK fee is not charged, since no billable work happened.
+var ErrActionSkipped = errors.New("action skipped: missing required configuration")
 
 // ErrBalanceBlocked wraps a BalanceChecker failure so the agent loop can
 // hard-stop instead of feeding the failure back to the LLM as a retryable

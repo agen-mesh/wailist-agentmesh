@@ -93,11 +93,11 @@ func callWebhook(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 func sendEmail(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	apiKey := node.EmailAPIKey
 	if apiKey == "" {
-		return "email_skipped_no_api_key", nil
+		return "email_skipped_no_api_key", ErrActionSkipped
 	}
 	to := node.EmailTo
 	if to == "" {
-		return "email_skipped_no_recipient", nil
+		return "email_skipped_no_recipient", ErrActionSkipped
 	}
 	provider := node.EmailProvider
 	if provider == "" {
@@ -111,7 +111,7 @@ func sendEmail(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 			// so it must not leak into the other providers' requests below.
 			from = "AgentMesh <onboarding@resend.dev>"
 		} else {
-			return "email_skipped_no_from_address", nil
+			return "email_skipped_no_from_address", ErrActionSkipped
 		}
 	}
 	subject := node.EmailSubject

@@ -311,6 +311,9 @@ func (r *Runner) executeNode(
 		}
 		result, err := nodes.ExecuteAction(ctx, node, rc)
 		if err != nil {
+			if errors.Is(err, nodes.ErrActionSkipped) {
+				return result, nil
+			}
 			return nil, err
 		}
 		if billable {

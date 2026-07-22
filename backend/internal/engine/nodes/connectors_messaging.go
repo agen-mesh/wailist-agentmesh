@@ -13,7 +13,7 @@ import (
 func sendSlack(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	webhookURL := secretVal(node, "slackWebhookURL")
 	if webhookURL == "" {
-		return "slack_skipped_no_webhook_url", nil
+		return "slack_skipped_no_webhook_url", ErrActionSkipped
 	}
 	payload := map[string]any{"text": rc.Message()}
 	return postJSON(ctx, webhookURL, nil, payload, "slack_sent", "Slack")
@@ -22,7 +22,7 @@ func sendSlack(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 func sendDiscord(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	webhookURL := secretVal(node, "discordWebhookURL")
 	if webhookURL == "" {
-		return "discord_skipped_no_webhook_url", nil
+		return "discord_skipped_no_webhook_url", ErrActionSkipped
 	}
 	payload := map[string]any{"content": rc.Message()}
 	return postJSON(ctx, webhookURL, nil, payload, "discord_sent", "Discord")
@@ -31,7 +31,7 @@ func sendDiscord(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 func sendTeams(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	webhookURL := secretVal(node, "teamsWebhookURL")
 	if webhookURL == "" {
-		return "teams_skipped_no_webhook_url", nil
+		return "teams_skipped_no_webhook_url", ErrActionSkipped
 	}
 	payload := map[string]any{
 		"@type":    "MessageCard",
@@ -44,7 +44,7 @@ func sendTeams(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 func sendGoogleChat(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	webhookURL := secretVal(node, "googleChatWebhookURL")
 	if webhookURL == "" {
-		return "google_chat_skipped_no_webhook_url", nil
+		return "google_chat_skipped_no_webhook_url", ErrActionSkipped
 	}
 	payload := map[string]any{"text": rc.Message()}
 	return postJSON(ctx, webhookURL, nil, payload, "google_chat_sent", "Google Chat")
@@ -53,7 +53,7 @@ func sendGoogleChat(ctx context.Context, node models.WorkflowNode, rc RunContext
 func sendNtfy(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	topic := configVal(node, "ntfyTopic", "")
 	if topic == "" {
-		return "ntfy_skipped_no_topic", nil
+		return "ntfy_skipped_no_topic", ErrActionSkipped
 	}
 	server := configVal(node, "ntfyServerURL", "https://ntfy.sh")
 	target := strings.TrimRight(server, "/") + "/" + url.PathEscape(topic)
@@ -85,11 +85,11 @@ func SetTelegramAPIBaseForTest(base string) {
 func sendTelegram(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	token := secretVal(node, "telegramBotToken")
 	if token == "" {
-		return "telegram_skipped_no_bot_token", nil
+		return "telegram_skipped_no_bot_token", ErrActionSkipped
 	}
 	chatID := configVal(node, "telegramChatID", "")
 	if chatID == "" {
-		return "telegram_skipped_no_chat_id", nil
+		return "telegram_skipped_no_chat_id", ErrActionSkipped
 	}
 	target := telegramAPIBase + "/bot" + token + "/sendMessage"
 	payload := map[string]any{"chat_id": chatID, "text": rc.Message()}
