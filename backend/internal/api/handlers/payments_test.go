@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/agentmesh/backend/internal/api/handlers"
 	"github.com/agentmesh/backend/internal/payments"
@@ -110,6 +112,43 @@ func TestRazorpayWebhookRejectsMissingOrderOrPaymentID(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("want 400 got %d", w.Code)
+	}
+}
+
+func TestGetCreditBalanceReturnsStoredBalance(t *testing.T) {
+	d := testDeps(t)
+
+	email := fmt.Sprintf("balance-test-%d@example.com", time.Now().UnixNano())
+	user, err := d.Store.CreateUser(context.Background(), email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	orderID := fmt.Sprintf("order_balance_%d", time.Now().UnixNano())
+	if _, err := d.Store.CreateCreditTransaction(context.Background(), user.ID, orderID, 10000, 0.012); err != nil {
+		t.Fatal(err)
+	}
+	wantMicros, err := d.Store.CompleteCreditTransaction(context.Background(), orderID, "pay_balance_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/credits/balance", nil)
+	req = req.WithContext(context.WithValue(req.Context(), handlers.CtxUserID, user.ID))
+	w := httptest.NewRecorder()
+
+	d.GetCreditBalance(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200 got %d", w.Code)
+	}
+	var body struct {
+		CreditUSDMicros int64 `json:"credit_usd_micros"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.CreditUSDMicros != wantMicros {
+		t.Fatalf("want %d got %d", wantMicros, body.CreditUSDMicros)
 	}
 }
 

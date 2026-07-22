@@ -62,3 +62,46 @@ func TestCreditTransactionLifecycle(t *testing.T) {
 		t.Fatalf("replay must not double-credit: want %d got %d", wantMicros, balance2)
 	}
 }
+
+func TestExpireStalePendingTransactions(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	email := fmt.Sprintf("credit-expire-test-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	orderID := fmt.Sprintf("order_expire_%d", time.Now().UnixNano())
+	if _, err := store.CreateCreditTransaction(ctx, user.ID, orderID, 10000, 0.012); err != nil {
+		t.Fatal(err)
+	}
+
+	// Row is only a few milliseconds old — a 24h threshold must not touch it.
+	n, err := store.ExpireStalePendingTransactions(ctx, 24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("want 0 rows expired (too fresh), got %d", n)
+	}
+
+	// A near-zero threshold makes the row qualify as stale.
+	n2, err := store.ExpireStalePendingTransactions(ctx, time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n2 < 1 {
+		t.Fatalf("want at least 1 row expired, got %d", n2)
+	}
+
+	// Re-running must not re-touch rows that are no longer 'pending'.
+	n3, err := store.ExpireStalePendingTransactions(ctx, time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n3 != 0 {
+		t.Fatalf("want 0 rows on second sweep (already expired), got %d", n3)
+	}
+}

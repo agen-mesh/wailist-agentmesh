@@ -442,3 +442,18 @@ func (s *Store) GetCreditBalance(ctx context.Context, userID string) (int64, err
 	err := s.pool.QueryRow(ctx, `SELECT credit_balance_usd_micros FROM users WHERE id = $1`, userID).Scan(&balance)
 	return balance, err
 }
+
+// ExpireStalePendingTransactions marks credit_ledger rows still 'pending' after olderThan
+// as 'expired' — checkouts the user opened but never completed (closed tab, abandoned QR
+// scan). Keeps 'pending' meaningful as "still in progress" rather than accumulating dead rows.
+func (s *Store) ExpireStalePendingTransactions(ctx context.Context, olderThan time.Duration) (int64, error) {
+	cutoff := time.Now().Add(-olderThan)
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE credit_ledger SET status = 'expired'
+		WHERE status = 'pending' AND created_at < $1
+	`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}

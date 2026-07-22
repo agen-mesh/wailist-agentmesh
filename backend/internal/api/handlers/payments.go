@@ -58,6 +58,19 @@ func (d *Deps) CreateRazorpayOrder(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (d *Deps) GetCreditBalance(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(CtxUserID).(string)
+
+	balance, err := d.Store.GetCreditBalance(r.Context(), userID)
+	if err != nil {
+		log.Printf("credit balance: %v", err)
+		respond.Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, map[string]any{"credit_usd_micros": balance})
+}
+
 func (d *Deps) VerifyRazorpayPayment(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		OrderID   string `json:"razorpay_order_id"`
@@ -107,6 +120,7 @@ func (d *Deps) RazorpayWebhook(w http.ResponseWriter, r *http.Request) {
 
 	signature := r.Header.Get("X-Razorpay-Signature")
 	if signature == "" || !d.Razorpay.VerifyWebhookSignature(body, signature) {
+		log.Printf("razorpay webhook: rejected signature from %s", r.RemoteAddr)
 		respond.Error(w, http.StatusBadRequest, "signature verification failed")
 		return
 	}

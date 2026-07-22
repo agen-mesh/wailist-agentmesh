@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/joho/godotenv"
 
@@ -40,6 +41,8 @@ func main() {
 	razorpayClient := payments.NewRazorpayClient(mustEnv("RAZORPAY_KEY_ID"), mustEnv("RAZORPAY_KEY_SECRET"), mustEnv("RAZORPAY_WEBHOOK_SECRET"))
 
 	runner := engine.NewRunner(store, broker, walletSvc)
+
+	go expireStalePendingTransactionsLoop(ctx, store)
 
 	deps := &handlers.Deps{
 		Store:         store,
@@ -80,4 +83,26 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// expireStalePendingTransactionsLoop marks abandoned Razorpay checkouts (order created,
+// never completed) as 'expired' so they stop being reported as in-progress. Runs on a
+// fixed interval for the life of the process; errors are logged, not fatal.
+func expireStalePendingTransactionsLoop(ctx context.Context, store *db.Store) {
+	const (
+		checkInterval = 5 * time.Minute
+		staleAfter    = 30 * time.Minute
+	)
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+	for range ticker.C {
+		n, err := store.ExpireStalePendingTransactions(ctx, staleAfter)
+		if err != nil {
+			log.Printf("expire stale pending transactions: %v", err)
+			continue
+		}
+		if n > 0 {
+			log.Printf("expired %d stale pending credit transactions", n)
+		}
+	}
 }

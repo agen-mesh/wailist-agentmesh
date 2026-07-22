@@ -55,6 +55,7 @@ func NewRouter(d *handlers.Deps) http.Handler {
 
 		r.Post("/payments/razorpay/order", d.CreateRazorpayOrder)
 		r.Post("/payments/razorpay/verify", d.VerifyRazorpayPayment)
+		r.Get("/credits/balance", d.GetCreditBalance)
 	})
 
 	return r
