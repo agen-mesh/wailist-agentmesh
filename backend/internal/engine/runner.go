@@ -303,14 +303,19 @@ func (r *Runner) executeNode(
 		}
 		return result, nil
 	case models.NodeTypeAction:
-		if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
-			return nil, err
+		billable := nodes.BillableFlatFee(node.Type, node.Template)
+		if billable {
+			if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
+				return nil, err
+			}
 		}
 		result, err := nodes.ExecuteAction(ctx, node, rc)
 		if err != nil {
 			return nil, err
 		}
-		r.debitOrLog(ctx, wf, run, node.ID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+		if billable {
+			r.debitOrLog(ctx, wf, run, node.ID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+		}
 		return result, nil
 	default:
 		return nil, nil
