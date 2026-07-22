@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { IconClose } from "@/components/ui";
 import type { CartItem, PaymentMethod } from "./types";
 import { buildCreditCart, computeTotals } from "./mockData";
@@ -7,9 +7,12 @@ import { CartItemRow } from "./CartItemRow";
 import { OrderSummary } from "./OrderSummary";
 import { PaymentInfoPanel } from "./PaymentInfoPanel";
 
-// Scoped responsive rules — inline styles can't express media queries, so the
-// two side-by-side grids collapse to a single column on narrow viewports here.
-const RESPONSIVE_CSS = `
+// Scoped rules that inline styles can't express: the native <dialog> backdrop,
+// the dialog as a flex column so its body scrolls, and the responsive collapse
+// of the two-column layout on narrow viewports.
+const DIALOG_CSS = `
+.checkout-dialog { display: flex; flex-direction: column; max-height: 90vh; }
+.checkout-dialog::backdrop { background: rgba(8,7,12,0.7); backdrop-filter: blur(4px); }
 .checkout-split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; }
 .checkout-cart-head { display: grid; grid-template-columns: 24px 1fr auto auto; gap: 16px; }
 @media (max-width: 860px) {
@@ -26,6 +29,7 @@ export function CheckoutModal({
   amountINR: number;
   onClose: () => void;
 }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const [items, setItems] = useState<CartItem[]>(() =>
     buildCreditCart(amountINR),
   );
@@ -33,17 +37,21 @@ export function CheckoutModal({
 
   const totals = useMemo(() => computeTotals(items), [items]);
 
-  // Close on Escape while open.
+  // Drive the native dialog. showModal() gives focus trapping and the backdrop
+  // for free. Escape fires the dialog's "cancel" event — sync parent state from
+  // it (the ✕ and backdrop call onClose directly). On unmount, close the native
+  // dialog so the top layer is released cleanly.
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+    const dlg = dialogRef.current;
+    if (!dlg) return;
+    if (open && !dlg.open) dlg.showModal();
+    const onCancel = () => onClose();
+    dlg.addEventListener("cancel", onCancel);
+    return () => {
+      dlg.removeEventListener("cancel", onCancel);
+      if (dlg.open) dlg.close();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
-
-  if (!open) return null;
 
   const handleQuantityChange = (id: string, quantity: number) => {
     setItems((prev) =>
@@ -56,39 +64,27 @@ export function CheckoutModal({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
+    <dialog
+      ref={dialogRef}
+      className="checkout-dialog"
       aria-label="Checkout"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        // Clicks on the backdrop land on the <dialog> element itself.
+        if (e.target === dialogRef.current) onClose();
       }}
       style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(8,7,12,0.7)",
-        backdropFilter: "blur(4px)",
-        zIndex: 100,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
+        padding: 0,
+        border: "1px solid var(--border-strong)",
+        borderRadius: "var(--r-4)",
+        background: "var(--bg-elev-1)",
+        color: "var(--fg)",
+        width: "min(980px, calc(100vw - 48px))",
+        maxWidth: "min(980px, calc(100vw - 48px))",
+        boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
       }}
     >
-      <style>{RESPONSIVE_CSS}</style>
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 980,
-          maxHeight: "90vh",
-          overflowY: "auto",
-          background: "var(--bg-elev-1)",
-          border: "1px solid var(--border-strong)",
-          borderRadius: "var(--r-4)",
-          padding: 24,
-          boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
-        }}
-      >
+      <style>{DIALOG_CSS}</style>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 24 }}>
         {/* Header */}
         <div
           style={{
@@ -149,7 +145,7 @@ export function CheckoutModal({
               }}
             >
               <span />
-              <span>Product</span>
+              <span>Item</span>
               <span style={{ textAlign: "center" }}>Quantity</span>
               <span style={{ textAlign: "right", minWidth: 72 }}>Price</span>
             </div>
@@ -208,6 +204,6 @@ export function CheckoutModal({
           </div>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }
