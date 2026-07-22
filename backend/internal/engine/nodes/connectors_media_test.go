@@ -61,8 +61,8 @@ func TestElevenLabsAction_SkipsWhenNoAPIKey(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"read this aloud"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	resStr, ok := result.(string)
 	if !ok {

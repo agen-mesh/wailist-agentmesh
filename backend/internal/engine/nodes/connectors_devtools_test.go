@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -59,8 +60,8 @@ func TestGitHubAction_SkipsWhenNoToken(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"build failed on main"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "github_skipped_no_token" {
 		t.Errorf("want 'github_skipped_no_token', got %v", result)
@@ -74,8 +75,8 @@ func TestGitHubAction_SkipsWhenNoRepo(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"build failed on main"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "github_skipped_no_repo" {
 		t.Errorf("want 'github_skipped_no_repo', got %v", result)
@@ -90,8 +91,8 @@ func TestGitHubAction_SkipsWhenRepoInvalid(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"build failed"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "github_skipped_invalid_repo" {
 		t.Errorf("want 'github_skipped_invalid_repo', got %v", result)
@@ -180,8 +181,8 @@ func TestJiraAction_SkipsWhenNoAPIToken(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"deploy failed"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "jira_skipped_no_api_token" {
 		t.Errorf("want 'jira_skipped_no_api_token', got %v", result)
@@ -196,8 +197,8 @@ func TestJiraAction_SkipsWhenMissingConfig(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"deploy failed"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "jira_skipped_missing_config" {
 		t.Errorf("want 'jira_skipped_missing_config', got %v", result)
@@ -223,8 +224,8 @@ func TestJiraAction_SkipsWhenDomainInvalid(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"deploy failed"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "jira_skipped_invalid_domain" {
 		t.Errorf("want 'jira_skipped_invalid_domain', got %v", result)
@@ -322,8 +323,8 @@ func TestLinearAction_SkipsWhenNoAPIKey(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"test message"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "linear_skipped_no_api_key" {
 		t.Errorf("want 'linear_skipped_no_api_key', got %v", result)
@@ -337,8 +338,8 @@ func TestLinearAction_SkipsWhenNoTeamID(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"test message"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "linear_skipped_no_team_id" {
 		t.Errorf("want 'linear_skipped_no_team_id', got %v", result)
@@ -406,8 +407,8 @@ func TestGitLabAction_SkipsWhenNoToken(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"pipeline broke"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "gitlab_skipped_no_token" {
 		t.Errorf("want 'gitlab_skipped_no_token', got %v", result)
@@ -421,8 +422,8 @@ func TestGitLabAction_SkipsWhenNoProjectID(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"pipeline broke"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "gitlab_skipped_no_project_id" {
 		t.Errorf("want 'gitlab_skipped_no_project_id', got %v", result)
@@ -492,8 +493,8 @@ func TestSentryAction_SkipsWhenNoDSN(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"job queue backed up"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "sentry_skipped_no_dsn" {
 		t.Errorf("want 'sentry_skipped_no_dsn', got %v", result)

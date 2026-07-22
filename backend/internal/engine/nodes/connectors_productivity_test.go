@@ -3,6 +3,7 @@ package nodes_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -61,8 +62,8 @@ func TestNotionAction_SkipsWhenNoAPIKey(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"daily summary"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "notion_skipped_no_api_key" {
 		t.Errorf("want 'notion_skipped_no_api_key', got %v", result)
@@ -76,8 +77,8 @@ func TestNotionAction_SkipsWhenNoPageID(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"daily summary"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "notion_skipped_no_page_id" {
 		t.Errorf("want 'notion_skipped_no_page_id', got %v", result)
@@ -129,8 +130,8 @@ func TestAirtableAction_SkipsWhenNoAPIKey(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"new lead captured"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "airtable_skipped_no_api_key" {
 		t.Errorf("want 'airtable_skipped_no_api_key', got %v", result)
@@ -144,8 +145,8 @@ func TestAirtableAction_SkipsWhenMissingConfig(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"new lead captured"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "airtable_skipped_missing_config" {
 		t.Errorf("want 'airtable_skipped_missing_config', got %v", result)
@@ -198,8 +199,8 @@ func TestTrelloAction_SkipsWhenNoCredentials(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"ship the release"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "trello_skipped_no_credentials" {
 		t.Errorf("want 'trello_skipped_no_credentials', got %v", result)
@@ -213,8 +214,8 @@ func TestTrelloAction_SkipsWhenNoListID(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"ship the release"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "trello_skipped_no_list_id" {
 		t.Errorf("want 'trello_skipped_no_list_id', got %v", result)
@@ -266,8 +267,8 @@ func TestAsanaAction_SkipsWhenNoAPIKey(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"review pull request"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "asana_skipped_no_api_key" {
 		t.Errorf("want 'asana_skipped_no_api_key', got %v", result)
@@ -281,8 +282,8 @@ func TestAsanaAction_SkipsWhenNoProjectID(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"review pull request"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "asana_skipped_no_project_id" {
 		t.Errorf("want 'asana_skipped_no_project_id', got %v", result)
@@ -333,8 +334,8 @@ func TestClickUpAction_SkipsWhenNoAPIKey(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"triage bug reports"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "clickup_skipped_no_api_key" {
 		t.Errorf("want 'clickup_skipped_no_api_key', got %v", result)
@@ -348,8 +349,8 @@ func TestClickUpAction_SkipsWhenNoListID(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"triage bug reports"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "clickup_skipped_no_list_id" {
 		t.Errorf("want 'clickup_skipped_no_list_id', got %v", result)
@@ -421,8 +422,8 @@ func TestTodoistAction_SkipsWhenNoAPIKey(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"buy eggs"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "todoist_skipped_no_api_key" {
 		t.Errorf("want 'todoist_skipped_no_api_key', got %v", result)

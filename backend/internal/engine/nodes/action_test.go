@@ -3,6 +3,7 @@ package nodes_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -118,8 +119,8 @@ func TestEmailAction_SkipsWhenNonResendProviderHasNoFromAddress(t *testing.T) {
 	}
 	rc := engine.NewRunContext("r1", []byte(`"done"`))
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
 	}
 	if result != "email_skipped_no_from_address" {
 		t.Errorf("want 'email_skipped_no_from_address', got %v", result)

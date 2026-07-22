@@ -40,15 +40,15 @@ func SetGitHubAPIBaseForTest(base string) {
 func sendGitHub(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	token := secretVal(node, "githubToken")
 	if token == "" {
-		return "github_skipped_no_token", nil
+		return "github_skipped_no_token", ErrActionSkipped
 	}
 	repo := configVal(node, "githubRepo", "")
 	if repo == "" {
-		return "github_skipped_no_repo", nil
+		return "github_skipped_no_repo", ErrActionSkipped
 	}
 	owner, name, ok := strings.Cut(repo, "/")
 	if !ok || owner == "" || name == "" {
-		return "github_skipped_invalid_repo", nil
+		return "github_skipped_invalid_repo", ErrActionSkipped
 	}
 	target := githubAPIBase + "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(name) + "/issues"
 	msg := rc.Message()
@@ -76,16 +76,16 @@ func SetJiraAPIBaseForTest(base string) {
 func sendJira(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	apiToken := secretVal(node, "jiraAPIToken")
 	if apiToken == "" {
-		return "jira_skipped_no_api_token", nil
+		return "jira_skipped_no_api_token", ErrActionSkipped
 	}
 	email := configVal(node, "jiraEmail", "")
 	domain := configVal(node, "jiraDomain", "")
 	projectKey := configVal(node, "jiraProjectKey", "")
 	if email == "" || domain == "" || projectKey == "" {
-		return "jira_skipped_missing_config", nil
+		return "jira_skipped_missing_config", ErrActionSkipped
 	}
 	if !jiraDomainPattern.MatchString(domain) {
-		return "jira_skipped_invalid_domain", nil
+		return "jira_skipped_invalid_domain", ErrActionSkipped
 	}
 	issueType := configVal(node, "jiraIssueType", "Task")
 	base := jiraAPIBase
@@ -129,11 +129,11 @@ func SetLinearAPIBaseForTest(base string) {
 func sendLinear(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	apiKey := secretVal(node, "linearAPIKey")
 	if apiKey == "" {
-		return "linear_skipped_no_api_key", nil
+		return "linear_skipped_no_api_key", ErrActionSkipped
 	}
 	teamID := configVal(node, "linearTeamID", "")
 	if teamID == "" {
-		return "linear_skipped_no_team_id", nil
+		return "linear_skipped_no_team_id", ErrActionSkipped
 	}
 	msg := rc.Message()
 	payload := map[string]any{
@@ -193,11 +193,11 @@ func sendLinear(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 func sendGitLab(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	token := secretVal(node, "gitlabAPIToken")
 	if token == "" {
-		return "gitlab_skipped_no_token", nil
+		return "gitlab_skipped_no_token", ErrActionSkipped
 	}
 	projectID := configVal(node, "gitlabProjectID", "")
 	if projectID == "" {
-		return "gitlab_skipped_no_project_id", nil
+		return "gitlab_skipped_no_project_id", ErrActionSkipped
 	}
 	base := strings.TrimRight(configVal(node, "gitlabBaseURL", "https://gitlab.com"), "/")
 	target := base + "/api/v4/projects/" + url.PathEscape(projectID) + "/issues"
@@ -210,7 +210,7 @@ func sendGitLab(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 func sendSentry(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	dsn := secretVal(node, "sentryDSN")
 	if dsn == "" {
-		return "sentry_skipped_no_dsn", nil
+		return "sentry_skipped_no_dsn", ErrActionSkipped
 	}
 	publicKey, host, projectID, err := parseSentryDSN(dsn)
 	if err != nil {

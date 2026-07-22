@@ -25,11 +25,11 @@ func SetNotionAPIBaseForTest(base string) {
 func sendNotion(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	apiKey := secretVal(node, "notionAPIKey")
 	if apiKey == "" {
-		return "notion_skipped_no_api_key", nil
+		return "notion_skipped_no_api_key", ErrActionSkipped
 	}
 	pageID := configVal(node, "notionPageID", "")
 	if pageID == "" {
-		return "notion_skipped_no_page_id", nil
+		return "notion_skipped_no_page_id", ErrActionSkipped
 	}
 	target := notionAPIBase + "/v1/blocks/" + url.PathEscape(pageID) + "/children"
 	payload := map[string]any{
@@ -71,12 +71,12 @@ func SetAirtableAPIBaseForTest(base string) {
 func sendAirtable(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	apiKey := secretVal(node, "airtableAPIKey")
 	if apiKey == "" {
-		return "airtable_skipped_no_api_key", nil
+		return "airtable_skipped_no_api_key", ErrActionSkipped
 	}
 	baseID := configVal(node, "airtableBaseID", "")
 	table := configVal(node, "airtableTable", "")
 	if baseID == "" || table == "" {
-		return "airtable_skipped_missing_config", nil
+		return "airtable_skipped_missing_config", ErrActionSkipped
 	}
 	fieldName := configVal(node, "airtableFieldName", "Notes")
 	target := airtableAPIBase + "/v0/" + url.PathEscape(baseID) + "/" + url.PathEscape(table)
@@ -102,11 +102,11 @@ func sendTrello(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	apiKey := secretVal(node, "trelloAPIKey")
 	token := secretVal(node, "trelloToken")
 	if apiKey == "" || token == "" {
-		return "trello_skipped_no_credentials", nil
+		return "trello_skipped_no_credentials", ErrActionSkipped
 	}
 	listID := configVal(node, "trelloListID", "")
 	if listID == "" {
-		return "trello_skipped_no_list_id", nil
+		return "trello_skipped_no_list_id", ErrActionSkipped
 	}
 	// Trello requires key/token as query params, but name/desc go in the JSON
 	// body — putting the (unbounded) agent message in the query string risked
@@ -140,11 +140,11 @@ func SetAsanaAPIBaseForTest(base string) {
 func sendAsana(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	apiKey := secretVal(node, "asanaAPIKey")
 	if apiKey == "" {
-		return "asana_skipped_no_api_key", nil
+		return "asana_skipped_no_api_key", ErrActionSkipped
 	}
 	projectID := configVal(node, "asanaProjectID", "")
 	if projectID == "" {
-		return "asana_skipped_no_project_id", nil
+		return "asana_skipped_no_project_id", ErrActionSkipped
 	}
 	msg := rc.Message()
 	payload := map[string]any{
@@ -174,11 +174,11 @@ func SetClickUpAPIBaseForTest(base string) {
 func sendClickUp(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	apiKey := secretVal(node, "clickupAPIKey")
 	if apiKey == "" {
-		return "clickup_skipped_no_api_key", nil
+		return "clickup_skipped_no_api_key", ErrActionSkipped
 	}
 	listID := configVal(node, "clickupListID", "")
 	if listID == "" {
-		return "clickup_skipped_no_list_id", nil
+		return "clickup_skipped_no_list_id", ErrActionSkipped
 	}
 	target := clickupAPIBase + "/api/v2/list/" + url.PathEscape(listID) + "/task"
 	msg := rc.Message()
@@ -203,7 +203,7 @@ func SetTodoistAPIBaseForTest(base string) {
 func sendTodoist(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	apiKey := secretVal(node, "todoistAPIKey")
 	if apiKey == "" {
-		return "todoist_skipped_no_api_key", nil
+		return "todoist_skipped_no_api_key", ErrActionSkipped
 	}
 	msg := rc.Message()
 	payload := map[string]any{"content": issueTitle(msg), "description": msg}
