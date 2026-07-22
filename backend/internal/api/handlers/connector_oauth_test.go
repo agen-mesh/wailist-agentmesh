@@ -2,6 +2,8 @@ package handlers_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -69,7 +71,12 @@ func mustParseLocationState(t *testing.T, location string) string {
 // both the authorize redirect target (never actually hit by Go code — the
 // browser would go there) and the token endpoint the callback handler POSTs
 // to, so the test only needs to fake the token endpoint.
-func fakeProviderServer(t *testing.T, wantCode string) *httptest.Server {
+//
+// capturedVerifier, when non-nil, is set to whatever `code_verifier` form
+// value (if any) arrived in the token-exchange POST, so PKCE tests can
+// assert on exactly what reached the token endpoint. Pass nil when a test
+// doesn't care about PKCE.
+func fakeProviderServer(t *testing.T, wantCode string, capturedVerifier *string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
@@ -80,6 +87,9 @@ func fakeProviderServer(t *testing.T, wantCode string) *httptest.Server {
 		}
 		if r.FormValue("client_id") != "test-client-id" || r.FormValue("client_secret") != "test-client-secret" {
 			t.Fatalf("client credentials missing from token exchange: %v", r.Form)
+		}
+		if capturedVerifier != nil {
+			*capturedVerifier = r.FormValue("code_verifier")
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"access_token":"fake-access-token","refresh_token":"fake-refresh-token","expires_in":3600}`))
@@ -123,7 +133,7 @@ func TestConnectorOAuthStartRedirectsToProviderWithSignedState(t *testing.T) {
 }
 
 func TestConnectorOAuthCallbackWritesEncryptedTokenIntoNodeSecrets(t *testing.T) {
-	provider := fakeProviderServer(t, "the-auth-code")
+	provider := fakeProviderServer(t, "the-auth-code", nil)
 	defer provider.Close()
 
 	store := testStore(t)
@@ -205,5 +215,151 @@ func TestConnectorOAuthCallbackRejectsMismatchedState(t *testing.T) {
 	loc := cbRec.Header().Get("Location")
 	if !strings.Contains(loc, "connectError=") {
 		t.Fatalf("expected redirect to carry a connectError, got %q", loc)
+	}
+}
+
+// TestConnectorOAuthPKCEVerifierNeverLeavesFrontChannel proves the PKCE
+// code_verifier travels only through a dedicated HttpOnly cookie, never
+// through the `state` query param that also gets sent to the third-party
+// /authorize endpoint (the front channel). It exercises both ends:
+//
+//  1. Start: the redirect carries a code_challenge, and the decoded state
+//     JWT payload contains neither a "verifier" claim nor the raw verifier
+//     value itself.
+//  2. Callback: the verifier read back from the separate cookie — not
+//     anything derived from the state JWT — is what actually reaches the
+//     token endpoint, and that cookie gets cleared in the response.
+func TestConnectorOAuthPKCEVerifierNeverLeavesFrontChannel(t *testing.T) {
+	var capturedVerifier string
+	provider := fakeProviderServer(t, "the-pkce-auth-code", &capturedVerifier)
+	defer provider.Close()
+
+	store := testStore(t)
+	d := &handlers.Deps{Store: store, JWTSecret: "test-jwt-secret-not-for-production-use-only-32b", BaseURL: "https://example.test", EncryptionKey: "00000000000000000000000000000000"}
+	handlers.SetConnectorProviderForTest("pkceprovider", handlers.ConnectorOAuthConfig{
+		AuthURL: provider.URL + "/authorize", TokenURL: provider.URL + "/token",
+		Scope: "read", UsesPKCE: true, ClientIDEnvVal: "test-client-id", ClientSecretEnvVal: "test-client-secret",
+	})
+	defer handlers.ClearConnectorProviderForTest("pkceprovider")
+
+	userID, workflowID, nodeID := setupConnectorTestFixtures(t, store)
+
+	startReq := httptest.NewRequest(http.MethodGet, "/connectors/oauth/pkceprovider/start?workflowId="+workflowID+"&nodeId="+nodeID, nil)
+	startReq = startReq.WithContext(context.WithValue(startReq.Context(), handlers.CtxUserID, userID))
+	startReq = withURLParam(startReq, "provider", "pkceprovider")
+	startRec := httptest.NewRecorder()
+	d.ConnectorOAuthStart(startRec, startReq)
+
+	if startRec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d, body=%s", startRec.Code, http.StatusFound, startRec.Body.String())
+	}
+
+	loc, err := url.Parse(startRec.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	challenge := loc.Query().Get("code_challenge")
+	if challenge == "" {
+		t.Fatal("expected a code_challenge in the authorize redirect URL")
+	}
+	if loc.Query().Get("code_challenge_method") != "S256" {
+		t.Fatalf("code_challenge_method = %q, want S256", loc.Query().Get("code_challenge_method"))
+	}
+
+	state := loc.Query().Get("state")
+	if state == "" {
+		t.Fatal("missing state param")
+	}
+
+	// Locate the two cookies Start should have set: the signed state cookie,
+	// and a SEPARATE cookie carrying the raw PKCE verifier.
+	var stateCookie, verifierCookie *http.Cookie
+	for _, c := range startRec.Result().Cookies() {
+		switch c.Name {
+		case "connector_oauth_state_pkceprovider":
+			stateCookie = c
+		case "connector_oauth_verifier_pkceprovider":
+			verifierCookie = c
+		}
+	}
+	if stateCookie == nil {
+		t.Fatal("expected a state cookie")
+	}
+	if verifierCookie == nil || verifierCookie.Value == "" {
+		t.Fatal("expected a separate, non-empty PKCE verifier cookie")
+	}
+
+	// Decode the JWT payload (the middle of its 3 dot-separated segments)
+	// exactly as anyone observing this URL (provider server logs, browser
+	// history, a leaked referrer) could, without needing the signing key.
+	parts := strings.Split(state, ".")
+	if len(parts) != 3 {
+		t.Fatalf("state is not a JWT: %q", state)
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decode JWT payload: %v", err)
+	}
+	if strings.Contains(strings.ToLower(string(payload)), "verifier") {
+		t.Fatalf("state JWT payload names the PKCE verifier: %s", payload)
+	}
+	if strings.Contains(string(payload), verifierCookie.Value) {
+		t.Fatalf("state JWT payload contains the raw PKCE verifier value: %s", payload)
+	}
+
+	// Confirm the challenge in the URL really is S256(cookie's verifier),
+	// i.e. Start didn't invent an unrelated challenge alongside a leaked one.
+	sum := sha256.Sum256([]byte(verifierCookie.Value))
+	wantChallenge := base64.RawURLEncoding.EncodeToString(sum[:])
+	if challenge != wantChallenge {
+		t.Fatalf("code_challenge = %q, want S256(verifier cookie) = %q", challenge, wantChallenge)
+	}
+
+	// Drive Callback presenting both cookies, exactly as a real browser
+	// round-trip would, and confirm the cookie's verifier — not anything
+	// from the state JWT — is what reaches the token endpoint.
+	cbReq := httptest.NewRequest(http.MethodGet, "/connectors/oauth/pkceprovider/callback?code=the-pkce-auth-code&state="+url.QueryEscape(state), nil)
+	cbReq = cbReq.WithContext(context.WithValue(cbReq.Context(), handlers.CtxUserID, userID))
+	cbReq = withURLParam(cbReq, "provider", "pkceprovider")
+	cbReq.AddCookie(stateCookie)
+	cbReq.AddCookie(verifierCookie)
+	cbRec := httptest.NewRecorder()
+
+	d.ConnectorOAuthCallback(cbRec, cbReq)
+
+	if cbRec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d, body=%s", cbRec.Code, http.StatusFound, cbRec.Body.String())
+	}
+	if capturedVerifier == "" {
+		t.Fatal("token exchange never received a code_verifier")
+	}
+	if capturedVerifier != verifierCookie.Value {
+		t.Fatalf("code_verifier sent to token endpoint = %q, want cookie value %q", capturedVerifier, verifierCookie.Value)
+	}
+
+	wf, err := store.GetWorkflow(context.Background(), workflowID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var node models.WorkflowNode
+	for _, n := range wf.Nodes {
+		if n.ID == nodeID {
+			node = n
+		}
+	}
+	if node.Secrets["pkceproviderOAuthAccessToken"] == "" {
+		t.Fatal("expected pkceproviderOAuthAccessToken to be set after a successful PKCE exchange")
+	}
+
+	// The verifier cookie must be cleared in the callback response, same as
+	// the state cookie already is.
+	cleared := false
+	for _, c := range cbRec.Result().Cookies() {
+		if c.Name == "connector_oauth_verifier_pkceprovider" && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Fatal("expected the PKCE verifier cookie to be cleared in the callback response")
 	}
 }

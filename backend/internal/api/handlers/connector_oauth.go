@@ -32,11 +32,13 @@ type ConnectorOAuthConfig struct {
 	ClientSecretEnvVal string
 }
 
-// connectorProviders is populated by registerConnectorProviders(d), called
-// once per request from the two handlers below so it always reflects the
-// current Deps (client id/secret can differ between the real server and
-// tests). Tests use SetConnectorProviderForTest to inject a fake entry
-// instead of going through Deps at all.
+// testProviderOverrides holds provider configs injected by tests via
+// SetConnectorProviderForTest, entirely separate from real Deps fields.
+// registerConnectorProviders (below) merges these in first, then Tasks 3-14
+// each add their real connector's entry (backed by that connector's actual
+// Deps client id/secret fields) into the map it builds and returns. It is
+// called once per request from the two handlers below so it always reflects
+// the current Deps.
 var testProviderOverrides = map[string]ConnectorOAuthConfig{}
 
 // SetConnectorProviderForTest and ClearConnectorProviderForTest let tests
@@ -51,7 +53,8 @@ func ClearConnectorProviderForTest(name string) {
 
 // registerConnectorProviders builds the provider registry from Deps' client
 // id/secret fields. Real provider entries (slack, github, notion, ...) are
-// added to this switch by Tasks 3–14 as each connector is wired up.
+// added to this map's returned literal by Tasks 3–14 as each connector is
+// wired up.
 func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
 	out := map[string]ConnectorOAuthConfig{}
 	for k, v := range testProviderOverrides {
@@ -88,12 +91,20 @@ func connectorExpiresConfigKey(provider string) string {
 // provides CSRF binding: state must equal the cookie's own value, so a
 // forged start-URL clicked by a victim can't complete using an attacker's
 // authorization against the victim's own node.
+//
+// The PKCE code_verifier deliberately does NOT live here. This state JWT is
+// also sent as the `state` query parameter on the redirect to the
+// third-party's /authorize endpoint — a front-channel value that can end up
+// in the provider's server logs, browser history, or a leaked referrer.
+// HS256 signing gives integrity, not confidentiality, so anything placed in
+// these claims should be treated as readable by whoever observes that URL.
+// The verifier instead travels in its own separate HttpOnly cookie (see
+// connectorVerifierCookieName) that's never echoed back to the provider.
 type connectorLinkClaims struct {
 	UserID     string `json:"sub"`
 	WorkflowID string `json:"wf"`
 	NodeID     string `json:"node"`
 	Provider   string `json:"provider"`
-	Verifier   string `json:"verifier,omitempty"` // PKCE code_verifier, only set when UsesPKCE
 	jwt.RegisteredClaims
 }
 
@@ -101,6 +112,15 @@ const connectorLinkTTL = 10 * time.Minute
 
 func connectorStateCookieName(provider string) string {
 	return "connector_oauth_state_" + provider
+}
+
+// connectorVerifierCookieName names the separate HttpOnly cookie that carries
+// the raw PKCE code_verifier across the Start -> Callback round-trip. Kept
+// out of the signed state JWT (see connectorLinkClaims) because that JWT
+// also travels as the `state` query param on the front channel to the
+// provider; this cookie never leaves the browser-to-our-server path.
+func connectorVerifierCookieName(provider string) string {
+	return "connector_oauth_verifier_" + provider
 }
 
 // ConnectorOAuthStart redirects the browser to the provider's consent screen
@@ -151,7 +171,7 @@ func (d *Deps) ConnectorOAuthStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := connectorLinkClaims{
-		UserID: userID, WorkflowID: workflowID, NodeID: nodeID, Provider: provider, Verifier: verifier,
+		UserID: userID, WorkflowID: workflowID, NodeID: nodeID, Provider: provider,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(connectorLinkTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -168,6 +188,12 @@ func (d *Deps) ConnectorOAuthStart(w http.ResponseWriter, r *http.Request) {
 		Name: connectorStateCookieName(provider), Value: state, Path: "/",
 		MaxAge: int(connectorLinkTTL.Seconds()), HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
 	})
+	if cfg.UsesPKCE {
+		http.SetCookie(w, &http.Cookie{
+			Name: connectorVerifierCookieName(provider), Value: verifier, Path: "/",
+			MaxAge: int(connectorLinkTTL.Seconds()), HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
+		})
+	}
 
 	q := url.Values{}
 	q.Set("client_id", cfg.ClientIDEnvVal)
@@ -228,7 +254,22 @@ func (d *Deps) ConnectorOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessToken, refreshToken, expiresIn, err := exchangeConnectorCode(cfg, code, d.connectorRedirectURI(provider), claims.Verifier)
+	var verifier string
+	if cfg.UsesPKCE {
+		verifierCookieName := connectorVerifierCookieName(provider)
+		verifierCookie, err := r.Cookie(verifierCookieName)
+		if err != nil || verifierCookie.Value == "" {
+			d.connectorRedirectFail(w, r, claims.WorkflowID, "invalid_state")
+			return
+		}
+		verifier = verifierCookie.Value
+		http.SetCookie(w, &http.Cookie{
+			Name: verifierCookieName, Value: "", Path: "/", MaxAge: -1,
+			HttpOnly: true, Secure: strings.HasPrefix(d.BaseURL, "https"), SameSite: http.SameSiteLaxMode,
+		})
+	}
+
+	accessToken, refreshToken, expiresIn, err := exchangeConnectorCode(cfg, code, d.connectorRedirectURI(provider), verifier)
 	if err != nil {
 		d.connectorRedirectFail(w, r, claims.WorkflowID, "token_exchange")
 		return
