@@ -240,3 +240,99 @@ func TestInsufficientBalanceBlocksToolNodeBeforeExecution(t *testing.T) {
 		t.Fatalf("want balance unchanged at 0, got %d", balance)
 	}
 }
+
+func TestAgentNodeChargesOwnFeeAndAttachedToolCalls(t *testing.T) {
+	runner, store := newTestRunner(t)
+	ctx := context.Background()
+
+	toolSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"result":"tool ran"}`))
+	}))
+	defer toolSrv.Close()
+
+	callCount := 0
+	llmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		if callCount == 1 {
+			w.Write([]byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"search_tool","arguments":"{}"}}]}}]}`))
+			return
+		}
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"done"}}]}`))
+	}))
+	defer llmSrv.Close()
+	nodes.SetOpenAIBaseURL(llmSrv.URL)
+	defer nodes.SetOpenAIBaseURL("https://api.openai.com")
+
+	email := fmt.Sprintf("agent-fee-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fundUser(t, store, user.ID, 100000) // 10 cents: 1 agent fee + 1 tool fee = 20000, plenty of headroom
+
+	wf, err := store.CreateWorkflow(ctx, "Agent Fee Test", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.DeleteWorkflow(context.Background(), wf.ID) })
+
+	graph := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "n1", Type: models.NodeTypeTrigger},
+			{ID: "agent1", Type: models.NodeTypeAgent},
+			{ID: "provider1", Type: models.NodeTypeProvider, Template: "openai", APIKey: "test-key", Model: "gpt-4o"},
+			{ID: "tool1", Type: models.NodeTypeTool, Name: "search_tool", Template: "http", URL: toolSrv.URL, Method: "GET"},
+			{ID: "n3", Type: models.NodeTypeEnd},
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "e1", From: "n1", To: "agent1", Kind: models.EdgeKindFlow},
+			{ID: "e2", From: "agent1", To: "n3", Kind: models.EdgeKindFlow},
+			{ID: "e3", From: "provider1", To: "agent1", Kind: models.EdgeKindAttach, ToPort: "model"},
+			{ID: "e4", From: "tool1", To: "agent1", Kind: models.EdgeKindAttach, ToPort: "tools"},
+		},
+	}
+	wf, _ = store.UpdateWorkflow(ctx, wf.ID, wf.Name, graph)
+
+	run, err := store.CreateRun(ctx, wf.ID, "test", []byte(`{"message":"hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker := sse.NewBroker()
+	broker.Create(run.ID)
+
+	runner.Start(wf, run)
+	final := waitForRunDone(t, store, run.ID)
+	if final.Status != models.RunStatusSuccess {
+		t.Fatalf("want success got %s", final.Status)
+	}
+
+	balance, err := store.GetCreditBalance(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 100000 - 10000 (agent's own fee) - 10000 (attached tool call) = 80000
+	if balance != 80000 {
+		t.Fatalf("want balance 80000 got %d", balance)
+	}
+
+	entries, err := store.ListDebitLedger(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("want 2 ledger entries (agent fee + tool fee), got %d: %+v", len(entries), entries)
+	}
+	var sawAgentFee, sawToolFee bool
+	for _, e := range entries {
+		if e.NodeID == "agent1" && e.Kind == models.DebitKindByokFlatFee {
+			sawAgentFee = true
+		}
+		if e.NodeID == "tool1" && e.Kind == models.DebitKindByokFlatFee {
+			sawToolFee = true
+		}
+	}
+	if !sawAgentFee || !sawToolFee {
+		t.Fatalf("want one ledger entry for agent1 and one for tool1, got %+v", entries)
+	}
+}

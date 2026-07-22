@@ -230,8 +230,29 @@ func (r *Runner) executeNode(
 	case models.NodeTypeEnd:
 		return rc.Message(), nil
 	case models.NodeTypeAgent:
+		if err := r.preflightCheck(ctx, wf, byokFlatFeeUSDMicros); err != nil {
+			return nil, err
+		}
 		aw := walletByAgent[node.ID]
-		return nodes.ExecuteAgent(ctx, node, attachMap[node.ID], aw, r.walletSvc, rc)
+		result, err := nodes.ExecuteAgent(ctx, node, attachMap[node.ID], aw, r.walletSvc, rc)
+		if err != nil {
+			return nil, err
+		}
+		r.debitOrLog(ctx, wf, run, node.ID, byokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+		if m, ok := result.(map[string]any); ok {
+			if payments, ok := m["x402Payments"].([]map[string]any); ok {
+				for _, p := range payments {
+					nodeID, _ := p["nodeId"].(string)
+					r.debitOrLog(ctx, wf, run, nodeID, x402PlatformFeeUSDMicros, models.DebitKindX402PlatformFee)
+				}
+			}
+			if nodeIDs, ok := m["billedFlatFeeNodeIds"].([]string); ok {
+				for _, nodeID := range nodeIDs {
+					r.debitOrLog(ctx, wf, run, nodeID, byokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+				}
+			}
+		}
+		return result, nil
 	case models.NodeTypeProvider:
 		return rc.Message(), nil
 	case models.NodeTypeTool:
