@@ -125,7 +125,7 @@ func buildFuncDecls(tools []models.WorkflowNode) []funcDecl {
 
 // ─── tool execution helper ────────────────────────────────────────────────────
 
-func executeFunctionCall(ctx context.Context, funcName string, args map[string]any, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter) (any, error) {
+func executeFunctionCall(ctx context.Context, funcName string, args map[string]any, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter) (any, models.WorkflowNode, error) {
 	for _, t := range tools {
 		if toolFuncName(t) != funcName {
 			continue
@@ -144,11 +144,13 @@ func executeFunctionCall(ctx context.Context, funcName string, args map[string]a
 			}
 		}
 		if t.Type == models.NodeTypeTool402 {
-			return ExecuteTool402(ctx, toolNode, rc, aw, signer)
+			result, err := ExecuteTool402(ctx, toolNode, rc, aw, signer)
+			return result, toolNode, err
 		}
-		return ExecuteTool(ctx, toolNode, rc)
+		result, err := ExecuteTool(ctx, toolNode, rc)
+		return result, toolNode, err
 	}
-	return nil, fmt.Errorf("tool %q not found in attached tools", funcName)
+	return nil, models.WorkflowNode{}, fmt.Errorf("tool %q not found in attached tools", funcName)
 }
 
 // ─── low-level HTTP helper ────────────────────────────────────────────────────
@@ -224,6 +226,7 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 	}
 
 	var x402Payments []map[string]any
+	var billedFlatFeeNodeIds []string
 
 	// Agentic loop — keep calling until the model returns text (no function call).
 	for iter := 0; iter < maxToolIterations; iter++ {
@@ -240,8 +243,15 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 			if textErr != nil {
 				return nil, textErr
 			}
-			if len(x402Payments) > 0 {
-				return map[string]any{"message": text, "x402Payments": x402Payments}, nil
+			if len(x402Payments) > 0 || len(billedFlatFeeNodeIds) > 0 {
+				out := map[string]any{"message": text}
+				if len(x402Payments) > 0 {
+					out["x402Payments"] = x402Payments
+				}
+				if len(billedFlatFeeNodeIds) > 0 {
+					out["billedFlatFeeNodeIds"] = billedFlatFeeNodeIds
+				}
+				return out, nil
 			}
 			return text, nil
 		}
@@ -256,7 +266,7 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 		// Execute every requested function call and collect responses
 		responseParts := make([]map[string]any, 0, len(calls))
 		for _, c := range calls {
-			result, execErr := executeFunctionCall(ctx, c.name, c.args, tools, aw, signer, rc)
+			result, toolNode, execErr := executeFunctionCall(ctx, c.name, c.args, tools, aw, signer, rc)
 			resultStr := ""
 			if execErr != nil {
 				resultStr = "error: " + execErr.Error()
@@ -265,6 +275,9 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 					if _, hasTx := m["txId"]; hasTx {
 						x402Payments = append(x402Payments, collectX402Receipt(c.name, m, tools))
 					}
+				}
+				if BillableFlatFee(toolNode.Type, toolNode.Template) {
+					billedFlatFeeNodeIds = append(billedFlatFeeNodeIds, toolNode.ID)
 				}
 				b, _ := json.Marshal(result)
 				resultStr = string(b)
@@ -369,6 +382,7 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 	headers := map[string]string{"Authorization": "Bearer " + provider.APIKey}
 
 	var x402Payments []map[string]any
+	var billedFlatFeeNodeIds []string
 
 	// Agentic loop — repeat until the model returns content with no tool calls.
 	for iter := 0; iter < maxToolIterations; iter++ {
@@ -389,8 +403,15 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 		if len(toolCalls) == 0 {
 			// No tool calls — return the final answer
 			content, _ := msg["content"].(string)
-			if len(x402Payments) > 0 {
-				return map[string]any{"message": content, "x402Payments": x402Payments}, nil
+			if len(x402Payments) > 0 || len(billedFlatFeeNodeIds) > 0 {
+				out := map[string]any{"message": content}
+				if len(x402Payments) > 0 {
+					out["x402Payments"] = x402Payments
+				}
+				if len(billedFlatFeeNodeIds) > 0 {
+					out["billedFlatFeeNodeIds"] = billedFlatFeeNodeIds
+				}
+				return out, nil
 			}
 			return content, nil
 		}
@@ -413,7 +434,7 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 			var tcArgs map[string]any
 			json.Unmarshal([]byte(tcArgsStr), &tcArgs)
 
-			toolResult, toolErr := executeFunctionCall(ctx, tcName, tcArgs, tools, aw, signer, rc)
+			toolResult, toolNode, toolErr := executeFunctionCall(ctx, tcName, tcArgs, tools, aw, signer, rc)
 			resultStr := ""
 			if toolErr != nil {
 				resultStr = "error: " + toolErr.Error()
@@ -422,6 +443,9 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 					if _, hasTx := m["txId"]; hasTx {
 						x402Payments = append(x402Payments, collectX402Receipt(tcName, m, tools))
 					}
+				}
+				if BillableFlatFee(toolNode.Type, toolNode.Template) {
+					billedFlatFeeNodeIds = append(billedFlatFeeNodeIds, toolNode.ID)
 				}
 				b, _ := json.Marshal(toolResult)
 				resultStr = string(b)
