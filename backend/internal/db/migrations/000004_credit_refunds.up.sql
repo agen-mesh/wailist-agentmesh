@@ -1,0 +1,1 @@
+ALTER TABLE credit_ledger ADD COLUMN IF NOT EXISTS refunded_inr_paise BIGINT NOT NULL DEFAULT 0;
