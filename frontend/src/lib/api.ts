@@ -70,6 +70,7 @@ export const workflows = {
   list: async (): Promise<Workflow[]> => {
     if (BASE) {
       const res = await fetch(`${BASE}/workflows`, { credentials: "include" });
+      if (!res.ok) throw new Error("workflows fetch failed");
       return res.json();
     }
     await delay(200);
