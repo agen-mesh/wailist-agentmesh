@@ -1,6 +1,6 @@
 "use client";
 import type { OrderTotals } from "./types";
-import { bonusUSD, creditsForTopup } from "@/lib/credits/fx";
+import { bonusUSD, creditsForTopup, gstBreakdown } from "@/lib/credits/fx";
 
 // Money summary for the credits checkout — a right-aligned totals block. Coupons
 // are intentionally omitted (not offered yet) and there is no shipping, since
@@ -8,6 +8,7 @@ import { bonusUSD, creditsForTopup } from "@/lib/credits/fx";
 export function OrderSummary({ totals }: { totals: OrderTotals }) {
   const credits = creditsForTopup(totals.total);
   const bonus = bonusUSD(totals.total);
+  const { base, gst } = gstBreakdown(totals.total);
   return (
     <div
       style={{
@@ -26,7 +27,8 @@ export function OrderSummary({ totals }: { totals: OrderTotals }) {
           gap: 12,
         }}
       >
-        <SummaryRow label="Subtotal" value={totals.subtotal} />
+        <SummaryRow label="Subtotal (excl. GST)" value={base} />
+        <SummaryRow label="GST (18%)" value={gst} />
         <div
           style={{
             display: "flex",

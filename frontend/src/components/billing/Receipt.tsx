@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "react";
 import type { Purchase } from "@/lib/credits/types";
 import type { PaymentMethod } from "@/components/checkout/types";
+import { gstBreakdown } from "@/lib/credits/fx";
 
 const METHOD_LABELS: Record<PaymentMethod, string> = {
   card: "Credit card",
@@ -116,6 +117,14 @@ export function Receipt({
           <Row
             label="Date"
             value={dateFmt.format(new Date(purchase.createdAt))}
+          />
+          <Row
+            label="Subtotal (excl. GST)"
+            value={`₹${gstBreakdown(purchase.amountINR).base.toFixed(2)}`}
+          />
+          <Row
+            label="GST (18%)"
+            value={`₹${gstBreakdown(purchase.amountINR).gst.toFixed(2)}`}
           />
           <Row
             label="Amount paid"

@@ -26,3 +26,15 @@ export function bonusUSD(amountINR: number): number {
 export function creditsForTopup(amountINR: number): number {
   return inrToCreditsUSD(amountINR) + bonusUSD(amountINR);
 }
+
+// Illustrative GST for Indian payments. Prices are treated as tax-inclusive, so
+// this splits a total into its base and GST components (display only, mock).
+export const GST_RATE = 0.18;
+
+export function gstBreakdown(totalInclusive: number): {
+  base: number;
+  gst: number;
+} {
+  const base = totalInclusive / (1 + GST_RATE);
+  return { base, gst: totalInclusive - base };
+}
