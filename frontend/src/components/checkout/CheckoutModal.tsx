@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { IconClose } from "@/components/ui";
 import type { CartItem, PaymentMethod } from "./types";
-import { MOCK_CART, computeTotals } from "./mockData";
+import { buildCreditCart, computeTotals } from "./mockData";
 import { CartItemRow } from "./CartItemRow";
 import { OrderSummary } from "./OrderSummary";
 import { PaymentInfoPanel } from "./PaymentInfoPanel";
@@ -19,12 +19,16 @@ const RESPONSIVE_CSS = `
 
 export function CheckoutModal({
   open,
+  amountINR,
   onClose,
 }: {
   open: boolean;
+  amountINR: number;
   onClose: () => void;
 }) {
-  const [items, setItems] = useState<CartItem[]>(MOCK_CART);
+  const [items, setItems] = useState<CartItem[]>(() =>
+    buildCreditCart(amountINR),
+  );
   const [method, setMethod] = useState<PaymentMethod>("card");
 
   const totals = useMemo(() => computeTotals(items), [items]);

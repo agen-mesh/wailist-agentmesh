@@ -15,6 +15,12 @@ export default function BillingPage() {
     ? Math.round(parseFloat(customINR) * 100)
     : amountPaise;
 
+  // Rupees carried into the checkout modal; 0 when the amount is invalid.
+  const checkoutAmountINR =
+    Number.isFinite(effectiveAmountPaise) && effectiveAmountPaise >= 100
+      ? effectiveAmountPaise / 100
+      : 0;
+
   return (
     <div style={{ maxWidth: 480, margin: "48px auto", padding: 24 }}>
       <h1 style={{ fontSize: 20, fontWeight: 600, marginBottom: 16 }}>
@@ -86,6 +92,7 @@ export default function BillingPage() {
         <button
           type="button"
           onClick={() => setCheckoutOpen(true)}
+          disabled={checkoutAmountINR <= 0}
           style={{
             height: 36,
             padding: "0 16px",
@@ -95,7 +102,8 @@ export default function BillingPage() {
             color: "var(--fg-muted)",
             fontSize: 13,
             fontWeight: 500,
-            cursor: "pointer",
+            cursor: checkoutAmountINR <= 0 ? "default" : "pointer",
+            opacity: checkoutAmountINR <= 0 ? 0.5 : 1,
           }}
         >
           Open checkout
@@ -105,7 +113,11 @@ export default function BillingPage() {
       {message && <p style={{ marginTop: 16, fontSize: 13 }}>{message}</p>}
 
       {checkoutOpen && (
-        <CheckoutModal open onClose={() => setCheckoutOpen(false)} />
+        <CheckoutModal
+          open
+          amountINR={checkoutAmountINR}
+          onClose={() => setCheckoutOpen(false)}
+        />
       )}
     </div>
   );

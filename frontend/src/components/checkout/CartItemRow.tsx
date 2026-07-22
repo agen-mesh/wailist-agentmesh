@@ -103,7 +103,7 @@ export function CartItemRow({
           textAlign: "right",
         }}
       >
-        ${lineTotal.toFixed(2)}
+        ₹{lineTotal.toFixed(2)}
       </div>
     </div>
   );

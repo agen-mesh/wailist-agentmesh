@@ -44,7 +44,7 @@ export function OrderSummary({ totals }: { totals: OrderTotals }) {
               fontFamily: "var(--font-mono)",
             }}
           >
-            ${totals.total.toFixed(2)}
+            ₹{totals.total.toFixed(2)}
           </span>
         </div>
       </div>
@@ -63,7 +63,7 @@ function SummaryRow({ label, value }: { label: string; value: number }) {
           fontFamily: "var(--font-mono)",
         }}
       >
-        ${value.toFixed(2)}
+        ₹{value.toFixed(2)}
       </span>
     </div>
   );
