@@ -19,6 +19,7 @@ const CtxUserID contextKey = "userID"
 type RazorpayClient interface {
 	CreateOrder(ctx context.Context, amountPaise int64, receipt string) (payments.RazorpayOrder, error)
 	VerifySignature(orderID, paymentID, signature string) bool
+	VerifyWebhookSignature(body []byte, signature string) bool
 }
 
 type Deps struct {

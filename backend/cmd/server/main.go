@@ -37,7 +37,7 @@ func main() {
 		envOr("ALGORAND_NETWORK", "testnet"),
 	)
 
-	razorpayClient := payments.NewRazorpayClient(mustEnv("RAZORPAY_KEY_ID"), mustEnv("RAZORPAY_KEY_SECRET"))
+	razorpayClient := payments.NewRazorpayClient(mustEnv("RAZORPAY_KEY_ID"), mustEnv("RAZORPAY_KEY_SECRET"), mustEnv("RAZORPAY_WEBHOOK_SECRET"))
 
 	runner := engine.NewRunner(store, broker, walletSvc)
 

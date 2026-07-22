@@ -26,6 +26,9 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	r.Get("/auth/oauth/{provider}/callback", d.OAuthCallback)
 	r.Post("/waitlist", d.JoinWaitlist)
 	r.Post("/run/{workflowId}", d.PublicTrigger)
+	// Called by Razorpay's servers, not the browser — authenticated via HMAC signature
+	// (X-Razorpay-Signature), not a session cookie, so it must sit outside the JWT group.
+	r.Post("/payments/razorpay/webhook", d.RazorpayWebhook)
 
 	// Protected routes — JWT required
 	r.Group(func(r chi.Router) {

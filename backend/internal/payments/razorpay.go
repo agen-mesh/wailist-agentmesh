@@ -18,18 +18,20 @@ const razorpayLiveBaseURL = "https://api.razorpay.com/v1"
 // RazorpayClient talks to the Razorpay REST API directly (no SDK dependency,
 // consistent with this codebase's hand-rolled HTTP clients for external APIs).
 type RazorpayClient struct {
-	KeyID     string
-	KeySecret string
-	baseURL   string
-	client    *http.Client
+	KeyID         string
+	KeySecret     string
+	WebhookSecret string
+	baseURL       string
+	client        *http.Client
 }
 
-func NewRazorpayClient(keyID, keySecret string) *RazorpayClient {
+func NewRazorpayClient(keyID, keySecret, webhookSecret string) *RazorpayClient {
 	return &RazorpayClient{
-		KeyID:     keyID,
-		KeySecret: keySecret,
-		baseURL:   razorpayLiveBaseURL,
-		client:    &http.Client{Timeout: 10 * time.Second},
+		KeyID:         keyID,
+		KeySecret:     keySecret,
+		WebhookSecret: webhookSecret,
+		baseURL:       razorpayLiveBaseURL,
+		client:        &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -91,6 +93,17 @@ func (c *RazorpayClient) CreateOrder(ctx context.Context, amountPaise int64, rec
 func (c *RazorpayClient) VerifySignature(orderID, paymentID, signature string) bool {
 	mac := hmac.New(sha256.New, []byte(c.KeySecret))
 	mac.Write([]byte(orderID + "|" + paymentID))
+	expected := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(expected), []byte(signature))
+}
+
+// VerifyWebhookSignature checks the HMAC-SHA256 signature Razorpay sends in the
+// X-Razorpay-Signature header, computed over the raw webhook request body using the
+// webhook secret configured in the Razorpay dashboard (distinct from KeySecret).
+// See https://razorpay.com/docs/webhooks/validate-test/.
+func (c *RazorpayClient) VerifyWebhookSignature(body []byte, signature string) bool {
+	mac := hmac.New(sha256.New, []byte(c.WebhookSecret))
+	mac.Write(body)
 	expected := hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(expected), []byte(signature))
 }

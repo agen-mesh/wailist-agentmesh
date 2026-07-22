@@ -28,7 +28,7 @@ func TestCreateOrderReturnsOrderFromServer(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := payments.NewRazorpayClient("key_id", "key_secret")
+	c := payments.NewRazorpayClient("key_id", "key_secret", "webhook_secret")
 	c.SetBaseURLForTest(srv.URL)
 
 	order, err := c.CreateOrder(context.Background(), 50000, "receipt_1")
@@ -41,7 +41,7 @@ func TestCreateOrderReturnsOrderFromServer(t *testing.T) {
 }
 
 func TestCreateOrderRejectsBelowMinimum(t *testing.T) {
-	c := payments.NewRazorpayClient("key_id", "key_secret")
+	c := payments.NewRazorpayClient("key_id", "key_secret", "webhook_secret")
 	_, err := c.CreateOrder(context.Background(), 50, "receipt_1")
 	if err == nil {
 		t.Fatal("want error for amount below 100 paise, got nil")
@@ -54,7 +54,7 @@ func TestCreateOrderReturnsErrorOnAuthFailure(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := payments.NewRazorpayClient("wrong", "creds")
+	c := payments.NewRazorpayClient("wrong", "creds", "webhook_secret")
 	c.SetBaseURLForTest(srv.URL)
 
 	_, err := c.CreateOrder(context.Background(), 50000, "receipt_1")
@@ -64,7 +64,7 @@ func TestCreateOrderReturnsErrorOnAuthFailure(t *testing.T) {
 }
 
 func TestVerifySignatureAcceptsValidSignature(t *testing.T) {
-	c := payments.NewRazorpayClient("key_id", "key_secret")
+	c := payments.NewRazorpayClient("key_id", "key_secret", "webhook_secret")
 	mac := hmac.New(sha256.New, []byte("key_secret"))
 	mac.Write([]byte("order_abc123|pay_xyz789"))
 	sig := hex.EncodeToString(mac.Sum(nil))
@@ -75,8 +75,45 @@ func TestVerifySignatureAcceptsValidSignature(t *testing.T) {
 }
 
 func TestVerifySignatureRejectsTamperedSignature(t *testing.T) {
-	c := payments.NewRazorpayClient("key_id", "key_secret")
+	c := payments.NewRazorpayClient("key_id", "key_secret", "webhook_secret")
 	if c.VerifySignature("order_abc123", "pay_xyz789", "not-a-real-signature") {
 		t.Fatal("want tampered signature rejected")
+	}
+}
+
+func TestVerifyWebhookSignatureAcceptsValidSignature(t *testing.T) {
+	c := payments.NewRazorpayClient("key_id", "key_secret", "webhook_secret")
+	body := []byte(`{"event":"payment.captured","payload":{"payment":{"entity":{"id":"pay_1","order_id":"order_1"}}}}`)
+	mac := hmac.New(sha256.New, []byte("webhook_secret"))
+	mac.Write(body)
+	sig := hex.EncodeToString(mac.Sum(nil))
+
+	if !c.VerifyWebhookSignature(body, sig) {
+		t.Fatal("want valid webhook signature accepted")
+	}
+}
+
+func TestVerifyWebhookSignatureRejectsTamperedBody(t *testing.T) {
+	c := payments.NewRazorpayClient("key_id", "key_secret", "webhook_secret")
+	body := []byte(`{"event":"payment.captured","payload":{"payment":{"entity":{"id":"pay_1","order_id":"order_1"}}}}`)
+	mac := hmac.New(sha256.New, []byte("webhook_secret"))
+	mac.Write(body)
+	sig := hex.EncodeToString(mac.Sum(nil))
+
+	tampered := []byte(`{"event":"payment.captured","payload":{"payment":{"entity":{"id":"pay_1","order_id":"order_EVIL"}}}}`)
+	if c.VerifyWebhookSignature(tampered, sig) {
+		t.Fatal("want tampered body rejected")
+	}
+}
+
+func TestVerifyWebhookSignatureRejectsWrongSecret(t *testing.T) {
+	c := payments.NewRazorpayClient("key_id", "key_secret", "webhook_secret")
+	body := []byte(`{"event":"payment.captured"}`)
+	mac := hmac.New(sha256.New, []byte("a_different_secret"))
+	mac.Write(body)
+	sig := hex.EncodeToString(mac.Sum(nil))
+
+	if c.VerifyWebhookSignature(body, sig) {
+		t.Fatal("want signature computed with wrong secret rejected")
 	}
 }

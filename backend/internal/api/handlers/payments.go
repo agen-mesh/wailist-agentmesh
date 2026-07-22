@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 
@@ -85,4 +86,64 @@ func (d *Deps) VerifyRazorpayPayment(w http.ResponseWriter, r *http.Request) {
 		"status":              "credited",
 		"credited_usd_micros": creditedMicros,
 	})
+}
+
+// RazorpayWebhook is the server-side backstop for CreateRazorpayOrder/VerifyRazorpayPayment:
+// if a client-side verify call never lands (dropped connection, closed tab) after Razorpay
+// actually captures a payment, this webhook independently completes the same ledger row.
+// CompleteCreditTransaction is idempotent, so it's safe to call from both this webhook and
+// the client verify path for the same order without double-crediting.
+//
+// This is a public, unauthenticated route (registered outside the JWT auth group) because
+// Razorpay's servers call it directly, with no user session — the request is instead
+// authenticated by the HMAC signature in the X-Razorpay-Signature header, verified against
+// the webhook secret configured in the Razorpay dashboard.
+func (d *Deps) RazorpayWebhook(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		respond.Error(w, http.StatusBadRequest, "could not read body")
+		return
+	}
+
+	signature := r.Header.Get("X-Razorpay-Signature")
+	if signature == "" || !d.Razorpay.VerifyWebhookSignature(body, signature) {
+		respond.Error(w, http.StatusBadRequest, "signature verification failed")
+		return
+	}
+
+	var event struct {
+		Event   string `json:"event"`
+		Payload struct {
+			Payment struct {
+				Entity struct {
+					ID      string `json:"id"`
+					OrderID string `json:"order_id"`
+				} `json:"entity"`
+			} `json:"payment"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(body, &event); err != nil {
+		respond.Error(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+
+	if event.Event != "payment.captured" {
+		respond.JSON(w, http.StatusOK, map[string]string{"status": "ignored"})
+		return
+	}
+
+	orderID := event.Payload.Payment.Entity.OrderID
+	paymentID := event.Payload.Payment.Entity.ID
+	if orderID == "" || paymentID == "" {
+		respond.Error(w, http.StatusBadRequest, "missing order or payment id")
+		return
+	}
+
+	if _, err := d.Store.CompleteCreditTransaction(r.Context(), orderID, paymentID); err != nil {
+		log.Printf("razorpay webhook: complete transaction: %v", err)
+		respond.Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

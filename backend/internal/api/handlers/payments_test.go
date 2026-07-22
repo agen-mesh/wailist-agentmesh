@@ -13,9 +13,10 @@ import (
 )
 
 type fakeRazorpay struct {
-	order        payments.RazorpayOrder
-	createErr    error
-	verifyResult bool
+	order               payments.RazorpayOrder
+	createErr           error
+	verifyResult        bool
+	verifyWebhookResult bool
 }
 
 func (f *fakeRazorpay) CreateOrder(ctx context.Context, amountPaise int64, receipt string) (payments.RazorpayOrder, error) {
@@ -24,6 +25,10 @@ func (f *fakeRazorpay) CreateOrder(ctx context.Context, amountPaise int64, recei
 
 func (f *fakeRazorpay) VerifySignature(orderID, paymentID, signature string) bool {
 	return f.verifyResult
+}
+
+func (f *fakeRazorpay) VerifyWebhookSignature(body []byte, signature string) bool {
+	return f.verifyWebhookResult
 }
 
 func TestCreateRazorpayOrderRejectsBelowMinimum(t *testing.T) {
@@ -47,6 +52,61 @@ func TestVerifyRazorpayPaymentRejectsMissingFields(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	d.VerifyRazorpayPayment(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d", w.Code)
+	}
+}
+
+func TestRazorpayWebhookRejectsMissingSignatureHeader(t *testing.T) {
+	d := &handlers.Deps{Razorpay: &fakeRazorpay{verifyWebhookResult: true}}
+	body := []byte(`{"event":"payment.captured"}`)
+	req := httptest.NewRequest(http.MethodPost, "/payments/razorpay/webhook", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+
+	d.RazorpayWebhook(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d", w.Code)
+	}
+}
+
+func TestRazorpayWebhookRejectsBadSignature(t *testing.T) {
+	d := &handlers.Deps{Razorpay: &fakeRazorpay{verifyWebhookResult: false}}
+	body := []byte(`{"event":"payment.captured"}`)
+	req := httptest.NewRequest(http.MethodPost, "/payments/razorpay/webhook", bytes.NewReader(body))
+	req.Header.Set("X-Razorpay-Signature", "bad")
+	w := httptest.NewRecorder()
+
+	d.RazorpayWebhook(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d", w.Code)
+	}
+}
+
+func TestRazorpayWebhookIgnoresNonCapturedEvent(t *testing.T) {
+	d := &handlers.Deps{Razorpay: &fakeRazorpay{verifyWebhookResult: true}}
+	body := []byte(`{"event":"payment.failed","payload":{"payment":{"entity":{"id":"pay_1","order_id":"order_1"}}}}`)
+	req := httptest.NewRequest(http.MethodPost, "/payments/razorpay/webhook", bytes.NewReader(body))
+	req.Header.Set("X-Razorpay-Signature", "valid")
+	w := httptest.NewRecorder()
+
+	d.RazorpayWebhook(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200 got %d", w.Code)
+	}
+}
+
+func TestRazorpayWebhookRejectsMissingOrderOrPaymentID(t *testing.T) {
+	d := &handlers.Deps{Razorpay: &fakeRazorpay{verifyWebhookResult: true}}
+	body := []byte(`{"event":"payment.captured","payload":{"payment":{"entity":{"id":"","order_id":""}}}}`)
+	req := httptest.NewRequest(http.MethodPost, "/payments/razorpay/webhook", bytes.NewReader(body))
+	req.Header.Set("X-Razorpay-Signature", "valid")
+	w := httptest.NewRecorder()
+
+	d.RazorpayWebhook(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("want 400 got %d", w.Code)
