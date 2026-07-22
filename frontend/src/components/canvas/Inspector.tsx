@@ -12,6 +12,7 @@ import {
 } from "@/lib/data";
 import { Pill, IconClose } from "@/components/ui";
 import { agents as agentsApi, tools as toolsApi } from "@/lib/api";
+import { ConnectorOAuthButton } from "./ConnectorOAuthButton";
 
 interface InspectorProps {
   selected: WorkflowNode | null;
@@ -131,7 +132,11 @@ export function Inspector({
           <TriggerInspector node={selected} onUpdate={onUpdate} />
         )}
         {selected.type === "action" && (
-          <ActionInspector node={selected} onUpdate={onUpdate} />
+          <ActionInspector
+            node={selected}
+            workflowId={workflowId}
+            onUpdate={onUpdate}
+          />
         )}
         {selected.type === "end" && (
           <EndInspector node={selected} onUpdate={onUpdate} />
@@ -1251,7 +1256,7 @@ type ConnectorField =
 
 const CONNECTOR_CONFIG_FIELDS: Record<
   string,
-  { label: string; fields: ConnectorField[] }
+  { label: string; oauthProvider?: string; fields: ConnectorField[] }
 > = {
   slack: {
     label: "Slack config",
@@ -1677,15 +1682,24 @@ const CONNECTOR_CONFIG_FIELDS: Record<
 
 function ConnectorConfigSection({
   node,
+  workflowId,
   onUpdate,
 }: {
   node: WorkflowNode;
+  workflowId: string;
   onUpdate: (n: WorkflowNode) => void;
 }) {
   const spec = CONNECTOR_CONFIG_FIELDS[node.template ?? ""];
   if (!spec) return null;
   return (
     <Section label={spec.label}>
+      {spec.oauthProvider && (
+        <ConnectorOAuthButton
+          provider={spec.oauthProvider}
+          workflowId={workflowId}
+          node={node}
+        />
+      )}
       {spec.fields.map((f) =>
         f.kind === "secret" ? (
           <SecretField
@@ -1716,9 +1730,11 @@ function ConnectorConfigSection({
 // ── Action Inspector ───────────────────────────────────────────────────────
 function ActionInspector({
   node,
+  workflowId,
   onUpdate,
 }: {
   node: WorkflowNode;
+  workflowId: string;
   onUpdate: (n: WorkflowNode) => void;
 }) {
   return (
@@ -1819,7 +1835,11 @@ function ActionInspector({
         </Section>
       )}
 
-      <ConnectorConfigSection node={node} onUpdate={onUpdate} />
+      <ConnectorConfigSection
+        node={node}
+        workflowId={workflowId}
+        onUpdate={onUpdate}
+      />
     </>
   );
 }
