@@ -46,6 +46,65 @@ export const PROVIDER_TEMPLATES = [
   { id: "groq", name: "Groq", model: "llama-3.3-70b", icon: "q" },
 ];
 
+// Display-only mirror of backend/internal/engine/nodes/tier.go's modelTiers
+// map — the backend is the billing-authoritative source; this only drives
+// the Inspector's tier badge so the fee is visible before a run happens.
+// Keep in sync by hand when either the model dropdowns or the Go tier map
+// change.
+export const MODEL_TIERS: Record<
+  string,
+  Record<string, "economy" | "standard" | "frontier">
+> = {
+  gemini: {
+    "gemini-2.5-flash": "economy",
+    "gemini-2.0-flash": "economy",
+    "gemini-1.5-flash": "economy",
+    "gemini-2.5-pro": "standard",
+    "gemini-1.5-pro": "standard",
+  },
+  openai: {
+    "gpt-4o-mini": "economy",
+    "o4-mini": "economy",
+    "gpt-4.1": "standard",
+    "gpt-4o": "standard",
+    o3: "frontier",
+  },
+  anthropic: {
+    "claude-haiku-4-5": "economy",
+    "claude-sonnet-4-6": "standard",
+    "claude-3-5-sonnet-20241022": "standard",
+    "claude-opus-4-8": "frontier",
+  },
+  groq: {
+    "llama-3.1-8b-instant": "economy",
+    "gemma2-9b-it": "economy",
+    "llama-3.3-70b-versatile": "standard",
+    "mixtral-8x7b-32768": "standard",
+  },
+  mistral: {
+    "mistral-small-latest": "economy",
+    "codestral-latest": "economy",
+    "mistral-large-latest": "standard",
+    "mistral-medium-latest": "standard",
+  },
+};
+
+export const TIER_FEES: Record<"economy" | "standard" | "frontier", number> =
+  {
+    economy: 0.01,
+    standard: 0.03,
+    frontier: 0.05,
+  };
+
+// modelTier mirrors nodes.ModelTier's default: unrecognized template/model
+// pairs are "standard", never "economy".
+export function modelTier(
+  template: string,
+  model: string,
+): "economy" | "standard" | "frontier" {
+  return MODEL_TIERS[template]?.[model] ?? "standard";
+}
+
 export const TOOL_TEMPLATES = [
   { id: "http", name: "HTTP Request", desc: "GET/POST any URL", icon: "⟶" },
   { id: "code", name: "Code", desc: "Run JS/Python inline", icon: "{}" },
