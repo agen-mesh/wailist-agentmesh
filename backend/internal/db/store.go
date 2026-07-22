@@ -388,6 +388,12 @@ func (s *Store) CreateCreditTransaction(ctx context.Context, userID, providerOrd
 	return txn, err
 }
 
+// ErrCreditTransactionNotFound is returned when no credit_ledger row exists for the given
+// provider order ID — the caller supplied an order Razorpay never told us about (or that
+// our own CreateCreditTransaction failed to record). Callers should treat this as a
+// permanent 4xx, not a transient failure: retrying an unknown order will never succeed.
+var ErrCreditTransactionNotFound = errors.New("credit transaction not found")
+
 // CompleteCreditTransaction marks the ledger row for providerOrderID as completed and
 // credits the user's cached balance, atomically. Idempotent: if the row is already
 // completed (webhook/verify replay), it returns the stored amount without re-crediting.
@@ -410,6 +416,9 @@ func (s *Store) CompleteCreditTransaction(ctx context.Context, providerOrderID, 
 		WHERE provider_order_id = $1 AND provider = 'razorpay'
 		FOR UPDATE
 	`, providerOrderID).Scan(&id, &userID, &status, &creditUSDMicros)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrCreditTransactionNotFound
+	}
 	if err != nil {
 		return 0, err
 	}

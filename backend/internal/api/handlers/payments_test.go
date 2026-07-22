@@ -47,6 +47,20 @@ func TestCreateRazorpayOrderRejectsBelowMinimum(t *testing.T) {
 	}
 }
 
+func TestCreateRazorpayOrderRejectsAboveMaximum(t *testing.T) {
+	d := &handlers.Deps{Razorpay: &fakeRazorpay{}}
+	body, _ := json.Marshal(map[string]int64{"amount_inr_paise": 5_00_000_01})
+	req := httptest.NewRequest(http.MethodPost, "/payments/razorpay/order", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), handlers.CtxUserID, "user1"))
+	w := httptest.NewRecorder()
+
+	d.CreateRazorpayOrder(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d", w.Code)
+	}
+}
+
 func TestVerifyRazorpayPaymentRejectsMissingFields(t *testing.T) {
 	d := &handlers.Deps{Razorpay: &fakeRazorpay{verifyResult: true}}
 	body, _ := json.Marshal(map[string]string{"razorpay_order_id": "order_1"})
@@ -109,6 +123,41 @@ func TestRazorpayWebhookRejectsMissingOrderOrPaymentID(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	d.RazorpayWebhook(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d", w.Code)
+	}
+}
+
+func TestRazorpayWebhookRejectsUnknownOrder(t *testing.T) {
+	base := testDeps(t)
+	d := &handlers.Deps{Store: base.Store, Razorpay: &fakeRazorpay{verifyWebhookResult: true}}
+
+	orderID := fmt.Sprintf("order_unknown_%d", time.Now().UnixNano())
+	body := []byte(fmt.Sprintf(`{"event":"payment.captured","payload":{"payment":{"entity":{"id":"pay_1","order_id":"%s"}}}}`, orderID))
+	req := httptest.NewRequest(http.MethodPost, "/payments/razorpay/webhook", bytes.NewReader(body))
+	req.Header.Set("X-Razorpay-Signature", "valid")
+	w := httptest.NewRecorder()
+
+	d.RazorpayWebhook(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d", w.Code)
+	}
+}
+
+func TestVerifyRazorpayPaymentRejectsUnknownOrder(t *testing.T) {
+	base := testDeps(t)
+	d := &handlers.Deps{Store: base.Store, Razorpay: &fakeRazorpay{verifyResult: true}}
+
+	orderID := fmt.Sprintf("order_unknown_%d", time.Now().UnixNano())
+	body, _ := json.Marshal(map[string]string{
+		"razorpay_order_id": orderID, "razorpay_payment_id": "pay_1", "razorpay_signature": "sig",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/payments/razorpay/verify", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+
+	d.VerifyRazorpayPayment(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("want 400 got %d", w.Code)

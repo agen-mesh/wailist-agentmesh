@@ -2,17 +2,25 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
 
 	"github.com/google/uuid"
 
+	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/payments"
 	"github.com/agentmesh/backend/internal/respond"
 )
 
-const minRazorpayAmountPaise = 100
+const (
+	minRazorpayAmountPaise = 100
+	// 5,00,000 INR — well above any real top-up preset, guards against fat-fingered or
+	// abusive amounts and keeps values comfortably inside float64 precision for the credit
+	// math in CreateCreditTransaction.
+	maxRazorpayAmountPaise = 5_00_000_00
+)
 
 func (d *Deps) CreateRazorpayOrder(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(CtxUserID).(string)
@@ -26,6 +34,10 @@ func (d *Deps) CreateRazorpayOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.AmountINRPaise < minRazorpayAmountPaise {
 		respond.Error(w, http.StatusBadRequest, "amount must be at least 100 paise")
+		return
+	}
+	if body.AmountINRPaise > maxRazorpayAmountPaise {
+		respond.Error(w, http.StatusBadRequest, "amount exceeds maximum allowed")
 		return
 	}
 
@@ -89,6 +101,10 @@ func (d *Deps) VerifyRazorpayPayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	creditedMicros, err := d.Store.CompleteCreditTransaction(r.Context(), body.OrderID, body.PaymentID)
+	if errors.Is(err, db.ErrCreditTransactionNotFound) {
+		respond.Error(w, http.StatusBadRequest, "unknown order")
+		return
+	}
 	if err != nil {
 		log.Printf("razorpay verify: complete transaction: %v", err)
 		respond.Error(w, http.StatusInternalServerError, "internal error")
@@ -154,6 +170,13 @@ func (d *Deps) RazorpayWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := d.Store.CompleteCreditTransaction(r.Context(), orderID, paymentID); err != nil {
+		if errors.Is(err, db.ErrCreditTransactionNotFound) {
+			// A 4xx here tells Razorpay to stop retrying — this order will never exist,
+			// so retrying is pure noise, not a path to eventual success.
+			log.Printf("razorpay webhook: unknown order_id %s (payment %s)", orderID, paymentID)
+			respond.Error(w, http.StatusBadRequest, "unknown order")
+			return
+		}
 		log.Printf("razorpay webhook: complete transaction: %v", err)
 		respond.Error(w, http.StatusInternalServerError, "internal error")
 		return
