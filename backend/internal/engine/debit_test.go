@@ -569,6 +569,94 @@ func TestActionSkipPathNotBilled(t *testing.T) {
 	}
 }
 
+func TestPlatformKeyAgentRunDebitsTierFeeAndRecordsUsage(t *testing.T) {
+	runner, store := newTestRunner(t)
+	ctx := context.Background()
+
+	llmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer platform-secret" {
+			t.Errorf("want platform key, got %q", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]any{"role": "assistant", "content": "hi"}}},
+			"usage":   map[string]any{"prompt_tokens": 10, "completion_tokens": 5},
+		})
+	}))
+	defer llmSrv.Close()
+	nodes.SetOpenAIBaseURL(llmSrv.URL)
+	defer nodes.SetOpenAIBaseURL("https://api.openai.com")
+
+	runner.SetPlatformKeys(map[string]string{"openai": "platform-secret"})
+
+	email := fmt.Sprintf("platform-key-agent-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fundUser(t, store, user.ID, 100000) // 10 cents
+
+	wf, err := store.CreateWorkflow(ctx, "Platform Key Agent Test", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.DeleteWorkflow(context.Background(), wf.ID) })
+
+	graph := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "n1", Type: models.NodeTypeTrigger},
+			{ID: "agent1", Type: models.NodeTypeAgent},
+			{ID: "provider1", Type: models.NodeTypeProvider, Template: "openai", KeyMode: "platform", Model: "gpt-4.1"},
+			{ID: "n3", Type: models.NodeTypeEnd},
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "e1", From: "n1", To: "agent1", Kind: models.EdgeKindFlow},
+			{ID: "e2", From: "agent1", To: "n3", Kind: models.EdgeKindFlow},
+			{ID: "e3", From: "provider1", To: "agent1", Kind: models.EdgeKindAttach, ToPort: "model"},
+		},
+	}
+	wf, _ = store.UpdateWorkflow(ctx, wf.ID, wf.Name, graph)
+
+	run, err := store.CreateRun(ctx, wf.ID, "test", []byte(`{"message":"hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker := sse.NewBroker()
+	broker.Create(run.ID)
+
+	runner.Start(wf, run)
+	final := waitForRunDone(t, store, run.ID)
+	if final.Status != models.RunStatusSuccess {
+		t.Fatalf("want success got %s", final.Status)
+	}
+
+	balance, err := store.GetCreditBalance(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 70000 { // 100000 - 30000 (gpt-4.1 is "standard" tier, $0.03)
+		t.Fatalf("balance = %d, want 70000", balance)
+	}
+
+	entries, err := store.ListDebitLedger(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d debit entries, want 1: %+v", len(entries), entries)
+	}
+	e := entries[0]
+	if e.Kind != models.DebitKindPlatformKeyLLMFee {
+		t.Fatalf("kind = %q, want %q", e.Kind, models.DebitKindPlatformKeyLLMFee)
+	}
+	if e.AmountUSDMicros != 30000 {
+		t.Fatalf("amount = %d, want 30000", e.AmountUSDMicros)
+	}
+	if e.TokensIn == nil || *e.TokensIn != 10 || e.TokensOut == nil || *e.TokensOut != 5 {
+		t.Fatalf("usage = tokensIn=%v tokensOut=%v, want 10/5", e.TokensIn, e.TokensOut)
+	}
+}
+
 func TestInsufficientBalanceBlocksTool402BeforeExecution(t *testing.T) {
 	runner, store := newTestRunner(t)
 	ctx := context.Background()

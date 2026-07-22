@@ -18,10 +18,11 @@ import (
 )
 
 type Runner struct {
-	store     *db.Store
-	broker    *sse.Broker
-	walletSvc nodes.WalletSigner
-	registry  *runRegistry
+	store        *db.Store
+	broker       *sse.Broker
+	walletSvc    nodes.WalletSigner
+	registry     *runRegistry
+	platformKeys map[string]string
 }
 
 func NewRunner(store *db.Store, broker *sse.Broker, walletSvc nodes.WalletSigner) *Runner {
@@ -31,6 +32,15 @@ func NewRunner(store *db.Store, broker *sse.Broker, walletSvc nodes.WalletSigner
 		walletSvc: walletSvc,
 		registry:  newRunRegistry(),
 	}
+}
+
+// SetPlatformKeys installs AgentMesh's own provider API keys, used by
+// Provider nodes with KeyMode == "platform". Optional — a Runner with no
+// platform keys set simply errors (via resolveAPIKey) if a workflow tries
+// to use platform-key mode, which is the correct behavior for every test
+// harness and any deployment that hasn't configured PLATFORM_*_API_KEY.
+func (r *Runner) SetPlatformKeys(keys map[string]string) {
+	r.platformKeys = keys
 }
 
 // preflightCheck fails a node before it runs if wf.UserID can't cover
@@ -55,6 +65,21 @@ func (r *Runner) debitOrLog(ctx context.Context, wf models.Workflow, run models.
 	if err := r.store.DebitCredits(ctx, wf.UserID, amountUSDMicros, kind, wf.ID, run.ID, nodeID); err != nil {
 		log.Printf("debit failed: user=%s workflow=%s run=%s node=%s kind=%s amount=%d: %v",
 			wf.UserID, wf.ID, run.ID, nodeID, kind, amountUSDMicros, err)
+	}
+}
+
+// debitAgentFee charges the agent node's own LLM-call fee — the flat BYOK
+// convenience fee, or the platform-key tier fee with usage recorded — and
+// logs on failure rather than failing the node, same rationale as
+// debitOrLog: the call already happened, there's nothing left to roll back.
+func (r *Runner) debitAgentFee(ctx context.Context, wf models.Workflow, run models.Run, nodeID string, amountUSDMicros int64, platformMode bool, provider *models.WorkflowNode, tokensIn, tokensOut int) {
+	if !platformMode {
+		r.debitOrLog(ctx, wf, run, nodeID, amountUSDMicros, models.DebitKindByokFlatFee)
+		return
+	}
+	if err := r.store.DebitCreditsForPlatformLLM(ctx, wf.UserID, amountUSDMicros, wf.ID, run.ID, nodeID, provider.Model, tokensIn, tokensOut); err != nil {
+		log.Printf("platform-key debit failed: user=%s workflow=%s run=%s node=%s model=%s amount=%d: %v",
+			wf.UserID, wf.ID, run.ID, nodeID, provider.Model, amountUSDMicros, err)
 	}
 }
 
@@ -226,14 +251,22 @@ func (r *Runner) executeNode(
 	case models.NodeTypeEnd:
 		return rc.Message(), nil
 	case models.NodeTypeAgent:
-		if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
+		provider := attachMap[node.ID].Provider
+		platformMode := provider != nil && provider.KeyMode == "platform"
+
+		agentFeeUSDMicros := models.ByokFlatFeeUSDMicros
+		if platformMode {
+			agentFeeUSDMicros = nodes.PlatformKeyFeeUSDMicros(nodes.ModelTier(provider.Template, provider.Model))
+		}
+
+		if err := r.preflightCheck(ctx, wf, agentFeeUSDMicros); err != nil {
 			return nil, err
 		}
 		aw := walletByAgent[node.ID]
 		checkBalance := func(cctx context.Context, amount int64) error {
 			return r.preflightCheck(cctx, wf, amount)
 		}
-		result, err := nodes.ExecuteAgent(ctx, node, attachMap[node.ID], aw, r.walletSvc, rc, checkBalance)
+		result, err := nodes.ExecuteAgent(ctx, node, attachMap[node.ID], aw, r.walletSvc, rc, checkBalance, r.platformKeys)
 		if err != nil {
 			// A *nodes.ErrBalanceBlocked failure means the agent's own LLM
 			// turn already completed and only ran into insufficient balance
@@ -243,11 +276,18 @@ func (r *Runner) executeNode(
 			// billed, matching the pre-existing behavior for those failures.
 			var blocked *nodes.ErrBalanceBlocked
 			if errors.As(err, &blocked) {
-				r.debitOrLog(ctx, wf, run, node.ID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+				r.debitAgentFee(ctx, wf, run, node.ID, agentFeeUSDMicros, platformMode, provider, 0, 0)
 			}
 			return nil, err
 		}
-		r.debitOrLog(ctx, wf, run, node.ID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+		var tokensIn, tokensOut int
+		if m, ok := result.(map[string]any); ok {
+			if usage, ok := m["platformKeyUsage"].(map[string]any); ok {
+				tokensIn, _ = usage["tokensIn"].(int)
+				tokensOut, _ = usage["tokensOut"].(int)
+			}
+		}
+		r.debitAgentFee(ctx, wf, run, node.ID, agentFeeUSDMicros, platformMode, provider, tokensIn, tokensOut)
 		if m, ok := result.(map[string]any); ok {
 			if payments, ok := m["x402Payments"].([]map[string]any); ok {
 				for _, p := range payments {
