@@ -115,6 +115,11 @@ export function Topbar() {
             active={pathname.startsWith("/usage")}
             onClick={() => router.push("/usage")}
           />
+          <NavLink
+            label="Credits"
+            active={pathname.startsWith("/billing")}
+            onClick={() => router.push("/billing")}
+          />
         </nav>
         <Hairline vertical length={22} />
         <div
