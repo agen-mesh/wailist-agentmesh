@@ -397,10 +397,13 @@ var ErrCreditTransactionNotFound = errors.New("credit transaction not found")
 // CompleteCreditTransaction marks the ledger row for providerOrderID as completed and
 // credits the user's cached balance, atomically. Idempotent: if the row is already
 // completed (webhook/verify replay), it returns the stored amount without re-crediting.
-func (s *Store) CompleteCreditTransaction(ctx context.Context, providerOrderID, providerPaymentID string) (int64, error) {
+// The bool return is true only when this call is the one that actually completed the
+// transaction (false on a replay) — callers use it to fire an audit-log notification
+// exactly once per real credit, not once per redundant client-verify/webhook race.
+func (s *Store) CompleteCreditTransaction(ctx context.Context, providerOrderID, providerPaymentID string) (int64, bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	defer tx.Rollback(ctx)
 
@@ -417,33 +420,33 @@ func (s *Store) CompleteCreditTransaction(ctx context.Context, providerOrderID, 
 		FOR UPDATE
 	`, providerOrderID).Scan(&id, &userID, &status, &creditUSDMicros)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, ErrCreditTransactionNotFound
+		return 0, false, ErrCreditTransactionNotFound
 	}
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 
 	if status == "completed" {
-		return creditUSDMicros, nil
+		return creditUSDMicros, false, nil
 	}
 
 	if _, err := tx.Exec(ctx, `
 		UPDATE credit_ledger SET status = 'completed', provider_payment_id = $1, completed_at = NOW()
 		WHERE id = $2
 	`, providerPaymentID, id); err != nil {
-		return 0, err
+		return 0, false, err
 	}
 
 	if _, err := tx.Exec(ctx, `
 		UPDATE users SET credit_balance_usd_micros = credit_balance_usd_micros + $1 WHERE id = $2
 	`, creditUSDMicros, userID); err != nil {
-		return 0, err
+		return 0, false, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	return creditUSDMicros, nil
+	return creditUSDMicros, true, nil
 }
 
 // RefundCreditTransaction reverses previously-credited USD micros when Razorpay reports a
@@ -456,10 +459,14 @@ func (s *Store) CompleteCreditTransaction(ctx context.Context, providerOrderID, 
 // credit was ever granted, so no balance reversal happens — only the bookkeeping columns are
 // updated. credit_balance_usd_micros is floored at 0 via GREATEST so a reversal can never push
 // a user negative even under an unexpected ordering of events.
-func (s *Store) RefundCreditTransaction(ctx context.Context, providerOrderID string, totalRefundedINRPaise int64) (int64, error) {
+//
+// The bool return is true only when this call applied a new refund delta (false when the
+// cumulative total matches what's already recorded, i.e. a replayed webhook) — callers use
+// it to fire an audit-log notification exactly once per real refund event.
+func (s *Store) RefundCreditTransaction(ctx context.Context, providerOrderID string, totalRefundedINRPaise int64) (int64, bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	defer tx.Rollback(ctx)
 
@@ -478,15 +485,15 @@ func (s *Store) RefundCreditTransaction(ctx context.Context, providerOrderID str
 		FOR UPDATE
 	`, providerOrderID).Scan(&id, &userID, &status, &amountINRPaise, &fxRate, &refundedINRPaise)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, ErrCreditTransactionNotFound
+		return 0, false, ErrCreditTransactionNotFound
 	}
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 
 	delta := totalRefundedINRPaise - refundedINRPaise
 	if delta <= 0 {
-		return 0, nil
+		return 0, false, nil
 	}
 
 	var reversedUSDMicros int64
@@ -495,7 +502,7 @@ func (s *Store) RefundCreditTransaction(ctx context.Context, providerOrderID str
 		if _, err := tx.Exec(ctx, `
 			UPDATE users SET credit_balance_usd_micros = GREATEST(0, credit_balance_usd_micros - $1) WHERE id = $2
 		`, reversedUSDMicros, userID); err != nil {
-			return 0, err
+			return 0, false, err
 		}
 	}
 
@@ -507,13 +514,13 @@ func (s *Store) RefundCreditTransaction(ctx context.Context, providerOrderID str
 	if _, err := tx.Exec(ctx, `
 		UPDATE credit_ledger SET refunded_inr_paise = $1, status = $2 WHERE id = $3
 	`, totalRefundedINRPaise, newStatus, id); err != nil {
-		return 0, err
+		return 0, false, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	return reversedUSDMicros, nil
+	return reversedUSDMicros, true, nil
 }
 
 func (s *Store) GetCreditBalance(ctx context.Context, userID string) (int64, error) {

@@ -47,7 +47,7 @@ func (d *Deps) CreateRazorpayOrder(w http.ResponseWriter, r *http.Request) {
 	rate, err := payments.FetchINRToUSDRate(r.Context())
 	if err != nil {
 		log.Printf("razorpay order: fx rate: %v", err)
-		go alert.Notify(context.Background(), fmt.Sprintf("razorpay: FX rate fetch failing, top-ups are down: %v", err))
+		go alert.Notify(context.Background(), alert.ChannelPayments, fmt.Sprintf("FX rate fetch failing, top-ups are down: %v", err))
 		respond.Error(w, http.StatusBadGateway, "could not fetch exchange rate")
 		return
 	}
@@ -104,7 +104,7 @@ func (d *Deps) VerifyRazorpayPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	creditedMicros, err := d.Store.CompleteCreditTransaction(r.Context(), body.OrderID, body.PaymentID)
+	creditedMicros, applied, err := d.Store.CompleteCreditTransaction(r.Context(), body.OrderID, body.PaymentID)
 	if errors.Is(err, db.ErrCreditTransactionNotFound) {
 		respond.Error(w, http.StatusBadRequest, "unknown order")
 		return
@@ -113,6 +113,9 @@ func (d *Deps) VerifyRazorpayPayment(w http.ResponseWriter, r *http.Request) {
 		log.Printf("razorpay verify: complete transaction: %v", err)
 		respond.Error(w, http.StatusInternalServerError, "internal error")
 		return
+	}
+	if applied {
+		go alert.Notify(context.Background(), alert.ChannelCredits, fmt.Sprintf("credited $%.2f (order %s, payment %s)", float64(creditedMicros)/1e6, body.OrderID, body.PaymentID))
 	}
 
 	respond.JSON(w, http.StatusOK, map[string]any{
@@ -141,7 +144,7 @@ func (d *Deps) RazorpayWebhook(w http.ResponseWriter, r *http.Request) {
 	signature := r.Header.Get("X-Razorpay-Signature")
 	if signature == "" || !d.Razorpay.VerifyWebhookSignature(body, signature) {
 		log.Printf("razorpay webhook: rejected signature from %s", r.RemoteAddr)
-		go alert.Notify(context.Background(), fmt.Sprintf("razorpay webhook: rejected signature from %s", r.RemoteAddr))
+		go alert.Notify(context.Background(), alert.ChannelPayments, fmt.Sprintf("rejected webhook signature from %s", r.RemoteAddr))
 		respond.Error(w, http.StatusBadRequest, "signature verification failed")
 		return
 	}
@@ -173,7 +176,8 @@ func (d *Deps) RazorpayWebhook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if _, err := d.Store.CompleteCreditTransaction(r.Context(), orderID, paymentID); err != nil {
+		creditedMicros, applied, err := d.Store.CompleteCreditTransaction(r.Context(), orderID, paymentID)
+		if err != nil {
 			if errors.Is(err, db.ErrCreditTransactionNotFound) {
 				// A 4xx here tells Razorpay to stop retrying — this order will never exist,
 				// so retrying is pure noise, not a path to eventual success.
@@ -182,9 +186,12 @@ func (d *Deps) RazorpayWebhook(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			log.Printf("razorpay webhook: complete transaction: %v", err)
-			go alert.Notify(context.Background(), fmt.Sprintf("razorpay webhook: failed to complete order %s: %v", orderID, err))
+			go alert.Notify(context.Background(), alert.ChannelPayments, fmt.Sprintf("failed to complete order %s: %v", orderID, err))
 			respond.Error(w, http.StatusInternalServerError, "internal error")
 			return
+		}
+		if applied {
+			go alert.Notify(context.Background(), alert.ChannelCredits, fmt.Sprintf("credited $%.2f (order %s, payment %s, via webhook)", float64(creditedMicros)/1e6, orderID, paymentID))
 		}
 
 		respond.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -195,17 +202,20 @@ func (d *Deps) RazorpayWebhook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		reversed, err := d.Store.RefundCreditTransaction(r.Context(), orderID, event.Payload.Payment.Entity.AmountRefunded)
-		if errors.Is(err, db.ErrCreditTransactionNotFound) {
-			log.Printf("razorpay webhook: refund for unknown order_id %s", orderID)
-			respond.Error(w, http.StatusBadRequest, "unknown order")
-			return
-		}
+		reversed, applied, err := d.Store.RefundCreditTransaction(r.Context(), orderID, event.Payload.Payment.Entity.AmountRefunded)
 		if err != nil {
+			if errors.Is(err, db.ErrCreditTransactionNotFound) {
+				log.Printf("razorpay webhook: refund for unknown order_id %s", orderID)
+				respond.Error(w, http.StatusBadRequest, "unknown order")
+				return
+			}
 			log.Printf("razorpay webhook: refund order %s: %v", orderID, err)
-			go alert.Notify(context.Background(), fmt.Sprintf("razorpay webhook: failed to process refund for order %s: %v", orderID, err))
+			go alert.Notify(context.Background(), alert.ChannelPayments, fmt.Sprintf("failed to process refund for order %s: %v", orderID, err))
 			respond.Error(w, http.StatusInternalServerError, "internal error")
 			return
+		}
+		if applied {
+			go alert.Notify(context.Background(), alert.ChannelCredits, fmt.Sprintf("refunded $%.2f reversed (order %s)", float64(reversed)/1e6, orderID))
 		}
 
 		respond.JSON(w, http.StatusOK, map[string]any{"status": "refunded", "reversed_usd_micros": reversed})

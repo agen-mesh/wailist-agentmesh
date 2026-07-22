@@ -33,12 +33,15 @@ func TestCreditTransactionLifecycle(t *testing.T) {
 		t.Fatalf("want %d got %d", wantMicros, txn.CreditUSDMicros)
 	}
 
-	credited, err := store.CompleteCreditTransaction(ctx, orderID, "pay_test_1")
+	credited, applied, err := store.CompleteCreditTransaction(ctx, orderID, "pay_test_1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if credited != wantMicros {
 		t.Fatalf("want %d got %d", wantMicros, credited)
+	}
+	if !applied {
+		t.Fatal("want applied=true for a fresh completion")
 	}
 
 	balance, err := store.GetCreditBalance(ctx, user.ID)
@@ -49,13 +52,16 @@ func TestCreditTransactionLifecycle(t *testing.T) {
 		t.Fatalf("want balance %d got %d", wantMicros, balance)
 	}
 
-	// Replay must not double-credit.
-	credited2, err := store.CompleteCreditTransaction(ctx, orderID, "pay_test_1")
+	// Replay must not double-credit, and must report applied=false.
+	credited2, applied2, err := store.CompleteCreditTransaction(ctx, orderID, "pay_test_1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if credited2 != wantMicros {
 		t.Fatalf("replay: want %d got %d", wantMicros, credited2)
+	}
+	if applied2 {
+		t.Fatal("want applied=false on replay")
 	}
 	balance2, err := store.GetCreditBalance(ctx, user.ID)
 	if err != nil {
@@ -81,16 +87,19 @@ func TestRefundCreditTransactionFullRefundReversesBalance(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantMicros := int64(50000.0 / 100.0 * 0.012 * 1e6)
-	if _, err := store.CompleteCreditTransaction(ctx, orderID, "pay_refund_test"); err != nil {
+	if _, _, err := store.CompleteCreditTransaction(ctx, orderID, "pay_refund_test"); err != nil {
 		t.Fatal(err)
 	}
 
-	reversed, err := store.RefundCreditTransaction(ctx, orderID, 50000)
+	reversed, applied, err := store.RefundCreditTransaction(ctx, orderID, 50000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if reversed != wantMicros {
 		t.Fatalf("want reversed %d got %d", wantMicros, reversed)
+	}
+	if !applied {
+		t.Fatal("want applied=true for a fresh refund")
 	}
 
 	balance, err := store.GetCreditBalance(ctx, user.ID)
@@ -102,12 +111,15 @@ func TestRefundCreditTransactionFullRefundReversesBalance(t *testing.T) {
 	}
 
 	// Replay of the same cumulative refund amount must not double-reverse.
-	reversed2, err := store.RefundCreditTransaction(ctx, orderID, 50000)
+	reversed2, applied2, err := store.RefundCreditTransaction(ctx, orderID, 50000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if reversed2 != 0 {
 		t.Fatalf("want 0 on replay, got %d", reversed2)
+	}
+	if applied2 {
+		t.Fatal("want applied=false on replay")
 	}
 	balance2, err := store.GetCreditBalance(ctx, user.ID)
 	if err != nil {
@@ -132,18 +144,21 @@ func TestRefundCreditTransactionPartialRefundReversesProportionally(t *testing.T
 	if _, err := store.CreateCreditTransaction(ctx, user.ID, orderID, 100000, 0.012); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CompleteCreditTransaction(ctx, orderID, "pay_partial_refund_test"); err != nil {
+	if _, _, err := store.CompleteCreditTransaction(ctx, orderID, "pay_partial_refund_test"); err != nil {
 		t.Fatal(err)
 	}
 
 	// Refund half (50000 of 100000 paise).
 	wantReversed := int64(50000.0 / 100.0 * 0.012 * 1e6)
-	reversed, err := store.RefundCreditTransaction(ctx, orderID, 50000)
+	reversed, applied, err := store.RefundCreditTransaction(ctx, orderID, 50000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if reversed != wantReversed {
 		t.Fatalf("want reversed %d got %d", wantReversed, reversed)
+	}
+	if !applied {
+		t.Fatal("want applied=true for a fresh partial refund")
 	}
 
 	balance, err := store.GetCreditBalance(ctx, user.ID)
@@ -172,12 +187,15 @@ func TestRefundCreditTransactionNeverCompletedSkipsBalanceReversal(t *testing.T)
 		t.Fatal(err)
 	}
 
-	reversed, err := store.RefundCreditTransaction(ctx, orderID, 50000)
+	reversed, applied, err := store.RefundCreditTransaction(ctx, orderID, 50000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if reversed != 0 {
 		t.Fatalf("want 0 reversed for a never-completed order, got %d", reversed)
+	}
+	if !applied {
+		t.Fatal("want applied=true — this is still a new refund event, just with nothing to reverse")
 	}
 
 	balance, err := store.GetCreditBalance(ctx, user.ID)
@@ -193,7 +211,7 @@ func TestRefundCreditTransactionUnknownOrder(t *testing.T) {
 	store := testStore(t)
 	ctx := context.Background()
 
-	_, err := store.RefundCreditTransaction(ctx, "order_does_not_exist_xyz", 100)
+	_, _, err := store.RefundCreditTransaction(ctx, "order_does_not_exist_xyz", 100)
 	if !errors.Is(err, db.ErrCreditTransactionNotFound) {
 		t.Fatalf("want ErrCreditTransactionNotFound, got %v", err)
 	}

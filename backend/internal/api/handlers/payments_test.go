@@ -177,7 +177,7 @@ func TestRazorpayWebhookProcessesRefund(t *testing.T) {
 	if _, err := d.Store.CreateCreditTransaction(context.Background(), user.ID, orderID, 50000, 0.012); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.Store.CompleteCreditTransaction(context.Background(), orderID, "pay_webhook_refund_test"); err != nil {
+	if _, _, err := d.Store.CompleteCreditTransaction(context.Background(), orderID, "pay_webhook_refund_test"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -230,7 +230,7 @@ func TestGetCreditBalanceReturnsStoredBalance(t *testing.T) {
 	if _, err := d.Store.CreateCreditTransaction(context.Background(), user.ID, orderID, 10000, 0.012); err != nil {
 		t.Fatal(err)
 	}
-	wantMicros, err := d.Store.CompleteCreditTransaction(context.Background(), orderID, "pay_balance_test")
+	wantMicros, _, err := d.Store.CompleteCreditTransaction(context.Background(), orderID, "pay_balance_test")
 	if err != nil {
 		t.Fatal(err)
 	}
