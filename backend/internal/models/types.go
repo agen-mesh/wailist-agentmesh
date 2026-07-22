@@ -186,7 +186,7 @@ type CreditTransaction struct {
 	UserID            string     `json:"userId"`
 	Provider          string     `json:"provider"`
 	ProviderOrderID   string     `json:"providerOrderId"`
-	ProviderPaymentID string     `json:"providerPaymentId,omitempty"`
+	ProviderPaymentID *string    `json:"providerPaymentId,omitempty"`
 	Status            string     `json:"status"`
 	AmountINRPaise    int64      `json:"amountInrPaise"`
 	FXRateUSDPerINR   float64    `json:"fxRateUsdPerInr"`
