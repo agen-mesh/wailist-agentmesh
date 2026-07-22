@@ -130,6 +130,61 @@ func TestRefundCreditTransactionFullRefundReversesBalance(t *testing.T) {
 	}
 }
 
+// TestCompleteCreditTransactionCannotDoubleDipAfterRefund guards against replaying a
+// completion after a refund: Razorpay signatures don't expire, so a captured verify
+// payload (or a duplicate payment.captured webhook delivery) can arrive again after the
+// order has already been fully refunded. Gating on status == "completed" alone would miss
+// this, since RefundCreditTransaction moves status to "refunded" — completed_at is the
+// guard that must hold regardless of what status becomes afterward.
+func TestCompleteCreditTransactionCannotDoubleDipAfterRefund(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	email := fmt.Sprintf("credit-doubledip-test-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	orderID := fmt.Sprintf("order_doubledip_%d", time.Now().UnixNano())
+	if _, err := store.CreateCreditTransaction(ctx, user.ID, orderID, 50000, 0.012); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CompleteCreditTransaction(ctx, orderID, "pay_doubledip_test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.RefundCreditTransaction(ctx, orderID, 50000); err != nil {
+		t.Fatal(err)
+	}
+
+	balanceAfterRefund, err := store.GetCreditBalance(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balanceAfterRefund != 0 {
+		t.Fatalf("want balance 0 after refund, got %d", balanceAfterRefund)
+	}
+
+	// Replaying the same completion (e.g. a re-delivered webhook, or the signed verify
+	// payload replayed by an attacker) must not re-credit — the user already got their
+	// money back via the refund.
+	_, applied, err := store.CompleteCreditTransaction(ctx, orderID, "pay_doubledip_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied {
+		t.Fatal("want applied=false — replaying completion after a refund must not re-credit")
+	}
+
+	balanceAfterReplay, err := store.GetCreditBalance(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balanceAfterReplay != 0 {
+		t.Fatalf("double-dip: want balance 0 after replayed completion, got %d", balanceAfterReplay)
+	}
+}
+
 func TestRefundCreditTransactionPartialRefundReversesProportionally(t *testing.T) {
 	store := testStore(t)
 	ctx := context.Background()

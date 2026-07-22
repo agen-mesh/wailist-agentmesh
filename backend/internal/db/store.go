@@ -410,15 +410,15 @@ func (s *Store) CompleteCreditTransaction(ctx context.Context, providerOrderID, 
 	var (
 		id              string
 		userID          string
-		status          string
 		creditUSDMicros int64
+		completedAt     *time.Time
 	)
 	err = tx.QueryRow(ctx, `
-		SELECT id, user_id, status, credit_usd_micros
+		SELECT id, user_id, credit_usd_micros, completed_at
 		FROM credit_ledger
 		WHERE provider_order_id = $1 AND provider = 'razorpay'
 		FOR UPDATE
-	`, providerOrderID).Scan(&id, &userID, &status, &creditUSDMicros)
+	`, providerOrderID).Scan(&id, &userID, &creditUSDMicros, &completedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, false, ErrCreditTransactionNotFound
 	}
@@ -426,7 +426,13 @@ func (s *Store) CompleteCreditTransaction(ctx context.Context, providerOrderID, 
 		return 0, false, err
 	}
 
-	if status == "completed" {
+	// Gate on completed_at, not the status string: RefundCreditTransaction moves status
+	// to 'refunded' after a full refund but never clears completed_at. If this gated on
+	// status == "completed" instead, a replayed verify call or duplicate webhook delivery
+	// arriving after a refund would find status == "refunded", fall through this check,
+	// and re-credit a payment the user was already refunded for — a real double-dip since
+	// Razorpay signatures don't expire and can be replayed indefinitely.
+	if completedAt != nil {
 		return creditUSDMicros, false, nil
 	}
 
