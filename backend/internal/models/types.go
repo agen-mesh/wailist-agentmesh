@@ -194,3 +194,22 @@ type CreditTransaction struct {
 	CreatedAt         time.Time  `json:"createdAt"`
 	CompletedAt       *time.Time `json:"completedAt,omitempty"`
 }
+
+// DebitEntry is one row of the append-only debit_ledger table — a platform
+// fee charged against a user's credit balance for a metered action inside
+// a workflow run.
+type DebitEntry struct {
+	ID              string    `json:"id"`
+	UserID          string    `json:"userId"`
+	WorkflowID      string    `json:"workflowId"`
+	RunID           string    `json:"runId"`
+	NodeID          string    `json:"nodeId"`
+	Kind            string    `json:"kind"`
+	AmountUSDMicros int64     `json:"amountUsdMicros"`
+	CreatedAt       time.Time `json:"createdAt"`
+}
+
+const (
+	DebitKindByokFlatFee     = "byok_flat_fee"
+	DebitKindX402PlatformFee = "x402_platform_fee"
+)
