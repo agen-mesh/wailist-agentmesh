@@ -32,11 +32,44 @@ function fieldStyle(invalid: boolean): CSSProperties {
   };
 }
 
+// Luhn checksum — catches transposed/mistyped card numbers immediately.
+function luhn(digits: string): boolean {
+  let sum = 0;
+  let alt = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let d = digits.charCodeAt(i) - 48;
+    if (d < 0 || d > 9) return false;
+    if (alt) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+    alt = !alt;
+  }
+  return sum % 10 === 0;
+}
+
+// Group digits in fours for readability, e.g. "4242 4242 4242 4242".
+function formatCardNumber(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 19);
+  return digits.replace(/(\d{4})(?=\d)/g, "$1 ");
+}
+
+// Best-effort network detection from the leading digits (India-relevant set).
+function detectNetwork(digits: string): string | null {
+  if (/^4/.test(digits)) return "Visa";
+  if (/^3[47]/.test(digits)) return "Amex";
+  if (/^(5[1-5]|2[2-7])/.test(digits)) return "Mastercard";
+  if (/^(6|81|82|508)/.test(digits)) return "RuPay";
+  return null;
+}
+
 type PayStatus = "idle" | "processing" | "success";
 
 // Right-hand payment column: method selection, card fields, and the pay action.
-// Payment can only complete via a valid credit card; on success the button reads
-// "Payment Successful". Card fields render only for the "card" method.
+// Payment can only complete via a valid credit card with something to pay for;
+// on success the button reads "Payment Successful". Card fields render only for
+// the "card" method.
 export function PaymentInfoPanel({
   method,
   onMethodChange,
@@ -48,18 +81,21 @@ export function PaymentInfoPanel({
 }) {
   const [name, setName] = useState("");
   const [number, setNumber] = useState("");
+  const [numberTouched, setNumberTouched] = useState(false);
   const [expMonth, setExpMonth] = useState("");
   const [expYear, setExpYear] = useState("");
   const [cvv, setCvv] = useState("");
   const [status, setStatus] = useState<PayStatus>("idle");
 
   const digits = number.replace(/\D/g, "");
+  const network = detectNetwork(digits);
   const now = new Date();
   const monthNum = Number(expMonth);
   const yearNum = Number(expYear);
 
+  const expectedLen = network === "Amex" ? 15 : 16;
   const nameOk = name.trim().length > 1;
-  const numberOk = digits.length === 16;
+  const numberOk = digits.length === expectedLen && luhn(digits);
   const monthOk = monthNum >= 1 && monthNum <= 12;
   const yearOk = expYear.length === 4 && yearNum >= now.getFullYear();
   const notExpired =
@@ -70,8 +106,9 @@ export function PaymentInfoPanel({
   const cardValid =
     nameOk && numberOk && monthOk && yearOk && notExpired && cvvOk;
 
-  // Per-field error hints appear only once the user has typed something.
-  const numberErr = digits.length > 0 && !numberOk;
+  // Per-field error hints. Card number waits for blur so it doesn't flash red
+  // mid-typing; short fields flag as soon as their value can't be valid.
+  const numberErr = numberTouched && digits.length > 0 && !numberOk;
   const expErr =
     (expMonth.length > 0 && !monthOk) ||
     (expYear.length > 0 && (!yearOk || (monthOk && yearOk && !notExpired)));
@@ -176,17 +213,42 @@ export function PaymentInfoPanel({
             />
           </div>
           <div>
-            <label style={labelStyle} htmlFor="card-number">
-              Card Number
-            </label>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 6,
+              }}
+            >
+              <label
+                style={{ ...labelStyle, marginBottom: 0 }}
+                htmlFor="card-number"
+              >
+                Card Number
+              </label>
+              {network && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: "var(--accent)",
+                  }}
+                >
+                  {network}
+                </span>
+              )}
+            </div>
             <input
               id="card-number"
               type="text"
               inputMode="numeric"
-              maxLength={19}
+              autoComplete="cc-number"
+              maxLength={23}
               placeholder="0000 0000 0000 0000"
               value={number}
-              onChange={(e) => setNumber(e.target.value)}
+              onChange={(e) => setNumber(formatCardNumber(e.target.value))}
+              onBlur={() => setNumberTouched(true)}
               aria-invalid={numberErr}
               style={fieldStyle(numberErr)}
             />
@@ -248,6 +310,43 @@ export function PaymentInfoPanel({
       )}
 
       <div style={{ marginTop: "auto" }}>
+        {/* Trust signal — reassurance right at the point of payment. */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            marginBottom: 12,
+            color: "var(--fg-dim)",
+            fontSize: 12,
+          }}
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+          >
+            <rect
+              x="3"
+              y="7"
+              width="10"
+              height="7"
+              rx="1.5"
+              stroke="currentColor"
+              strokeWidth="1.3"
+            />
+            <path
+              d="M5 7V5a3 3 0 0 1 6 0v2"
+              stroke="currentColor"
+              strokeWidth="1.3"
+            />
+          </svg>
+          Secured by Razorpay · details are encrypted
+        </div>
+
         <button
           type="button"
           onClick={handlePay}
