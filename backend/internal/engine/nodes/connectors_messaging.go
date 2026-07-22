@@ -10,7 +10,30 @@ import (
 	"github.com/agentmesh/backend/internal/models"
 )
 
+// slackAPIBase is overridden in tests via SetSlackAPIBaseForTest so requests
+// hit an httptest server instead of the real Slack API.
+var slackAPIBase = "https://slack.com"
+
+// SetSlackAPIBaseForTest overrides the Slack API base URL. Call only from
+// tests. Pass "" to reset to the real API.
+func SetSlackAPIBaseForTest(base string) {
+	if base == "" {
+		slackAPIBase = "https://slack.com"
+	} else {
+		slackAPIBase = base
+	}
+}
+
 func sendSlack(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	if botToken := secretVal(node, "slackOAuthAccessToken"); botToken != "" {
+		channel := configVal(node, "slackChannel", "")
+		if channel == "" {
+			return "slack_skipped_no_channel", ErrActionSkipped
+		}
+		payload := map[string]any{"channel": channel, "text": rc.Message()}
+		headers := map[string]string{"Authorization": "Bearer " + botToken}
+		return postJSON(ctx, slackAPIBase+"/api/chat.postMessage", headers, payload, "slack_sent", "Slack")
+	}
 	webhookURL := secretVal(node, "slackWebhookURL")
 	if webhookURL == "" {
 		return "slack_skipped_no_webhook_url", ErrActionSkipped

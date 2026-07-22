@@ -60,8 +60,12 @@ func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
 	for k, v := range testProviderOverrides {
 		out[k] = v
 	}
-	// Tasks 3-14 each append one entry here, e.g.:
-	// out["slack"] = ConnectorOAuthConfig{AuthURL: ..., ClientIDEnvVal: d.SlackOAuthClientID, ...}
+	// Tasks 4-14 each append one entry here, e.g.:
+	// out["github"] = ConnectorOAuthConfig{AuthURL: ..., ClientIDEnvVal: d.GitHubOAuthClientID, ...}
+	out["slack"] = ConnectorOAuthConfig{
+		AuthURL: "https://slack.com/oauth/v2/authorize", TokenURL: "https://slack.com/api/oauth.v2.access",
+		Scope: "chat:write", ClientIDEnvVal: d.SlackOAuthClientID, ClientSecretEnvVal: d.SlackOAuthClientSecret,
+	}
 	return out
 }
 
