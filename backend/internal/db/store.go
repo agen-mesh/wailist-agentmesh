@@ -549,3 +549,73 @@ func (s *Store) ExpireStalePendingTransactions(ctx context.Context, olderThan ti
 	}
 	return tag.RowsAffected(), nil
 }
+
+// --- Debit ledger methods ---
+
+// ErrInsufficientCredits is returned by DebitCredits when the user's balance
+// is below the amount being charged. Callers treat this as a permanent
+// failure for that call — the node did not run (or, for x402, the payment
+// already happened and this is logged rather than retried).
+var ErrInsufficientCredits = errors.New("insufficient credits")
+
+// DebitCredits atomically charges a user's credit balance for a metered
+// action inside a workflow run, and records the charge in debit_ledger.
+// Locks the user row for the duration of the check-and-decrement — same
+// pattern as CompleteCreditTransaction — so concurrent debits against the
+// same user can never push the balance negative.
+func (s *Store) DebitCredits(ctx context.Context, userID string, amountUSDMicros int64, kind, workflowID, runID, nodeID string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var balance int64
+	if err := tx.QueryRow(ctx, `
+		SELECT credit_balance_usd_micros FROM users WHERE id = $1 FOR UPDATE
+	`, userID).Scan(&balance); err != nil {
+		return err
+	}
+
+	if balance < amountUSDMicros {
+		return ErrInsufficientCredits
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE users SET credit_balance_usd_micros = credit_balance_usd_micros - $1 WHERE id = $2
+	`, amountUSDMicros, userID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO debit_ledger (user_id, workflow_id, run_id, node_id, kind, amount_usd_micros)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, userID, workflowID, runID, nodeID, kind, amountUSDMicros); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+// ListDebitLedger returns every debit_ledger row for a run, oldest first.
+// Used by the credits/usage dashboard and by tests asserting exactly which
+// charges a run produced.
+func (s *Store) ListDebitLedger(ctx context.Context, runID string) ([]models.DebitEntry, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, user_id, workflow_id, run_id, node_id, kind, amount_usd_micros, created_at
+		FROM debit_ledger WHERE run_id = $1 ORDER BY created_at ASC
+	`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []models.DebitEntry
+	for rows.Next() {
+		var e models.DebitEntry
+		if err := rows.Scan(&e.ID, &e.UserID, &e.WorkflowID, &e.RunID, &e.NodeID, &e.Kind, &e.AmountUSDMicros, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
