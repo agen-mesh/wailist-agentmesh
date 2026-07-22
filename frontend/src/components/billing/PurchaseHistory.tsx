@@ -1,6 +1,9 @@
 "use client";
+import { useState } from "react";
 import { Card, Pill } from "@/components/ui";
 import { useCredits } from "@/lib/credits/store";
+import { Receipt } from "./Receipt";
+import type { Purchase } from "@/lib/credits/types";
 import type { PaymentMethod } from "@/components/checkout/types";
 
 const METHOD_LABELS: Record<PaymentMethod, string> = {
@@ -21,97 +24,125 @@ export function PurchaseHistory({
   onBuyAgain: (amountINR: number) => void;
 }) {
   const { purchases, hydrated } = useCredits();
+  const [receipt, setReceipt] = useState<Purchase | null>(null);
 
   // Avoid rendering store-derived rows until hydrated (SSR shows nothing).
   if (!hydrated) return null;
 
   return (
-    <div style={{ marginTop: 32 }}>
-      <h2
-        style={{
-          fontSize: 15,
-          fontWeight: 600,
-          color: "var(--fg)",
-          marginBottom: 12,
-        }}
-      >
-        Billing history
-      </h2>
+    <>
+      <div style={{ marginTop: 32 }}>
+        <h2
+          style={{
+            fontSize: 15,
+            fontWeight: 600,
+            color: "var(--fg)",
+            marginBottom: 12,
+          }}
+        >
+          Billing history
+        </h2>
 
-      {purchases.length === 0 ? (
-        <p style={{ fontSize: 13, color: "var(--fg-dim)", margin: 0 }}>
-          No purchases yet.
-        </p>
-      ) : (
-        <Card style={{ padding: 0, overflow: "hidden" }}>
-          {purchases.map((p, i) => (
-            <div
-              key={p.id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 16,
-                padding: "12px 16px",
-                borderTop: i === 0 ? "none" : "1px solid var(--border-soft)",
-              }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <div
-                  style={{ fontSize: 13, color: "var(--fg)", fontWeight: 500 }}
-                >
-                  ₹{p.amountINR.toFixed(2)}
-                  <span style={{ color: "var(--fg-dim)", fontWeight: 400 }}>
-                    {" · "}
-                    {METHOD_LABELS[p.method]}
+        {purchases.length === 0 ? (
+          <p style={{ fontSize: 13, color: "var(--fg-dim)", margin: 0 }}>
+            No purchases yet.
+          </p>
+        ) : (
+          <Card style={{ padding: 0, overflow: "hidden" }}>
+            {purchases.map((p, i) => (
+              <div
+                key={p.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 16,
+                  padding: "12px 16px",
+                  borderTop: i === 0 ? "none" : "1px solid var(--border-soft)",
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      color: "var(--fg)",
+                      fontWeight: 500,
+                    }}
+                  >
+                    ₹{p.amountINR.toFixed(2)}
+                    <span style={{ color: "var(--fg-dim)", fontWeight: 400 }}>
+                      {" · "}
+                      {METHOD_LABELS[p.method]}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--fg-dim)",
+                      fontFamily: "var(--font-mono)",
+                      marginTop: 2,
+                    }}
+                  >
+                    {dateFmt.format(new Date(p.createdAt))}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span
+                    style={{
+                      fontSize: 13,
+                      fontFamily: "var(--font-mono)",
+                      color: "var(--accent)",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    +${p.creditsUSD.toFixed(2)}
                   </span>
-                </div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: "var(--fg-dim)",
-                    fontFamily: "var(--font-mono)",
-                    marginTop: 2,
-                  }}
-                >
-                  {dateFmt.format(new Date(p.createdAt))}
+                  <Pill tone="ok">Paid</Pill>
+                  <button
+                    type="button"
+                    onClick={() => setReceipt(p)}
+                    style={{
+                      height: 26,
+                      padding: "0 10px",
+                      borderRadius: "var(--r-2)",
+                      border: "1px solid var(--border-strong)",
+                      background: "transparent",
+                      color: "var(--fg-muted)",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    Receipt
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onBuyAgain(p.amountINR)}
+                    style={{
+                      height: 26,
+                      padding: "0 10px",
+                      borderRadius: "var(--r-2)",
+                      border: "1px solid var(--border-strong)",
+                      background: "transparent",
+                      color: "var(--fg-muted)",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    Buy again
+                  </button>
                 </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span
-                  style={{
-                    fontSize: 13,
-                    fontFamily: "var(--font-mono)",
-                    color: "var(--accent)",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  +${p.creditsUSD.toFixed(2)}
-                </span>
-                <Pill tone="ok">Paid</Pill>
-                <button
-                  type="button"
-                  onClick={() => onBuyAgain(p.amountINR)}
-                  style={{
-                    height: 26,
-                    padding: "0 10px",
-                    borderRadius: "var(--r-2)",
-                    border: "1px solid var(--border-strong)",
-                    background: "transparent",
-                    color: "var(--fg-muted)",
-                    fontSize: 12,
-                    fontWeight: 500,
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  Buy again
-                </button>
-              </div>
-            </div>
-          ))}
-        </Card>
+            ))}
+          </Card>
+        )}
+      </div>
+      {receipt && (
+        <Receipt purchase={receipt} onClose={() => setReceipt(null)} />
       )}
-    </div>
+    </>
   );
 }
