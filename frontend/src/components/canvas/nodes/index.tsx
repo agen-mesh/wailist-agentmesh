@@ -635,11 +635,10 @@ function ProviderNode({
   const t = NODE_TYPES.provider;
   const tpl = PROVIDER_TEMPLATES.find((x) => x.id === node.template);
   const hasKey = !!node.apiKey;
-  const maskedKey = hasKey
-    ? node.apiKey === "__enc__"
-      ? "•".repeat(14)
-      : `${node.apiKey!.slice(0, 4)}${"•".repeat(10)}`
-    : null;
+  // Always a fixed mask, never a slice of the raw value — the canvas node is
+  // visible in screen shares/recordings, unlike the Inspector's password
+  // input, so no characters of an unsaved key should ever render here.
+  const maskedKey = hasKey ? "•".repeat(14) : null;
   return (
     <NodeShell
       node={node}
