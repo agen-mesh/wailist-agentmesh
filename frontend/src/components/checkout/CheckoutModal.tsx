@@ -1,7 +1,9 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { IconClose } from "@/components/ui";
 import { useCredits } from "@/lib/credits/store";
+import type { Purchase } from "@/lib/credits/types";
 import type { CartItem, PaymentMethod } from "./types";
 import { buildCreditCart, computeTotals } from "./mockData";
 import { CartItemRow } from "./CartItemRow";
@@ -35,9 +37,15 @@ export function CheckoutModal({
     buildCreditCart(amountINR),
   );
   const [method, setMethod] = useState<PaymentMethod>("card");
-  const { addPurchase } = useCredits();
+  const { addPurchase, balanceUSD } = useCredits();
+  const router = useRouter();
+  const [confirmation, setConfirmation] = useState<Purchase | null>(null);
 
   const totals = useMemo(() => computeTotals(items), [items]);
+
+  const handlePaid = () => {
+    setConfirmation(addPurchase({ amountINR: totals.total, method }));
+  };
 
   // Drive the native dialog. showModal() gives focus trapping and the backdrop
   // for free. Escape fires the dialog's "cancel" event — sync parent state from
@@ -87,127 +95,222 @@ export function CheckoutModal({
     >
       <style>{DIALOG_CSS}</style>
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 24 }}>
-        {/* Header */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 20,
-          }}
-        >
-          <h2
-            style={{
-              fontSize: 18,
-              fontWeight: 700,
-              color: "var(--fg)",
-              margin: 0,
-            }}
-          >
-            Checkout
-          </h2>
-          <button
-            type="button"
-            aria-label="Close checkout"
-            onClick={onClose}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 32,
-              height: 32,
-              background: "transparent",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--r-2)",
-              color: "var(--fg-muted)",
-              cursor: "pointer",
-            }}
-          >
-            <IconClose size={14} />
-          </button>
-        </div>
-
-        <div className="checkout-split">
-          {/* Cart card */}
+        {confirmation ? (
           <div
             style={{
-              background: "var(--bg-elev-2)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--r-3)",
-              padding: 20,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              textAlign: "center",
+              gap: 12,
+              padding: "40px 16px",
             }}
           >
             <div
-              className="checkout-cart-head"
               style={{
-                paddingBottom: 12,
-                fontSize: 12,
-                fontWeight: 500,
-                color: "var(--fg-muted)",
+                width: 48,
+                height: 48,
+                borderRadius: 999,
+                background: "var(--accent-soft)",
+                border: "1px solid var(--accent-line)",
+                color: "var(--accent)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 22,
               }}
             >
-              <span />
-              <span>Item</span>
-              <span style={{ textAlign: "center" }}>Quantity</span>
-              <span style={{ textAlign: "right", minWidth: 72 }}>Price</span>
+              ✓
             </div>
-
-            {items.length === 0 ? (
-              <div
+            <h2
+              style={{
+                fontSize: 18,
+                fontWeight: 700,
+                color: "var(--fg)",
+                margin: 0,
+              }}
+            >
+              Payment successful
+            </h2>
+            <p style={{ fontSize: 13, color: "var(--fg-muted)", margin: 0 }}>
+              ${confirmation.creditsUSD.toFixed(2)} credits added to your
+              wallet.
+            </p>
+            <div
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 13,
+                color: "var(--fg)",
+                background: "var(--bg-elev-2)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r-2)",
+                padding: "8px 14px",
+              }}
+            >
+              New balance: ${balanceUSD.toFixed(2)}
+            </div>
+            <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+              <button
+                type="button"
+                onClick={() => router.push("/usage")}
                 style={{
-                  padding: "32px 0",
-                  textAlign: "center",
-                  color: "var(--fg-dim)",
+                  height: 38,
+                  padding: "0 18px",
+                  borderRadius: "var(--r-2)",
+                  border: "1px solid var(--accent-line)",
+                  background: "var(--accent)",
+                  color: "var(--accent-fg)",
                   fontSize: 13,
-                  borderTop: "1px solid var(--border-soft)",
+                  fontWeight: 600,
+                  cursor: "pointer",
                 }}
               >
-                Your cart is empty.
-              </div>
-            ) : (
-              items.map((item) => (
-                <CartItemRow
-                  key={item.id}
-                  item={item}
-                  onQuantityChange={handleQuantityChange}
-                  onRemove={handleRemove}
-                />
-              ))
-            )}
-
-            <div style={{ marginTop: 8 }}>
-              <OrderSummary totals={totals} />
+                Go to Usage
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  height: 38,
+                  padding: "0 18px",
+                  borderRadius: "var(--r-2)",
+                  border: "1px solid var(--border-strong)",
+                  background: "transparent",
+                  color: "var(--fg-muted)",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >
+                Close
+              </button>
             </div>
           </div>
-
-          {/* Payment card */}
-          <div
-            style={{
-              background: "var(--bg-elev-2)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--r-3)",
-              padding: 20,
-              display: "flex",
-            }}
-          >
+        ) : (
+          <>
+            {/* Header */}
             <div
               style={{
-                width: "100%",
                 display: "flex",
-                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 20,
               }}
             >
-              <PaymentInfoPanel
-                method={method}
-                onMethodChange={setMethod}
-                payable={totals.total > 0}
-                onPaid={() =>
-                  addPurchase({ amountINR: totals.total, method })
-                }
-              />
+              <h2
+                style={{
+                  fontSize: 18,
+                  fontWeight: 700,
+                  color: "var(--fg)",
+                  margin: 0,
+                }}
+              >
+                Checkout
+              </h2>
+              <button
+                type="button"
+                aria-label="Close checkout"
+                onClick={onClose}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 32,
+                  height: 32,
+                  background: "transparent",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--r-2)",
+                  color: "var(--fg-muted)",
+                  cursor: "pointer",
+                }}
+              >
+                <IconClose size={14} />
+              </button>
             </div>
-          </div>
-        </div>
+
+            <div className="checkout-split">
+              {/* Cart card */}
+              <div
+                style={{
+                  background: "var(--bg-elev-2)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--r-3)",
+                  padding: 20,
+                }}
+              >
+                <div
+                  className="checkout-cart-head"
+                  style={{
+                    paddingBottom: 12,
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: "var(--fg-muted)",
+                  }}
+                >
+                  <span />
+                  <span>Item</span>
+                  <span style={{ textAlign: "center" }}>Quantity</span>
+                  <span style={{ textAlign: "right", minWidth: 72 }}>
+                    Price
+                  </span>
+                </div>
+
+                {items.length === 0 ? (
+                  <div
+                    style={{
+                      padding: "32px 0",
+                      textAlign: "center",
+                      color: "var(--fg-dim)",
+                      fontSize: 13,
+                      borderTop: "1px solid var(--border-soft)",
+                    }}
+                  >
+                    Your cart is empty.
+                  </div>
+                ) : (
+                  items.map((item) => (
+                    <CartItemRow
+                      key={item.id}
+                      item={item}
+                      onQuantityChange={handleQuantityChange}
+                      onRemove={handleRemove}
+                    />
+                  ))
+                )}
+
+                <div style={{ marginTop: 8 }}>
+                  <OrderSummary totals={totals} />
+                </div>
+              </div>
+
+              {/* Payment card */}
+              <div
+                style={{
+                  background: "var(--bg-elev-2)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--r-3)",
+                  padding: 20,
+                  display: "flex",
+                }}
+              >
+                <div
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  <PaymentInfoPanel
+                    method={method}
+                    onMethodChange={setMethod}
+                    payable={totals.total > 0}
+                    onPaid={handlePaid}
+                  />
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </dialog>
   );
