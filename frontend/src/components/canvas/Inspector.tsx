@@ -1260,12 +1260,20 @@ const CONNECTOR_CONFIG_FIELDS: Record<
 > = {
   slack: {
     label: "Slack config",
+    oauthProvider: "slack",
     fields: [
       {
         kind: "secret",
         key: "slackWebhookURL",
         label: "Webhook URL",
+        hint: "or connect above for bot-token mode",
         placeholder: "https://hooks.slack.com/services/…",
+      },
+      {
+        kind: "config",
+        key: "slackChannel",
+        label: "Channel ID (bot-token mode)",
+        placeholder: "C0123456789",
       },
     ],
   },
