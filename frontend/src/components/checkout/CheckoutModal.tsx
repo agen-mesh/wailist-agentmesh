@@ -199,7 +199,11 @@ export function CheckoutModal({
                 flexDirection: "column",
               }}
             >
-              <PaymentInfoPanel method={method} onMethodChange={setMethod} />
+              <PaymentInfoPanel
+                method={method}
+                onMethodChange={setMethod}
+                payable={totals.total > 0}
+              />
             </div>
           </div>
         </div>

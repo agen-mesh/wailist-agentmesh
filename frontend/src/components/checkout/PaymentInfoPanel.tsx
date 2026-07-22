@@ -40,9 +40,11 @@ type PayStatus = "idle" | "processing" | "success";
 export function PaymentInfoPanel({
   method,
   onMethodChange,
+  payable,
 }: {
   method: PaymentMethod;
   onMethodChange: (method: PaymentMethod) => void;
+  payable: boolean;
 }) {
   const [name, setName] = useState("");
   const [number, setNumber] = useState("");
@@ -75,7 +77,7 @@ export function PaymentInfoPanel({
     (expYear.length > 0 && (!yearOk || (monthOk && yearOk && !notExpired)));
   const cvvErr = cvv.length > 0 && !cvvOk;
 
-  const canPay = method === "card" && cardValid && status === "idle";
+  const canPay = method === "card" && cardValid && payable && status === "idle";
 
   const handlePay = () => {
     if (!canPay) return;
@@ -85,7 +87,8 @@ export function PaymentInfoPanel({
   };
 
   const isSuccess = status === "success";
-  const disabled = status !== "idle" || method !== "card" || !cardValid;
+  const disabled =
+    status !== "idle" || method !== "card" || !cardValid || !payable;
 
   const buttonLabel = isSuccess
     ? "✓ Payment Successful"
@@ -276,9 +279,11 @@ export function PaymentInfoPanel({
               textAlign: "center",
             }}
           >
-            {method === "card"
-              ? "Enter valid card details to pay."
-              : "Card payment is required to complete checkout."}
+            {!payable
+              ? "Your cart is empty."
+              : method === "card"
+                ? "Enter valid card details to pay."
+                : "Card payment is required to complete checkout."}
           </p>
         )}
       </div>
