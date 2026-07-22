@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,6 +29,36 @@ func NewRunner(store *db.Store, broker *sse.Broker, walletSvc nodes.WalletSigner
 		broker:    broker,
 		walletSvc: walletSvc,
 		registry:  newRunRegistry(),
+	}
+}
+
+const (
+	byokFlatFeeUSDMicros     int64 = 10_000  // $0.01
+	x402PlatformFeeUSDMicros int64 = 500_000 // $0.50
+)
+
+// preflightCheck fails a node before it runs if wf.UserID can't cover
+// amountUSDMicros. Blocks outright — no soft overage — matching the
+// prepaid-only model already used for credit top-ups.
+func (r *Runner) preflightCheck(ctx context.Context, wf models.Workflow, amountUSDMicros int64) error {
+	balance, err := r.store.GetCreditBalance(ctx, wf.UserID)
+	if err != nil {
+		return err
+	}
+	if balance < amountUSDMicros {
+		return fmt.Errorf("insufficient credits: balance %d micros, need %d micros", balance, amountUSDMicros)
+	}
+	return nil
+}
+
+// debitOrLog charges amountUSDMicros against wf.UserID for nodeID and just
+// logs on failure rather than failing the node — the node already ran
+// successfully by the time this is called, so there's nothing left to roll
+// back (x402 payments in particular can't be undone once sent on-chain).
+func (r *Runner) debitOrLog(ctx context.Context, wf models.Workflow, run models.Run, nodeID string, amountUSDMicros int64, kind string) {
+	if err := r.store.DebitCredits(ctx, wf.UserID, amountUSDMicros, kind, wf.ID, run.ID, nodeID); err != nil {
+		log.Printf("debit failed: user=%s workflow=%s run=%s node=%s kind=%s amount=%d: %v",
+			wf.UserID, wf.ID, run.ID, nodeID, kind, amountUSDMicros, err)
 	}
 }
 
@@ -123,7 +154,7 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run) {
 					Status:    models.LogStatusRunning,
 				})
 
-				result, execErr := r.executeNode(ctx, n, attachMap, walletByAgent, rc, run)
+				result, execErr := r.executeNode(ctx, n, attachMap, walletByAgent, rc, run, wf)
 				dur := int(time.Since(start).Milliseconds())
 
 				if execErr != nil {
@@ -191,6 +222,7 @@ func (r *Runner) executeNode(
 	walletByAgent map[string]models.AgentWallet,
 	rc *RunContext,
 	run models.Run,
+	wf models.Workflow,
 ) (any, error) {
 	switch node.Type {
 	case models.NodeTypeTrigger:
@@ -203,7 +235,20 @@ func (r *Runner) executeNode(
 	case models.NodeTypeProvider:
 		return rc.Message(), nil
 	case models.NodeTypeTool:
-		return nodes.ExecuteTool(ctx, node, rc)
+		billable := nodes.BillableFlatFee(node.Type, node.Template)
+		if billable {
+			if err := r.preflightCheck(ctx, wf, byokFlatFeeUSDMicros); err != nil {
+				return nil, err
+			}
+		}
+		result, err := nodes.ExecuteTool(ctx, node, rc)
+		if err != nil {
+			return nil, err
+		}
+		if billable {
+			r.debitOrLog(ctx, wf, run, node.ID, byokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+		}
+		return result, nil
 	case models.NodeTypeTool402:
 		// Find the agent that has this tool attached and use its wallet.
 		var aw models.AgentWallet
@@ -216,7 +261,15 @@ func (r *Runner) executeNode(
 		}
 		return nodes.ExecuteTool402(ctx, node, rc, aw, r.walletSvc)
 	case models.NodeTypeAction:
-		return nodes.ExecuteAction(ctx, node, rc)
+		if err := r.preflightCheck(ctx, wf, byokFlatFeeUSDMicros); err != nil {
+			return nil, err
+		}
+		result, err := nodes.ExecuteAction(ctx, node, rc)
+		if err != nil {
+			return nil, err
+		}
+		r.debitOrLog(ctx, wf, run, node.ID, byokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+		return result, nil
 	default:
 		return nil, nil
 	}
