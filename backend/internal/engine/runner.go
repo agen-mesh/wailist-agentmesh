@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -31,11 +32,6 @@ func NewRunner(store *db.Store, broker *sse.Broker, walletSvc nodes.WalletSigner
 		registry:  newRunRegistry(),
 	}
 }
-
-const (
-	byokFlatFeeUSDMicros     int64 = 10_000  // $0.01
-	x402PlatformFeeUSDMicros int64 = 500_000 // $0.50
-)
 
 // preflightCheck fails a node before it runs if wf.UserID can't cover
 // amountUSDMicros. Blocks outright — no soft overage — matching the
@@ -230,25 +226,38 @@ func (r *Runner) executeNode(
 	case models.NodeTypeEnd:
 		return rc.Message(), nil
 	case models.NodeTypeAgent:
-		if err := r.preflightCheck(ctx, wf, byokFlatFeeUSDMicros); err != nil {
+		if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
 			return nil, err
 		}
 		aw := walletByAgent[node.ID]
-		result, err := nodes.ExecuteAgent(ctx, node, attachMap[node.ID], aw, r.walletSvc, rc)
+		checkBalance := func(cctx context.Context, amount int64) error {
+			return r.preflightCheck(cctx, wf, amount)
+		}
+		result, err := nodes.ExecuteAgent(ctx, node, attachMap[node.ID], aw, r.walletSvc, rc, checkBalance)
 		if err != nil {
+			// A *nodes.ErrBalanceBlocked failure means the agent's own LLM
+			// turn already completed and only ran into insufficient balance
+			// when it tried an attached call — the agent's own flat fee is
+			// still owed. Any other error (e.g. LLM connectivity failure)
+			// means the agent turn itself never completed, so nothing is
+			// billed, matching the pre-existing behavior for those failures.
+			var blocked *nodes.ErrBalanceBlocked
+			if errors.As(err, &blocked) {
+				r.debitOrLog(ctx, wf, run, node.ID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+			}
 			return nil, err
 		}
-		r.debitOrLog(ctx, wf, run, node.ID, byokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+		r.debitOrLog(ctx, wf, run, node.ID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
 		if m, ok := result.(map[string]any); ok {
 			if payments, ok := m["x402Payments"].([]map[string]any); ok {
 				for _, p := range payments {
 					nodeID, _ := p["nodeId"].(string)
-					r.debitOrLog(ctx, wf, run, nodeID, x402PlatformFeeUSDMicros, models.DebitKindX402PlatformFee)
+					r.debitOrLog(ctx, wf, run, nodeID, models.X402PlatformFeeUSDMicros, models.DebitKindX402PlatformFee)
 				}
 			}
 			if nodeIDs, ok := m["billedFlatFeeNodeIds"].([]string); ok {
 				for _, nodeID := range nodeIDs {
-					r.debitOrLog(ctx, wf, run, nodeID, byokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+					r.debitOrLog(ctx, wf, run, nodeID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
 				}
 			}
 		}
@@ -258,7 +267,7 @@ func (r *Runner) executeNode(
 	case models.NodeTypeTool:
 		billable := nodes.BillableFlatFee(node.Type, node.Template)
 		if billable {
-			if err := r.preflightCheck(ctx, wf, byokFlatFeeUSDMicros); err != nil {
+			if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
 				return nil, err
 			}
 		}
@@ -267,11 +276,11 @@ func (r *Runner) executeNode(
 			return nil, err
 		}
 		if billable {
-			r.debitOrLog(ctx, wf, run, node.ID, byokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+			r.debitOrLog(ctx, wf, run, node.ID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
 		}
 		return result, nil
 	case models.NodeTypeTool402:
-		if err := r.preflightCheck(ctx, wf, x402PlatformFeeUSDMicros); err != nil {
+		if err := r.preflightCheck(ctx, wf, models.X402PlatformFeeUSDMicros); err != nil {
 			return nil, err
 		}
 		// Find the agent that has this tool attached and use its wallet.
@@ -289,19 +298,19 @@ func (r *Runner) executeNode(
 		}
 		if m, ok := result.(map[string]any); ok {
 			if _, hasTx := m["txId"]; hasTx {
-				r.debitOrLog(ctx, wf, run, node.ID, x402PlatformFeeUSDMicros, models.DebitKindX402PlatformFee)
+				r.debitOrLog(ctx, wf, run, node.ID, models.X402PlatformFeeUSDMicros, models.DebitKindX402PlatformFee)
 			}
 		}
 		return result, nil
 	case models.NodeTypeAction:
-		if err := r.preflightCheck(ctx, wf, byokFlatFeeUSDMicros); err != nil {
+		if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
 			return nil, err
 		}
 		result, err := nodes.ExecuteAction(ctx, node, rc)
 		if err != nil {
 			return nil, err
 		}
-		r.debitOrLog(ctx, wf, run, node.ID, byokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+		r.debitOrLog(ctx, wf, run, node.ID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
 		return result, nil
 	default:
 		return nil, nil

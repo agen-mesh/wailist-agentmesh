@@ -213,3 +213,8 @@ const (
 	DebitKindByokFlatFee     = "byok_flat_fee"
 	DebitKindX402PlatformFee = "x402_platform_fee"
 )
+
+const (
+	ByokFlatFeeUSDMicros     int64 = 10_000  // $0.01
+	X402PlatformFeeUSDMicros int64 = 500_000 // $0.50
+)

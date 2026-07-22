@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,20 +23,20 @@ func SetOpenAIBaseURL(u string) { openAIBaseURL = u }
 
 // ExecuteAgent runs the agent node: calls the attached LLM with function calling
 // support so the agent decides whether and how to invoke its attached tools.
-func ExecuteAgent(ctx context.Context, node models.WorkflowNode, attach models.AttachConfig, aw models.AgentWallet, signer WalletSigner, rc RunContexter) (any, error) {
+func ExecuteAgent(ctx context.Context, node models.WorkflowNode, attach models.AttachConfig, aw models.AgentWallet, signer WalletSigner, rc RunContexter, checkBalance BalanceChecker) (any, error) {
 	if attach.Provider == nil {
 		return rc.UserInput(), nil
 	}
 	p := attach.Provider
 	switch p.Template {
 	case "openai", "groq", "mistral":
-		return callOpenAICompat(ctx, node, *p, attach.Tools, aw, signer, rc)
+		return callOpenAICompat(ctx, node, *p, attach.Tools, aw, signer, rc, checkBalance)
 	case "anthropic":
 		return callAnthropic(ctx, node, *p, rc)
 	case "gemini":
-		return callGemini(ctx, node, *p, attach.Tools, aw, signer, rc)
+		return callGemini(ctx, node, *p, attach.Tools, aw, signer, rc, checkBalance)
 	default:
-		return callOpenAICompat(ctx, node, *p, attach.Tools, aw, signer, rc)
+		return callOpenAICompat(ctx, node, *p, attach.Tools, aw, signer, rc, checkBalance)
 	}
 }
 
@@ -125,12 +126,26 @@ func buildFuncDecls(tools []models.WorkflowNode) []funcDecl {
 
 // ─── tool execution helper ────────────────────────────────────────────────────
 
-func executeFunctionCall(ctx context.Context, funcName string, args map[string]any, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter) (any, models.WorkflowNode, error) {
+func executeFunctionCall(ctx context.Context, funcName string, args map[string]any, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter, checkBalance BalanceChecker) (any, models.WorkflowNode, error) {
 	for _, t := range tools {
 		if toolFuncName(t) != funcName {
 			continue
 		}
 		toolNode := t
+		if checkBalance != nil {
+			var feeAmount int64
+			switch {
+			case toolNode.Type == models.NodeTypeTool402:
+				feeAmount = models.X402PlatformFeeUSDMicros
+			case BillableFlatFee(toolNode.Type, toolNode.Template):
+				feeAmount = models.ByokFlatFeeUSDMicros
+			}
+			if feeAmount > 0 {
+				if err := checkBalance(ctx, feeAmount); err != nil {
+					return nil, toolNode, &ErrBalanceBlocked{Err: err}
+				}
+			}
+		}
 		// Append LLM-chosen args as query params onto the endpoint URL
 		if len(args) > 0 && toolNode.Endpoint != "" {
 			u, err := url.Parse(toolNode.Endpoint)
@@ -202,7 +217,7 @@ func collectX402Receipt(funcName string, result map[string]any, tools []models.W
 	return receipt
 }
 
-func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter) (any, error) {
+func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter, checkBalance BalanceChecker) (any, error) {
 	model := provider.Model
 	if model == "" {
 		model = "gemini-2.5-flash"
@@ -266,7 +281,13 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 		// Execute every requested function call and collect responses
 		responseParts := make([]map[string]any, 0, len(calls))
 		for _, c := range calls {
-			result, toolNode, execErr := executeFunctionCall(ctx, c.name, c.args, tools, aw, signer, rc)
+			result, toolNode, execErr := executeFunctionCall(ctx, c.name, c.args, tools, aw, signer, rc, checkBalance)
+			if execErr != nil {
+				var blocked *ErrBalanceBlocked
+				if errors.As(execErr, &blocked) {
+					return nil, execErr
+				}
+			}
 			resultStr := ""
 			if execErr != nil {
 				resultStr = "error: " + execErr.Error()
@@ -342,7 +363,7 @@ func extractGeminiFunctionCalls(resp map[string]any) []geminiFuncCall {
 
 // ─── OpenAI / Groq / Mistral ──────────────────────────────────────────────────
 
-func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter) (any, error) {
+func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter, checkBalance BalanceChecker) (any, error) {
 	baseURL := openAIBaseURL
 	switch provider.Template {
 	case "groq":
@@ -434,7 +455,13 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 			var tcArgs map[string]any
 			json.Unmarshal([]byte(tcArgsStr), &tcArgs)
 
-			toolResult, toolNode, toolErr := executeFunctionCall(ctx, tcName, tcArgs, tools, aw, signer, rc)
+			toolResult, toolNode, toolErr := executeFunctionCall(ctx, tcName, tcArgs, tools, aw, signer, rc, checkBalance)
+			if toolErr != nil {
+				var blocked *ErrBalanceBlocked
+				if errors.As(toolErr, &blocked) {
+					return nil, toolErr
+				}
+			}
 			resultStr := ""
 			if toolErr != nil {
 				resultStr = "error: " + toolErr.Error()

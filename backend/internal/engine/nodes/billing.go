@@ -1,6 +1,10 @@
 package nodes
 
-import "github.com/agentmesh/backend/internal/models"
+import (
+	"context"
+
+	"github.com/agentmesh/backend/internal/models"
+)
 
 // BillableFlatFee reports whether executing a node performs a real
 // off-platform action that should be charged the flat BYOK convenience
@@ -26,3 +30,26 @@ func BillableFlatFee(nodeType models.NodeType, template string) bool {
 		return false
 	}
 }
+
+// BalanceChecker lets the nodes package ask the caller whether a billable
+// attached tool/x402 call can proceed, without giving nodes direct DB
+// access. Returns a non-nil error (matching preflightCheck's error text
+// convention) when the balance is insufficient.
+type BalanceChecker func(ctx context.Context, amountUSDMicros int64) error
+
+// ErrBalanceBlocked wraps a BalanceChecker failure so the agent loop can
+// hard-stop instead of feeding the failure back to the LLM as a retryable
+// tool-level error (which would just spin the loop until
+// maxToolIterations, contradicting the "blocks before it runs, no soft
+// overage" contract). Callers use errors.As to distinguish this from other
+// ExecuteAgent failures (e.g. LLM connectivity errors): a
+// *ErrBalanceBlocked failure means the agent's own LLM turn already ran
+// (so its flat fee is still owed) and only the subsequent attached call
+// was blocked; any other error means the agent turn itself never
+// completed, so nothing should be billed.
+type ErrBalanceBlocked struct {
+	Err error
+}
+
+func (e *ErrBalanceBlocked) Error() string { return e.Err.Error() }
+func (e *ErrBalanceBlocked) Unwrap() error { return e.Err }

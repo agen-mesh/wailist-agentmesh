@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -409,6 +410,102 @@ func TestStandaloneTool402ChargesFeeOnlyWhenPaymentSent(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("want 0 ledger entries, got %d", len(entries))
+	}
+}
+
+func TestAgentBlocksAttachedX402CallWhenBalanceInsufficientForFee(t *testing.T) {
+	runner, store := newTestRunner(t)
+	ctx := context.Background()
+
+	var x402Hits int
+	x402Srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		x402Hits++
+		w.Header().Set("X-Payment-Required", `{"price":"0.001","unit":"call","network":"algorand-testnet","recipient":"ALGO123"}`)
+		w.WriteHeader(http.StatusPaymentRequired)
+	}))
+	defer x402Srv.Close()
+
+	llmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]any{
+				"role": "assistant",
+				"tool_calls": []map[string]any{{
+					"id":       "call_1",
+					"type":     "function",
+					"function": map[string]any{"name": "paid_tool", "arguments": "{}"},
+				}},
+			}}},
+		})
+	}))
+	defer llmSrv.Close()
+
+	email := fmt.Sprintf("agent-x402-broke-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Exactly enough for the agent's own $0.01 fee, nowhere near the attached
+	// tool402 call's $0.50 fee.
+	fundUser(t, store, user.ID, 10_000)
+
+	wf, err := store.CreateWorkflow(ctx, "Agent X402 Broke Test", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.DeleteWorkflow(context.Background(), wf.ID) })
+
+	nodes.SetOpenAIBaseURL(llmSrv.URL)
+
+	graph := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "n1", Type: models.NodeTypeTrigger},
+			{ID: "p1", Type: models.NodeTypeProvider, Template: "openai", APIKey: "test-key", Model: "gpt-4o"},
+			{ID: "a1", Type: models.NodeTypeAgent},
+			{ID: "x1", Type: models.NodeTypeTool402, Name: "paid_tool", Endpoint: x402Srv.URL},
+			{ID: "n3", Type: models.NodeTypeEnd},
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "e1", From: "n1", To: "a1", Kind: models.EdgeKindFlow},
+			{ID: "e2", From: "a1", To: "n3", Kind: models.EdgeKindFlow},
+			{ID: "e3", From: "p1", To: "a1", Kind: models.EdgeKindAttach, ToPort: "model"},
+			{ID: "e4", From: "x1", To: "a1", Kind: models.EdgeKindAttach, ToPort: "tools"},
+		},
+	}
+	wf, _ = store.UpdateWorkflow(ctx, wf.ID, wf.Name, graph)
+
+	run, err := store.CreateRun(ctx, wf.ID, "test", []byte("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker := sse.NewBroker()
+	broker.Create(run.ID)
+
+	runner.Start(wf, run)
+	final := waitForRunDone(t, store, run.ID)
+	if final.Status != models.RunStatusFailed {
+		t.Fatalf("want failed got %s", final.Status)
+	}
+	if x402Hits != 0 {
+		t.Fatalf("want zero requests to the x402 server (blocked before execution), got %d", x402Hits)
+	}
+
+	balance, err := store.GetCreditBalance(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 0 {
+		t.Fatalf("want balance 0 (agent's own $0.01 fee charged, attached call blocked before it could spend anything else), got %d", balance)
+	}
+	entries, err := store.ListDebitLedger(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("want exactly 1 ledger entry (the agent's own fee), got %d", len(entries))
+	}
+	if entries[0].Kind != models.DebitKindByokFlatFee || entries[0].NodeID != "a1" {
+		t.Fatalf("want a single byok_flat_fee entry for node a1, got kind=%s node=%s", entries[0].Kind, entries[0].NodeID)
 	}
 }
 
