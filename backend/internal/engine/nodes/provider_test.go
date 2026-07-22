@@ -34,7 +34,7 @@ func TestExecuteAgentOpenAI(t *testing.T) {
 	rc := engine.NewRunContext("run1", []byte(`{"message":"hello"}`))
 	nodes.SetOpenAIBaseURL(srv.URL)
 
-	result, err := nodes.ExecuteAgent(context.Background(), node, attach, models.AgentWallet{}, nil, rc, nil)
+	result, err := nodes.ExecuteAgent(context.Background(), node, attach, models.AgentWallet{}, nil, rc, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestExecuteAgentOpenAIBillsAttachedHTTPTool(t *testing.T) {
 	nodes.SetURLValidatorForTest(func(string) error { return nil })
 	defer nodes.SetURLValidatorForTest(func(string) error { return nil })
 
-	result, err := nodes.ExecuteAgent(context.Background(), node, attach, models.AgentWallet{}, nil, rc, nil)
+	result, err := nodes.ExecuteAgent(context.Background(), node, attach, models.AgentWallet{}, nil, rc, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,11 +133,103 @@ func TestExecuteAgentBlocksAttachedToolWhenBalanceCheckFails(t *testing.T) {
 		return fmt.Errorf("insufficient credits: balance 0 micros, need %d micros", amount)
 	}
 
-	result, err := nodes.ExecuteAgent(context.Background(), node, attach, models.AgentWallet{}, nil, rc, checkBalance)
+	result, err := nodes.ExecuteAgent(context.Background(), node, attach, models.AgentWallet{}, nil, rc, checkBalance, nil)
 	if err == nil {
 		t.Fatalf("want error from failed balance check, got result %v", result)
 	}
 	if toolHits != 0 {
 		t.Fatalf("want zero requests to the tool server (blocked before execution), got %d", toolHits)
+	}
+}
+
+func TestExecuteAgentOpenAIPlatformKeyUsesPlatformKeyAndReportsUsage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer platform-secret" {
+			t.Errorf("want platform key in Authorization header, got %q", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{"role": "assistant", "content": "platform hello"}},
+			},
+			"usage": map[string]any{"prompt_tokens": 42, "completion_tokens": 7},
+		})
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{ID: "a1", Type: models.NodeTypeAgent}
+	provider := models.WorkflowNode{ID: "p1", Type: models.NodeTypeProvider, Template: "openai", KeyMode: "platform", Model: "gpt-4.1"}
+	attach := models.AttachConfig{Provider: &provider}
+	platformKeys := map[string]string{"openai": "platform-secret"}
+
+	rc := engine.NewRunContext("run1", []byte(`{"message":"hello"}`))
+	nodes.SetOpenAIBaseURL(srv.URL)
+
+	result, err := nodes.ExecuteAgent(context.Background(), node, attach, models.AgentWallet{}, nil, rc, nil, platformKeys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("want map[string]any result, got %T: %v", result, result)
+	}
+	if m["message"] != "platform hello" {
+		t.Fatalf("message = %v, want 'platform hello'", m["message"])
+	}
+	usage, ok := m["platformKeyUsage"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing platformKeyUsage in result: %v", m)
+	}
+	if usage["tier"] != "standard" {
+		t.Fatalf("tier = %v, want standard", usage["tier"])
+	}
+	if usage["model"] != "gpt-4.1" {
+		t.Fatalf("model = %v, want gpt-4.1", usage["model"])
+	}
+	if usage["tokensIn"] != 42 {
+		t.Fatalf("tokensIn = %v, want 42", usage["tokensIn"])
+	}
+	if usage["tokensOut"] != 7 {
+		t.Fatalf("tokensOut = %v, want 7", usage["tokensOut"])
+	}
+}
+
+func TestExecuteAgentOpenAIPlatformKeyMissingErrors(t *testing.T) {
+	node := models.WorkflowNode{ID: "a1", Type: models.NodeTypeAgent}
+	provider := models.WorkflowNode{ID: "p1", Type: models.NodeTypeProvider, Template: "openai", KeyMode: "platform", Model: "gpt-4.1"}
+	attach := models.AttachConfig{Provider: &provider}
+	rc := engine.NewRunContext("run1", []byte(`{"message":"hello"}`))
+
+	_, err := nodes.ExecuteAgent(context.Background(), node, attach, models.AgentWallet{}, nil, rc, nil, map[string]string{})
+	if err == nil {
+		t.Fatal("want error when platform key not configured for template, got nil")
+	}
+}
+
+func TestExecuteAgentByokUnaffectedByPlatformKeysParam(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer byok-key" {
+			t.Errorf("want byok key in Authorization header, got %q", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]any{"role": "assistant", "content": "byok hello"}}},
+		})
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{ID: "a1", Type: models.NodeTypeAgent}
+	provider := models.WorkflowNode{ID: "p1", Type: models.NodeTypeProvider, Template: "openai", APIKey: "byok-key", Model: "gpt-4o"}
+	attach := models.AttachConfig{Provider: &provider}
+
+	rc := engine.NewRunContext("run1", []byte(`{"message":"hello"}`))
+	nodes.SetOpenAIBaseURL(srv.URL)
+
+	result, err := nodes.ExecuteAgent(context.Background(), node, attach, models.AgentWallet{}, nil, rc, nil, map[string]string{"openai": "should-not-be-used"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "byok hello" {
+		t.Fatalf("result = %v, want plain string 'byok hello' (unwrapped, unchanged from pre-platform-key behavior)", result)
 	}
 }

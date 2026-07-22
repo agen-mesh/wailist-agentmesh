@@ -23,21 +23,60 @@ func SetOpenAIBaseURL(u string) { openAIBaseURL = u }
 
 // ExecuteAgent runs the agent node: calls the attached LLM with function calling
 // support so the agent decides whether and how to invoke its attached tools.
-func ExecuteAgent(ctx context.Context, node models.WorkflowNode, attach models.AttachConfig, aw models.AgentWallet, signer WalletSigner, rc RunContexter, checkBalance BalanceChecker) (any, error) {
+// platformKeys maps provider template ("openai", "gemini", ...) to AgentMesh's
+// own API key for that provider, used only when the Provider node's KeyMode is
+// "platform". Never empty-checked against BYOK nodes — resolveAPIKey ignores it
+// entirely unless KeyMode == "platform".
+func ExecuteAgent(ctx context.Context, node models.WorkflowNode, attach models.AttachConfig, aw models.AgentWallet, signer WalletSigner, rc RunContexter, checkBalance BalanceChecker, platformKeys map[string]string) (any, error) {
 	if attach.Provider == nil {
 		return rc.UserInput(), nil
 	}
 	p := attach.Provider
 	switch p.Template {
 	case "openai", "groq", "mistral":
-		return callOpenAICompat(ctx, node, *p, attach.Tools, aw, signer, rc, checkBalance)
+		return callOpenAICompat(ctx, node, *p, attach.Tools, aw, signer, rc, checkBalance, platformKeys)
 	case "anthropic":
-		return callAnthropic(ctx, node, *p, rc)
+		return callAnthropic(ctx, node, *p, rc, platformKeys)
 	case "gemini":
-		return callGemini(ctx, node, *p, attach.Tools, aw, signer, rc, checkBalance)
+		return callGemini(ctx, node, *p, attach.Tools, aw, signer, rc, checkBalance, platformKeys)
 	default:
-		return callOpenAICompat(ctx, node, *p, attach.Tools, aw, signer, rc, checkBalance)
+		return callOpenAICompat(ctx, node, *p, attach.Tools, aw, signer, rc, checkBalance, platformKeys)
 	}
+}
+
+// resolveAPIKey returns the API key a Provider node's call should use: its
+// own APIKey for BYOK (KeyMode != "platform"), or AgentMesh's platform key
+// for its Template when KeyMode == "platform". Errors rather than silently
+// falling back to an empty key when platform mode is selected but no key is
+// configured for that template — an empty Authorization header would just
+// surface as a confusing 401 from the upstream provider instead.
+func resolveAPIKey(provider models.WorkflowNode, platformKeys map[string]string) (string, error) {
+	if provider.KeyMode != "platform" {
+		return provider.APIKey, nil
+	}
+	key, ok := platformKeys[provider.Template]
+	if !ok || key == "" {
+		return "", fmt.Errorf("platform key not configured for provider %q", provider.Template)
+	}
+	return key, nil
+}
+
+// platformKeyUsageResult wraps a final agent answer with tier/usage metadata
+// when the call ran on a platform key, so the Runner can bill the right
+// tier fee and record usage on the debit_ledger row. BYOK calls never go
+// through this — their return shape is unchanged from before this feature.
+func platformKeyUsageResult(provider models.WorkflowNode, tokensIn, tokensOut int, extra map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range extra {
+		out[k] = v
+	}
+	out["platformKeyUsage"] = map[string]any{
+		"tier":      ModelTier(provider.Template, provider.Model),
+		"model":     provider.Model,
+		"tokensIn":  tokensIn,
+		"tokensOut": tokensOut,
+	}
+	return out
 }
 
 // ─── function declaration helpers ────────────────────────────────────────────
@@ -217,13 +256,19 @@ func collectX402Receipt(funcName string, result map[string]any, tools []models.W
 	return receipt
 }
 
-func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter, checkBalance BalanceChecker) (any, error) {
+func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter, checkBalance BalanceChecker, platformKeys map[string]string) (any, error) {
 	model := provider.Model
 	if model == "" {
 		model = "gemini-2.5-flash"
 	}
+
+	apiKey, err := resolveAPIKey(provider, platformKeys)
+	if err != nil {
+		return nil, err
+	}
+
 	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", model)
-	apiHeaders := map[string]string{"x-goog-api-key": provider.APIKey}
+	apiHeaders := map[string]string{"x-goog-api-key": apiKey}
 
 	contents := []map[string]any{
 		{"role": "user", "parts": []map[string]any{{"text": rc.UserInput()}}},
@@ -242,12 +287,21 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 
 	var x402Payments []map[string]any
 	var billedFlatFeeNodeIds []string
+	var tokensIn, tokensOut int
 
 	// Agentic loop — keep calling until the model returns text (no function call).
 	for iter := 0; iter < maxToolIterations; iter++ {
 		resp, err := postLLMJSON(ctx, apiURL, apiHeaders, payload)
 		if err != nil {
 			return nil, err
+		}
+		if usage, ok := resp["usageMetadata"].(map[string]any); ok {
+			if v, ok := usage["promptTokenCount"].(float64); ok {
+				tokensIn += int(v)
+			}
+			if v, ok := usage["candidatesTokenCount"].(float64); ok {
+				tokensOut += int(v)
+			}
 		}
 
 		// Collect all function calls the model wants to make in this turn
@@ -257,6 +311,16 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 			text, textErr := extractGeminiText(resp)
 			if textErr != nil {
 				return nil, textErr
+			}
+			if provider.KeyMode == "platform" {
+				extra := map[string]any{"message": text}
+				if len(x402Payments) > 0 {
+					extra["x402Payments"] = x402Payments
+				}
+				if len(billedFlatFeeNodeIds) > 0 {
+					extra["billedFlatFeeNodeIds"] = billedFlatFeeNodeIds
+				}
+				return platformKeyUsageResult(provider, tokensIn, tokensOut, extra), nil
 			}
 			if len(x402Payments) > 0 || len(billedFlatFeeNodeIds) > 0 {
 				out := map[string]any{"message": text}
@@ -363,7 +427,7 @@ func extractGeminiFunctionCalls(resp map[string]any) []geminiFuncCall {
 
 // ─── OpenAI / Groq / Mistral ──────────────────────────────────────────────────
 
-func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter, checkBalance BalanceChecker) (any, error) {
+func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter, checkBalance BalanceChecker, platformKeys map[string]string) (any, error) {
 	baseURL := openAIBaseURL
 	switch provider.Template {
 	case "groq":
@@ -374,6 +438,11 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 	model := provider.Model
 	if model == "" {
 		model = "gpt-4o"
+	}
+
+	apiKey, err := resolveAPIKey(provider, platformKeys)
+	if err != nil {
+		return nil, err
 	}
 
 	messages := []map[string]any{}
@@ -400,10 +469,11 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 		payload["tools"] = oaiTools
 	}
 
-	headers := map[string]string{"Authorization": "Bearer " + provider.APIKey}
+	headers := map[string]string{"Authorization": "Bearer " + apiKey}
 
 	var x402Payments []map[string]any
 	var billedFlatFeeNodeIds []string
+	var tokensIn, tokensOut int
 
 	// Agentic loop — repeat until the model returns content with no tool calls.
 	for iter := 0; iter < maxToolIterations; iter++ {
@@ -411,6 +481,14 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 		resp, err := postLLMJSON(ctx, baseURL+"/v1/chat/completions", headers, payload)
 		if err != nil {
 			return nil, err
+		}
+		if usage, ok := resp["usage"].(map[string]any); ok {
+			if v, ok := usage["prompt_tokens"].(float64); ok {
+				tokensIn += int(v)
+			}
+			if v, ok := usage["completion_tokens"].(float64); ok {
+				tokensOut += int(v)
+			}
 		}
 
 		choices, _ := resp["choices"].([]any)
@@ -424,6 +502,16 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 		if len(toolCalls) == 0 {
 			// No tool calls — return the final answer
 			content, _ := msg["content"].(string)
+			if provider.KeyMode == "platform" {
+				extra := map[string]any{"message": content}
+				if len(x402Payments) > 0 {
+					extra["x402Payments"] = x402Payments
+				}
+				if len(billedFlatFeeNodeIds) > 0 {
+					extra["billedFlatFeeNodeIds"] = billedFlatFeeNodeIds
+				}
+				return platformKeyUsageResult(provider, tokensIn, tokensOut, extra), nil
+			}
 			if len(x402Payments) > 0 || len(billedFlatFeeNodeIds) > 0 {
 				out := map[string]any{"message": content}
 				if len(x402Payments) > 0 {
@@ -491,11 +579,17 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 
 // ─── Anthropic ────────────────────────────────────────────────────────────────
 
-func callAnthropic(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, rc RunContexter) (string, error) {
+func callAnthropic(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, rc RunContexter, platformKeys map[string]string) (any, error) {
 	model := provider.Model
 	if model == "" {
 		model = "claude-sonnet-4-6"
 	}
+
+	apiKey, err := resolveAPIKey(provider, platformKeys)
+	if err != nil {
+		return nil, err
+	}
+
 	type anthMsg struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
@@ -510,12 +604,22 @@ func callAnthropic(ctx context.Context, agent models.WorkflowNode, provider mode
 	}
 
 	headers := map[string]string{
-		"x-api-key":         provider.APIKey,
+		"x-api-key":         apiKey,
 		"anthropic-version": "2023-06-01",
 	}
 	resp, err := postLLMJSON(ctx, "https://api.anthropic.com/v1/messages", headers, payload)
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+
+	var tokensIn, tokensOut int
+	if usage, ok := resp["usage"].(map[string]any); ok {
+		if v, ok := usage["input_tokens"].(float64); ok {
+			tokensIn = int(v)
+		}
+		if v, ok := usage["output_tokens"].(float64); ok {
+			tokensOut = int(v)
+		}
 	}
 
 	contentArr, _ := resp["content"].([]any)
@@ -523,8 +627,11 @@ func callAnthropic(ctx context.Context, agent models.WorkflowNode, provider mode
 		cm, _ := c.(map[string]any)
 		if cm["type"] == "text" {
 			text, _ := cm["text"].(string)
+			if provider.KeyMode == "platform" {
+				return platformKeyUsageResult(provider, tokensIn, tokensOut, map[string]any{"message": text}), nil
+			}
 			return text, nil
 		}
 	}
-	return "", fmt.Errorf("no text block in Anthropic response")
+	return nil, fmt.Errorf("no text block in Anthropic response")
 }
