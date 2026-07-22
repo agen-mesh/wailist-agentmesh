@@ -429,7 +429,10 @@ function CanvasTopbar({
         <Logo size={16} />
       </button>
       <Hairline vertical length={20} />
-      <button onClick={onBack} style={ghostBtnSm}>
+      <button
+        onClick={onBack}
+        style={{ ...ghostBtnSm, flexShrink: 0, whiteSpace: "nowrap" }}
+      >
         ← Workflows
       </button>
       <span style={{ color: "var(--fg-dim)" }}>/</span>
