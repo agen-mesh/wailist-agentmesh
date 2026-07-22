@@ -61,40 +61,48 @@ export default function BillingPage() {
         }}
       />
 
-      {effectiveAmountPaise >= 100 ? (
-        <RazorpayCheckoutButton
-          amountINRPaise={effectiveAmountPaise}
-          onSuccess={(credited) =>
-            setMessage(`Credited $${(credited / 1e6).toFixed(2)}`)
-          }
-          onError={(err) => setMessage(`Error: ${err}`)}
-        />
-      ) : (
-        <p style={{ color: "var(--danger)", fontSize: 13 }}>
-          Minimum amount is ₹1
-        </p>
-      )}
-
-      {message && <p style={{ marginTop: 16, fontSize: 13 }}>{message}</p>}
-
-      <button
-        type="button"
-        onClick={() => setCheckoutOpen(true)}
+      <div
         style={{
+          display: "flex",
+          gap: 12,
+          alignItems: "center",
           marginTop: 24,
-          height: 36,
-          padding: "0 16px",
-          borderRadius: "var(--r-2)",
-          border: "1px solid var(--border-strong)",
-          background: "transparent",
-          color: "var(--fg-muted)",
-          fontSize: 13,
-          fontWeight: 500,
-          cursor: "pointer",
         }}
       >
-        Open checkout
-      </button>
+        {effectiveAmountPaise >= 100 ? (
+          <RazorpayCheckoutButton
+            amountINRPaise={effectiveAmountPaise}
+            onSuccess={(credited) =>
+              setMessage(`Credited $${(credited / 1e6).toFixed(2)}`)
+            }
+            onError={(err) => setMessage(`Error: ${err}`)}
+          />
+        ) : (
+          <p style={{ color: "var(--danger)", fontSize: 13 }}>
+            Minimum amount is ₹1
+          </p>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setCheckoutOpen(true)}
+          style={{
+            height: 36,
+            padding: "0 16px",
+            borderRadius: "var(--r-2)",
+            border: "1px solid var(--border-strong)",
+            background: "transparent",
+            color: "var(--fg-muted)",
+            fontSize: 13,
+            fontWeight: 500,
+            cursor: "pointer",
+          }}
+        >
+          Open checkout
+        </button>
+      </div>
+
+      {message && <p style={{ marginTop: 16, fontSize: 13 }}>{message}</p>}
 
       {checkoutOpen && (
         <CheckoutModal open onClose={() => setCheckoutOpen(false)} />
