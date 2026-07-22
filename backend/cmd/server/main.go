@@ -12,6 +12,7 @@ import (
 	"github.com/agentmesh/backend/internal/api/handlers"
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine"
+	"github.com/agentmesh/backend/internal/payments"
 	"github.com/agentmesh/backend/internal/sse"
 	"github.com/agentmesh/backend/internal/wallet"
 )
@@ -36,6 +37,8 @@ func main() {
 		envOr("ALGORAND_NETWORK", "testnet"),
 	)
 
+	razorpayClient := payments.NewRazorpayClient(mustEnv("RAZORPAY_KEY_ID"), mustEnv("RAZORPAY_KEY_SECRET"))
+
 	runner := engine.NewRunner(store, broker, walletSvc)
 
 	deps := &handlers.Deps{
@@ -52,6 +55,9 @@ func main() {
 		GithubClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"),
 		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+
+		Razorpay:      razorpayClient,
+		RazorpayKeyID: razorpayClient.KeyID,
 	}
 
 	r := api.NewRouter(deps)

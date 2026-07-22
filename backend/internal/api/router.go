@@ -49,6 +49,9 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Get("/runs/{runId}/stream", d.StreamRun)
 
 		r.Post("/tools/x402/quote", d.X402Quote)
+
+		r.Post("/payments/razorpay/order", d.CreateRazorpayOrder)
+		r.Post("/payments/razorpay/verify", d.VerifyRazorpayPayment)
 	})
 
 	return r
