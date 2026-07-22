@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useCredits } from "@/lib/credits/store";
 import {
   Logo,
   Pill,
@@ -361,6 +362,7 @@ function UsageBody({
   loading: boolean;
 }) {
   const { timeseries, byWorkflow, byEndpoint, settlements } = data;
+  const { balanceUSD } = useCredits();
 
   const workflows = scopedWf
     ? byWorkflow.filter((w) => w.workflowId === scopedWf)
@@ -409,10 +411,14 @@ function UsageBody({
         >
           {(() => {
             const b = data.summary.budget;
-            const left = b ? b.limit - b.used : null;
+            // Purchased credits (mock wallet) add to whatever the usage budget
+            // reports, so a top-up is reflected in "credits left" immediately.
+            const base = b ? b.limit - b.used : 0;
+            const left = b || balanceUSD > 0 ? base + balanceUSD : null;
+            const limit = b ? b.limit + balanceUSD : 0;
             const pctLeft =
-              b && b.limit > 0
-                ? Math.max(0, Math.min(1, (b.limit - b.used) / b.limit))
+              limit > 0
+                ? Math.max(0, Math.min(1, (base + balanceUSD) / limit))
                 : null;
             const tone =
               pctLeft == null
