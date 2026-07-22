@@ -333,6 +333,7 @@ export function UsagePage() {
               onRangeChange={changeRange}
               scopedWf={scopedWf}
               onOpenWorkflow={(id) => router.push(`/workflows/${id}`)}
+              onTopUp={() => router.push("/billing")}
               loading={loading}
             />
           )}
@@ -348,6 +349,7 @@ function UsageBody({
   onRangeChange,
   scopedWf,
   onOpenWorkflow,
+  onTopUp,
   loading,
 }: {
   data: UsagePayload;
@@ -355,6 +357,7 @@ function UsageBody({
   onRangeChange: (r: UsageRange) => void;
   scopedWf: string | null;
   onOpenWorkflow: (id: string) => void;
+  onTopUp: () => void;
   loading: boolean;
 }) {
   const { timeseries, byWorkflow, byEndpoint, settlements } = data;
@@ -436,9 +439,11 @@ function UsageBody({
                 }}
               >
                 <button
+                  type="button"
                   className="credit-topup"
                   aria-label="Credit top-up"
                   title="Credit top-up"
+                  onClick={onTopUp}
                 >
                   <svg
                     width="15"
