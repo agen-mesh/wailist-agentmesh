@@ -370,3 +370,74 @@ func (s *Store) InsertWaitlistEmail(ctx context.Context, email string) error {
 	`, email)
 	return err
 }
+
+// --- Credit ledger methods ---
+
+func (s *Store) CreateCreditTransaction(ctx context.Context, userID, providerOrderID string, amountINRPaise int64, fxRate float64) (models.CreditTransaction, error) {
+	creditUSDMicros := int64(float64(amountINRPaise) / 100.0 * fxRate * 1e6)
+	var txn models.CreditTransaction
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO credit_ledger (user_id, provider, provider_order_id, status, amount_inr_paise, fx_rate_usd_per_inr, credit_usd_micros)
+		VALUES ($1, 'razorpay', $2, 'pending', $3, $4, $5)
+		RETURNING id, user_id, provider, provider_order_id, status, amount_inr_paise, fx_rate_usd_per_inr, credit_usd_micros, created_at
+	`, userID, providerOrderID, amountINRPaise, fxRate, creditUSDMicros).Scan(
+		&txn.ID, &txn.UserID, &txn.Provider, &txn.ProviderOrderID, &txn.Status,
+		&txn.AmountINRPaise, &txn.FXRateUSDPerINR, &txn.CreditUSDMicros, &txn.CreatedAt,
+	)
+	return txn, err
+}
+
+// CompleteCreditTransaction marks the ledger row for providerOrderID as completed and
+// credits the user's cached balance, atomically. Idempotent: if the row is already
+// completed (webhook/verify replay), it returns the stored amount without re-crediting.
+func (s *Store) CompleteCreditTransaction(ctx context.Context, providerOrderID, providerPaymentID string) (int64, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	var (
+		id              string
+		userID          string
+		status          string
+		creditUSDMicros int64
+	)
+	err = tx.QueryRow(ctx, `
+		SELECT id, user_id, status, credit_usd_micros
+		FROM credit_ledger
+		WHERE provider_order_id = $1
+		FOR UPDATE
+	`, providerOrderID).Scan(&id, &userID, &status, &creditUSDMicros)
+	if err != nil {
+		return 0, err
+	}
+
+	if status == "completed" {
+		return creditUSDMicros, nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE credit_ledger SET status = 'completed', provider_payment_id = $1, completed_at = NOW()
+		WHERE id = $2
+	`, providerPaymentID, id); err != nil {
+		return 0, err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE users SET credit_balance_usd_micros = credit_balance_usd_micros + $1 WHERE id = $2
+	`, creditUSDMicros, userID); err != nil {
+		return 0, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return creditUSDMicros, nil
+}
+
+func (s *Store) GetCreditBalance(ctx context.Context, userID string) (int64, error) {
+	var balance int64
+	err := s.pool.QueryRow(ctx, `SELECT credit_balance_usd_micros FROM users WHERE id = $1`, userID).Scan(&balance)
+	return balance, err
+}
