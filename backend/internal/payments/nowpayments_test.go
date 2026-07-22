@@ -114,6 +114,33 @@ func TestVerifyIPNSignatureAcceptsOutOfOrderKeys(t *testing.T) {
 	}
 }
 
+func TestVerifyIPNSignatureAcceptsOutOfOrderNestedKeys(t *testing.T) {
+	// Exercises the recursive descent in sortKeysDeep: a nested object (outcome) and
+	// an array of objects (items), each with their own keys deliberately out of
+	// alphabetical order in the raw body, at every nesting level.
+	c := payments.NewNOWPaymentsClient("api_key", "ipn_secret")
+	payload := map[string]any{
+		"order_id":   "order_nested",
+		"payment_id": float64(1),
+		"outcome": map[string]any{
+			"outcome_amount":   float64(10),
+			"outcome_currency": "usdt",
+		},
+		"items": []any{
+			map[string]any{"y": float64(1), "x": float64(2)},
+		},
+	}
+	sig := signIPN(t, "ipn_secret", payload)
+
+	// Same fields and values, but top-level keys, the nested "outcome" object's keys,
+	// and the nested "items" array's object keys are all out of alphabetical order.
+	rawBody := []byte(`{"payment_id":1,"order_id":"order_nested","items":[{"y":1,"x":2}],"outcome":{"outcome_currency":"usdt","outcome_amount":10}}`)
+
+	if !c.VerifyIPNSignature(rawBody, sig) {
+		t.Fatal("want signature valid regardless of nested key order")
+	}
+}
+
 func TestVerifyIPNSignatureRejectsTamperedBody(t *testing.T) {
 	c := payments.NewNOWPaymentsClient("api_key", "ipn_secret")
 	payload := map[string]any{"payment_id": float64(1), "order_id": "order_abc", "payment_status": "waiting"}
