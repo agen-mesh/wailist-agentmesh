@@ -271,6 +271,9 @@ func (r *Runner) executeNode(
 		}
 		return result, nil
 	case models.NodeTypeTool402:
+		if err := r.preflightCheck(ctx, wf, x402PlatformFeeUSDMicros); err != nil {
+			return nil, err
+		}
 		// Find the agent that has this tool attached and use its wallet.
 		var aw models.AgentWallet
 		for agentID, cfg := range attachMap {
@@ -280,7 +283,16 @@ func (r *Runner) executeNode(
 				}
 			}
 		}
-		return nodes.ExecuteTool402(ctx, node, rc, aw, r.walletSvc)
+		result, err := nodes.ExecuteTool402(ctx, node, rc, aw, r.walletSvc)
+		if err != nil {
+			return nil, err
+		}
+		if m, ok := result.(map[string]any); ok {
+			if _, hasTx := m["txId"]; hasTx {
+				r.debitOrLog(ctx, wf, run, node.ID, x402PlatformFeeUSDMicros, models.DebitKindX402PlatformFee)
+			}
+		}
+		return result, nil
 	case models.NodeTypeAction:
 		if err := r.preflightCheck(ctx, wf, byokFlatFeeUSDMicros); err != nil {
 			return nil, err

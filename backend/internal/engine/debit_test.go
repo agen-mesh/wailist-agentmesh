@@ -336,3 +336,140 @@ func TestAgentNodeChargesOwnFeeAndAttachedToolCalls(t *testing.T) {
 		t.Fatalf("want one ledger entry for agent1 and one for tool1, got %+v", entries)
 	}
 }
+
+func TestStandaloneTool402ChargesFeeOnlyWhenPaymentSent(t *testing.T) {
+	runner, store := newTestRunner(t)
+	ctx := context.Background()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Payment-Txid") != "" {
+			w.Write([]byte(`{"ok":true}`))
+			return
+		}
+		w.Header().Set("X-Payment-Required", `{"price":"0.001","unit":"call","network":"algorand-testnet","recipient":"ALGO123"}`)
+		w.WriteHeader(http.StatusPaymentRequired)
+	}))
+	defer srv.Close()
+
+	email := fmt.Sprintf("x402-standalone-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fundUser(t, store, user.ID, 1000000) // $1, plenty for one $0.50 fee
+
+	wf, err := store.CreateWorkflow(ctx, "X402 Standalone Test", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.DeleteWorkflow(context.Background(), wf.ID) })
+
+	// Deliberately no agent wallet and no attach edge for x1 — this exercises
+	// the "no signer configured" path (see the note after this test).
+
+	graph := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "n1", Type: models.NodeTypeTrigger},
+			{ID: "x1", Type: models.NodeTypeTool402, Endpoint: srv.URL},
+			{ID: "n3", Type: models.NodeTypeEnd},
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "e1", From: "n1", To: "x1", Kind: models.EdgeKindFlow},
+			{ID: "e2", From: "x1", To: "n3", Kind: models.EdgeKindFlow},
+		},
+	}
+	wf, _ = store.UpdateWorkflow(ctx, wf.ID, wf.Name, graph)
+
+	run, err := store.CreateRun(ctx, wf.ID, "test", []byte("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker := sse.NewBroker()
+	broker.Create(run.ID)
+
+	runner.Start(wf, run)
+	final := waitForRunDone(t, store, run.ID)
+	if final.Status != models.RunStatusSuccess {
+		t.Fatalf("want success got %s", final.Status)
+	}
+
+	// No agent attach edge targets x1, so runner.executeNode resolves an empty
+	// AgentWallet for it — ExecuteTool402 degrades gracefully (no signer
+	// configured), so no payment is sent and no fee should be charged.
+	balance, err := store.GetCreditBalance(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 1000000 {
+		t.Fatalf("want balance unchanged at 1000000 (no wallet configured, no payment sent), got %d", balance)
+	}
+	entries, err := store.ListDebitLedger(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("want 0 ledger entries, got %d", len(entries))
+	}
+}
+
+func TestInsufficientBalanceBlocksTool402BeforeExecution(t *testing.T) {
+	runner, store := newTestRunner(t)
+	ctx := context.Background()
+
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Header().Set("X-Payment-Required", `{"price":"0.001","unit":"call","network":"algorand-testnet","recipient":"ALGO123"}`)
+		w.WriteHeader(http.StatusPaymentRequired)
+	}))
+	defer srv.Close()
+
+	email := fmt.Sprintf("x402-broke-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fundUser(t, store, user.ID, 100000) // 10 cents, below the $0.50 fee
+
+	wf, err := store.CreateWorkflow(ctx, "X402 Broke Test", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.DeleteWorkflow(context.Background(), wf.ID) })
+
+	graph := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "n1", Type: models.NodeTypeTrigger},
+			{ID: "x1", Type: models.NodeTypeTool402, Endpoint: srv.URL},
+			{ID: "n3", Type: models.NodeTypeEnd},
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "e1", From: "n1", To: "x1", Kind: models.EdgeKindFlow},
+			{ID: "e2", From: "x1", To: "n3", Kind: models.EdgeKindFlow},
+		},
+	}
+	wf, _ = store.UpdateWorkflow(ctx, wf.ID, wf.Name, graph)
+
+	run, err := store.CreateRun(ctx, wf.ID, "test", []byte("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker := sse.NewBroker()
+	broker.Create(run.ID)
+
+	runner.Start(wf, run)
+	final := waitForRunDone(t, store, run.ID)
+	if final.Status != models.RunStatusFailed {
+		t.Fatalf("want failed got %s", final.Status)
+	}
+	if hits != 0 {
+		t.Fatalf("want zero requests to the test server (blocked pre-flight), got %d", hits)
+	}
+	balance, err := store.GetCreditBalance(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 100000 {
+		t.Fatalf("want balance unchanged at 100000, got %d", balance)
+	}
+}
