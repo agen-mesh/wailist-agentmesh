@@ -41,9 +41,9 @@ export const AGENT_TEMPLATES = [
 export const PROVIDER_TEMPLATES = [
   { id: "gemini", name: "Google Gemini", model: "gemini-2.5-flash", icon: "G" },
   { id: "openai", name: "OpenAI", model: "gpt-4.1", icon: "O" },
-  { id: "anthropic", name: "Anthropic", model: "claude-sonnet-4", icon: "A" },
-  { id: "mistral", name: "Mistral", model: "mistral-large", icon: "M" },
-  { id: "groq", name: "Groq", model: "llama-3.3-70b", icon: "q" },
+  { id: "anthropic", name: "Anthropic", model: "claude-sonnet-4-6", icon: "A" },
+  { id: "mistral", name: "Mistral", model: "mistral-large-latest", icon: "M" },
+  { id: "groq", name: "Groq", model: "llama-3.3-70b-versatile", icon: "q" },
 ];
 
 // Display-only mirror of backend/internal/engine/nodes/tier.go's modelTiers
