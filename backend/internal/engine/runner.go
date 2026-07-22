@@ -3,10 +3,12 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/agentmesh/backend/internal/alert"
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/models"
@@ -43,15 +45,25 @@ func (r *Runner) Stop(workflowID string) bool {
 	return r.registry.cancel(workflowID)
 }
 
+// finishRun records the run's terminal status and fires a workflow-run audit-log
+// notification. Centralized here so every terminal path (success, failed, stopped)
+// reports to the same Discord channel with the same message shape.
+func (r *Runner) finishRun(wf models.Workflow, run models.Run, status models.RunStatus) {
+	r.store.FinishRun(context.Background(), run.ID, status)
+	go alert.Notify(context.Background(), alert.ChannelWorkflows, fmt.Sprintf("workflow %q run %s finished: %s", wf.Name, run.ID, status))
+}
+
 // Run executes a workflow. Call via Start rather than directly.
 func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run) {
 	defer r.broker.Close(run.ID)
 	defer r.registry.deregister(wf.ID)
 
+	go alert.Notify(context.Background(), alert.ChannelWorkflows, fmt.Sprintf("workflow %q run %s started", wf.Name, run.ID))
+
 	attachMap := BuildAttachMap(wf.Nodes, wf.Edges)
 	levels, err := TopologicalSort(wf.Nodes, wf.Edges)
 	if err != nil {
-		r.store.FinishRun(context.Background(), run.ID, models.RunStatusFailed)
+		r.finishRun(wf, run, models.RunStatusFailed)
 		return
 	}
 
@@ -85,7 +97,7 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run) {
 	for stepIdx, level := range levels {
 		// Check for cancellation between levels.
 		if ctx.Err() != nil {
-			r.store.FinishRun(context.Background(), run.ID, models.RunStatusStopped)
+			r.finishRun(wf, run, models.RunStatusStopped)
 			return
 		}
 
@@ -164,12 +176,12 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run) {
 		wg.Wait()
 
 		if atomic.LoadInt32(&failed) != 0 {
-			r.store.FinishRun(context.Background(), run.ID, models.RunStatusFailed)
+			r.finishRun(wf, run, models.RunStatusFailed)
 			return
 		}
 	}
 
-	r.store.FinishRun(context.Background(), run.ID, models.RunStatusSuccess)
+	r.finishRun(wf, run, models.RunStatusSuccess)
 }
 
 func (r *Runner) executeNode(

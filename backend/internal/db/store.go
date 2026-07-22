@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"time"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -369,4 +370,182 @@ func (s *Store) InsertWaitlistEmail(ctx context.Context, email string) error {
 		INSERT INTO waitlist (email) VALUES ($1) ON CONFLICT (email) DO NOTHING
 	`, email)
 	return err
+}
+
+// --- Credit ledger methods ---
+
+func (s *Store) CreateCreditTransaction(ctx context.Context, userID, providerOrderID string, amountINRPaise int64, fxRate float64) (models.CreditTransaction, error) {
+	creditUSDMicros := int64(math.Round(float64(amountINRPaise) / 100.0 * fxRate * 1e6))
+	var txn models.CreditTransaction
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO credit_ledger (user_id, provider, provider_order_id, status, amount_inr_paise, fx_rate_usd_per_inr, credit_usd_micros)
+		VALUES ($1, 'razorpay', $2, 'pending', $3, $4, $5)
+		RETURNING id, user_id, provider, provider_order_id, status, amount_inr_paise, fx_rate_usd_per_inr, credit_usd_micros, created_at
+	`, userID, providerOrderID, amountINRPaise, fxRate, creditUSDMicros).Scan(
+		&txn.ID, &txn.UserID, &txn.Provider, &txn.ProviderOrderID, &txn.Status,
+		&txn.AmountINRPaise, &txn.FXRateUSDPerINR, &txn.CreditUSDMicros, &txn.CreatedAt,
+	)
+	return txn, err
+}
+
+// ErrCreditTransactionNotFound is returned when no credit_ledger row exists for the given
+// provider order ID — the caller supplied an order Razorpay never told us about (or that
+// our own CreateCreditTransaction failed to record). Callers should treat this as a
+// permanent 4xx, not a transient failure: retrying an unknown order will never succeed.
+var ErrCreditTransactionNotFound = errors.New("credit transaction not found")
+
+// CompleteCreditTransaction marks the ledger row for providerOrderID as completed and
+// credits the user's cached balance, atomically. Idempotent: if the row is already
+// completed (webhook/verify replay), it returns the stored amount without re-crediting.
+// The bool return is true only when this call is the one that actually completed the
+// transaction (false on a replay) — callers use it to fire an audit-log notification
+// exactly once per real credit, not once per redundant client-verify/webhook race.
+func (s *Store) CompleteCreditTransaction(ctx context.Context, providerOrderID, providerPaymentID string) (int64, bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, false, err
+	}
+	defer tx.Rollback(ctx)
+
+	var (
+		id              string
+		userID          string
+		creditUSDMicros int64
+		completedAt     *time.Time
+	)
+	err = tx.QueryRow(ctx, `
+		SELECT id, user_id, credit_usd_micros, completed_at
+		FROM credit_ledger
+		WHERE provider_order_id = $1 AND provider = 'razorpay'
+		FOR UPDATE
+	`, providerOrderID).Scan(&id, &userID, &creditUSDMicros, &completedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, ErrCreditTransactionNotFound
+	}
+	if err != nil {
+		return 0, false, err
+	}
+
+	// Gate on completed_at, not the status string: RefundCreditTransaction moves status
+	// to 'refunded' after a full refund but never clears completed_at. If this gated on
+	// status == "completed" instead, a replayed verify call or duplicate webhook delivery
+	// arriving after a refund would find status == "refunded", fall through this check,
+	// and re-credit a payment the user was already refunded for — a real double-dip since
+	// Razorpay signatures don't expire and can be replayed indefinitely.
+	if completedAt != nil {
+		return creditUSDMicros, false, nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE credit_ledger SET status = 'completed', provider_payment_id = $1, completed_at = NOW()
+		WHERE id = $2
+	`, providerPaymentID, id); err != nil {
+		return 0, false, err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE users SET credit_balance_usd_micros = credit_balance_usd_micros + $1 WHERE id = $2
+	`, creditUSDMicros, userID); err != nil {
+		return 0, false, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, false, err
+	}
+	return creditUSDMicros, true, nil
+}
+
+// RefundCreditTransaction reverses previously-credited USD micros when Razorpay reports a
+// refund against an order. totalRefundedINRPaise is the *cumulative* amount refunded on the
+// payment so far — Razorpay resends this on every refund event (partial or full), so this
+// method tracks refunded_inr_paise on the ledger row and only acts on the delta between the
+// new total and what was already applied, making repeated/replayed events safe.
+//
+// If the order was never completed in our ledger (still 'pending' or already 'expired'), no
+// credit was ever granted, so no balance reversal happens — only the bookkeeping columns are
+// updated. credit_balance_usd_micros is floored at 0 via GREATEST so a reversal can never push
+// a user negative even under an unexpected ordering of events.
+//
+// The bool return is true only when this call applied a new refund delta (false when the
+// cumulative total matches what's already recorded, i.e. a replayed webhook) — callers use
+// it to fire an audit-log notification exactly once per real refund event.
+func (s *Store) RefundCreditTransaction(ctx context.Context, providerOrderID string, totalRefundedINRPaise int64) (int64, bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, false, err
+	}
+	defer tx.Rollback(ctx)
+
+	var (
+		id               string
+		userID           string
+		status           string
+		amountINRPaise   int64
+		fxRate           float64
+		refundedINRPaise int64
+	)
+	err = tx.QueryRow(ctx, `
+		SELECT id, user_id, status, amount_inr_paise, fx_rate_usd_per_inr, refunded_inr_paise
+		FROM credit_ledger
+		WHERE provider_order_id = $1 AND provider = 'razorpay'
+		FOR UPDATE
+	`, providerOrderID).Scan(&id, &userID, &status, &amountINRPaise, &fxRate, &refundedINRPaise)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, ErrCreditTransactionNotFound
+	}
+	if err != nil {
+		return 0, false, err
+	}
+
+	delta := totalRefundedINRPaise - refundedINRPaise
+	if delta <= 0 {
+		return 0, false, nil
+	}
+
+	var reversedUSDMicros int64
+	if status == "completed" || status == "refunded" {
+		reversedUSDMicros = int64(math.Round(float64(delta) / 100.0 * fxRate * 1e6))
+		if _, err := tx.Exec(ctx, `
+			UPDATE users SET credit_balance_usd_micros = GREATEST(0, credit_balance_usd_micros - $1) WHERE id = $2
+		`, reversedUSDMicros, userID); err != nil {
+			return 0, false, err
+		}
+	}
+
+	newStatus := status
+	if totalRefundedINRPaise >= amountINRPaise {
+		newStatus = "refunded"
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE credit_ledger SET refunded_inr_paise = $1, status = $2 WHERE id = $3
+	`, totalRefundedINRPaise, newStatus, id); err != nil {
+		return 0, false, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, false, err
+	}
+	return reversedUSDMicros, true, nil
+}
+
+func (s *Store) GetCreditBalance(ctx context.Context, userID string) (int64, error) {
+	var balance int64
+	err := s.pool.QueryRow(ctx, `SELECT credit_balance_usd_micros FROM users WHERE id = $1`, userID).Scan(&balance)
+	return balance, err
+}
+
+// ExpireStalePendingTransactions marks credit_ledger rows still 'pending' after olderThan
+// as 'expired' — checkouts the user opened but never completed (closed tab, abandoned QR
+// scan). Keeps 'pending' meaningful as "still in progress" rather than accumulating dead rows.
+func (s *Store) ExpireStalePendingTransactions(ctx context.Context, olderThan time.Duration) (int64, error) {
+	cutoff := time.Now().Add(-olderThan)
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE credit_ledger SET status = 'expired'
+		WHERE status = 'pending' AND created_at < $1
+	`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
