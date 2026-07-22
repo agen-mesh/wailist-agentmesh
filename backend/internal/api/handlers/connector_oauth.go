@@ -1,0 +1,340 @@
+package handlers
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/agentmesh/backend/internal/models"
+	"github.com/agentmesh/backend/internal/respond"
+)
+
+// ConnectorOAuthConfig describes one connector's OAuth 2.0 app registration.
+// ClientIDEnvVal/ClientSecretEnvVal hold the already-resolved env var values
+// (read once in main.go into Deps), not the env var names themselves.
+type ConnectorOAuthConfig struct {
+	AuthURL            string
+	TokenURL           string
+	Scope              string
+	UsesPKCE           bool
+	ClientIDEnvVal     string
+	ClientSecretEnvVal string
+}
+
+// connectorProviders is populated by registerConnectorProviders(d), called
+// once per request from the two handlers below so it always reflects the
+// current Deps (client id/secret can differ between the real server and
+// tests). Tests use SetConnectorProviderForTest to inject a fake entry
+// instead of going through Deps at all.
+var testProviderOverrides = map[string]ConnectorOAuthConfig{}
+
+// SetConnectorProviderForTest and ClearConnectorProviderForTest let tests
+// register a fake provider without touching real Deps fields. Test-only.
+func SetConnectorProviderForTest(name string, cfg ConnectorOAuthConfig) {
+	testProviderOverrides[name] = cfg
+}
+
+func ClearConnectorProviderForTest(name string) {
+	delete(testProviderOverrides, name)
+}
+
+// registerConnectorProviders builds the provider registry from Deps' client
+// id/secret fields. Real provider entries (slack, github, notion, ...) are
+// added to this switch by Tasks 3–14 as each connector is wired up.
+func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
+	out := map[string]ConnectorOAuthConfig{}
+	for k, v := range testProviderOverrides {
+		out[k] = v
+	}
+	// Tasks 3-14 each append one entry here, e.g.:
+	// out["slack"] = ConnectorOAuthConfig{AuthURL: ..., ClientIDEnvVal: d.SlackOAuthClientID, ...}
+	return out
+}
+
+func (d *Deps) connectorProviderConfig(name string) (ConnectorOAuthConfig, bool) {
+	cfg, ok := d.registerConnectorProviders()[name]
+	if !ok || cfg.ClientIDEnvVal == "" || cfg.ClientSecretEnvVal == "" {
+		return ConnectorOAuthConfig{}, false
+	}
+	return cfg, true
+}
+
+func connectorSecretKey(provider string) string {
+	return provider + "OAuthAccessToken"
+}
+
+func connectorRefreshKey(provider string) string {
+	return provider + "OAuthRefreshToken"
+}
+
+func connectorExpiresConfigKey(provider string) string {
+	return provider + "OAuthExpiresAt"
+}
+
+// connectorLinkClaims is signed into the OAuth `state` param so the callback
+// can recover which node this authorization is for without a server-side
+// pending-link table. The matching HttpOnly cookie (connectorStateCookie)
+// provides CSRF binding: state must equal the cookie's own value, so a
+// forged start-URL clicked by a victim can't complete using an attacker's
+// authorization against the victim's own node.
+type connectorLinkClaims struct {
+	UserID     string `json:"sub"`
+	WorkflowID string `json:"wf"`
+	NodeID     string `json:"node"`
+	Provider   string `json:"provider"`
+	Verifier   string `json:"verifier,omitempty"` // PKCE code_verifier, only set when UsesPKCE
+	jwt.RegisteredClaims
+}
+
+const connectorLinkTTL = 10 * time.Minute
+
+func connectorStateCookieName(provider string) string {
+	return "connector_oauth_state_" + provider
+}
+
+// ConnectorOAuthStart redirects the browser to the provider's consent screen
+// for linking workflowId/nodeId's connector node to the caller's account on
+// that provider. Requires JWT auth (mounted in the protected router group) —
+// the caller must be signed in, and must own the workflow being linked.
+func (d *Deps) ConnectorOAuthStart(w http.ResponseWriter, r *http.Request) {
+	provider := chi.URLParam(r, "provider")
+	cfg, ok := d.connectorProviderConfig(provider)
+	if !ok {
+		respond.Error(w, http.StatusNotFound, "unknown or unconfigured connector")
+		return
+	}
+
+	userID, _ := r.Context().Value(CtxUserID).(string)
+	workflowID := r.URL.Query().Get("workflowId")
+	nodeID := r.URL.Query().Get("nodeId")
+	if workflowID == "" || nodeID == "" {
+		respond.Error(w, http.StatusBadRequest, "workflowId and nodeId are required")
+		return
+	}
+
+	wf, err := d.Store.GetWorkflow(r.Context(), workflowID)
+	if err != nil || wf.UserID != userID {
+		respond.Error(w, http.StatusNotFound, "workflow not found")
+		return
+	}
+	found := false
+	for _, n := range wf.Nodes {
+		if n.ID == nodeID {
+			found = true
+		}
+	}
+	if !found {
+		respond.Error(w, http.StatusNotFound, "node not found")
+		return
+	}
+
+	var verifier, challenge string
+	if cfg.UsesPKCE {
+		verifier, err = randURLSafe(64)
+		if err != nil {
+			d.connectorRedirectFail(w, r, workflowID, "internal")
+			return
+		}
+		sum := sha256.Sum256([]byte(verifier))
+		challenge = base64.RawURLEncoding.EncodeToString(sum[:])
+	}
+
+	claims := connectorLinkClaims{
+		UserID: userID, WorkflowID: workflowID, NodeID: nodeID, Provider: provider, Verifier: verifier,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(connectorLinkTTL)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	state, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(d.JWTSecret))
+	if err != nil {
+		d.connectorRedirectFail(w, r, workflowID, "internal")
+		return
+	}
+
+	secure := strings.HasPrefix(d.BaseURL, "https")
+	http.SetCookie(w, &http.Cookie{
+		Name: connectorStateCookieName(provider), Value: state, Path: "/",
+		MaxAge: int(connectorLinkTTL.Seconds()), HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
+	})
+
+	q := url.Values{}
+	q.Set("client_id", cfg.ClientIDEnvVal)
+	q.Set("redirect_uri", d.connectorRedirectURI(provider))
+	q.Set("scope", cfg.Scope)
+	q.Set("state", state)
+	q.Set("response_type", "code")
+	if cfg.UsesPKCE {
+		q.Set("code_challenge", challenge)
+		q.Set("code_challenge_method", "S256")
+	}
+	http.Redirect(w, r, cfg.AuthURL+"?"+q.Encode(), http.StatusFound)
+}
+
+// ConnectorOAuthCallback verifies state, exchanges the code, and writes the
+// resulting token onto the target node's Secrets/Config maps.
+func (d *Deps) ConnectorOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	provider := chi.URLParam(r, "provider")
+	cfg, ok := d.connectorProviderConfig(provider)
+	if !ok {
+		respond.Error(w, http.StatusNotFound, "unknown or unconfigured connector")
+		return
+	}
+
+	cookieName := connectorStateCookieName(provider)
+	cookie, err := r.Cookie(cookieName)
+	stateParam := r.URL.Query().Get("state")
+	if err != nil || cookie.Value == "" || cookie.Value != stateParam {
+		d.connectorRedirectFail(w, r, "", "invalid_state")
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: cookieName, Value: "", Path: "/", MaxAge: -1,
+		HttpOnly: true, Secure: strings.HasPrefix(d.BaseURL, "https"), SameSite: http.SameSiteLaxMode,
+	})
+
+	claims := &connectorLinkClaims{}
+	_, err = jwt.ParseWithClaims(stateParam, claims, func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return []byte(d.JWTSecret), nil
+	})
+	if err != nil || claims.Provider != provider {
+		d.connectorRedirectFail(w, r, "", "invalid_state")
+		return
+	}
+
+	userID, _ := r.Context().Value(CtxUserID).(string)
+	if userID != claims.UserID {
+		d.connectorRedirectFail(w, r, claims.WorkflowID, "session_mismatch")
+		return
+	}
+
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		d.connectorRedirectFail(w, r, claims.WorkflowID, "no_code")
+		return
+	}
+
+	accessToken, refreshToken, expiresIn, err := exchangeConnectorCode(cfg, code, d.connectorRedirectURI(provider), claims.Verifier)
+	if err != nil {
+		d.connectorRedirectFail(w, r, claims.WorkflowID, "token_exchange")
+		return
+	}
+
+	if err := d.linkConnectorToken(r.Context(), claims.WorkflowID, claims.NodeID, provider, accessToken, refreshToken, expiresIn); err != nil {
+		d.connectorRedirectFail(w, r, claims.WorkflowID, "link_failed")
+		return
+	}
+
+	http.Redirect(w, r, d.FrontendURL+"/workflows/"+claims.WorkflowID+"?connected="+provider, http.StatusFound)
+}
+
+func (d *Deps) connectorRedirectURI(provider string) string {
+	return strings.TrimRight(d.BaseURL, "/") + "/connectors/oauth/" + provider + "/callback"
+}
+
+func (d *Deps) connectorRedirectFail(w http.ResponseWriter, r *http.Request, workflowID, reason string) {
+	dest := d.FrontendURL + "/workflows"
+	if workflowID != "" {
+		dest = d.FrontendURL + "/workflows/" + workflowID
+	}
+	http.Redirect(w, r, dest+"?connectError="+url.QueryEscape(reason), http.StatusFound)
+}
+
+// linkConnectorToken loads the workflow, writes the encrypted token (and
+// optional refresh token / expiry) onto the target node, and persists the
+// whole graph back — the same read-mutate-write shape UpdateWorkflow's
+// handler already uses, just triggered from the OAuth callback instead of a
+// frontend save.
+func (d *Deps) linkConnectorToken(ctx context.Context, workflowID, nodeID, provider, accessToken, refreshToken string, expiresIn int) error {
+	wf, err := d.Store.GetWorkflow(ctx, workflowID)
+	if err != nil {
+		return err
+	}
+	idx := -1
+	for i, n := range wf.Nodes {
+		if n.ID == nodeID {
+			idx = i
+		}
+	}
+	if idx == -1 {
+		return fmt.Errorf("node %s not found in workflow %s", nodeID, workflowID)
+	}
+	if wf.Nodes[idx].Secrets == nil {
+		wf.Nodes[idx].Secrets = map[string]string{}
+	}
+	if wf.Nodes[idx].Config == nil {
+		wf.Nodes[idx].Config = map[string]string{}
+	}
+	wf.Nodes[idx].Secrets[connectorSecretKey(provider)] = encryptField(accessToken, "", d.EncryptionKey)
+	if refreshToken != "" {
+		wf.Nodes[idx].Secrets[connectorRefreshKey(provider)] = encryptField(refreshToken, "", d.EncryptionKey)
+	}
+	if expiresIn > 0 {
+		wf.Nodes[idx].Config[connectorExpiresConfigKey(provider)] = time.Now().Add(time.Duration(expiresIn) * time.Second).Format(time.RFC3339)
+	}
+	_, err = d.Store.UpdateWorkflow(ctx, workflowID, wf.Name, models.WorkflowGraph{Nodes: wf.Nodes, Edges: wf.Edges})
+	return err
+}
+
+// exchangeConnectorCode POSTs the standard OAuth 2.0 authorization_code grant
+// and parses the standard token response shape (access_token/refresh_token/
+// expires_in) that every in-scope provider in this plan uses. verifier is
+// sent as code_verifier only when non-empty (PKCE providers).
+func exchangeConnectorCode(cfg ConnectorOAuthConfig, code, redirectURI, verifier string) (accessToken, refreshToken string, expiresIn int, err error) {
+	form := url.Values{}
+	form.Set("client_id", cfg.ClientIDEnvVal)
+	form.Set("client_secret", cfg.ClientSecretEnvVal)
+	form.Set("code", code)
+	form.Set("redirect_uri", redirectURI)
+	form.Set("grant_type", "authorization_code")
+	if verifier != "" {
+		form.Set("code_verifier", verifier)
+	}
+
+	req, _ := http.NewRequest(http.MethodPost, cfg.TokenURL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		return "", "", 0, err
+	}
+	defer res.Body.Close()
+
+	body, _ := io.ReadAll(res.Body)
+	var tok struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+	}
+	if err := json.Unmarshal(body, &tok); err != nil {
+		return "", "", 0, err
+	}
+	if tok.AccessToken == "" {
+		return "", "", 0, fmt.Errorf("no access token in response")
+	}
+	return tok.AccessToken, tok.RefreshToken, tok.ExpiresIn, nil
+}
+
+func randURLSafe(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
