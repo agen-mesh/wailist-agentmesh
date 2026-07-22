@@ -70,15 +70,16 @@ export function RazorpayCheckoutButton({
       />
       <button
         onClick={handlePay}
-        disabled={loading}
+        disabled={loading || !scriptReady}
         style={{
           height: 36, padding: "0 16px", borderRadius: 8,
           border: "1px solid var(--accent-line)", background: "var(--accent)",
           color: "#fff", fontWeight: 600, fontSize: 13,
-          cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1,
+          cursor: loading || !scriptReady ? "default" : "pointer",
+          opacity: loading || !scriptReady ? 0.6 : 1,
         }}
       >
-        {loading ? "Opening checkout..." : "Pay with Razorpay"}
+        {loading ? "Opening checkout..." : !scriptReady ? "Loading payment..." : "Pay with Razorpay"}
       </button>
     </>
   );
