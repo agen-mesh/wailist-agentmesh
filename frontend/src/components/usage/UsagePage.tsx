@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCredits } from "@/lib/credits/store";
+import { LowBalanceBanner } from "@/components/billing/LowBalanceBanner";
 import {
   Logo,
   Pill,
@@ -387,6 +388,7 @@ function UsageBody({
 
   return (
     <div style={{ opacity: loading ? 0.6 : 1, transition: "opacity .15s" }}>
+      <LowBalanceBanner onTopUp={onTopUp} />
       {/* Header row above the Endpoints table: credits left (left) mirrors the range selector (right).
           Keep the empty headspace above it — content starts low on the page. */}
       <div

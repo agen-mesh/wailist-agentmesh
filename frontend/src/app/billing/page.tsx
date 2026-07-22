@@ -2,6 +2,8 @@
 import { useState } from "react";
 import { RazorpayCheckoutButton } from "@/components/billing/RazorpayCheckoutButton";
 import { PurchaseHistory } from "@/components/billing/PurchaseHistory";
+import { LowBalanceBanner } from "@/components/billing/LowBalanceBanner";
+import { AutoRechargeSettings } from "@/components/billing/AutoRechargeSettings";
 import { CheckoutModal } from "@/components/checkout/CheckoutModal";
 import { useCredits } from "@/lib/credits/store";
 import { bonusRate } from "@/lib/credits/fx";
@@ -36,6 +38,8 @@ export default function BillingPage() {
       <h1 style={{ fontSize: 20, fontWeight: 600, marginBottom: 16 }}>
         Add credits
       </h1>
+
+      <LowBalanceBanner onTopUp={() => setCheckoutOpen(true)} />
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         {PRESETS_INR_PAISE.map((p) => (
@@ -160,6 +164,8 @@ export default function BillingPage() {
       {message && <p style={{ marginTop: 16, fontSize: 13 }}>{message}</p>}
 
       <PurchaseHistory onBuyAgain={openCheckoutFor} />
+
+      <AutoRechargeSettings />
 
       {checkoutOpen && (
         <CheckoutModal
