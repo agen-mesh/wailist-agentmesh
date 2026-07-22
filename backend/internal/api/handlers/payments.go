@@ -1,14 +1,17 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 
 	"github.com/google/uuid"
 
+	"github.com/agentmesh/backend/internal/alert"
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/payments"
 	"github.com/agentmesh/backend/internal/respond"
@@ -44,6 +47,7 @@ func (d *Deps) CreateRazorpayOrder(w http.ResponseWriter, r *http.Request) {
 	rate, err := payments.FetchINRToUSDRate(r.Context())
 	if err != nil {
 		log.Printf("razorpay order: fx rate: %v", err)
+		go alert.Notify(context.Background(), fmt.Sprintf("razorpay: FX rate fetch failing, top-ups are down: %v", err))
 		respond.Error(w, http.StatusBadGateway, "could not fetch exchange rate")
 		return
 	}
@@ -137,6 +141,7 @@ func (d *Deps) RazorpayWebhook(w http.ResponseWriter, r *http.Request) {
 	signature := r.Header.Get("X-Razorpay-Signature")
 	if signature == "" || !d.Razorpay.VerifyWebhookSignature(body, signature) {
 		log.Printf("razorpay webhook: rejected signature from %s", r.RemoteAddr)
+		go alert.Notify(context.Background(), fmt.Sprintf("razorpay webhook: rejected signature from %s", r.RemoteAddr))
 		respond.Error(w, http.StatusBadRequest, "signature verification failed")
 		return
 	}
@@ -146,8 +151,9 @@ func (d *Deps) RazorpayWebhook(w http.ResponseWriter, r *http.Request) {
 		Payload struct {
 			Payment struct {
 				Entity struct {
-					ID      string `json:"id"`
-					OrderID string `json:"order_id"`
+					ID             string `json:"id"`
+					OrderID        string `json:"order_id"`
+					AmountRefunded int64  `json:"amount_refunded"`
 				} `json:"entity"`
 			} `json:"payment"`
 		} `json:"payload"`
@@ -157,30 +163,54 @@ func (d *Deps) RazorpayWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if event.Event != "payment.captured" {
-		respond.JSON(w, http.StatusOK, map[string]string{"status": "ignored"})
-		return
-	}
-
 	orderID := event.Payload.Payment.Entity.OrderID
-	paymentID := event.Payload.Payment.Entity.ID
-	if orderID == "" || paymentID == "" {
-		respond.Error(w, http.StatusBadRequest, "missing order or payment id")
-		return
-	}
 
-	if _, err := d.Store.CompleteCreditTransaction(r.Context(), orderID, paymentID); err != nil {
+	switch event.Event {
+	case "payment.captured":
+		paymentID := event.Payload.Payment.Entity.ID
+		if orderID == "" || paymentID == "" {
+			respond.Error(w, http.StatusBadRequest, "missing order or payment id")
+			return
+		}
+
+		if _, err := d.Store.CompleteCreditTransaction(r.Context(), orderID, paymentID); err != nil {
+			if errors.Is(err, db.ErrCreditTransactionNotFound) {
+				// A 4xx here tells Razorpay to stop retrying — this order will never exist,
+				// so retrying is pure noise, not a path to eventual success.
+				log.Printf("razorpay webhook: unknown order_id %s (payment %s)", orderID, paymentID)
+				respond.Error(w, http.StatusBadRequest, "unknown order")
+				return
+			}
+			log.Printf("razorpay webhook: complete transaction: %v", err)
+			go alert.Notify(context.Background(), fmt.Sprintf("razorpay webhook: failed to complete order %s: %v", orderID, err))
+			respond.Error(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+
+		respond.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+
+	case "refund.processed", "payment.refunded":
+		if orderID == "" {
+			respond.Error(w, http.StatusBadRequest, "missing order id")
+			return
+		}
+
+		reversed, err := d.Store.RefundCreditTransaction(r.Context(), orderID, event.Payload.Payment.Entity.AmountRefunded)
 		if errors.Is(err, db.ErrCreditTransactionNotFound) {
-			// A 4xx here tells Razorpay to stop retrying — this order will never exist,
-			// so retrying is pure noise, not a path to eventual success.
-			log.Printf("razorpay webhook: unknown order_id %s (payment %s)", orderID, paymentID)
+			log.Printf("razorpay webhook: refund for unknown order_id %s", orderID)
 			respond.Error(w, http.StatusBadRequest, "unknown order")
 			return
 		}
-		log.Printf("razorpay webhook: complete transaction: %v", err)
-		respond.Error(w, http.StatusInternalServerError, "internal error")
-		return
-	}
+		if err != nil {
+			log.Printf("razorpay webhook: refund order %s: %v", orderID, err)
+			go alert.Notify(context.Background(), fmt.Sprintf("razorpay webhook: failed to process refund for order %s: %v", orderID, err))
+			respond.Error(w, http.StatusInternalServerError, "internal error")
+			return
+		}
 
-	respond.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		respond.JSON(w, http.StatusOK, map[string]any{"status": "refunded", "reversed_usd_micros": reversed})
+
+	default:
+		respond.JSON(w, http.StatusOK, map[string]string{"status": "ignored"})
+	}
 }

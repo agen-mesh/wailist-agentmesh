@@ -446,6 +446,76 @@ func (s *Store) CompleteCreditTransaction(ctx context.Context, providerOrderID, 
 	return creditUSDMicros, nil
 }
 
+// RefundCreditTransaction reverses previously-credited USD micros when Razorpay reports a
+// refund against an order. totalRefundedINRPaise is the *cumulative* amount refunded on the
+// payment so far — Razorpay resends this on every refund event (partial or full), so this
+// method tracks refunded_inr_paise on the ledger row and only acts on the delta between the
+// new total and what was already applied, making repeated/replayed events safe.
+//
+// If the order was never completed in our ledger (still 'pending' or already 'expired'), no
+// credit was ever granted, so no balance reversal happens — only the bookkeeping columns are
+// updated. credit_balance_usd_micros is floored at 0 via GREATEST so a reversal can never push
+// a user negative even under an unexpected ordering of events.
+func (s *Store) RefundCreditTransaction(ctx context.Context, providerOrderID string, totalRefundedINRPaise int64) (int64, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	var (
+		id               string
+		userID           string
+		status           string
+		amountINRPaise   int64
+		fxRate           float64
+		refundedINRPaise int64
+	)
+	err = tx.QueryRow(ctx, `
+		SELECT id, user_id, status, amount_inr_paise, fx_rate_usd_per_inr, refunded_inr_paise
+		FROM credit_ledger
+		WHERE provider_order_id = $1 AND provider = 'razorpay'
+		FOR UPDATE
+	`, providerOrderID).Scan(&id, &userID, &status, &amountINRPaise, &fxRate, &refundedINRPaise)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrCreditTransactionNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	delta := totalRefundedINRPaise - refundedINRPaise
+	if delta <= 0 {
+		return 0, nil
+	}
+
+	var reversedUSDMicros int64
+	if status == "completed" || status == "refunded" {
+		reversedUSDMicros = int64(math.Round(float64(delta) / 100.0 * fxRate * 1e6))
+		if _, err := tx.Exec(ctx, `
+			UPDATE users SET credit_balance_usd_micros = GREATEST(0, credit_balance_usd_micros - $1) WHERE id = $2
+		`, reversedUSDMicros, userID); err != nil {
+			return 0, err
+		}
+	}
+
+	newStatus := status
+	if totalRefundedINRPaise >= amountINRPaise {
+		newStatus = "refunded"
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE credit_ledger SET refunded_inr_paise = $1, status = $2 WHERE id = $3
+	`, totalRefundedINRPaise, newStatus, id); err != nil {
+		return 0, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return reversedUSDMicros, nil
+}
+
 func (s *Store) GetCreditBalance(ctx context.Context, userID string) (int64, error) {
 	var balance int64
 	err := s.pool.QueryRow(ctx, `SELECT credit_balance_usd_micros FROM users WHERE id = $1`, userID).Scan(&balance)

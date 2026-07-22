@@ -164,6 +164,60 @@ func TestVerifyRazorpayPaymentRejectsUnknownOrder(t *testing.T) {
 	}
 }
 
+func TestRazorpayWebhookProcessesRefund(t *testing.T) {
+	base := testDeps(t)
+	d := &handlers.Deps{Store: base.Store, Razorpay: &fakeRazorpay{verifyWebhookResult: true}}
+
+	email := fmt.Sprintf("webhook-refund-test-%d@example.com", time.Now().UnixNano())
+	user, err := d.Store.CreateUser(context.Background(), email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	orderID := fmt.Sprintf("order_webhook_refund_%d", time.Now().UnixNano())
+	if _, err := d.Store.CreateCreditTransaction(context.Background(), user.ID, orderID, 50000, 0.012); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Store.CompleteCreditTransaction(context.Background(), orderID, "pay_webhook_refund_test"); err != nil {
+		t.Fatal(err)
+	}
+
+	body := []byte(fmt.Sprintf(`{"event":"refund.processed","payload":{"payment":{"entity":{"id":"pay_webhook_refund_test","order_id":"%s","amount_refunded":50000}}}}`, orderID))
+	req := httptest.NewRequest(http.MethodPost, "/payments/razorpay/webhook", bytes.NewReader(body))
+	req.Header.Set("X-Razorpay-Signature", "valid")
+	w := httptest.NewRecorder()
+
+	d.RazorpayWebhook(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200 got %d", w.Code)
+	}
+
+	balance, err := d.Store.GetCreditBalance(context.Background(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 0 {
+		t.Fatalf("want balance 0 after full refund, got %d", balance)
+	}
+}
+
+func TestRazorpayWebhookRefundRejectsUnknownOrder(t *testing.T) {
+	base := testDeps(t)
+	d := &handlers.Deps{Store: base.Store, Razorpay: &fakeRazorpay{verifyWebhookResult: true}}
+
+	orderID := fmt.Sprintf("order_unknown_refund_%d", time.Now().UnixNano())
+	body := []byte(fmt.Sprintf(`{"event":"refund.processed","payload":{"payment":{"entity":{"id":"pay_1","order_id":"%s","amount_refunded":100}}}}`, orderID))
+	req := httptest.NewRequest(http.MethodPost, "/payments/razorpay/webhook", bytes.NewReader(body))
+	req.Header.Set("X-Razorpay-Signature", "valid")
+	w := httptest.NewRecorder()
+
+	d.RazorpayWebhook(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d", w.Code)
+	}
+}
+
 func TestGetCreditBalanceReturnsStoredBalance(t *testing.T) {
 	d := testDeps(t)
 
