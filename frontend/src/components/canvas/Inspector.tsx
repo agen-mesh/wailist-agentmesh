@@ -699,9 +699,6 @@ function ProviderInspector({
             >
               <option value="gemini-2.5-flash">gemini-2.5-flash</option>
               <option value="gemini-2.5-pro">gemini-2.5-pro</option>
-              <option value="gemini-2.0-flash">gemini-2.0-flash</option>
-              <option value="gemini-1.5-pro">gemini-1.5-pro</option>
-              <option value="gemini-1.5-flash">gemini-1.5-flash</option>
             </select>
           ) : node.template === "openai" ? (
             <select
@@ -724,9 +721,6 @@ function ProviderInspector({
               <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
               <option value="claude-opus-4-8">claude-opus-4-8</option>
               <option value="claude-haiku-4-5">claude-haiku-4-5</option>
-              <option value="claude-3-5-sonnet-20241022">
-                claude-3-5-sonnet
-              </option>
             </select>
           ) : node.template === "groq" ? (
             <select
@@ -738,8 +732,6 @@ function ProviderInspector({
                 llama-3.3-70b-versatile
               </option>
               <option value="llama-3.1-8b-instant">llama-3.1-8b-instant</option>
-              <option value="mixtral-8x7b-32768">mixtral-8x7b</option>
-              <option value="gemma2-9b-it">gemma2-9b</option>
             </select>
           ) : node.template === "mistral" ? (
             <select
