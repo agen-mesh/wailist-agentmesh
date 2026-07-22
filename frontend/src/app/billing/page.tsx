@@ -4,6 +4,7 @@ import { RazorpayCheckoutButton } from "@/components/billing/RazorpayCheckoutBut
 import { PurchaseHistory } from "@/components/billing/PurchaseHistory";
 import { CheckoutModal } from "@/components/checkout/CheckoutModal";
 import { useCredits } from "@/lib/credits/store";
+import { bonusRate } from "@/lib/credits/fx";
 
 const PRESETS_INR_PAISE = [10000, 50000, 100000, 200000]; // ₹100, ₹500, ₹1000, ₹2000
 
@@ -57,9 +58,25 @@ export default function BillingPage() {
             }}
           >
             ₹{p / 100}
+            {bonusRate(p / 100) > 0 && (
+              <span
+                style={{
+                  marginLeft: 4,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: "var(--accent)",
+                }}
+              >
+                +5%
+              </span>
+            )}
           </button>
         ))}
       </div>
+
+      <p style={{ fontSize: 12, color: "var(--fg-dim)", margin: "0 0 16px" }}>
+        Get 5% bonus credits on top-ups of ₹1000 or more.
+      </p>
 
       <input
         type="number"

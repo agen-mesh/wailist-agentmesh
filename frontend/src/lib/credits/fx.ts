@@ -3,14 +3,23 @@
 // (and server-side computation) when the billing backend lands.
 export const USD_PER_INR = 1 / 83;
 
+// Illustrative loyalty bonus: +5% credits on top-ups of ₹1000 or more.
+export const BONUS_THRESHOLD_INR = 1000;
+export const BONUS_RATE = 0.05;
+
 // Base USD credits for an INR top-up (excludes any bonus).
 export function inrToCreditsUSD(amountINR: number): number {
   return amountINR * USD_PER_INR;
 }
 
-// Illustrative loyalty bonus: +5% credits on top-ups of ₹1000 or more.
+// Bonus rate that applies to a given INR top-up (0 below the threshold).
+export function bonusRate(amountINR: number): number {
+  return amountINR >= BONUS_THRESHOLD_INR ? BONUS_RATE : 0;
+}
+
+// Bonus USD credits granted on top of the base for an INR top-up.
 export function bonusUSD(amountINR: number): number {
-  return amountINR >= 1000 ? inrToCreditsUSD(amountINR) * 0.05 : 0;
+  return inrToCreditsUSD(amountINR) * bonusRate(amountINR);
 }
 
 // Total credits granted (base + bonus) for a given INR top-up.
