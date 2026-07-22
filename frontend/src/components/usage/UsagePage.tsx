@@ -412,14 +412,15 @@ function UsageBody({
           {(() => {
             const b = data.summary.budget;
             // Purchased credits (mock wallet) add to whatever the usage budget
-            // reports, so a top-up is reflected in "credits left" immediately.
-            const base = b ? b.limit - b.used : 0;
-            const left = b || balanceUSD > 0 ? base + balanceUSD : null;
-            const limit = b ? b.limit + balanceUSD : 0;
+            // reports, so a top-up shows in "credits left" immediately. The box
+            // works in ALGO and converts to USD at display (compactUsd × rate),
+            // so convert the USD wallet balance back to ALGO before combining.
+            const walletAlgo = balanceUSD / ALGO_USD;
+            const remaining = (b ? b.limit - b.used : 0) + walletAlgo;
+            const left = b || balanceUSD > 0 ? remaining : null;
+            const limit = b ? b.limit + walletAlgo : 0;
             const pctLeft =
-              limit > 0
-                ? Math.max(0, Math.min(1, (base + balanceUSD) / limit))
-                : null;
+              limit > 0 ? Math.max(0, Math.min(1, remaining / limit)) : null;
             const tone =
               pctLeft == null
                 ? "var(--accent)"
