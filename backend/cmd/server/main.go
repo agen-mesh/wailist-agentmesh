@@ -41,6 +41,13 @@ func main() {
 	razorpayClient := payments.NewRazorpayClient(mustEnv("RAZORPAY_KEY_ID"), mustEnv("RAZORPAY_KEY_SECRET"), mustEnv("RAZORPAY_WEBHOOK_SECRET"))
 
 	runner := engine.NewRunner(store, broker, walletSvc)
+	runner.SetPlatformKeys(map[string]string{
+		"gemini":    os.Getenv("PLATFORM_GEMINI_API_KEY"),
+		"openai":    os.Getenv("PLATFORM_OPENAI_API_KEY"),
+		"anthropic": os.Getenv("PLATFORM_ANTHROPIC_API_KEY"),
+		"groq":      os.Getenv("PLATFORM_GROQ_API_KEY"),
+		"mistral":   os.Getenv("PLATFORM_MISTRAL_API_KEY"),
+	})
 
 	go expireStalePendingTransactionsLoop(ctx, store)
 
