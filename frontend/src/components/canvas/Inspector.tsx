@@ -9,6 +9,8 @@ import {
   ACTION_TEMPLATES,
   END_TEMPLATES,
   AGENT_TEMPLATES,
+  modelTier,
+  TIER_FEES,
 } from "@/lib/data";
 import { Pill, IconClose } from "@/components/ui";
 import { agents as agentsApi, tools as toolsApi } from "@/lib/api";
@@ -756,26 +758,74 @@ function ProviderInspector({
         </Field>
       </Section>
       <Section label="Credentials">
-        <Field label="API Key" hint="encrypted at rest">
-          <input
-            style={monoInputStyle}
-            type="password"
-            value={node.apiKey === "__enc__" ? "" : (node.apiKey ?? "")}
-            placeholder={
-              node.apiKey === "__enc__"
-                ? "Key set — enter to replace"
-                : "AIza···"
-            }
-            onChange={(e) =>
-              onUpdate({
-                ...node,
-                apiKey:
-                  e.target.value ||
-                  (node.apiKey === "__enc__" ? "__enc__" : ""),
-              })
-            }
-          />
-        </Field>
+        {!node.custom && (
+          <Field label="Key source">
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                style={{
+                  ...monoInputStyle,
+                  cursor: "pointer",
+                  fontWeight: node.keyMode !== "platform" ? 700 : 400,
+                  opacity: node.keyMode !== "platform" ? 1 : 0.6,
+                }}
+                onClick={() => onUpdate({ ...node, keyMode: "byok" })}
+              >
+                Use my key
+              </button>
+              <button
+                type="button"
+                style={{
+                  ...monoInputStyle,
+                  cursor: "pointer",
+                  fontWeight: node.keyMode === "platform" ? 700 : 400,
+                  opacity: node.keyMode === "platform" ? 1 : 0.6,
+                }}
+                onClick={() => onUpdate({ ...node, keyMode: "platform" })}
+              >
+                Use platform key
+              </button>
+            </div>
+          </Field>
+        )}
+        {node.keyMode === "platform" && !node.custom ? (
+          <Field label="Billing" hint="charged per call, no key required">
+            {(() => {
+              const tier = modelTier(
+                node.template ?? "",
+                node.model ?? tpl?.model ?? "",
+              );
+              return (
+                <input
+                  style={monoInputStyle}
+                  readOnly
+                  value={`${tier} tier · $${TIER_FEES[tier].toFixed(2)}/call`}
+                />
+              );
+            })()}
+          </Field>
+        ) : (
+          <Field label="API Key" hint="encrypted at rest">
+            <input
+              style={monoInputStyle}
+              type="password"
+              value={node.apiKey === "__enc__" ? "" : (node.apiKey ?? "")}
+              placeholder={
+                node.apiKey === "__enc__"
+                  ? "Key set — enter to replace"
+                  : "AIza···"
+              }
+              onChange={(e) =>
+                onUpdate({
+                  ...node,
+                  apiKey:
+                    e.target.value ||
+                    (node.apiKey === "__enc__" ? "__enc__" : ""),
+                })
+              }
+            />
+          </Field>
+        )}
       </Section>
       <Section label="Parameters">
         <div
