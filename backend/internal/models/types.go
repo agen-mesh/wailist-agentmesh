@@ -179,3 +179,18 @@ type User struct {
 	PasswordHash string    `json:"-"`
 	CreatedAt    time.Time `json:"createdAt"`
 }
+
+// CreditTransaction is one row of the append-only credit_ledger table.
+type CreditTransaction struct {
+	ID                string     `json:"id"`
+	UserID            string     `json:"userId"`
+	Provider          string     `json:"provider"`
+	ProviderOrderID   string     `json:"providerOrderId"`
+	ProviderPaymentID string     `json:"providerPaymentId,omitempty"`
+	Status            string     `json:"status"`
+	AmountINRPaise    int64      `json:"amountInrPaise"`
+	FXRateUSDPerINR   float64    `json:"fxRateUsdPerInr"`
+	CreditUSDMicros   int64      `json:"creditUsdMicros"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	CompletedAt       *time.Time `json:"completedAt,omitempty"`
+}
