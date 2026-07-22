@@ -74,10 +74,12 @@ export function PaymentInfoPanel({
   method,
   onMethodChange,
   payable,
+  onPaid,
 }: {
   method: PaymentMethod;
   onMethodChange: (method: PaymentMethod) => void;
   payable: boolean;
+  onPaid: () => void;
 }) {
   const [name, setName] = useState("");
   const [number, setNumber] = useState("");
@@ -120,7 +122,10 @@ export function PaymentInfoPanel({
     if (!canPay) return;
     setStatus("processing");
     // Mock gateway round-trip; a real integration would await verification.
-    window.setTimeout(() => setStatus("success"), 900);
+    window.setTimeout(() => {
+      setStatus("success");
+      onPaid();
+    }, 900);
   };
 
   const isSuccess = status === "success";

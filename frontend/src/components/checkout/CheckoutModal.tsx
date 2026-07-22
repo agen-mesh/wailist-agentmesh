@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { IconClose } from "@/components/ui";
+import { useCredits } from "@/lib/credits/store";
 import type { CartItem, PaymentMethod } from "./types";
 import { buildCreditCart, computeTotals } from "./mockData";
 import { CartItemRow } from "./CartItemRow";
@@ -34,6 +35,7 @@ export function CheckoutModal({
     buildCreditCart(amountINR),
   );
   const [method, setMethod] = useState<PaymentMethod>("card");
+  const { addPurchase } = useCredits();
 
   const totals = useMemo(() => computeTotals(items), [items]);
 
@@ -199,6 +201,9 @@ export function CheckoutModal({
                 method={method}
                 onMethodChange={setMethod}
                 payable={totals.total > 0}
+                onPaid={() =>
+                  addPurchase({ amountINR: totals.total, method })
+                }
               />
             </div>
           </div>
