@@ -15,7 +15,11 @@ const dateFmt = new Intl.DateTimeFormat("en", {
 });
 
 // Mock billing history sourced from the local credits store. Newest first.
-export function PurchaseHistory() {
+export function PurchaseHistory({
+  onBuyAgain,
+}: {
+  onBuyAgain: (amountINR: number) => void;
+}) {
   const { purchases, hydrated } = useCredits();
 
   // Avoid rendering store-derived rows until hydrated (SSR shows nothing).
@@ -85,6 +89,24 @@ export function PurchaseHistory() {
                   +${p.creditsUSD.toFixed(2)}
                 </span>
                 <Pill tone="ok">Paid</Pill>
+                <button
+                  type="button"
+                  onClick={() => onBuyAgain(p.amountINR)}
+                  style={{
+                    height: 26,
+                    padding: "0 10px",
+                    borderRadius: "var(--r-2)",
+                    border: "1px solid var(--border-strong)",
+                    background: "transparent",
+                    color: "var(--fg-muted)",
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Buy again
+                </button>
               </div>
             </div>
           ))}
