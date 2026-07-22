@@ -1,46 +1,24 @@
 import type { CartItem, OrderTotals } from "./types";
 
-// Static mock cart mirroring the reference design. Kept isolated so it can be
-// swapped for real line-items (e.g. credit top-up packages) later without
-// touching the checkout components.
+// Static mock cart for the credits checkout. AgentMesh users buy USD credit
+// top-ups (funded via Razorpay, spent through x402 micropayments), so the cart
+// holds a credit bundle rather than physical goods. Isolated here so it can be
+// swapped for the real selected top-up later without touching the components.
 export const MOCK_CART: CartItem[] = [
   {
-    id: "mbp-14-m2",
-    title: 'MacBook Pro 14" M2 Pro',
-    variant: "Green : M",
-    thumbLabel: "MBP",
-    unitPrice: 105,
-    quantity: 1,
-  },
-  {
-    id: "iphone-16-pro-max",
-    title: "iPhone 16 Pro Max 256GB",
-    variant: "Green : M",
-    thumbLabel: "16PM",
-    unitPrice: 120,
-    quantity: 1,
-  },
-  {
-    id: "magic-keyboard-ipad-11",
-    title: 'Magic Keyboard for iPad Pro 11"',
-    variant: "Green : M",
-    thumbLabel: "KB",
-    unitPrice: 199,
+    id: "credits-50",
+    title: "AgentMesh Credits",
+    detail: "$50 top-up · +$5 bonus credits",
+    unitPrice: 50,
     quantity: 1,
   },
 ];
-
-// Flat mock shipping/discount so the summary matches the reference figures.
-export const MOCK_SHIPPING = 599;
-export const MOCK_DISCOUNT = 50;
 
 export function computeTotals(items: CartItem[]): OrderTotals {
   const subtotal = items.reduce(
     (sum, item) => sum + item.unitPrice * item.quantity,
     0,
   );
-  const shipping = items.length > 0 ? MOCK_SHIPPING : 0;
-  const discount = items.length > 0 ? MOCK_DISCOUNT : 0;
-  const total = Math.max(0, subtotal + shipping - discount);
-  return { subtotal, shipping, discount, total };
+  // Digital credits: no shipping or discount lines — you pay the subtotal.
+  return { subtotal, total: subtotal };
 }

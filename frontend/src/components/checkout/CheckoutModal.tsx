@@ -12,10 +12,8 @@ import { PaymentInfoPanel } from "./PaymentInfoPanel";
 const RESPONSIVE_CSS = `
 .checkout-split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; }
 .checkout-cart-head { display: grid; grid-template-columns: 24px 1fr auto auto; gap: 16px; }
-.checkout-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
 @media (max-width: 860px) {
   .checkout-split { grid-template-columns: minmax(0, 1fr); }
-  .checkout-summary { grid-template-columns: minmax(0, 1fr); gap: 20px; }
 }
 `;
 
@@ -27,9 +25,7 @@ export function CheckoutModal({
   onClose: () => void;
 }) {
   const [items, setItems] = useState<CartItem[]>(MOCK_CART);
-  const [coupon, setCoupon] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("card");
-  const [placed, setPlaced] = useState(false);
 
   const totals = useMemo(() => computeTotals(items), [items]);
 
@@ -59,7 +55,7 @@ export function CheckoutModal({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Shopping cart checkout"
+      aria-label="Checkout"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -106,7 +102,7 @@ export function CheckoutModal({
               margin: 0,
             }}
           >
-            Shopping Cart
+            Checkout
           </h2>
           <button
             type="button"
@@ -178,14 +174,7 @@ export function CheckoutModal({
             )}
 
             <div style={{ marginTop: 8 }}>
-              <OrderSummary
-                totals={totals}
-                coupon={coupon}
-                onCouponChange={setCoupon}
-                onApplyCoupon={() => {
-                  /* mock: coupon application is a no-op in this static pass */
-                }}
-              />
+              <OrderSummary totals={totals} />
             </div>
           </div>
 
@@ -206,12 +195,7 @@ export function CheckoutModal({
                 flexDirection: "column",
               }}
             >
-              <PaymentInfoPanel
-                method={method}
-                onMethodChange={setMethod}
-                onPlaceOrder={() => setPlaced(true)}
-                placed={placed}
-              />
+              <PaymentInfoPanel method={method} onMethodChange={setMethod} />
             </div>
           </div>
         </div>

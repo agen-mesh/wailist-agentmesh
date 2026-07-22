@@ -1,22 +1,19 @@
-// Types for the checkout modal. This is a static-mock UI pass: the shapes are
-// intentionally simple and self-contained so mock data can later be swapped for
-// real credit line-items / billing state without touching the components.
+// Types for the checkout modal. AgentMesh sells USD credits (spent per-call via
+// x402 micropayments), so checkout line-items are credit bundles, not physical
+// goods. Shapes stay simple so the mock data can later be swapped for the real
+// selected top-up without touching the components.
 
 export type PaymentMethod = "card" | "paypal" | "cod";
 
 export interface CartItem {
   id: string;
-  title: string;
-  variant: string; // e.g. "Green : M"
-  /** Short label rendered inside the placeholder thumbnail tile. */
-  thumbLabel: string;
-  unitPrice: number; // in whole currency units (USD)
+  title: string; // bundle name, e.g. "AgentMesh Credits"
+  detail: string; // credits + bonus, e.g. "$50 top-up · +$5 bonus credits"
+  unitPrice: number; // USD charged per unit
   quantity: number;
 }
 
 export interface OrderTotals {
   subtotal: number;
-  shipping: number;
-  discount: number;
   total: number;
 }

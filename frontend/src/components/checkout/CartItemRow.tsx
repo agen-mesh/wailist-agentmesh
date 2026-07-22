@@ -1,6 +1,6 @@
 "use client";
 import type { CartItem } from "./types";
-import { IconClose } from "@/components/ui";
+import { IconClose, IconWallet } from "@/components/ui";
 
 // A single cart line. Layout mirrors the reference (remove · thumb · title /
 // variant · quantity stepper · price) but styling is pulled entirely from the
@@ -63,14 +63,10 @@ export function CartItemRow({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontFamily: "var(--font-mono)",
-            fontSize: 10,
-            fontWeight: 600,
-            color: "var(--fg-muted)",
-            letterSpacing: "0.02em",
+            color: "var(--accent)",
           }}
         >
-          {item.thumbLabel}
+          <IconWallet size={20} />
         </div>
         <div style={{ minWidth: 0 }}>
           <div
@@ -86,7 +82,7 @@ export function CartItemRow({
             {item.title}
           </div>
           <div style={{ fontSize: 12, color: "var(--fg-dim)", marginTop: 2 }}>
-            {item.variant}
+            {item.detail}
           </div>
         </div>
       </div>
