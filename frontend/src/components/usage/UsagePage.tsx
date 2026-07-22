@@ -163,6 +163,9 @@ export function UsagePage() {
           testnet
         </Pill>
         <div style={{ flex: 1 }} />
+        <button style={ghostBtnSm} onClick={() => router.push("/billing")}>
+          Credits
+        </button>
         <button
           style={{
             ...ghostBtnSm,
