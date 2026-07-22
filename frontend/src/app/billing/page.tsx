@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { RazorpayCheckoutButton } from "@/components/billing/RazorpayCheckoutButton";
+import { PurchaseHistory } from "@/components/billing/PurchaseHistory";
 import { CheckoutModal } from "@/components/checkout/CheckoutModal";
 
 const PRESETS_INR_PAISE = [10000, 50000, 100000, 200000]; // ₹100, ₹500, ₹1000, ₹2000
@@ -111,6 +112,8 @@ export default function BillingPage() {
       </div>
 
       {message && <p style={{ marginTop: 16, fontSize: 13 }}>{message}</p>}
+
+      <PurchaseHistory />
 
       {checkoutOpen && (
         <CheckoutModal
