@@ -54,6 +54,7 @@ frontend/next-env.d.ts
 /backend/server
 /backend/*.env
 /backend/.env
+*.test
 
 # test utilities (local dev only)
 /test-x402/
@@ -75,3 +76,5 @@ frontend/next-env.d.ts
 /Dashboard_change.md
 # standalone static mock of the usage page
 /usage-preview.html
+# root-level planning/scratch docs
+/Docs/
