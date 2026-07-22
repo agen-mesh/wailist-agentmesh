@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"time"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -374,7 +375,7 @@ func (s *Store) InsertWaitlistEmail(ctx context.Context, email string) error {
 // --- Credit ledger methods ---
 
 func (s *Store) CreateCreditTransaction(ctx context.Context, userID, providerOrderID string, amountINRPaise int64, fxRate float64) (models.CreditTransaction, error) {
-	creditUSDMicros := int64(float64(amountINRPaise) / 100.0 * fxRate * 1e6)
+	creditUSDMicros := int64(math.Round(float64(amountINRPaise) / 100.0 * fxRate * 1e6))
 	var txn models.CreditTransaction
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO credit_ledger (user_id, provider, provider_order_id, status, amount_inr_paise, fx_rate_usd_per_inr, credit_usd_micros)
@@ -406,7 +407,7 @@ func (s *Store) CompleteCreditTransaction(ctx context.Context, providerOrderID, 
 	err = tx.QueryRow(ctx, `
 		SELECT id, user_id, status, credit_usd_micros
 		FROM credit_ledger
-		WHERE provider_order_id = $1
+		WHERE provider_order_id = $1 AND provider = 'razorpay'
 		FOR UPDATE
 	`, providerOrderID).Scan(&id, &userID, &status, &creditUSDMicros)
 	if err != nil {
