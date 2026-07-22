@@ -1,10 +1,13 @@
 "use client";
 import type { OrderTotals } from "./types";
+import { bonusUSD, creditsForTopup } from "@/lib/credits/fx";
 
 // Money summary for the credits checkout — a right-aligned totals block. Coupons
 // are intentionally omitted (not offered yet) and there is no shipping, since
 // credits are digital: you pay the subtotal.
 export function OrderSummary({ totals }: { totals: OrderTotals }) {
+  const credits = creditsForTopup(totals.total);
+  const bonus = bonusUSD(totals.total);
   return (
     <div
       style={{
@@ -47,6 +50,38 @@ export function OrderSummary({ totals }: { totals: OrderTotals }) {
             ₹{totals.total.toFixed(2)}
           </span>
         </div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span style={{ fontSize: 12, color: "var(--fg-muted)" }}>
+            You receive
+          </span>
+          <span
+            style={{
+              fontSize: 13,
+              fontFamily: "var(--font-mono)",
+              color: "var(--accent)",
+            }}
+          >
+            ≈ ${credits.toFixed(2)} credits
+          </span>
+        </div>
+        {bonus > 0 && (
+          <div
+            style={{
+              fontSize: 11,
+              color: "var(--fg-dim)",
+              textAlign: "right",
+              marginTop: -6,
+            }}
+          >
+            includes ${bonus.toFixed(2)} bonus
+          </div>
+        )}
       </div>
     </div>
   );
