@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/agentmesh/backend/internal/db"
+	"github.com/agentmesh/backend/internal/models"
 )
 
 // fundUser tops up userID to exactly micros USD-micros via the existing
@@ -143,5 +144,58 @@ func TestDebitCreditsConcurrentCallsNeverGoNegative(t *testing.T) {
 	}
 	if balance != 0 {
 		t.Fatalf("want balance exactly 0 (never negative), got %d", balance)
+	}
+}
+
+func TestDebitCreditsForPlatformLLMWritesUsageColumns(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	userID, workflowID, runID := setupDebitTestFixtures(t, store, 100000) // 10 cents
+
+	err := store.DebitCreditsForPlatformLLM(ctx, userID, 30000, workflowID, runID, "agent1", "gpt-4.1", 120, 45)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	balance, err := store.GetCreditBalance(ctx, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 70000 {
+		t.Fatalf("balance = %d, want 70000", balance)
+	}
+
+	entries, err := store.ListDebitLedger(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	e := entries[0]
+	if e.Kind != models.DebitKindPlatformKeyLLMFee {
+		t.Fatalf("kind = %q, want %q", e.Kind, models.DebitKindPlatformKeyLLMFee)
+	}
+	if e.Model == nil || *e.Model != "gpt-4.1" {
+		t.Fatalf("model = %v, want gpt-4.1", e.Model)
+	}
+	if e.TokensIn == nil || *e.TokensIn != 120 {
+		t.Fatalf("tokensIn = %v, want 120", e.TokensIn)
+	}
+	if e.TokensOut == nil || *e.TokensOut != 45 {
+		t.Fatalf("tokensOut = %v, want 45", e.TokensOut)
+	}
+}
+
+func TestDebitCreditsForPlatformLLMInsufficientBalance(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	userID, workflowID, runID := setupDebitTestFixtures(t, store, 1000) // 0.1 cents
+
+	err := store.DebitCreditsForPlatformLLM(ctx, userID, 30000, workflowID, runID, "agent1", "gpt-4.1", 120, 45)
+	if !errors.Is(err, db.ErrInsufficientCredits) {
+		t.Fatalf("err = %v, want ErrInsufficientCredits", err)
 	}
 }

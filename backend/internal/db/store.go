@@ -558,12 +558,13 @@ func (s *Store) ExpireStalePendingTransactions(ctx context.Context, olderThan ti
 // already happened and this is logged rather than retried).
 var ErrInsufficientCredits = errors.New("insufficient credits")
 
-// DebitCredits atomically charges a user's credit balance for a metered
-// action inside a workflow run, and records the charge in debit_ledger.
-// Locks the user row for the duration of the check-and-decrement — same
-// pattern as CompleteCreditTransaction — so concurrent debits against the
-// same user can never push the balance negative.
-func (s *Store) DebitCredits(ctx context.Context, userID string, amountUSDMicros int64, kind, workflowID, runID, nodeID string) error {
+// debitCredits atomically locks userID's balance, checks it covers
+// amountUSDMicros, decrements it, then lets insertLedger write whatever
+// debit_ledger row shape the caller needs inside the same transaction.
+// Shared by DebitCredits and DebitCreditsForPlatformLLM so both kinds get
+// the identical atomicity guarantee — lock, check, decrement, all inside
+// one transaction, same pattern as CompleteCreditTransaction.
+func (s *Store) debitCredits(ctx context.Context, userID string, amountUSDMicros int64, insertLedger func(ctx context.Context, tx pgx.Tx) error) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -587,14 +588,38 @@ func (s *Store) DebitCredits(ctx context.Context, userID string, amountUSDMicros
 		return err
 	}
 
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO debit_ledger (user_id, workflow_id, run_id, node_id, kind, amount_usd_micros)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, userID, workflowID, runID, nodeID, kind, amountUSDMicros); err != nil {
+	if err := insertLedger(ctx, tx); err != nil {
 		return err
 	}
 
 	return tx.Commit(ctx)
+}
+
+// DebitCredits atomically charges a user's credit balance for a metered
+// action inside a workflow run, and records the charge in debit_ledger.
+func (s *Store) DebitCredits(ctx context.Context, userID string, amountUSDMicros int64, kind, workflowID, runID, nodeID string) error {
+	return s.debitCredits(ctx, userID, amountUSDMicros, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO debit_ledger (user_id, workflow_id, run_id, node_id, kind, amount_usd_micros)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, userID, workflowID, runID, nodeID, kind, amountUSDMicros)
+		return err
+	})
+}
+
+// DebitCreditsForPlatformLLM is DebitCredits specialized for the
+// platform_key_llm_fee kind: same atomic lock/check/decrement guarantee,
+// plus the model and token counts captured for internal margin tracking —
+// the charge is always the flat tier fee in amountUSDMicros regardless of
+// actual token count, so these columns are informational, not billing.
+func (s *Store) DebitCreditsForPlatformLLM(ctx context.Context, userID string, amountUSDMicros int64, workflowID, runID, nodeID, model string, tokensIn, tokensOut int) error {
+	return s.debitCredits(ctx, userID, amountUSDMicros, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO debit_ledger (user_id, workflow_id, run_id, node_id, kind, amount_usd_micros, model, tokens_in, tokens_out)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`, userID, workflowID, runID, nodeID, models.DebitKindPlatformKeyLLMFee, amountUSDMicros, model, tokensIn, tokensOut)
+		return err
+	})
 }
 
 // ListDebitLedger returns every debit_ledger row for a run, oldest first.
@@ -602,7 +627,7 @@ func (s *Store) DebitCredits(ctx context.Context, userID string, amountUSDMicros
 // charges a run produced.
 func (s *Store) ListDebitLedger(ctx context.Context, runID string) ([]models.DebitEntry, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, user_id, workflow_id, run_id, node_id, kind, amount_usd_micros, created_at
+		SELECT id, user_id, workflow_id, run_id, node_id, kind, amount_usd_micros, created_at, model, tokens_in, tokens_out
 		FROM debit_ledger WHERE run_id = $1 ORDER BY created_at ASC
 	`, runID)
 	if err != nil {
@@ -612,7 +637,7 @@ func (s *Store) ListDebitLedger(ctx context.Context, runID string) ([]models.Deb
 	var out []models.DebitEntry
 	for rows.Next() {
 		var e models.DebitEntry
-		if err := rows.Scan(&e.ID, &e.UserID, &e.WorkflowID, &e.RunID, &e.NodeID, &e.Kind, &e.AmountUSDMicros, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.UserID, &e.WorkflowID, &e.RunID, &e.NodeID, &e.Kind, &e.AmountUSDMicros, &e.CreatedAt, &e.Model, &e.TokensIn, &e.TokensOut); err != nil {
 			return nil, err
 		}
 		out = append(out, e)

@@ -42,13 +42,18 @@ type WorkflowNode struct {
 	Balance      string   `json:"balance,omitempty"`
 	APIKey       string   `json:"apiKey,omitempty"`
 	Model        string   `json:"model,omitempty"`
-	URL          string   `json:"url,omitempty"`
-	Method       string   `json:"method,omitempty"`
-	Endpoint     string   `json:"endpoint,omitempty"`
-	Price        string   `json:"price,omitempty"`
-	Unit         string   `json:"unit,omitempty"`
-	Provider     string   `json:"provider,omitempty"`
-	Source       string   `json:"source,omitempty"`
+	// KeyMode selects which API key a Provider node's LLM call uses: "byok"
+	// (default, empty string) uses APIKey; "platform" uses AgentMesh's own
+	// key for that Template, resolved server-side and never round-tripped
+	// to the client.
+	KeyMode  string `json:"keyMode,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Method   string `json:"method,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
+	Price    string `json:"price,omitempty"`
+	Unit     string `json:"unit,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Source   string `json:"source,omitempty"`
 	// email action fields
 	EmailTo       string `json:"emailTo,omitempty"`
 	EmailFrom     string `json:"emailFrom,omitempty"`
@@ -207,14 +212,33 @@ type DebitEntry struct {
 	Kind            string    `json:"kind"`
 	AmountUSDMicros int64     `json:"amountUsdMicros"`
 	CreatedAt       time.Time `json:"createdAt"`
+	// Model, TokensIn, TokensOut are only set for DebitKindPlatformKeyLLMFee
+	// rows — internal margin-tracking data, not billing-authoritative (the
+	// charge is the flat tier fee regardless of actual token count).
+	Model     *string `json:"model,omitempty"`
+	TokensIn  *int    `json:"tokensIn,omitempty"`
+	TokensOut *int    `json:"tokensOut,omitempty"`
 }
 
 const (
-	DebitKindByokFlatFee     = "byok_flat_fee"
-	DebitKindX402PlatformFee = "x402_platform_fee"
+	DebitKindByokFlatFee       = "byok_flat_fee"
+	DebitKindX402PlatformFee   = "x402_platform_fee"
+	DebitKindPlatformKeyLLMFee = "platform_key_llm_fee"
 )
 
 const (
 	ByokFlatFeeUSDMicros     int64 = 10_000  // $0.01
 	X402PlatformFeeUSDMicros int64 = 500_000 // $0.50
+)
+
+// Platform-key LLM tiers follow Zapier's flat-multiplier pattern: a fixed
+// credit charge per tier per call (1x/3x/5x the BYOK convenience-fee unit),
+// known upfront so it can feed the pre-run cost estimate, rather than live
+// per-token metering. Token usage is still captured (DebitEntry.TokensIn/
+// TokensOut) purely to confirm these multiples hold a healthy margin
+// against real provider cost as pricing/models change.
+const (
+	PlatformKeyEconomyFeeUSDMicros  int64 = 10_000 // $0.01 (1x)
+	PlatformKeyStandardFeeUSDMicros int64 = 30_000 // $0.03 (3x)
+	PlatformKeyFrontierFeeUSDMicros int64 = 50_000 // $0.05 (5x)
 )

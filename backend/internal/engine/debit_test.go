@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -566,6 +567,198 @@ func TestActionSkipPathNotBilled(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("want 0 ledger entries (skipped action not billed), got %d", len(entries))
+	}
+}
+
+func TestPlatformKeyAgentRunDebitsTierFeeAndRecordsUsage(t *testing.T) {
+	runner, store := newTestRunner(t)
+	ctx := context.Background()
+
+	llmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer platform-secret" {
+			t.Errorf("want platform key, got %q", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]any{"role": "assistant", "content": "hi"}}},
+			"usage":   map[string]any{"prompt_tokens": 10, "completion_tokens": 5},
+		})
+	}))
+	defer llmSrv.Close()
+	nodes.SetOpenAIBaseURL(llmSrv.URL)
+	defer nodes.SetOpenAIBaseURL("https://api.openai.com")
+
+	runner.SetPlatformKeys(map[string]string{"openai": "platform-secret"})
+
+	email := fmt.Sprintf("platform-key-agent-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fundUser(t, store, user.ID, 100000) // 10 cents
+
+	wf, err := store.CreateWorkflow(ctx, "Platform Key Agent Test", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.DeleteWorkflow(context.Background(), wf.ID) })
+
+	graph := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "n1", Type: models.NodeTypeTrigger},
+			{ID: "agent1", Type: models.NodeTypeAgent},
+			{ID: "provider1", Type: models.NodeTypeProvider, Template: "openai", KeyMode: "platform", Model: "gpt-4.1"},
+			{ID: "n3", Type: models.NodeTypeEnd},
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "e1", From: "n1", To: "agent1", Kind: models.EdgeKindFlow},
+			{ID: "e2", From: "agent1", To: "n3", Kind: models.EdgeKindFlow},
+			{ID: "e3", From: "provider1", To: "agent1", Kind: models.EdgeKindAttach, ToPort: "model"},
+		},
+	}
+	wf, _ = store.UpdateWorkflow(ctx, wf.ID, wf.Name, graph)
+
+	run, err := store.CreateRun(ctx, wf.ID, "test", []byte(`{"message":"hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker := sse.NewBroker()
+	broker.Create(run.ID)
+
+	runner.Start(wf, run)
+	final := waitForRunDone(t, store, run.ID)
+	if final.Status != models.RunStatusSuccess {
+		t.Fatalf("want success got %s", final.Status)
+	}
+
+	balance, err := store.GetCreditBalance(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 70000 { // 100000 - 30000 (gpt-4.1 is "standard" tier, $0.03)
+		t.Fatalf("balance = %d, want 70000", balance)
+	}
+
+	entries, err := store.ListDebitLedger(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d debit entries, want 1: %+v", len(entries), entries)
+	}
+	e := entries[0]
+	if e.Kind != models.DebitKindPlatformKeyLLMFee {
+		t.Fatalf("kind = %q, want %q", e.Kind, models.DebitKindPlatformKeyLLMFee)
+	}
+	if e.AmountUSDMicros != 30000 {
+		t.Fatalf("amount = %d, want 30000", e.AmountUSDMicros)
+	}
+	if e.TokensIn == nil || *e.TokensIn != 10 || e.TokensOut == nil || *e.TokensOut != 5 {
+		t.Fatalf("usage = tokensIn=%v tokensOut=%v, want 10/5", e.TokensIn, e.TokensOut)
+	}
+}
+
+// TestPlatformKeyGeminiEmptyModelBillsEconomyTierNotStandard is a regression
+// test for the Gemini platform-mode overcharge: with Model left empty,
+// callGemini actually runs on its own fallback model (gemini-2.5-flash,
+// tier "economy", $0.01) while the billing preflight used to compute the
+// tier from the raw empty Model string, falling through to ModelTier's
+// generic "standard" ($0.03) default — a silent 3x overcharge, and the
+// debit_ledger row's model column recorded "" instead of the model that
+// actually ran. Asserts both are now derived from the same resolved model.
+func TestPlatformKeyGeminiEmptyModelBillsEconomyTierNotStandard(t *testing.T) {
+	runner, store := newTestRunner(t)
+	ctx := context.Background()
+
+	llmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("x-goog-api-key") != "platform-secret" {
+			t.Errorf("want platform key, got %q", r.Header.Get("x-goog-api-key"))
+		}
+		if !strings.Contains(r.URL.Path, "gemini-2.5-flash") {
+			t.Errorf("want request against gemini-2.5-flash (empty-Model fallback), got path %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"candidates": []map[string]any{
+				{"content": map[string]any{"parts": []map[string]any{{"text": "hi"}}}},
+			},
+			"usageMetadata": map[string]any{"promptTokenCount": 10, "candidatesTokenCount": 5},
+		})
+	}))
+	defer llmSrv.Close()
+	nodes.SetGeminiBaseURL(llmSrv.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	runner.SetPlatformKeys(map[string]string{"gemini": "platform-secret"})
+
+	email := fmt.Sprintf("platform-key-gemini-empty-model-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fundUser(t, store, user.ID, 100000) // 10 cents
+
+	wf, err := store.CreateWorkflow(ctx, "Platform Key Gemini Empty Model Test", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.DeleteWorkflow(context.Background(), wf.ID) })
+
+	graph := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "n1", Type: models.NodeTypeTrigger},
+			{ID: "agent1", Type: models.NodeTypeAgent},
+			{ID: "provider1", Type: models.NodeTypeProvider, Template: "gemini", KeyMode: "platform", Model: ""},
+			{ID: "n3", Type: models.NodeTypeEnd},
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "e1", From: "n1", To: "agent1", Kind: models.EdgeKindFlow},
+			{ID: "e2", From: "agent1", To: "n3", Kind: models.EdgeKindFlow},
+			{ID: "e3", From: "provider1", To: "agent1", Kind: models.EdgeKindAttach, ToPort: "model"},
+		},
+	}
+	wf, _ = store.UpdateWorkflow(ctx, wf.ID, wf.Name, graph)
+
+	run, err := store.CreateRun(ctx, wf.ID, "test", []byte(`{"message":"hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker := sse.NewBroker()
+	broker.Create(run.ID)
+
+	runner.Start(wf, run)
+	final := waitForRunDone(t, store, run.ID)
+	if final.Status != models.RunStatusSuccess {
+		t.Fatalf("want success got %s", final.Status)
+	}
+
+	balance, err := store.GetCreditBalance(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 90000 { // 100000 - 10000 (gemini-2.5-flash is "economy" tier, $0.01) — was 70000 pre-fix (bug billed $0.03)
+		t.Fatalf("balance = %d, want 90000 (economy tier fee), not a standard-tier overcharge", balance)
+	}
+
+	entries, err := store.ListDebitLedger(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d debit entries, want 1: %+v", len(entries), entries)
+	}
+	e := entries[0]
+	if e.Kind != models.DebitKindPlatformKeyLLMFee {
+		t.Fatalf("kind = %q, want %q", e.Kind, models.DebitKindPlatformKeyLLMFee)
+	}
+	if e.AmountUSDMicros != models.PlatformKeyEconomyFeeUSDMicros {
+		t.Fatalf("amount = %d, want %d (PlatformKeyEconomyFeeUSDMicros)", e.AmountUSDMicros, models.PlatformKeyEconomyFeeUSDMicros)
+	}
+	if e.Model == nil || *e.Model != "gemini-2.5-flash" {
+		t.Fatalf("model = %v, want \"gemini-2.5-flash\" (resolved, not the empty Model field)", e.Model)
+	}
+	if e.TokensIn == nil || *e.TokensIn != 10 || e.TokensOut == nil || *e.TokensOut != 5 {
+		t.Fatalf("usage = tokensIn=%v tokensOut=%v, want 10/5", e.TokensIn, e.TokensOut)
 	}
 }
 

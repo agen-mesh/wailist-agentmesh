@@ -23,6 +23,7 @@ export interface WorkflowNode {
   // provider-specific
   apiKey?: string;
   model?: string;
+  keyMode?: "byok" | "platform";
   // tool-specific
   url?: string;
   method?: string;
