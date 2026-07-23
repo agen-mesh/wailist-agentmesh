@@ -151,6 +151,24 @@ func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
 		AuthURL: "https://app.hubspot.com/oauth/authorize", TokenURL: "https://api.hubapi.com/oauth/v1/token",
 		Scope: "crm.objects.contacts.write", ClientIDEnvVal: d.HubSpotClientID, ClientSecretEnvVal: d.HubSpotClientSecret,
 	}
+	// developers.asana.com/docs/oauth: "default" is Asana's own documented
+	// special scope value (full permissions, for apps registered without
+	// finer-grained scopes) — not a placeholder left over from scaffolding.
+	// PKCE is optional there, and the token endpoint takes client_id/
+	// client_secret as regular form fields (no TokenAuthStyle needed), same as
+	// Slack/GitHub/HubSpot above, unlike Notion/Airtable's Basic auth.
+	//
+	// KNOWN GAP: Asana access tokens expire after ~60 minutes and the token
+	// response includes a refresh_token. Re-exchanging that refresh token and
+	// writing the refreshed access token back onto the node via
+	// Store.UpdateWorkflow before each connector call is NOT implemented here
+	// — deliberately out of scope for this task, same as Airtable/HubSpot's
+	// gaps above. Without it, this connector will silently stop working about
+	// an hour after linking. Follow-up task must add refresh support.
+	out["asana"] = ConnectorOAuthConfig{
+		AuthURL: "https://app.asana.com/-/oauth_authorize", TokenURL: "https://app.asana.com/-/oauth_token",
+		Scope: "default", ClientIDEnvVal: d.AsanaClientID, ClientSecretEnvVal: d.AsanaClientSecret,
+	}
 	for name, url := range connectorTokenURLOverridesForTest {
 		if cfg, ok := out[name]; ok {
 			cfg.TokenURL = url

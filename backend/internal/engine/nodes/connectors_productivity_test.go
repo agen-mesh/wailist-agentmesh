@@ -310,6 +310,31 @@ func TestAsanaAction_CreatesTask(t *testing.T) {
 	}
 }
 
+func TestAsanaAction_PrefersOAuthTokenOverManualToken(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	nodes.SetAsanaAPIBaseForTest(srv.URL)
+	defer nodes.SetAsanaAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "as4", Type: models.NodeTypeAction, Template: "asana",
+		Secrets: map[string]string{"asanaAPIKey": "1/xxx", "asanaOAuthAccessToken": "oauth-derived-token"},
+		Config:  map[string]string{"asanaProjectID": "proj123"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"review pull request"`))
+	_, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer oauth-derived-token" {
+		t.Errorf("want OAuth token in Authorization header, got %q", gotAuth)
+	}
+}
+
 func TestAsanaAction_SkipsWhenNoAPIKey(t *testing.T) {
 	node := models.WorkflowNode{
 		ID: "as2", Type: models.NodeTypeAction, Template: "asana",

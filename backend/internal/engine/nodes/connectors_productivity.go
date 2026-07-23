@@ -148,7 +148,12 @@ func SetAsanaAPIBaseForTest(base string) {
 }
 
 func sendAsana(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
-	apiKey := secretVal(node, "asanaAPIKey")
+	// OAuth-linked token takes priority: Asana's OAuth access token works
+	// identically to a manual personal access token here (same Bearer scheme).
+	apiKey := secretVal(node, "asanaOAuthAccessToken")
+	if apiKey == "" {
+		apiKey = secretVal(node, "asanaAPIKey")
+	}
 	if apiKey == "" {
 		return "asana_skipped_no_api_key", ErrActionSkipped
 	}
