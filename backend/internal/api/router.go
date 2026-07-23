@@ -32,6 +32,11 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	// Called by NOWPayments' servers, not the browser — authenticated via HMAC signature
 	// (x-nowpayments-sig), not a session cookie, so it must sit outside the JWT group.
 	r.Post("/payments/nowpayments/webhook", d.NOWPaymentsWebhook)
+	// Called by arbitrary x402 clients (agents, other endpoints), not our own frontend —
+	// no JWT session applies, so it must sit outside the JWT group.
+	r.Handle("/x402/relay", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		d.X402Relay(w, r)
+	}))
 
 	// Protected routes — JWT required
 	r.Group(func(r chi.Router) {

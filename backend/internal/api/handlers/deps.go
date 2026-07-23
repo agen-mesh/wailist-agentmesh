@@ -30,6 +30,12 @@ type NOWPaymentsClient interface {
 	VerifyIPNSignature(body []byte, signature string) bool
 }
 
+// USDCSigner builds a gasless USDC atomic-payment group for the X-Payment
+// header. Satisfied by *wallet.Service (SignUSDCPaymentGroup).
+type USDCSigner interface {
+	SignUSDCPaymentGroup(ctx context.Context, encMnemonic, payTo string, assetID, amountMicros uint64, feePayerAddr string) ([]string, int, error)
+}
+
 type Deps struct {
 	Store         *db.Store
 	Broker        *sse.Broker
@@ -56,4 +62,5 @@ type Deps struct {
 	USDCAssetID               uint64
 	RelayNetwork              string
 	RelayFeePayer             string
+	USDCSigner                USDCSigner
 }
