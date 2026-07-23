@@ -1472,6 +1472,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   clickup: {
     label: "ClickUp config",
+    oauthProvider: "clickup",
     fields: [
       {
         kind: "secret",
