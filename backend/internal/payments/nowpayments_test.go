@@ -1,6 +1,7 @@
 package payments_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha512"
@@ -149,6 +150,53 @@ func TestVerifyIPNSignatureRejectsTamperedBody(t *testing.T) {
 	tampered := []byte(`{"order_id":"order_abc","payment_id":1,"payment_status":"finished"}`)
 	if c.VerifyIPNSignature(tampered, sig) {
 		t.Fatal("want tampered payload rejected")
+	}
+}
+
+// signIPNNoEscape computes the reference signature the way NOWPayments' actual Python
+// signer does — json.dumps(msg, separators=(',',':'), sort_keys=True) never HTML-escapes
+// '<', '>', or '&'. This is deliberately NOT the same as the signIPN helper above: signIPN
+// uses plain json.Marshal, and Go's json.Marshal *does* HTML-escape those characters inside
+// string values (a well-known Go gotcha) even though Python's json.dumps never does. That
+// makes signIPN a faithful stand-in for the reference signer only for payloads that don't
+// contain HTML-unsafe characters (true of every other test in this file). For this test,
+// where the whole point is exercising an HTML-unsafe field, signIPN would itself silently
+// escape and defeat the test, so this helper reproduces Python's actual (non-escaping)
+// behavior directly.
+func signIPNNoEscape(t *testing.T, secret string, payload map[string]any) string {
+	t.Helper()
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(payload); err != nil {
+		t.Fatal(err)
+	}
+	body := bytes.TrimRight(buf.Bytes(), "\n")
+	mac := hmac.New(sha512.New, []byte(secret))
+	mac.Write(body)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func TestVerifyIPNSignatureAcceptsPayloadWithHTMLUnsafeCharacters(t *testing.T) {
+	// The raw incoming body can be encoded however the sender likes (it gets parsed and
+	// re-canonicalized regardless) — what matters is that the reference signature (sig)
+	// was computed the way NOWPayments' real Python signer computes it: no HTML-escaping.
+	// Before the fix, VerifyIPNSignature re-canonicalized via plain json.Marshal, which
+	// DOES HTML-escape '<', '&', '>' — producing different bytes, and thus a different
+	// HMAC, than the unescaped reference. That made this test fail pre-fix; the fix's
+	// SetEscapeHTML(false) canonicalization makes it match post-fix.
+	c := payments.NewNOWPaymentsClient("api_key", "ipn_secret")
+	payload := map[string]any{
+		"order_id":          "order_html",
+		"payment_id":        float64(1),
+		"payment_status":    "finished",
+		"order_description": "Order <A&B> Corp",
+	}
+	body, _ := json.Marshal(payload)
+	sig := signIPNNoEscape(t, "ipn_secret", payload)
+
+	if !c.VerifyIPNSignature(body, sig) {
+		t.Fatal("want signature valid for payload containing HTML-unsafe characters")
 	}
 }
 

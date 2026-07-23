@@ -109,16 +109,25 @@ func (c *NOWPaymentsClient) CreateInvoice(ctx context.Context, amountUSDCents in
 // extra whitespace — confirmed against NOWPayments' own Python (`json.dumps(msg,
 // separators=(',', ':'), sort_keys=True)`) and Node reference implementations. Sorting
 // matters because the raw body we receive may not preserve the key order NOWPayments used
-// when it signed.
+// when it signed. HTML-escaping is disabled on the encoder to match Python's json.dumps,
+// which never escapes '<', '>', '&', or U+2028/U+2029 — Go's default json.Marshal does,
+// which would silently diverge from NOWPayments' own signed form for any payload field
+// containing those characters. Full byte-for-byte parity with NOWPayments' real signer is
+// still unproven against an actual signed payload from their servers; that requires the
+// still-pending manual sandbox smoke test.
 func (c *NOWPaymentsClient) VerifyIPNSignature(body []byte, signature string) bool {
 	var parsed any
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return false
 	}
-	sorted, err := json.Marshal(sortKeysDeep(parsed))
-	if err != nil {
+
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(sortKeysDeep(parsed)); err != nil {
 		return false
 	}
+	sorted := bytes.TrimRight(buf.Bytes(), "\n") // Encoder.Encode appends a trailing newline; strip it before hashing
 
 	mac := hmac.New(sha512.New, []byte(c.IPNSecret))
 	mac.Write(sorted)
@@ -172,13 +181,13 @@ func (m orderedMap) MarshalJSON() ([]byte, error) {
 		if i > 0 {
 			buf.WriteByte(',')
 		}
-		keyJSON, err := json.Marshal(e.Key)
+		keyJSON, err := marshalNoEscape(e.Key)
 		if err != nil {
 			return nil, err
 		}
 		buf.Write(keyJSON)
 		buf.WriteByte(':')
-		valJSON, err := json.Marshal(e.Value)
+		valJSON, err := marshalNoEscape(e.Value)
 		if err != nil {
 			return nil, err
 		}
@@ -186,4 +195,23 @@ func (m orderedMap) MarshalJSON() ([]byte, error) {
 	}
 	buf.WriteByte('}')
 	return buf.Bytes(), nil
+}
+
+// marshalNoEscape is json.Marshal without HTML-escaping. It exists because
+// json.Marshal's escaping (of '<', '>', '&', U+2028, U+2029) is hardcoded true at the
+// package-level function and is NOT overridden by an enclosing Encoder's
+// SetEscapeHTML(false): when an encoder encounters a value implementing json.Marshaler
+// (orderedMap, here) it takes the bytes MarshalJSON returns as-is and only compacts them —
+// it does not re-escape-or-unescape a nested MarshalJSON's own literal escape sequences.
+// So orderedMap.MarshalJSON must opt out of escaping itself; relying on the caller's
+// encoder setting to propagate down would silently reintroduce HTML-escaped output for
+// '<', '>', '&' and defeat the fix in VerifyIPNSignature above.
+func marshalNoEscape(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
