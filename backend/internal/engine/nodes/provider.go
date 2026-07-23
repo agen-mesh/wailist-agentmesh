@@ -18,8 +18,13 @@ import (
 var openAIBaseURL = "https://api.openai.com"
 var groqBaseURL = "https://api.groq.com/openai"
 var mistralBaseURL = "https://api.mistral.ai"
+var geminiBaseURL = "https://generativelanguage.googleapis.com"
 
 func SetOpenAIBaseURL(u string) { openAIBaseURL = u }
+
+// SetGeminiBaseURL overrides the Gemini API host. Test-only seam, mirroring
+// SetOpenAIBaseURL, so callGemini can be pointed at an httptest server.
+func SetGeminiBaseURL(u string) { geminiBaseURL = u }
 
 // ExecuteAgent runs the agent node: calls the attached LLM with function calling
 // support so the agent decides whether and how to invoke its attached tools.
@@ -61,18 +66,45 @@ func resolveAPIKey(provider models.WorkflowNode, platformKeys map[string]string)
 	return key, nil
 }
 
+// defaultModel returns the model each provider call falls back to when a
+// Provider node's Model field is empty. Centralized here (not duplicated in
+// each call* function) so the billing tier computed before the call
+// (runner.go's preflight) and the tier reported after the call
+// (platformKeyUsageResult) can never disagree about which model actually ran.
+func defaultModel(template string) string {
+	switch template {
+	case "gemini":
+		return "gemini-2.5-flash"
+	case "anthropic":
+		return "claude-sonnet-4-6"
+	default:
+		return "gpt-4o"
+	}
+}
+
+// ResolveModel returns the model a call actually runs on: the Provider
+// node's own Model if set, else its template's default. Exported so
+// runner.go can compute the same billing tier before the call that
+// provider.go computes for the call itself.
+func ResolveModel(template, model string) string {
+	if model != "" {
+		return model
+	}
+	return defaultModel(template)
+}
+
 // platformKeyUsageResult wraps a final agent answer with tier/usage metadata
 // when the call ran on a platform key, so the Runner can bill the right
 // tier fee and record usage on the debit_ledger row. BYOK calls never go
 // through this — their return shape is unchanged from before this feature.
-func platformKeyUsageResult(provider models.WorkflowNode, tokensIn, tokensOut int, extra map[string]any) map[string]any {
+func platformKeyUsageResult(provider models.WorkflowNode, resolvedModel string, tokensIn, tokensOut int, extra map[string]any) map[string]any {
 	out := map[string]any{}
 	for k, v := range extra {
 		out[k] = v
 	}
 	out["platformKeyUsage"] = map[string]any{
-		"tier":      ModelTier(provider.Template, provider.Model),
-		"model":     provider.Model,
+		"tier":      ModelTier(provider.Template, resolvedModel),
+		"model":     resolvedModel,
 		"tokensIn":  tokensIn,
 		"tokensOut": tokensOut,
 	}
@@ -257,17 +289,14 @@ func collectX402Receipt(funcName string, result map[string]any, tools []models.W
 }
 
 func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter, checkBalance BalanceChecker, platformKeys map[string]string) (any, error) {
-	model := provider.Model
-	if model == "" {
-		model = "gemini-2.5-flash"
-	}
+	model := ResolveModel(provider.Template, provider.Model)
 
 	apiKey, err := resolveAPIKey(provider, platformKeys)
 	if err != nil {
 		return nil, err
 	}
 
-	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", model)
+	apiURL := fmt.Sprintf("%s/v1beta/models/%s:generateContent", geminiBaseURL, model)
 	apiHeaders := map[string]string{"x-goog-api-key": apiKey}
 
 	contents := []map[string]any{
@@ -320,7 +349,7 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 				if len(billedFlatFeeNodeIds) > 0 {
 					extra["billedFlatFeeNodeIds"] = billedFlatFeeNodeIds
 				}
-				return platformKeyUsageResult(provider, tokensIn, tokensOut, extra), nil
+				return platformKeyUsageResult(provider, model, tokensIn, tokensOut, extra), nil
 			}
 			if len(x402Payments) > 0 || len(billedFlatFeeNodeIds) > 0 {
 				out := map[string]any{"message": text}
@@ -435,10 +464,7 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 	case "mistral":
 		baseURL = mistralBaseURL
 	}
-	model := provider.Model
-	if model == "" {
-		model = "gpt-4o"
-	}
+	model := ResolveModel(provider.Template, provider.Model)
 
 	apiKey, err := resolveAPIKey(provider, platformKeys)
 	if err != nil {
@@ -510,7 +536,7 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 				if len(billedFlatFeeNodeIds) > 0 {
 					extra["billedFlatFeeNodeIds"] = billedFlatFeeNodeIds
 				}
-				return platformKeyUsageResult(provider, tokensIn, tokensOut, extra), nil
+				return platformKeyUsageResult(provider, model, tokensIn, tokensOut, extra), nil
 			}
 			if len(x402Payments) > 0 || len(billedFlatFeeNodeIds) > 0 {
 				out := map[string]any{"message": content}
@@ -580,10 +606,7 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 // ─── Anthropic ────────────────────────────────────────────────────────────────
 
 func callAnthropic(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, rc RunContexter, platformKeys map[string]string) (any, error) {
-	model := provider.Model
-	if model == "" {
-		model = "claude-sonnet-4-6"
-	}
+	model := ResolveModel(provider.Template, provider.Model)
 
 	apiKey, err := resolveAPIKey(provider, platformKeys)
 	if err != nil {
@@ -628,7 +651,7 @@ func callAnthropic(ctx context.Context, agent models.WorkflowNode, provider mode
 		if cm["type"] == "text" {
 			text, _ := cm["text"].(string)
 			if provider.KeyMode == "platform" {
-				return platformKeyUsageResult(provider, tokensIn, tokensOut, map[string]any{"message": text}), nil
+				return platformKeyUsageResult(provider, model, tokensIn, tokensOut, map[string]any{"message": text}), nil
 			}
 			return text, nil
 		}

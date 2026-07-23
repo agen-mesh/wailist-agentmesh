@@ -72,14 +72,14 @@ func (r *Runner) debitOrLog(ctx context.Context, wf models.Workflow, run models.
 // convenience fee, or the platform-key tier fee with usage recorded — and
 // logs on failure rather than failing the node, same rationale as
 // debitOrLog: the call already happened, there's nothing left to roll back.
-func (r *Runner) debitAgentFee(ctx context.Context, wf models.Workflow, run models.Run, nodeID string, amountUSDMicros int64, platformMode bool, provider *models.WorkflowNode, tokensIn, tokensOut int) {
+func (r *Runner) debitAgentFee(ctx context.Context, wf models.Workflow, run models.Run, nodeID string, amountUSDMicros int64, platformMode bool, model string, tokensIn, tokensOut int) {
 	if !platformMode {
 		r.debitOrLog(ctx, wf, run, nodeID, amountUSDMicros, models.DebitKindByokFlatFee)
 		return
 	}
-	if err := r.store.DebitCreditsForPlatformLLM(ctx, wf.UserID, amountUSDMicros, wf.ID, run.ID, nodeID, provider.Model, tokensIn, tokensOut); err != nil {
+	if err := r.store.DebitCreditsForPlatformLLM(ctx, wf.UserID, amountUSDMicros, wf.ID, run.ID, nodeID, model, tokensIn, tokensOut); err != nil {
 		log.Printf("platform-key debit failed: user=%s workflow=%s run=%s node=%s model=%s amount=%d: %v",
-			wf.UserID, wf.ID, run.ID, nodeID, provider.Model, amountUSDMicros, err)
+			wf.UserID, wf.ID, run.ID, nodeID, model, amountUSDMicros, err)
 	}
 }
 
@@ -255,8 +255,10 @@ func (r *Runner) executeNode(
 		platformMode := provider != nil && provider.KeyMode == "platform"
 
 		agentFeeUSDMicros := models.ByokFlatFeeUSDMicros
+		var resolvedModel string
 		if platformMode {
-			agentFeeUSDMicros = nodes.PlatformKeyFeeUSDMicros(nodes.ModelTier(provider.Template, provider.Model))
+			resolvedModel = nodes.ResolveModel(provider.Template, provider.Model)
+			agentFeeUSDMicros = nodes.PlatformKeyFeeUSDMicros(nodes.ModelTier(provider.Template, resolvedModel))
 		}
 
 		if err := r.preflightCheck(ctx, wf, agentFeeUSDMicros); err != nil {
@@ -276,7 +278,7 @@ func (r *Runner) executeNode(
 			// billed, matching the pre-existing behavior for those failures.
 			var blocked *nodes.ErrBalanceBlocked
 			if errors.As(err, &blocked) {
-				r.debitAgentFee(ctx, wf, run, node.ID, agentFeeUSDMicros, platformMode, provider, 0, 0)
+				r.debitAgentFee(ctx, wf, run, node.ID, agentFeeUSDMicros, platformMode, resolvedModel, 0, 0)
 			}
 			return nil, err
 		}
@@ -287,7 +289,7 @@ func (r *Runner) executeNode(
 				tokensOut, _ = usage["tokensOut"].(int)
 			}
 		}
-		r.debitAgentFee(ctx, wf, run, node.ID, agentFeeUSDMicros, platformMode, provider, tokensIn, tokensOut)
+		r.debitAgentFee(ctx, wf, run, node.ID, agentFeeUSDMicros, platformMode, resolvedModel, tokensIn, tokensOut)
 		if m, ok := result.(map[string]any); ok {
 			if payments, ok := m["x402Payments"].([]map[string]any); ok {
 				for _, p := range payments {
