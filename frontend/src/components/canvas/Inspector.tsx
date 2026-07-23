@@ -1371,6 +1371,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   notion: {
     label: "Notion config",
+    oauthProvider: "notion",
     fields: [
       {
         kind: "secret",
