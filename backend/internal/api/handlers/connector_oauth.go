@@ -63,6 +63,22 @@ func ClearConnectorProviderForTest(name string) {
 	delete(testProviderOverrides, name)
 }
 
+// connectorTokenURLOverridesForTest lets a test point one real, already-wired
+// provider's TokenURL (e.g. "airtable") at a local fake HTTP server, without
+// touching any other field of that entry — so a test can exercise the actual
+// registry entry (Scope, UsesPKCE, TokenAuthStyle, and Deps-sourced client
+// id/secret all included) through ConnectorOAuthStart/Callback instead of
+// re-declaring a look-alike config via SetConnectorProviderForTest. Test-only.
+var connectorTokenURLOverridesForTest = map[string]string{}
+
+func SetConnectorTokenURLForTest(name, url string) {
+	connectorTokenURLOverridesForTest[name] = url
+}
+
+func ClearConnectorTokenURLForTest(name string) {
+	delete(connectorTokenURLOverridesForTest, name)
+}
+
 // registerConnectorProviders builds the provider registry from Deps' client
 // id/secret fields. Real provider entries (slack, github, notion, ...) are
 // added to this map's returned literal by Tasks 3–14 as each connector is
@@ -107,10 +123,20 @@ func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
 	// implemented here — deliberately out of scope for this task. Without it,
 	// this connector will silently stop working about an hour after linking.
 	// Follow-up task must add refresh support.
+	// Airtable is a confidential client (it has a client_secret at all), so
+	// like Notion above its token endpoint requires Basic auth and rejects
+	// client_id/client_secret in the form body — don't copy this style onto a
+	// future public/no-secret connector that doesn't need it.
 	out["airtable"] = ConnectorOAuthConfig{
 		AuthURL: "https://airtable.com/oauth2/v1/authorize", TokenURL: "https://airtable.com/oauth2/v1/token",
-		Scope: "data.records:write", UsesPKCE: true,
+		Scope: "data.records:write", UsesPKCE: true, TokenAuthStyle: "basic",
 		ClientIDEnvVal: d.AirtableClientID, ClientSecretEnvVal: d.AirtableClientSecret,
+	}
+	for name, url := range connectorTokenURLOverridesForTest {
+		if cfg, ok := out[name]; ok {
+			cfg.TokenURL = url
+			out[name] = cfg
+		}
 	}
 	return out
 }

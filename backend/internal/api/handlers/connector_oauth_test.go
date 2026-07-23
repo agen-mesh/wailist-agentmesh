@@ -453,3 +453,85 @@ func TestConnectorOAuthPKCEVerifierNeverLeavesFrontChannel(t *testing.T) {
 		t.Fatal("expected the PKCE verifier cookie to be cleared in the callback response")
 	}
 }
+
+// TestConnectorOAuthAirtableTokenExchangeUsesBasicAuth exercises the real,
+// registered "airtable" provider entry (not a synthetic SetConnectorProviderForTest
+// stand-in) end-to-end through ConnectorOAuthStart/ConnectorOAuthCallback,
+// with Deps' real AirtableClientID/AirtableClientSecret fields set to test
+// values and only the entry's TokenURL redirected at a local fake server (via
+// SetConnectorTokenURLForTest) so the exchange never leaves the process.
+// Airtable's token endpoint requires client credentials as HTTP Basic auth,
+// never in the form body — see TokenAuthStyle's doc comment and the "airtable"
+// entry in registerConnectorProviders.
+func TestConnectorOAuthAirtableTokenExchangeUsesBasicAuth(t *testing.T) {
+	var gotAuthHeader string
+	var sawClientCredsInForm bool
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		gotAuthHeader = r.Header.Get("Authorization")
+		sawClientCredsInForm = r.FormValue("client_id") != "" || r.FormValue("client_secret") != ""
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"access_token":"fake-airtable-access-token"}`))
+	}))
+	defer provider.Close()
+
+	handlers.SetConnectorTokenURLForTest("airtable", provider.URL+"/token")
+	defer handlers.ClearConnectorTokenURLForTest("airtable")
+
+	store := testStore(t)
+	d := &handlers.Deps{
+		Store: store, JWTSecret: "test-jwt-secret-not-for-production-use-only-32b", BaseURL: "https://example.test", EncryptionKey: "00000000000000000000000000000000",
+		AirtableClientID: "test-airtable-client-id", AirtableClientSecret: "test-airtable-client-secret",
+	}
+
+	userID, workflowID, nodeID := setupConnectorTestFixtures(t, store)
+
+	startReq := httptest.NewRequest(http.MethodGet, "/connectors/oauth/airtable/start?workflowId="+workflowID+"&nodeId="+nodeID, nil)
+	startReq = startReq.WithContext(context.WithValue(startReq.Context(), handlers.CtxUserID, userID))
+	startReq = withURLParam(startReq, "provider", "airtable")
+	startRec := httptest.NewRecorder()
+	d.ConnectorOAuthStart(startRec, startReq)
+
+	if startRec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d, body=%s", startRec.Code, http.StatusFound, startRec.Body.String())
+	}
+	state := mustParseLocationState(t, startRec.Header().Get("Location"))
+
+	var stateCookie, verifierCookie *http.Cookie
+	for _, c := range startRec.Result().Cookies() {
+		switch c.Name {
+		case "connector_oauth_state_airtable":
+			stateCookie = c
+		case "connector_oauth_verifier_airtable":
+			verifierCookie = c
+		}
+	}
+	if stateCookie == nil {
+		t.Fatal("expected a state cookie")
+	}
+	if verifierCookie == nil || verifierCookie.Value == "" {
+		t.Fatal("expected a PKCE verifier cookie since airtable's real entry requires PKCE")
+	}
+
+	cbReq := httptest.NewRequest(http.MethodGet, "/connectors/oauth/airtable/callback?code=the-auth-code&state="+url.QueryEscape(state), nil)
+	cbReq = cbReq.WithContext(context.WithValue(cbReq.Context(), handlers.CtxUserID, userID))
+	cbReq = withURLParam(cbReq, "provider", "airtable")
+	cbReq.AddCookie(stateCookie)
+	cbReq.AddCookie(verifierCookie)
+	cbRec := httptest.NewRecorder()
+
+	d.ConnectorOAuthCallback(cbRec, cbReq)
+
+	if cbRec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d, body=%s", cbRec.Code, http.StatusFound, cbRec.Body.String())
+	}
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("test-airtable-client-id:test-airtable-client-secret"))
+	if gotAuthHeader != wantAuth {
+		t.Fatalf("Authorization header = %q, want %q", gotAuthHeader, wantAuth)
+	}
+	if sawClientCredsInForm {
+		t.Fatal("client_id/client_secret should not be sent in the form body for airtable's token exchange")
+	}
+}
