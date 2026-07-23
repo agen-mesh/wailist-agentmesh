@@ -40,6 +40,11 @@ func main() {
 
 	razorpayClient := payments.NewRazorpayClient(mustEnv("RAZORPAY_KEY_ID"), mustEnv("RAZORPAY_KEY_SECRET"), mustEnv("RAZORPAY_WEBHOOK_SECRET"))
 
+	nowPaymentsClient := payments.NewNOWPaymentsClient(mustEnv("NOWPAYMENTS_API_KEY"), mustEnv("NOWPAYMENTS_IPN_SECRET"))
+	if envOr("NOWPAYMENTS_SANDBOX", "false") == "true" {
+		nowPaymentsClient.UseSandbox()
+	}
+
 	runner := engine.NewRunner(store, broker, walletSvc)
 
 	go expireStalePendingTransactionsLoop(ctx, store)
@@ -61,6 +66,7 @@ func main() {
 
 		Razorpay:      razorpayClient,
 		RazorpayKeyID: razorpayClient.KeyID,
+		NOWPayments:   nowPaymentsClient,
 	}
 
 	r := api.NewRouter(deps)

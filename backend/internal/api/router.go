@@ -29,6 +29,9 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	// Called by Razorpay's servers, not the browser — authenticated via HMAC signature
 	// (X-Razorpay-Signature), not a session cookie, so it must sit outside the JWT group.
 	r.Post("/payments/razorpay/webhook", d.RazorpayWebhook)
+	// Called by NOWPayments' servers, not the browser — authenticated via HMAC signature
+	// (x-nowpayments-sig), not a session cookie, so it must sit outside the JWT group.
+	r.Post("/payments/nowpayments/webhook", d.NOWPaymentsWebhook)
 
 	// Protected routes — JWT required
 	r.Group(func(r chi.Router) {
@@ -55,6 +58,7 @@ func NewRouter(d *handlers.Deps) http.Handler {
 
 		r.Post("/payments/razorpay/order", d.CreateRazorpayOrder)
 		r.Post("/payments/razorpay/verify", d.VerifyRazorpayPayment)
+		r.Post("/payments/nowpayments/invoice", d.CreateCryptoInvoice)
 		r.Get("/credits/balance", d.GetCreditBalance)
 	})
 
