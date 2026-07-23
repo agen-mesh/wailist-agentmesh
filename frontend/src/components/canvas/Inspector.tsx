@@ -1569,6 +1569,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   todoist: {
     label: "Todoist config",
+    oauthProvider: "todoist",
     fields: [
       {
         kind: "secret",
