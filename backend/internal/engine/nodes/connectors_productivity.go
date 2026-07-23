@@ -187,8 +187,15 @@ func SetClickUpAPIBaseForTest(base string) {
 }
 
 func sendClickUp(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	// Unlike Notion/Airtable/Asana above, ClickUp's manual personal-token and
+	// OAuth-token headers are NOT the same scheme: personal tokens go raw with
+	// no prefix (see the apiKey branch below, untouched), while ClickUp's docs
+	// specify "Authorization: Bearer {access_token}" for OAuth-issued tokens.
+	// So this can't share one headers construction across both paths the way
+	// the other connectors do.
+	oauthToken := secretVal(node, "clickupOAuthAccessToken")
 	apiKey := secretVal(node, "clickupAPIKey")
-	if apiKey == "" {
+	if oauthToken == "" && apiKey == "" {
 		return "clickup_skipped_no_api_key", ErrActionSkipped
 	}
 	listID := configVal(node, "clickupListID", "")
@@ -198,7 +205,12 @@ func sendClickUp(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	target := clickupAPIBase + "/api/v2/list/" + url.PathEscape(listID) + "/task"
 	msg := rc.Message()
 	payload := map[string]any{"name": issueTitle(msg), "description": msg}
-	headers := map[string]string{"Authorization": apiKey}
+	var headers map[string]string
+	if oauthToken != "" {
+		headers = map[string]string{"Authorization": "Bearer " + oauthToken}
+	} else {
+		headers = map[string]string{"Authorization": apiKey}
+	}
 	return postJSON(ctx, target, headers, payload, "clickup_task_created", "ClickUp")
 }
 

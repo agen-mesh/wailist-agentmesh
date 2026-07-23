@@ -169,6 +169,23 @@ func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
 		AuthURL: "https://app.asana.com/-/oauth_authorize", TokenURL: "https://app.asana.com/-/oauth_token",
 		Scope: "default", ClientIDEnvVal: d.AsanaClientID, ClientSecretEnvVal: d.AsanaClientSecret,
 	}
+	// developer.clickup.com/docs/authentication: ClickUp has no OAuth scope
+	// concept at all (consent is per-Workspace, granted by which Workspace the
+	// user picks on the authorize screen, not a scope string), and its
+	// /oauth/token endpoint takes client_id/client_secret/code as regular
+	// form-body fields (no TokenAuthStyle needed), same as Slack/GitHub/
+	// HubSpot/Asana above. PKCE is not offered. The authorize URL really is
+	// just https://app.clickup.com/api?client_id=...&redirect_uri=...  — not
+	// a conventional /oauth/authorize-shaped path — confirmed against the docs
+	// above, not a guess.
+	//
+	// No KNOWN GAP here: per that same page, "The access token currently does
+	// not expire" and no refresh_token is issued, unlike Airtable/HubSpot/
+	// Asana above, so there is no refresh gap to document for this connector.
+	out["clickup"] = ConnectorOAuthConfig{
+		AuthURL: "https://app.clickup.com/api", TokenURL: "https://api.clickup.com/api/v2/oauth/token",
+		ClientIDEnvVal: d.ClickUpClientID, ClientSecretEnvVal: d.ClickUpClientSecret,
+	}
 	for name, url := range connectorTokenURLOverridesForTest {
 		if cfg, ok := out[name]; ok {
 			cfg.TokenURL = url

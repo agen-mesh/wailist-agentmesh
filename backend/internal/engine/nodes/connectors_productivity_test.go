@@ -402,6 +402,36 @@ func TestClickUpAction_CreatesTask(t *testing.T) {
 	}
 }
 
+func TestClickUpAction_PrefersOAuthTokenOverManualToken(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	nodes.SetClickUpAPIBaseForTest(srv.URL)
+	defer nodes.SetClickUpAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "cu4", Type: models.NodeTypeAction, Template: "clickup",
+		Secrets: map[string]string{"clickupAPIKey": "pk_xxx", "clickupOAuthAccessToken": "oauth-derived-token"},
+		Config:  map[string]string{"clickupListID": "list42"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"triage bug reports"`))
+	_, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The whole point of this test: ClickUp's OAuth tokens need "Bearer ",
+	// unlike the raw manual personal-token header asserted in
+	// TestClickUpAction_CreatesTask above — these two paths use different
+	// header formats on the very same endpoint, so both must be pinned
+	// exactly, not just "contains the token".
+	if gotAuth != "Bearer oauth-derived-token" {
+		t.Errorf("want Bearer-prefixed OAuth token in Authorization header, got %q", gotAuth)
+	}
+}
+
 func TestClickUpAction_SkipsWhenNoAPIKey(t *testing.T) {
 	node := models.WorkflowNode{
 		ID: "cu2", Type: models.NodeTypeAction, Template: "clickup",
