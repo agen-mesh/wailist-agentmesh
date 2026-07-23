@@ -44,6 +44,33 @@ type Deps struct {
 	GoogleClientID     string
 	GoogleClientSecret string
 
+	SlackOAuthClientID          string
+	SlackOAuthClientSecret      string
+	GitHubConnectorClientID     string
+	GitHubConnectorClientSecret string
+	NotionClientID              string
+	NotionClientSecret          string
+	AirtableClientID            string
+	AirtableClientSecret        string
+	HubSpotClientID             string
+	HubSpotClientSecret         string
+	AsanaClientID               string
+	AsanaClientSecret           string
+	ClickUpClientID             string
+	ClickUpClientSecret         string
+	JiraClientID                string
+	JiraClientSecret            string
+	LinearClientID              string
+	LinearClientSecret          string
+	MailchimpClientID           string
+	MailchimpClientSecret       string
+	GitLabClientID              string
+	GitLabClientSecret          string
+	TrelloClientID              string
+	TrelloClientSecret          string
+	TodoistClientID             string
+	TodoistClientSecret         string
+
 	Razorpay      RazorpayClient
 	RazorpayKeyID string
 

@@ -28,7 +28,12 @@ func SetHubSpotAPIBaseForTest(base string) {
 }
 
 func sendHubSpot(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
-	apiKey := secretVal(node, "hubspotAPIKey")
+	// OAuth-linked token takes priority: HubSpot's OAuth access token works
+	// identically to a manual private-app token here (same Bearer scheme).
+	apiKey := secretVal(node, "hubspotOAuthAccessToken")
+	if apiKey == "" {
+		apiKey = secretVal(node, "hubspotAPIKey")
+	}
 	if apiKey == "" {
 		return "hubspot_skipped_no_api_key", ErrActionSkipped
 	}
@@ -55,10 +60,6 @@ func SetMailchimpAPIBaseForTest(base string) {
 }
 
 func sendMailchimp(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
-	apiKey := secretVal(node, "mailchimpAPIKey")
-	if apiKey == "" {
-		return "mailchimp_skipped_no_api_key", ErrActionSkipped
-	}
 	listID := configVal(node, "mailchimpListID", "")
 	if listID == "" {
 		return "mailchimp_skipped_no_list_id", ErrActionSkipped
@@ -70,6 +71,45 @@ func sendMailchimp(ctx context.Context, node models.WorkflowNode, rc RunContexte
 	email = strings.TrimSpace(email)
 	if email == "" {
 		return "mailchimp_skipped_no_email", ErrActionSkipped
+	}
+
+	// OAuth-linked and manual API-key paths derive the base URL from two
+	// genuinely different sources, not a credential swap like the other
+	// connectors in this plan: a manual key's datacenter suffix comes from
+	// parsing the key itself (mailchimpDatacenter), but an OAuth token
+	// carries no such suffix — it's looked up once at link time instead (see
+	// mailchimpPostExchangeHook in connector_oauth.go) and stored in
+	// node.Config["mailchimpOAuthDC"]. Calling mailchimpDatacenter on an
+	// OAuth token would fail since it has no "<key>-<dc>" shape. Handled as
+	// two independent blocks on purpose, same shape as sendJira.
+	if oauthToken := secretVal(node, "mailchimpOAuthAccessToken"); oauthToken != "" {
+		dc := configVal(node, "mailchimpOAuthDC", "")
+		if dc == "" {
+			return "mailchimp_skipped_missing_config", ErrActionSkipped
+		}
+		base := mailchimpAPIBase
+		if base == "" {
+			base = "https://" + dc + ".api.mailchimp.com"
+		}
+		hash := md5.Sum([]byte(strings.ToLower(email)))
+		subscriberHash := hex.EncodeToString(hash[:])
+		target := base + "/3.0/lists/" + url.PathEscape(listID) + "/members/" + subscriberHash
+		payload := map[string]any{
+			"email_address": email,
+			"status_if_new": "subscribed",
+			"status":        "subscribed",
+		}
+		headers := map[string]string{"Authorization": "Bearer " + oauthToken}
+		req, err := newJSONRequest(ctx, http.MethodPut, target, headers, payload)
+		if err != nil {
+			return nil, fmt.Errorf("Mailchimp: %w", err)
+		}
+		return doAndCheck(req, "mailchimp_subscriber_added", "Mailchimp")
+	}
+
+	apiKey := secretVal(node, "mailchimpAPIKey")
+	if apiKey == "" {
+		return "mailchimp_skipped_no_api_key", ErrActionSkipped
 	}
 	base := mailchimpAPIBase
 	if base == "" {

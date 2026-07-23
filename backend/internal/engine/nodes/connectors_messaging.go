@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,7 +11,61 @@ import (
 	"github.com/agentmesh/backend/internal/models"
 )
 
+// slackAPIBase is overridden in tests via SetSlackAPIBaseForTest so requests
+// hit an httptest server instead of the real Slack API.
+var slackAPIBase = "https://slack.com"
+
+// SetSlackAPIBaseForTest overrides the Slack API base URL. Call only from
+// tests. Pass "" to reset to the real API.
+func SetSlackAPIBaseForTest(base string) {
+	if base == "" {
+		slackAPIBase = "https://slack.com"
+	} else {
+		slackAPIBase = base
+	}
+}
+
 func sendSlack(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	if botToken := secretVal(node, "slackOAuthAccessToken"); botToken != "" {
+		channel := configVal(node, "slackChannel", "")
+		if channel == "" {
+			return "slack_skipped_no_channel", ErrActionSkipped
+		}
+		payload := map[string]any{"channel": channel, "text": rc.Message()}
+		headers := map[string]string{"Authorization": "Bearer " + botToken}
+		// Slack's chat.postMessage returns HTTP 200 for application-level
+		// failures (bad channel, revoked token, missing scope), putting them in
+		// a top-level "ok"/"error" field instead of the status code —
+		// postJSON/doAndCheck only inspects the status code, so this can't
+		// route through them the way the webhook-URL connectors do.
+		req, err := newJSONRequest(ctx, http.MethodPost, slackAPIBase+"/api/chat.postMessage", headers, payload)
+		if err != nil {
+			return nil, fmt.Errorf("Slack: %w", err)
+		}
+		resp, err := doValidatedRequest(req, "Slack")
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			return nil, fmt.Errorf("Slack API %d: %s", resp.StatusCode, readErrorBody(resp))
+		}
+		body, err := readBounded(resp.Body, httpResponseLimit)
+		if err != nil {
+			return nil, fmt.Errorf("Slack: read response: %w", err)
+		}
+		var result struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil {
+			return nil, fmt.Errorf("Slack: decode response: %w", err)
+		}
+		if !result.OK {
+			return nil, fmt.Errorf("Slack: %s", result.Error)
+		}
+		return "slack_sent", nil
+	}
 	webhookURL := secretVal(node, "slackWebhookURL")
 	if webhookURL == "" {
 		return "slack_skipped_no_webhook_url", ErrActionSkipped
