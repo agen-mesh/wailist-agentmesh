@@ -304,3 +304,87 @@ func TestX402RelayUsesSingleQuoteForBothSettlementAndOutboundPayment(t *testing.
 		t.Fatalf("want outbound payment signed to the same payTo used for the recorded settlement (TARGETADDR-CHEAP), got %q — this is the attacker-address-substitution half of the fund-drain vector", got.payTo)
 	}
 }
+
+// TestX402RelayRejectsOutboundPaymentInWrongAsset is a regression test for a
+// gap where payTargetAndRespond blindly trusted quote.Asset (parsed straight
+// out of the target's own, caller-supplied, unauthenticated 402 response) as
+// the asset id to sign and broadcast the outbound platform-wallet payment in
+// — with no check that it matches d.USDCAssetID, the platform's own
+// designated USDC asset id (already anchored and enforced on the inbound
+// settlement side via reqs.Asset in relaySettleAndForward). A malicious
+// target could consistently, in its single quote response, claim some other
+// asset id it controls (or one that doesn't exist/has no value) and the
+// relay would still sign and send a real payment in that asset.
+//
+// The fake target here claims asset "99999999" (not d.USDCAssetID,
+// 10458941) consistently on every unauthenticated fetch — so this is not the
+// two-different-fetches fund-drain vector from the test above, just a single
+// quote that names the wrong asset throughout. Under the fix, the relay must
+// catch this before ever calling the USDC signer or making a paid request to
+// the target, and must record the outbound settlement as failed.
+func TestX402RelayRejectsOutboundPaymentInWrongAsset(t *testing.T) {
+	var targetGotPaidRequest bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Payment") != "" {
+			targetGotPaidRequest = true
+			w.Write([]byte(`{"data":"paid response from target"}`))
+			return
+		}
+		w.WriteHeader(http.StatusPaymentRequired)
+		json.NewEncoder(w).Encode(map[string]any{
+			"accepts": []map[string]any{{"payTo": "TARGETADDR", "asset": "99999999", "maxAmountRequired": "50000"}},
+		})
+	}))
+	defer target.Close()
+
+	store := newTestStoreForHandlers(t)
+
+	facilitator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if r.URL.Path == "/verify" {
+			_ = body
+			json.NewEncoder(w).Encode(map[string]any{"isValid": true})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"success": true, "transaction": "INBOUND-TX-WRONGASSET-" + target.URL})
+	}))
+	defer facilitator.Close()
+
+	signer := &fakeUSDCSigner{group: []string{"g0", "g1"}, idx: 0}
+	d := &handlers.Deps{
+		Store:                     store,
+		PlatformWalletAddress:     "PLATFORMADDR",
+		PlatformWalletEncMnemonic: "enc-mnemonic",
+		FacilitatorClient:         x402.NewFacilitatorClient(facilitator.URL),
+		USDCAssetID:               10458941, // does NOT match the target's claimed asset (99999999)
+		RelayNetwork:              "algorand:testnet",
+		RelayFeePayer:             "FEEPAYERADDR",
+		USDCSigner:                signer,
+	}
+
+	payload, _ := json.Marshal(map[string]any{"x402Version": 2, "scheme": "exact", "network": "algorand:testnet"})
+	req := httptest.NewRequest(http.MethodGet, "/x402/relay?target="+target.URL, nil)
+	req.Header.Set("X-Payment", string(payload))
+	w := httptest.NewRecorder()
+
+	d.X402Relay(w, req)
+
+	if w.Code == http.StatusOK {
+		t.Fatalf("want relay to refuse to pay the target in a non-USDC asset, got 200: %s", w.Body.String())
+	}
+
+	if len(signer.calls) != 0 {
+		t.Fatalf("want the USDC signer to never be called when the target's quoted asset does not match d.USDCAssetID, got %d call(s): %+v", len(signer.calls), signer.calls)
+	}
+	if targetGotPaidRequest {
+		t.Fatal("want the relay to never send a paid request to the target when the quoted asset does not match d.USDCAssetID")
+	}
+
+	row, err := store.GetX402RelaySettlementByInboundTx(context.Background(), "INBOUND-TX-WRONGASSET-"+target.URL)
+	if err != nil {
+		t.Fatalf("want to find the recorded ledger row: %v", err)
+	}
+	if row.Status != "failed" {
+		t.Fatalf("want the outbound settlement recorded as failed when the asset mismatch is caught, got status %q", row.Status)
+	}
+}

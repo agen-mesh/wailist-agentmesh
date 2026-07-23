@@ -236,6 +236,20 @@ func (d *Deps) payTargetAndRespond(w http.ResponseWriter, r *http.Request, targe
 	assetID, _ := strconv.ParseUint(quote.Asset, 10, 64)
 	amount, _ := strconv.ParseUint(quote.MaxAmountRequired, 10, 64)
 
+	// quote.Asset comes straight from the target's own (caller-supplied,
+	// unauthenticated) 402 response. The inbound settlement side is already
+	// anchored to the platform's own asset id (reqs.Asset =
+	// strconv.FormatUint(d.USDCAssetID, 10) in relaySettleAndForward), but
+	// nothing enforced that here — a malicious target could consistently
+	// quote a different asset id (one it controls, or one with no value at
+	// all) and the platform wallet would sign and broadcast a real payment
+	// in that asset. Refuse before ever touching the signer.
+	if assetID != d.USDCAssetID {
+		d.Store.RecordOutboundSettlement(ctx, ledgerID, "", "failed")
+		respond.Error(w, http.StatusBadGateway, "target quoted an unexpected asset id")
+		return
+	}
+
 	group, idx, err := d.USDCSigner.SignUSDCPaymentGroup(ctx, d.PlatformWalletEncMnemonic, quote.PayTo, assetID, amount, d.RelayFeePayer)
 	if err != nil {
 		d.Store.RecordOutboundSettlement(ctx, ledgerID, "", "failed")
