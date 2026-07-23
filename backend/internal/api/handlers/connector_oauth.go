@@ -132,6 +132,27 @@ func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
 		Scope: "data.records:write", UsesPKCE: true, TokenAuthStyle: "basic",
 		ClientIDEnvVal: d.AirtableClientID, ClientSecretEnvVal: d.AirtableClientSecret,
 	}
+	// HubSpot's docs list crm.objects.notes.read/.write scopes for the notes
+	// API, but that scope is not actually addable to an app's OAuth config in
+	// HubSpot's own account settings (a known HubSpot-side gap reported on
+	// their developer community) — crm.objects.contacts.write is what's
+	// actually grantable and what HubSpot's own API reference lists as the
+	// scope requirement for POST /crm/v3/objects/notes, so that's used here
+	// instead. HubSpot's token endpoint takes client_id/client_secret as
+	// regular form fields (no TokenAuthStyle needed), unlike Notion/Airtable
+	// above.
+	//
+	// KNOWN GAP: HubSpot access tokens expire after ~30 minutes and the token
+	// response includes a refresh_token. Re-exchanging that refresh token and
+	// writing the refreshed access token back onto the node via
+	// Store.UpdateWorkflow before each connector call is NOT implemented here
+	// — deliberately out of scope for this task, same as Airtable's gap
+	// above. Without it, this connector will silently stop working about half
+	// an hour after linking. Follow-up task must add refresh support.
+	out["hubspot"] = ConnectorOAuthConfig{
+		AuthURL: "https://app.hubspot.com/oauth/authorize", TokenURL: "https://api.hubapi.com/oauth/v1/token",
+		Scope: "crm.objects.contacts.write", ClientIDEnvVal: d.HubSpotClientID, ClientSecretEnvVal: d.HubSpotClientSecret,
+	}
 	for name, url := range connectorTokenURLOverridesForTest {
 		if cfg, ok := out[name]; ok {
 			cfg.TokenURL = url

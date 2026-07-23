@@ -28,7 +28,12 @@ func SetHubSpotAPIBaseForTest(base string) {
 }
 
 func sendHubSpot(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
-	apiKey := secretVal(node, "hubspotAPIKey")
+	// OAuth-linked token takes priority: HubSpot's OAuth access token works
+	// identically to a manual private-app token here (same Bearer scheme).
+	apiKey := secretVal(node, "hubspotOAuthAccessToken")
+	if apiKey == "" {
+		apiKey = secretVal(node, "hubspotAPIKey")
+	}
 	if apiKey == "" {
 		return "hubspot_skipped_no_api_key", ErrActionSkipped
 	}

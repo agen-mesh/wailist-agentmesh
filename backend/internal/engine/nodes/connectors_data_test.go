@@ -49,6 +49,30 @@ func TestHubSpotAction_CreatesNote(t *testing.T) {
 	}
 }
 
+func TestHubSpotAction_PrefersOAuthTokenOverManualToken(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	nodes.SetHubSpotAPIBaseForTest(srv.URL)
+	defer nodes.SetHubSpotAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "hs4", Type: models.NodeTypeAction, Template: "hubspot",
+		Secrets: map[string]string{"hubspotAPIKey": "pat-na1-xxx", "hubspotOAuthAccessToken": "oauth-derived-token"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"follow up with lead"`))
+	_, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer oauth-derived-token" {
+		t.Errorf("want OAuth token in Authorization header, got %q", gotAuth)
+	}
+}
+
 func TestHubSpotAction_SkipsWhenNoAPIKey(t *testing.T) {
 	node := models.WorkflowNode{
 		ID: "hs2", Type: models.NodeTypeAction, Template: "hubspot",
