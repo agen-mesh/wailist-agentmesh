@@ -1490,6 +1490,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   jira: {
     label: "Jira config",
+    oauthProvider: "jira",
     fields: [
       {
         kind: "secret",
