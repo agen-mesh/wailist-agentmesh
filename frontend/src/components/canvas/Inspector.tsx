@@ -1550,6 +1550,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   linear: {
     label: "Linear config",
+    oauthProvider: "linear",
     fields: [
       {
         kind: "secret",
