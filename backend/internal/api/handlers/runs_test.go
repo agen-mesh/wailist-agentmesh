@@ -19,7 +19,7 @@ func TestTriggerRun(t *testing.T) {
 	d.Broker = sse.NewBroker()
 	d.Wallet = wallet.NewService("0123456789abcdef0123456789abcdef",
 		"https://testnet-api.algonode.cloud", "", "testnet")
-	d.Engine = engine.NewRunner(d.Store, d.Broker, d.Wallet)
+	d.Engine = engine.NewRunner(d.Store, d.Broker, d.Wallet, "http://localhost:8080")
 
 	wf, _ := d.Store.CreateWorkflow(t.Context(), "Run Test", "dev")
 	t.Cleanup(func() { d.Store.DeleteWorkflow(context.Background(), wf.ID) })

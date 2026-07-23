@@ -30,7 +30,7 @@ func newTestRunner(t *testing.T) (*engine.Runner, *db.Store) {
 	}
 	t.Cleanup(store.Close)
 	broker := sse.NewBroker()
-	return engine.NewRunner(store, broker, &noopSigner{}), store
+	return engine.NewRunner(store, broker, &noopSigner{}, "http://localhost:8080"), store
 }
 
 // TestStopReturnsFalseWhenNotRunning verifies that Stop returns false

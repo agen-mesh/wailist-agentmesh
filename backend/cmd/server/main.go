@@ -62,7 +62,7 @@ func main() {
 		nowPaymentsClient.UseSandbox()
 	}
 
-	runner := engine.NewRunner(store, broker, walletSvc)
+	runner := engine.NewRunner(store, broker, walletSvc, envOr("BASE_URL", "http://localhost:8080"))
 
 	go expireStalePendingTransactionsLoop(ctx, store)
 

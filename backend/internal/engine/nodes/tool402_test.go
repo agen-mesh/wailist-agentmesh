@@ -152,3 +152,95 @@ func TestX402SignerError(t *testing.T) {
 		t.Fatalf("want 'insufficient balance' in error, got %v", err)
 	}
 }
+
+type mockUSDCGroupSigner struct {
+	group []string
+	idx   int
+}
+
+func (m *mockUSDCGroupSigner) SignUSDCPaymentGroup(_ context.Context, _, _ string, _, _ uint64, _ string) ([]string, int, error) {
+	return m.group, m.idx, nil
+}
+
+// TestX402V2TargetRoutesThroughRelay verifies that a target advertising the
+// real x402 v2 shape (accepts[]) is never paid directly — the agent pays the
+// relay instead, which is what earns orchestrator-entry attribution.
+func TestX402V2TargetRoutesThroughRelay(t *testing.T) {
+	var targetHit, relayHit bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetHit = true
+		w.WriteHeader(http.StatusPaymentRequired)
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+	}))
+	defer target.Close()
+
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		relayHit = true
+		if r.Header.Get("X-Payment") != "" {
+			w.Write([]byte(`{"data":"relayed paid response"}`))
+			return
+		}
+		w.WriteHeader(http.StatusPaymentRequired)
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+	}))
+	defer relay.Close()
+
+	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool402, Endpoint: target.URL}
+	rc := engine.NewRunContext("r1", nil)
+	aw := models.AgentWallet{AgentNodeID: "a1", EncryptedMnemonic: "enc-mnemonic"}
+	signer := &mockSigner{txID: "unused-legacy-path"}
+	usdcSigner := &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0}
+
+	result, err := nodes.ExecuteTool402V2(context.Background(), node, rc, aw, signer, usdcSigner, relay.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !targetHit {
+		t.Fatal("want relay to have queried target's real price first")
+	}
+	if !relayHit {
+		t.Fatal("want relay to have been called")
+	}
+	m, ok := result.(map[string]any)
+	if !ok || m["data"] != "relayed paid response" {
+		t.Fatalf("want relayed response, got %v", result)
+	}
+}
+
+// TestX402LegacyTargetBypassesRelay verifies the existing flat-quote dialect
+// (no accepts[]) still pays the target directly — unchanged behavior.
+func TestX402LegacyTargetBypassesRelay(t *testing.T) {
+	var relayHit bool
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		relayHit = true
+	}))
+	defer relay.Close()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h := r.Header.Get("X-Payment-Txid"); h != "" {
+			w.Write([]byte(`{"ok":true}`))
+			return
+		}
+		w.Header().Set("X-Payment-Required", `{"price":"0.001","unit":"call","network":"algorand-testnet","recipient":"ALGO123"}`)
+		w.WriteHeader(http.StatusPaymentRequired)
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool402, Endpoint: srv.URL}
+	rc := engine.NewRunContext("r1", nil)
+	aw := models.AgentWallet{AgentNodeID: "a1", EncryptedMnemonic: "enc-mnemonic"}
+	signer := &mockSigner{txID: "TX-SIGNED-123"}
+	usdcSigner := &mockUSDCGroupSigner{}
+
+	result, err := nodes.ExecuteTool402V2(context.Background(), node, rc, aw, signer, usdcSigner, relay.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if relayHit {
+		t.Fatal("legacy target must bypass the relay entirely")
+	}
+	m := result.(map[string]any)
+	if m["txId"] != "TX-SIGNED-123" {
+		t.Fatalf("want legacy direct-pay path unchanged, got %v", m)
+	}
+}
