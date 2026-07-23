@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/engine"
@@ -84,6 +85,34 @@ func TestSlackAction_BotTokenModePostsToChannel(t *testing.T) {
 	}
 	if received["text"] != "hello from a test" {
 		t.Errorf("text = %v, want hello from a test", received["text"])
+	}
+}
+
+func TestSlackAction_BotTokenModeSurfacesOKFalse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "channel_not_found"})
+	}))
+	defer srv.Close()
+	nodes.SetSlackAPIBaseForTest(srv.URL)
+	defer nodes.SetSlackAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "s3b", Type: models.NodeTypeAction, Template: "slack",
+		Secrets: map[string]string{"slackOAuthAccessToken": "xoxb-fake-bot-token"},
+		Config:  map[string]string{"slackChannel": "C0123456789"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"hello from a test"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err == nil {
+		t.Fatalf("want error for ok:false response, got result %v", result)
+	}
+	if !strings.Contains(err.Error(), "channel_not_found") {
+		t.Errorf("want error mentioning channel_not_found, got %q", err.Error())
+	}
+	if result == "slack_sent" {
+		t.Errorf("want failure sentinel, got success sentinel 'slack_sent'")
 	}
 }
 
