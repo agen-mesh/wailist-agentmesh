@@ -61,15 +61,21 @@ type targetPriceQuote struct {
 // request timeout — see nodes.toolHTTPClient) and parses its x402 402
 // challenge.
 //
-// This is called independently from three places: relayInboundChallenge (to
-// mirror the price to the caller), relaySettleAndForward (to learn the
-// authoritative price to enforce and record before settling the inbound
-// payment), and payTargetAndRespond (to learn the price to actually pay). The
-// no-payment request and the with-payment request are two separate,
-// unrelated HTTP requests with no shared state between them, so the price
-// has to be re-fetched at each point rather than trusted from an earlier
-// call — the extra outbound round trip is the cost of actually enforcing the
-// quoted price instead of taking the caller's word for it.
+// This is called independently from two places: relayInboundChallenge (to
+// mirror the price to the caller on the no-payment leg) and
+// relaySettleAndForward (to learn the authoritative price to enforce and
+// record before settling the inbound payment). Those two calls are separate,
+// unrelated HTTP requests (no-payment challenge vs. with-payment settle) with
+// no shared state between them, so the price genuinely has to be re-fetched
+// across that boundary rather than trusted from the earlier call.
+//
+// Deliberately NOT called a second time from payTargetAndRespond: target is
+// caller-supplied and this route is public/unauthenticated, so re-fetching a
+// second, independent quote at pay-time would let a malicious target answer
+// cheaply the first time and expensively (and/or to a different payTo) the
+// second time, draining the platform wallet for more than was ever collected
+// from the caller. relaySettleAndForward fetches the quote exactly once per
+// relay cycle and passes that same value into payTargetAndRespond.
 func fetchTargetPriceQuote(ctx context.Context, target string) (targetPriceQuote, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
@@ -195,13 +201,25 @@ func (d *Deps) relaySettleAndForward(w http.ResponseWriter, r *http.Request, tar
 		return
 	}
 
-	d.payTargetAndRespond(w, r, target, ledgerRow.ID)
+	d.payTargetAndRespond(w, r, target, ledgerRow.ID, quote)
 }
 
 // payTargetAndRespond pays the real target from the platform wallet via the
 // facilitator, then relays the target's paid response back to the caller.
 // No refund path on failure: x402 has no chargeback primitive, and the
 // inbound leg's attribution to us already landed regardless of this outcome.
+//
+// It takes the already-fetched targetPriceQuote from relaySettleAndForward
+// (its only caller) rather than re-fetching the caller-supplied target
+// itself. This is deliberate: target is arbitrary and attacker-controlled on
+// this public, unauthenticated route, so re-fetching it a second time here
+// would let a malicious target answer the first (enforcement/recording)
+// fetch cheaply and this second (pay-time) fetch with an inflated amount
+// and/or a different payTo — causing the platform wallet to sign and
+// broadcast a payment for more than was ever collected from the caller, to
+// an address the caller chose. One quote, fetched once per relay cycle, used
+// for both enforcement/recording and the actual outbound payment closes that
+// gap.
 //
 // Outbound tx id: paying the target here goes over the target's own
 // X-Payment header directly, not through our own FacilitatorClient, so there
@@ -212,15 +230,9 @@ func (d *Deps) relaySettleAndForward(w http.ResponseWriter, r *http.Request, tar
 // current architecture (the relay pays the target directly rather than via
 // a second facilitator round-trip from our side), not an oversight, and not
 // something to paper over with a fabricated id.
-func (d *Deps) payTargetAndRespond(w http.ResponseWriter, r *http.Request, target, ledgerID string) {
+func (d *Deps) payTargetAndRespond(w http.ResponseWriter, r *http.Request, target, ledgerID string, quote targetPriceQuote) {
 	ctx := r.Context()
 
-	quote, err := fetchTargetPriceQuote(ctx, target)
-	if err != nil {
-		d.Store.RecordOutboundSettlement(ctx, ledgerID, "", "failed")
-		respond.Error(w, http.StatusBadGateway, "target unreachable for payment: "+err.Error())
-		return
-	}
 	assetID, _ := strconv.ParseUint(quote.Asset, 10, 64)
 	amount, _ := strconv.ParseUint(quote.MaxAmountRequired, 10, 64)
 

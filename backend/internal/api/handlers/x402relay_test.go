@@ -97,13 +97,25 @@ func newTestStoreForHandlers(t *testing.T) *db.Store {
 	return store
 }
 
+// signCall captures one invocation of fakeUSDCSigner.SignUSDCPaymentGroup, so
+// tests can assert on exactly what the relay actually signed and broadcast
+// for the outbound platform-wallet payment.
+type signCall struct {
+	payTo        string
+	assetID      uint64
+	amountMicros uint64
+}
+
 type fakeUSDCSigner struct {
 	group []string
 	idx   int
 	err   error
+
+	calls []signCall
 }
 
-func (f *fakeUSDCSigner) SignUSDCPaymentGroup(_ context.Context, _, _ string, _, _ uint64, _ string) ([]string, int, error) {
+func (f *fakeUSDCSigner) SignUSDCPaymentGroup(_ context.Context, _, payTo string, assetID, amountMicros uint64, _ string) ([]string, int, error) {
+	f.calls = append(f.calls, signCall{payTo: payTo, assetID: assetID, amountMicros: amountMicros})
 	return f.group, f.idx, f.err
 }
 
@@ -186,5 +198,109 @@ func TestX402RelayPaysTargetFromPlatformWalletAfterInboundSettles(t *testing.T) 
 	}
 	if row.AmountAssetMicros != 50000 {
 		t.Fatalf("want ledger row to record the real settled amount (50000), got %d", row.AmountAssetMicros)
+	}
+}
+
+// TestX402RelayUsesSingleQuoteForBothSettlementAndOutboundPayment is a
+// regression test for a fund-drain vector: relaySettleAndForward used to
+// fetch the target's price quote once (to enforce/record it), and
+// payTargetAndRespond then independently re-fetched the SAME caller-supplied
+// target URL a second time to learn what to actually sign and pay. Since
+// `target` is arbitrary and attacker-controlled on this public,
+// unauthenticated route, a malicious target could answer the first
+// (price-enforcement) fetch with a cheap price and the second (pay-time)
+// fetch with an inflated amount and/or a different payTo — causing the
+// platform wallet to sign and broadcast a payment for more than was ever
+// collected from the caller, to an address the caller chose.
+//
+// The fake target below tracks how many unauthenticated (no X-Payment)
+// requests it has received and answers the first one cheaply
+// (TARGETADDR-CHEAP / 50000) and every subsequent one expensively
+// (ATTACKERADDR / 999000000). Under the old buggy code this is exactly two
+// independent fetches — one in relaySettleAndForward, one in
+// payTargetAndRespond — so the outbound payment would be signed for
+// 999000000 to ATTACKERADDR while the ledger recorded only 50000. Under the
+// fixed code there is only one fetch, reused for both purposes, so the
+// signed outbound payment must match the cheap, recorded amount and address.
+func TestX402RelayUsesSingleQuoteForBothSettlementAndOutboundPayment(t *testing.T) {
+	var quoteFetches int
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Payment") != "" {
+			w.Write([]byte(`{"data":"paid response from target"}`))
+			return
+		}
+		quoteFetches++
+		w.WriteHeader(http.StatusPaymentRequired)
+		if quoteFetches == 1 {
+			json.NewEncoder(w).Encode(map[string]any{
+				"accepts": []map[string]any{{"payTo": "TARGETADDR-CHEAP", "asset": "10458941", "maxAmountRequired": "50000"}},
+			})
+			return
+		}
+		// A malicious target would only do this on a second, pay-time-only
+		// fetch that should never happen under the fix.
+		json.NewEncoder(w).Encode(map[string]any{
+			"accepts": []map[string]any{{"payTo": "ATTACKERADDR", "asset": "10458941", "maxAmountRequired": "999000000"}},
+		})
+	}))
+	defer target.Close()
+
+	store := newTestStoreForHandlers(t)
+
+	facilitator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if r.URL.Path == "/verify" {
+			_ = body
+			json.NewEncoder(w).Encode(map[string]any{"isValid": true})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"success": true, "transaction": "INBOUND-TX-SINGLEQUOTE-" + target.URL})
+	}))
+	defer facilitator.Close()
+
+	signer := &fakeUSDCSigner{group: []string{"g0", "g1"}, idx: 0}
+	d := &handlers.Deps{
+		Store:                     store,
+		PlatformWalletAddress:     "PLATFORMADDR",
+		PlatformWalletEncMnemonic: "enc-mnemonic",
+		FacilitatorClient:         x402.NewFacilitatorClient(facilitator.URL),
+		USDCAssetID:               10458941,
+		RelayNetwork:              "algorand:testnet",
+		RelayFeePayer:             "FEEPAYERADDR",
+		USDCSigner:                signer,
+	}
+
+	payload, _ := json.Marshal(map[string]any{"x402Version": 2, "scheme": "exact", "network": "algorand:testnet"})
+	req := httptest.NewRequest(http.MethodGet, "/x402/relay?target="+target.URL, nil)
+	req.Header.Set("X-Payment", string(payload))
+	w := httptest.NewRecorder()
+
+	d.X402Relay(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	row, err := store.GetX402RelaySettlementByInboundTx(context.Background(), "INBOUND-TX-SINGLEQUOTE-"+target.URL)
+	if err != nil {
+		t.Fatalf("want to find the recorded ledger row: %v", err)
+	}
+	if row.AmountAssetMicros != 50000 {
+		t.Fatalf("want ledger row to record the cheap quoted amount (50000), got %d", row.AmountAssetMicros)
+	}
+
+	if quoteFetches != 1 {
+		t.Fatalf("want exactly one price-quote fetch of the caller-supplied target per relay cycle, got %d — a second independent fetch is exactly the fund-drain gap this test guards against", quoteFetches)
+	}
+
+	if len(signer.calls) != 1 {
+		t.Fatalf("want exactly one outbound sign call, got %d", len(signer.calls))
+	}
+	got := signer.calls[0]
+	if uint64(row.AmountAssetMicros) != got.amountMicros {
+		t.Fatalf("want the amount actually signed for the outbound payment (%d) to match the amount recorded in the ledger (%d) — a mismatch means the relay paid a different amount than it collected/recorded", got.amountMicros, row.AmountAssetMicros)
+	}
+	if got.payTo != "TARGETADDR-CHEAP" {
+		t.Fatalf("want outbound payment signed to the same payTo used for the recorded settlement (TARGETADDR-CHEAP), got %q — this is the attacker-address-substitution half of the fund-drain vector", got.payTo)
 	}
 }
