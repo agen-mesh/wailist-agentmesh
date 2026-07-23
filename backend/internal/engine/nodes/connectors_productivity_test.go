@@ -70,6 +70,31 @@ func TestNotionAction_SkipsWhenNoAPIKey(t *testing.T) {
 	}
 }
 
+func TestNotionAction_PrefersOAuthTokenOverManualToken(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	nodes.SetNotionAPIBaseForTest(srv.URL)
+	defer nodes.SetNotionAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "no4", Type: models.NodeTypeAction, Template: "notion",
+		Secrets: map[string]string{"notionAPIKey": "manual-secret-xxx", "notionOAuthAccessToken": "oauth-derived-token"},
+		Config:  map[string]string{"notionPageID": "abc123"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"daily summary"`))
+	_, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer oauth-derived-token" {
+		t.Errorf("want OAuth token in Authorization header, got %q", gotAuth)
+	}
+}
+
 func TestNotionAction_SkipsWhenNoPageID(t *testing.T) {
 	node := models.WorkflowNode{
 		ID: "no3", Type: models.NodeTypeAction, Template: "notion",

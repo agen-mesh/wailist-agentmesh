@@ -187,6 +187,96 @@ func TestConnectorOAuthCallbackWritesEncryptedTokenIntoNodeSecrets(t *testing.T)
 	}
 }
 
+// TestConnectorOAuthCallbackUsesBasicAuthForTokenExchangeWhenConfigured covers
+// Notion-style providers (TokenAuthStyle: "basic") whose token endpoint wants
+// client credentials as an HTTP Basic Authorization header instead of the
+// default form-body fields exchangeConnectorCode otherwise sends.
+func TestConnectorOAuthCallbackUsesBasicAuthForTokenExchangeWhenConfigured(t *testing.T) {
+	var gotAuthHeader string
+	var sawClientIDInForm bool
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		gotAuthHeader = r.Header.Get("Authorization")
+		sawClientIDInForm = r.FormValue("client_id") != "" || r.FormValue("client_secret") != ""
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"access_token":"fake-access-token"}`))
+	}))
+	defer provider.Close()
+
+	store := testStore(t)
+	d := &handlers.Deps{Store: store, JWTSecret: "test-jwt-secret-not-for-production-use-only-32b", BaseURL: "https://example.test", EncryptionKey: "00000000000000000000000000000000"}
+	handlers.SetConnectorProviderForTest("basicprovider", handlers.ConnectorOAuthConfig{
+		AuthURL: provider.URL + "/authorize", TokenURL: provider.URL + "/token",
+		TokenAuthStyle: "basic", ClientIDEnvVal: "test-client-id", ClientSecretEnvVal: "test-client-secret",
+	})
+	defer handlers.ClearConnectorProviderForTest("basicprovider")
+
+	userID, workflowID, nodeID := setupConnectorTestFixtures(t, store)
+
+	startReq := httptest.NewRequest(http.MethodGet, "/connectors/oauth/basicprovider/start?workflowId="+workflowID+"&nodeId="+nodeID, nil)
+	startReq = startReq.WithContext(context.WithValue(startReq.Context(), handlers.CtxUserID, userID))
+	startReq = withURLParam(startReq, "provider", "basicprovider")
+	startRec := httptest.NewRecorder()
+	d.ConnectorOAuthStart(startRec, startReq)
+	state := mustParseLocationState(t, startRec.Header().Get("Location"))
+	stateCookie := startRec.Result().Cookies()[0]
+
+	cbReq := httptest.NewRequest(http.MethodGet, "/connectors/oauth/basicprovider/callback?code=the-auth-code&state="+url.QueryEscape(state), nil)
+	cbReq = cbReq.WithContext(context.WithValue(cbReq.Context(), handlers.CtxUserID, userID))
+	cbReq = withURLParam(cbReq, "provider", "basicprovider")
+	cbReq.AddCookie(stateCookie)
+	cbRec := httptest.NewRecorder()
+
+	d.ConnectorOAuthCallback(cbRec, cbReq)
+
+	if cbRec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d, body=%s", cbRec.Code, http.StatusFound, cbRec.Body.String())
+	}
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("test-client-id:test-client-secret"))
+	if gotAuthHeader != wantAuth {
+		t.Fatalf("Authorization header = %q, want %q", gotAuthHeader, wantAuth)
+	}
+	if sawClientIDInForm {
+		t.Fatal("client_id/client_secret should not be sent in the form body when TokenAuthStyle is basic")
+	}
+}
+
+// TestConnectorOAuthStartOmitsEmptyScopeAndSetsExtraAuthParams covers
+// Notion-style providers that use no scope string at all (access is
+// controlled by page-level consent, not scopes) but do require extra fixed
+// query parameters (e.g. Notion's owner=user) on the authorize redirect.
+func TestConnectorOAuthStartOmitsEmptyScopeAndSetsExtraAuthParams(t *testing.T) {
+	store := testStore(t)
+	d := &handlers.Deps{Store: store, JWTSecret: "test-jwt-secret-not-for-production-use-only-32b", BaseURL: "https://example.test", EncryptionKey: "00000000000000000000000000000000"}
+	handlers.SetConnectorProviderForTest("noscopeprovider", handlers.ConnectorOAuthConfig{
+		AuthURL: "https://noscopeprovider.test/authorize", TokenURL: "https://noscopeprovider.test/token",
+		Scope: "", ExtraAuthParams: map[string]string{"owner": "user"},
+		ClientIDEnvVal: "test-client-id", ClientSecretEnvVal: "test-client-secret",
+	})
+	defer handlers.ClearConnectorProviderForTest("noscopeprovider")
+
+	userID, workflowID, nodeID := setupConnectorTestFixtures(t, store)
+	req := httptest.NewRequest(http.MethodGet, "/connectors/oauth/noscopeprovider/start?workflowId="+workflowID+"&nodeId="+nodeID, nil)
+	req = req.WithContext(context.WithValue(req.Context(), handlers.CtxUserID, userID))
+	req = withURLParam(req, "provider", "noscopeprovider")
+	rec := httptest.NewRecorder()
+
+	d.ConnectorOAuthStart(rec, req)
+
+	loc, err := url.Parse(rec.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := loc.Query()["scope"]; present {
+		t.Fatalf("expected no scope param at all, got %q", loc.Query().Get("scope"))
+	}
+	if loc.Query().Get("owner") != "user" {
+		t.Fatalf("owner = %q, want %q", loc.Query().Get("owner"), "user")
+	}
+}
+
 func TestConnectorOAuthCallbackRejectsMismatchedState(t *testing.T) {
 	store := testStore(t)
 	d := &handlers.Deps{Store: store, JWTSecret: "test-jwt-secret-not-for-production-use-only-32b", BaseURL: "https://example.test", EncryptionKey: "00000000000000000000000000000000"}

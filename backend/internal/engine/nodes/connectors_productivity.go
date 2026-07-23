@@ -23,7 +23,12 @@ func SetNotionAPIBaseForTest(base string) {
 }
 
 func sendNotion(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
-	apiKey := secretVal(node, "notionAPIKey")
+	// OAuth-linked token takes priority: Notion's OAuth access token works
+	// identically to a manual internal integration secret here (same Bearer scheme).
+	apiKey := secretVal(node, "notionOAuthAccessToken")
+	if apiKey == "" {
+		apiKey = secretVal(node, "notionAPIKey")
+	}
 	if apiKey == "" {
 		return "notion_skipped_no_api_key", ErrActionSkipped
 	}

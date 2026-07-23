@@ -30,6 +30,18 @@ type ConnectorOAuthConfig struct {
 	UsesPKCE           bool
 	ClientIDEnvVal     string
 	ClientSecretEnvVal string
+
+	// TokenAuthStyle selects how exchangeConnectorCode presents client
+	// credentials to TokenURL. "" (default) puts client_id/client_secret in
+	// the form body, per the generic OAuth 2.0 authorization_code grant.
+	// "basic" sends them instead as an HTTP Basic Authorization header and
+	// omits them from the form body, which Notion's token endpoint requires.
+	TokenAuthStyle string
+
+	// ExtraAuthParams are added verbatim to the /authorize redirect's query
+	// string, for providers that need fixed parameters beyond the generic
+	// set below (e.g. Notion's required owner=user).
+	ExtraAuthParams map[string]string
 }
 
 // testProviderOverrides holds provider configs injected by tests via
@@ -73,6 +85,16 @@ func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
 	out["github"] = ConnectorOAuthConfig{
 		AuthURL: "https://github.com/login/oauth/authorize", TokenURL: "https://github.com/login/oauth/access_token",
 		Scope: "repo", ClientIDEnvVal: d.GitHubConnectorClientID, ClientSecretEnvVal: d.GitHubConnectorClientSecret,
+	}
+	// Notion has no OAuth scope string at all (consent is page-level, granted
+	// by which pages the user picks to share), requires owner=user on the
+	// authorize redirect, and its token endpoint wants client credentials as
+	// HTTP Basic auth rather than form fields — see connectors_productivity.go's
+	// sendNotion and TokenAuthStyle's doc comment above.
+	out["notion"] = ConnectorOAuthConfig{
+		AuthURL: "https://api.notion.com/v1/oauth/authorize", TokenURL: "https://api.notion.com/v1/oauth/token",
+		TokenAuthStyle: "basic", ExtraAuthParams: map[string]string{"owner": "user"},
+		ClientIDEnvVal: d.NotionClientID, ClientSecretEnvVal: d.NotionClientSecret,
 	}
 	return out
 }
@@ -210,12 +232,17 @@ func (d *Deps) ConnectorOAuthStart(w http.ResponseWriter, r *http.Request) {
 	q := url.Values{}
 	q.Set("client_id", cfg.ClientIDEnvVal)
 	q.Set("redirect_uri", d.connectorRedirectURI(provider))
-	q.Set("scope", cfg.Scope)
+	if cfg.Scope != "" {
+		q.Set("scope", cfg.Scope)
+	}
 	q.Set("state", state)
 	q.Set("response_type", "code")
 	if cfg.UsesPKCE {
 		q.Set("code_challenge", challenge)
 		q.Set("code_challenge_method", "S256")
+	}
+	for k, v := range cfg.ExtraAuthParams {
+		q.Set(k, v)
 	}
 	http.Redirect(w, r, cfg.AuthURL+"?"+q.Encode(), http.StatusFound)
 }
@@ -349,8 +376,10 @@ func (d *Deps) linkConnectorToken(ctx context.Context, workflowID, nodeID, provi
 // sent as code_verifier only when non-empty (PKCE providers).
 func exchangeConnectorCode(cfg ConnectorOAuthConfig, code, redirectURI, verifier string) (accessToken, refreshToken string, expiresIn int, err error) {
 	form := url.Values{}
-	form.Set("client_id", cfg.ClientIDEnvVal)
-	form.Set("client_secret", cfg.ClientSecretEnvVal)
+	if cfg.TokenAuthStyle != "basic" {
+		form.Set("client_id", cfg.ClientIDEnvVal)
+		form.Set("client_secret", cfg.ClientSecretEnvVal)
+	}
 	form.Set("code", code)
 	form.Set("redirect_uri", redirectURI)
 	form.Set("grant_type", "authorization_code")
@@ -361,6 +390,9 @@ func exchangeConnectorCode(cfg ConnectorOAuthConfig, code, redirectURI, verifier
 	req, _ := http.NewRequest(http.MethodPost, cfg.TokenURL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
+	if cfg.TokenAuthStyle == "basic" {
+		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(cfg.ClientIDEnvVal+":"+cfg.ClientSecretEnvVal)))
+	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	res, err := client.Do(req)
