@@ -36,6 +36,8 @@ type USDCSigner interface {
 	SignUSDCPaymentGroup(ctx context.Context, encMnemonic, payTo string, assetID, amountMicros uint64, feePayerAddr string) ([]string, int, error)
 }
 
+var _ USDCSigner = (*wallet.Service)(nil)
+
 type Deps struct {
 	Store         *db.Store
 	Broker        *sse.Broker

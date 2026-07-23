@@ -272,12 +272,23 @@ func (d *Deps) payTargetAndRespond(w http.ResponseWriter, r *http.Request, targe
 	defer payResp.Body.Close()
 	finalBody, _ := io.ReadAll(io.LimitReader(payResp.Body, 5<<20))
 
+	// The target's paid response must actually succeed for the outbound leg
+	// to count as settled — a 402/4xx/5xx here means the platform wallet's
+	// payment was rejected (or the target errored) despite the inbound leg
+	// already being collected. Relay the target's real status/body back to
+	// the caller either way (no refund path), but only record "settled"
+	// when the target actually accepted the payment.
+	//
 	// See the empty outbound-tx-id note in the function doc comment above:
 	// there is no facilitator-issued outbound transaction id available at
 	// this call site with the current design.
-	d.Store.RecordOutboundSettlement(ctx, ledgerID, "", "settled")
+	status := "settled"
+	if payResp.StatusCode < 200 || payResp.StatusCode >= 300 {
+		status = "failed"
+	}
+	d.Store.RecordOutboundSettlement(ctx, ledgerID, "", status)
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(payResp.StatusCode)
 	w.Write(finalBody)
 }

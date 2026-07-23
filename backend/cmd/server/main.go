@@ -91,6 +91,7 @@ func main() {
 		USDCAssetID:               usdcAssetID,
 		RelayNetwork:              relayNetwork,
 		RelayFeePayer:             relayFeePayer,
+		USDCSigner:                walletSvc,
 	}
 
 	r := api.NewRouter(deps)

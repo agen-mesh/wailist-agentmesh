@@ -388,3 +388,66 @@ func TestX402RelayRejectsOutboundPaymentInWrongAsset(t *testing.T) {
 		t.Fatalf("want the outbound settlement recorded as failed when the asset mismatch is caught, got status %q", row.Status)
 	}
 }
+
+// TestX402RelayRecordsFailedWhenTargetRejectsOutboundPayment is a regression
+// test: payTargetAndRespond used to record the outbound leg as "settled" as
+// soon as the paid HTTP request to the target completed without a transport
+// error, without ever checking the target's actual status code. A target
+// that rejects the platform wallet's payment (e.g. it still returns 402, or
+// errors with a 5xx) would then be recorded as a successful settlement even
+// though the downstream leg the whole Orchestrator entry depends on never
+// actually happened. The fake target below always answers a paid
+// (X-Payment-bearing) request with 402 — simulating a rejected outbound
+// payment — and the test asserts the ledger row ends up "failed", and that
+// the relay surfaces the target's real (non-200) status code to the caller
+// rather than claiming success.
+func TestX402RelayRecordsFailedWhenTargetRejectsOutboundPayment(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPaymentRequired)
+		json.NewEncoder(w).Encode(map[string]any{
+			"accepts": []map[string]any{{"payTo": "TARGETADDR", "asset": "10458941", "maxAmountRequired": "50000"}},
+		})
+	}))
+	defer target.Close()
+
+	store := newTestStoreForHandlers(t)
+
+	facilitator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/verify" {
+			json.NewEncoder(w).Encode(map[string]any{"isValid": true})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"success": true, "transaction": "INBOUND-TX-REJECTED-" + target.URL})
+	}))
+	defer facilitator.Close()
+
+	d := &handlers.Deps{
+		Store:                     store,
+		PlatformWalletAddress:     "PLATFORMADDR",
+		PlatformWalletEncMnemonic: "enc-mnemonic",
+		FacilitatorClient:         x402.NewFacilitatorClient(facilitator.URL),
+		USDCAssetID:               10458941,
+		RelayNetwork:              "algorand:testnet",
+		RelayFeePayer:             "FEEPAYERADDR",
+		USDCSigner:                &fakeUSDCSigner{group: []string{"g0", "g1"}, idx: 0},
+	}
+
+	payload, _ := json.Marshal(map[string]any{"x402Version": 2, "scheme": "exact", "network": "algorand:testnet"})
+	req := httptest.NewRequest(http.MethodGet, "/x402/relay?target="+target.URL, nil)
+	req.Header.Set("X-Payment", string(payload))
+	w := httptest.NewRecorder()
+
+	d.X402Relay(w, req)
+
+	if w.Code == http.StatusOK {
+		t.Fatalf("want the relay to surface the target's real rejection status, not claim success, got %d: %s", w.Code, w.Body.String())
+	}
+
+	row, err := store.GetX402RelaySettlementByInboundTx(context.Background(), "INBOUND-TX-REJECTED-"+target.URL)
+	if err != nil {
+		t.Fatalf("want to find the recorded ledger row: %v", err)
+	}
+	if row.Status != "failed" {
+		t.Fatalf("want the outbound settlement recorded as failed when the target rejects the payment, got status %q", row.Status)
+	}
+}
