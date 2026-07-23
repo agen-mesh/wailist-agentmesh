@@ -680,3 +680,17 @@ func (s *Store) RecordOutboundSettlement(ctx context.Context, id, outboundTxID, 
 	`, id, outboundTxID, status)
 	return err
 }
+
+// GetX402RelaySettlementByInboundTx looks up a relay ledger row by its
+// inbound settlement tx id — used to verify what was actually recorded
+// (e.g. the settled amount) after a relay flow completes.
+func (s *Store) GetX402RelaySettlementByInboundTx(ctx context.Context, inboundTxID string) (models.X402RelaySettlement, error) {
+	var row models.X402RelaySettlement
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, target_url, inbound_tx_id, outbound_tx_id, amount_asset_micros, status, created_at
+		FROM x402_relay_settlements WHERE inbound_tx_id = $1
+	`, inboundTxID).Scan(
+		&row.ID, &row.TargetURL, &row.InboundTxID, &row.OutboundTxID, &row.AmountAssetMicros, &row.Status, &row.CreatedAt,
+	)
+	return row, err
+}

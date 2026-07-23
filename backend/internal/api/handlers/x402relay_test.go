@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -122,11 +123,24 @@ func TestX402RelayPaysTargetFromPlatformWalletAfterInboundSettles(t *testing.T) 
 	defer target.Close()
 
 	store := newTestStoreForHandlers(t) // TEST_DATABASE_URL-gated, see helper below
+
+	// Captures the paymentRequirements the relay sent on /verify and /settle
+	// so the test can assert the real target-quoted amount (50000, from the
+	// fake target above) was actually threaded through and enforced, rather
+	// than the previous hardcoded-0/no-enforcement behavior.
+	var verifyReqs, settleReqs struct {
+		PaymentRequirements struct {
+			MaxAmountRequired string `json:"maxAmountRequired"`
+		} `json:"paymentRequirements"`
+	}
 	facilitator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
 		if r.URL.Path == "/verify" {
+			json.Unmarshal(body, &verifyReqs)
 			json.NewEncoder(w).Encode(map[string]any{"isValid": true})
 			return
 		}
+		json.Unmarshal(body, &settleReqs)
 		json.NewEncoder(w).Encode(map[string]any{"success": true, "transaction": "INBOUND-TX-" + target.URL})
 	}))
 	defer facilitator.Close()
@@ -157,5 +171,20 @@ func TestX402RelayPaysTargetFromPlatformWalletAfterInboundSettles(t *testing.T) 
 	}
 	if !bytes.Contains(w.Body.Bytes(), []byte("paid response from target")) {
 		t.Fatalf("want target's response relayed back, got %s", w.Body.String())
+	}
+
+	if verifyReqs.PaymentRequirements.MaxAmountRequired != "50000" {
+		t.Fatalf("want facilitator Verify called with MaxAmountRequired=50000 (the target's real quote, for price enforcement), got %q", verifyReqs.PaymentRequirements.MaxAmountRequired)
+	}
+	if settleReqs.PaymentRequirements.MaxAmountRequired != "50000" {
+		t.Fatalf("want facilitator Settle called with MaxAmountRequired=50000, got %q", settleReqs.PaymentRequirements.MaxAmountRequired)
+	}
+
+	row, err := store.GetX402RelaySettlementByInboundTx(context.Background(), "INBOUND-TX-"+target.URL)
+	if err != nil {
+		t.Fatalf("want to find the recorded ledger row: %v", err)
+	}
+	if row.AmountAssetMicros != 50000 {
+		t.Fatalf("want ledger row to record the real settled amount (50000), got %d", row.AmountAssetMicros)
 	}
 }

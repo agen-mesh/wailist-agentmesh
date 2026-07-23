@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -12,8 +14,6 @@ import (
 	"github.com/agentmesh/backend/internal/respond"
 	"github.com/agentmesh/backend/internal/x402"
 )
-
-const x402RelayHTTPTimeout = 15
 
 // X402Relay is the orchestrator's own paid endpoint. It has no fixed price:
 // the price it charges the caller is whatever the target endpoint (given via
@@ -48,28 +48,62 @@ func (d *Deps) X402Relay(w http.ResponseWriter, r *http.Request) {
 	d.relaySettleAndForward(w, r, target, xPayment)
 }
 
+// targetPriceQuote is the subset of a target's x402 402 response the relay
+// cares about.
+type targetPriceQuote struct {
+	PayTo             string
+	Asset             string
+	MaxAmountRequired string
+}
+
+// fetchTargetPriceQuote issues an unauthenticated GET to the caller-supplied
+// target (via the SSRF-safe shared client, which also enforces a 10s dial+
+// request timeout — see nodes.toolHTTPClient) and parses its x402 402
+// challenge.
+//
+// This is called independently from three places: relayInboundChallenge (to
+// mirror the price to the caller), relaySettleAndForward (to learn the
+// authoritative price to enforce and record before settling the inbound
+// payment), and payTargetAndRespond (to learn the price to actually pay). The
+// no-payment request and the with-payment request are two separate,
+// unrelated HTTP requests with no shared state between them, so the price
+// has to be re-fetched at each point rather than trusted from an earlier
+// call — the extra outbound round trip is the cost of actually enforcing the
+// quoted price instead of taking the caller's word for it.
+func fetchTargetPriceQuote(ctx context.Context, target string) (targetPriceQuote, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return targetPriceQuote{}, err
+	}
+	resp, err := nodes.SafeHTTPClient().Do(req)
+	if err != nil {
+		return targetPriceQuote{}, err
+	}
+	defer resp.Body.Close()
+
+	var parsed struct {
+		Accepts []map[string]any `json:"accepts"`
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err := json.Unmarshal(body, &parsed); err != nil || len(parsed.Accepts) == 0 {
+		return targetPriceQuote{}, fmt.Errorf("target did not return a valid x402 challenge")
+	}
+	accept := parsed.Accepts[0]
+	payTo, _ := accept["payTo"].(string)
+	asset, _ := accept["asset"].(string)
+	amount, _ := accept["maxAmountRequired"].(string)
+	return targetPriceQuote{PayTo: payTo, Asset: asset, MaxAmountRequired: amount}, nil
+}
+
 // relayInboundChallenge fetches the target's real 402 price and mirrors it
 // back as our own v2 challenge, tagged for the challenge and paid to our
 // platform wallet instead of the target's.
 func (d *Deps) relayInboundChallenge(w http.ResponseWriter, r *http.Request, target string) {
-	req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, target, nil)
-	resp, err := nodes.SafeHTTPClient().Do(req)
+	quote, err := fetchTargetPriceQuote(r.Context(), target)
 	if err != nil {
 		respond.Error(w, http.StatusBadGateway, "target fetch failed: "+err.Error())
 		return
 	}
-	defer resp.Body.Close()
-
-	var targetChallenge struct {
-		Accepts []map[string]any `json:"accepts"`
-	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err := json.Unmarshal(body, &targetChallenge); err != nil || len(targetChallenge.Accepts) == 0 {
-		respond.Error(w, http.StatusBadGateway, "target did not return a valid x402 challenge")
-		return
-	}
-	targetAccept := targetChallenge.Accepts[0]
-	amount, _ := targetAccept["maxAmountRequired"].(string)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusPaymentRequired)
@@ -78,7 +112,7 @@ func (d *Deps) relayInboundChallenge(w http.ResponseWriter, r *http.Request, tar
 		"accepts": []map[string]any{{
 			"scheme":            "exact",
 			"network":           d.RelayNetwork,
-			"maxAmountRequired": amount,
+			"maxAmountRequired": quote.MaxAmountRequired,
 			"resource":          target,
 			"payTo":             d.PlatformWalletAddress,
 			"maxTimeoutSeconds": 300,
@@ -106,11 +140,28 @@ func (d *Deps) relaySettleAndForward(w http.ResponseWriter, r *http.Request, tar
 		return
 	}
 
+	// Re-fetch the target's own 402 to learn the authoritative current
+	// price. This is what lets us set MaxAmountRequired below (so the
+	// facilitator actually enforces the quoted price instead of trusting
+	// whatever the caller's payment payload claims) and what lets us record
+	// the real settled amount in the ledger instead of a hardcoded 0.
+	quote, err := fetchTargetPriceQuote(ctx, target)
+	if err != nil {
+		respond.Error(w, http.StatusBadGateway, "target fetch failed: "+err.Error())
+		return
+	}
+	amountAssetMicros, err := strconv.ParseInt(quote.MaxAmountRequired, 10, 64)
+	if err != nil {
+		respond.Error(w, http.StatusBadGateway, "target returned invalid maxAmountRequired: "+err.Error())
+		return
+	}
+
 	reqs := x402.PaymentRequirements{
-		Scheme:  "exact",
-		Network: d.RelayNetwork,
-		PayTo:   d.PlatformWalletAddress,
-		Asset:   strconv.FormatUint(d.USDCAssetID, 10),
+		Scheme:            "exact",
+		Network:           d.RelayNetwork,
+		PayTo:             d.PlatformWalletAddress,
+		Asset:             strconv.FormatUint(d.USDCAssetID, 10),
+		MaxAmountRequired: quote.MaxAmountRequired,
 	}
 
 	verifyResult, err := d.FacilitatorClient.Verify(ctx, payload, reqs)
@@ -133,7 +184,7 @@ func (d *Deps) relaySettleAndForward(w http.ResponseWriter, r *http.Request, tar
 		return
 	}
 
-	ledgerRow, err := d.Store.RecordInboundSettlement(ctx, target, settleResult.TxID, 0)
+	ledgerRow, err := d.Store.RecordInboundSettlement(ctx, target, settleResult.TxID, amountAssetMicros)
 	if err == db.ErrDuplicateSettlement {
 		respond.Error(w, http.StatusConflict, "payment already processed")
 		return
@@ -151,34 +202,29 @@ func (d *Deps) relaySettleAndForward(w http.ResponseWriter, r *http.Request, tar
 // facilitator, then relays the target's paid response back to the caller.
 // No refund path on failure: x402 has no chargeback primitive, and the
 // inbound leg's attribution to us already landed regardless of this outcome.
+//
+// Outbound tx id: paying the target here goes over the target's own
+// X-Payment header directly, not through our own FacilitatorClient, so there
+// is no SettleResult (and therefore no facilitator-issued transaction id) on
+// this leg — the target's paid HTTP response carries no standardized txid
+// reference either. RecordOutboundSettlement is called with an empty
+// outbound tx id below; that is a real gap in observability given the
+// current architecture (the relay pays the target directly rather than via
+// a second facilitator round-trip from our side), not an oversight, and not
+// something to paper over with a fabricated id.
 func (d *Deps) payTargetAndRespond(w http.ResponseWriter, r *http.Request, target, ledgerID string) {
 	ctx := r.Context()
 
-	quoteReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-	quoteResp, err := nodes.SafeHTTPClient().Do(quoteReq)
+	quote, err := fetchTargetPriceQuote(ctx, target)
 	if err != nil {
 		d.Store.RecordOutboundSettlement(ctx, ledgerID, "", "failed")
 		respond.Error(w, http.StatusBadGateway, "target unreachable for payment: "+err.Error())
 		return
 	}
-	var targetChallenge struct {
-		Accepts []map[string]any `json:"accepts"`
-	}
-	body, _ := io.ReadAll(io.LimitReader(quoteResp.Body, 1<<20))
-	quoteResp.Body.Close()
-	if err := json.Unmarshal(body, &targetChallenge); err != nil || len(targetChallenge.Accepts) == 0 {
-		d.Store.RecordOutboundSettlement(ctx, ledgerID, "", "failed")
-		respond.Error(w, http.StatusBadGateway, "target did not return a valid x402 challenge on payment attempt")
-		return
-	}
-	accept := targetChallenge.Accepts[0]
-	payTo, _ := accept["payTo"].(string)
-	assetStr, _ := accept["asset"].(string)
-	amountStr, _ := accept["maxAmountRequired"].(string)
-	assetID, _ := strconv.ParseUint(assetStr, 10, 64)
-	amount, _ := strconv.ParseUint(amountStr, 10, 64)
+	assetID, _ := strconv.ParseUint(quote.Asset, 10, 64)
+	amount, _ := strconv.ParseUint(quote.MaxAmountRequired, 10, 64)
 
-	group, idx, err := d.USDCSigner.SignUSDCPaymentGroup(ctx, d.PlatformWalletEncMnemonic, payTo, assetID, amount, d.RelayFeePayer)
+	group, idx, err := d.USDCSigner.SignUSDCPaymentGroup(ctx, d.PlatformWalletEncMnemonic, quote.PayTo, assetID, amount, d.RelayFeePayer)
 	if err != nil {
 		d.Store.RecordOutboundSettlement(ctx, ledgerID, "", "failed")
 		respond.Error(w, http.StatusInternalServerError, "failed to sign outbound payment: "+err.Error())
@@ -200,6 +246,9 @@ func (d *Deps) payTargetAndRespond(w http.ResponseWriter, r *http.Request, targe
 	defer payResp.Body.Close()
 	finalBody, _ := io.ReadAll(io.LimitReader(payResp.Body, 5<<20))
 
+	// See the empty outbound-tx-id note in the function doc comment above:
+	// there is no facilitator-issued outbound transaction id available at
+	// this call site with the current design.
 	d.Store.RecordOutboundSettlement(ctx, ledgerID, "", "settled")
 
 	w.Header().Set("Content-Type", "application/json")
