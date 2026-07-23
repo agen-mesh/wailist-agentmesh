@@ -8,6 +8,7 @@ import (
 	"github.com/agentmesh/backend/internal/payments"
 	"github.com/agentmesh/backend/internal/sse"
 	"github.com/agentmesh/backend/internal/wallet"
+	"github.com/agentmesh/backend/internal/x402"
 )
 
 type contextKey string
@@ -48,4 +49,11 @@ type Deps struct {
 	RazorpayKeyID string
 
 	NOWPayments NOWPaymentsClient
+
+	PlatformWalletAddress     string
+	PlatformWalletEncMnemonic string
+	FacilitatorClient         *x402.FacilitatorClient
+	USDCAssetID               uint64
+	RelayNetwork              string
+	RelayFeePayer             string
 }
