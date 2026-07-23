@@ -1419,6 +1419,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   hubspot: {
     label: "HubSpot config",
+    oauthProvider: "hubspot",
     fields: [
       {
         kind: "secret",
