@@ -11,8 +11,21 @@ import (
 
 	"github.com/agentmesh/backend/internal/api/handlers"
 	"github.com/agentmesh/backend/internal/db"
+	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/x402"
 )
+
+// TestMain relaxes the SSRF guard for this package's tests, mirroring the
+// identical override in internal/engine/nodes and internal/engine's own
+// TestMain — without it, the relay's SSRF check (added specifically because
+// this route is public and unauthenticated) blocks every httptest.NewServer
+// target (127.0.0.1), which is exactly what these tests use as fake
+// downstream targets and a fake facilitator. No test in this package
+// exercises the real SSRF-blocking validator.
+func TestMain(m *testing.M) {
+	nodes.SetURLValidatorForTest(func(string) error { return nil })
+	os.Exit(m.Run())
+}
 
 func TestX402RelayNoPaymentMirrorsTargetPriceAsChallengeTag(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

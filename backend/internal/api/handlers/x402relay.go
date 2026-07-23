@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/agentmesh/backend/internal/db"
+	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/respond"
 	"github.com/agentmesh/backend/internal/x402"
 )
@@ -30,6 +31,14 @@ func (d *Deps) X402Relay(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "target query param required")
 		return
 	}
+	// target is caller-supplied and this route is public/unauthenticated —
+	// without this check, callers could make the relay fetch or pay
+	// arbitrary internal/private addresses (SSRF). Same guard applied to
+	// every tool402 node's target before Task 6 wires it through here.
+	if err := nodes.ValidateURL(target); err != nil {
+		respond.Error(w, http.StatusBadRequest, "invalid target: "+err.Error())
+		return
+	}
 
 	xPayment := r.Header.Get("X-Payment")
 	if xPayment == "" {
@@ -44,7 +53,7 @@ func (d *Deps) X402Relay(w http.ResponseWriter, r *http.Request) {
 // platform wallet instead of the target's.
 func (d *Deps) relayInboundChallenge(w http.ResponseWriter, r *http.Request, target string) {
 	req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, target, nil)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := nodes.SafeHTTPClient().Do(req)
 	if err != nil {
 		respond.Error(w, http.StatusBadGateway, "target fetch failed: "+err.Error())
 		return
@@ -146,7 +155,7 @@ func (d *Deps) payTargetAndRespond(w http.ResponseWriter, r *http.Request, targe
 	ctx := r.Context()
 
 	quoteReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-	quoteResp, err := http.DefaultClient.Do(quoteReq)
+	quoteResp, err := nodes.SafeHTTPClient().Do(quoteReq)
 	if err != nil {
 		d.Store.RecordOutboundSettlement(ctx, ledgerID, "", "failed")
 		respond.Error(w, http.StatusBadGateway, "target unreachable for payment: "+err.Error())
@@ -182,7 +191,7 @@ func (d *Deps) payTargetAndRespond(w http.ResponseWriter, r *http.Request, targe
 
 	payReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	payReq.Header.Set("X-Payment", string(xPaymentOut))
-	payResp, err := http.DefaultClient.Do(payReq)
+	payResp, err := nodes.SafeHTTPClient().Do(payReq)
 	if err != nil {
 		d.Store.RecordOutboundSettlement(ctx, ledgerID, "", "failed")
 		respond.Error(w, http.StatusBadGateway, "paid request to target failed: "+err.Error())
