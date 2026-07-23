@@ -1526,6 +1526,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   mailchimp: {
     label: "Mailchimp config",
+    oauthProvider: "mailchimp",
     fields: [
       {
         kind: "secret",
