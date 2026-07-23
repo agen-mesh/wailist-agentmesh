@@ -1353,6 +1353,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   github: {
     label: "GitHub config",
+    oauthProvider: "github",
     fields: [
       {
         kind: "secret",
