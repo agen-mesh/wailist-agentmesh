@@ -1,7 +1,7 @@
 "use client";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { WorkflowNode, Workflow } from "@/lib/types";
+import { WorkflowNode, WorkflowEdge, Workflow } from "@/lib/types";
 import {
   Toast,
   Logo,
@@ -144,6 +144,26 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     );
     setSelectedId(null);
   }, [selectedId]);
+
+  // Delete/Backspace removes the selected node — ignored while typing in a field.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      if (!selectedId) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (
+        el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.isContentEditable)
+      )
+        return;
+      e.preventDefault();
+      onDelete();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedId, onDelete]);
 
   const onDeploy = useCallback(async () => {
     if (!workflow) return;
@@ -343,6 +363,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
           workflowId={workflow.id}
           onUpdate={onUpdate}
           onDelete={onDelete}
+          onClose={() => setSelectedId(null)}
         />
       </div>
 
@@ -408,7 +429,10 @@ function CanvasTopbar({
         <Logo size={16} />
       </button>
       <Hairline vertical length={20} />
-      <button onClick={onBack} style={ghostBtnSm}>
+      <button
+        onClick={onBack}
+        style={{ ...ghostBtnSm, flexShrink: 0, whiteSpace: "nowrap" }}
+      >
         ← Workflows
       </button>
       <span style={{ color: "var(--fg-dim)" }}>/</span>
@@ -423,7 +447,8 @@ function CanvasTopbar({
           fontSize: 13,
           fontWeight: 500,
           fontFamily: "var(--font-sans)",
-          minWidth: 200,
+          flex: "0 1 200px",
+          minWidth: 0,
           padding: "4px 6px",
           borderRadius: 4,
         }}
@@ -444,6 +469,7 @@ function CanvasTopbar({
           borderLeft: "1px solid var(--border)",
           borderRight: "1px solid var(--border)",
           height: 36,
+          flexShrink: 0,
         }}
       >
         <Stat

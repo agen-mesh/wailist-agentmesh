@@ -223,12 +223,18 @@ export function LogDrawer({
         </div>
         <span
           style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
             fontFamily: "var(--font-mono)",
-            fontSize: 11,
-            color: "var(--fg-dim)",
+            fontSize: 13,
+            color: "var(--fg-muted)",
           }}
         >
-          {open ? "▾ collapse" : "▴ expand"}
+          <span style={{ fontSize: 15, lineHeight: 1 }}>
+            {open ? "▾" : "▴"}
+          </span>
+          {open ? "collapse" : "expand"}
         </span>
       </div>
 
