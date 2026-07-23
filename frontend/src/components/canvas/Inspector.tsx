@@ -1587,6 +1587,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   gitlab: {
     label: "GitLab config",
+    oauthProvider: "gitlab",
     fields: [
       {
         kind: "secret",
