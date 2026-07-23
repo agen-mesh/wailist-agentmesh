@@ -99,6 +99,31 @@ func TestGitHubAction_SkipsWhenRepoInvalid(t *testing.T) {
 	}
 }
 
+func TestGitHubAction_PrefersOAuthTokenOverManualToken(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	nodes.SetGitHubAPIBaseForTest(srv.URL)
+	defer nodes.SetGitHubAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "gh5", Type: models.NodeTypeAction, Template: "github",
+		Secrets: map[string]string{"githubToken": "manual-pat-token", "githubOAuthAccessToken": "oauth-derived-token"},
+		Config:  map[string]string{"githubRepo": "owner/repo"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"test issue body"`))
+	_, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer oauth-derived-token" {
+		t.Errorf("want OAuth token in Authorization header, got %q", gotAuth)
+	}
+}
+
 func TestGitHubAction_EscapesExtraPathSegments(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

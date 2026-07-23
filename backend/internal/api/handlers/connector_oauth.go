@@ -60,11 +60,19 @@ func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
 	for k, v := range testProviderOverrides {
 		out[k] = v
 	}
-	// Tasks 4-14 each append one entry here, e.g.:
-	// out["github"] = ConnectorOAuthConfig{AuthURL: ..., ClientIDEnvVal: d.GitHubOAuthClientID, ...}
+	// Tasks 5-14 each append one entry here, e.g.:
+	// out["notion"] = ConnectorOAuthConfig{AuthURL: ..., ClientIDEnvVal: d.NotionOAuthClientID, ...}
 	out["slack"] = ConnectorOAuthConfig{
 		AuthURL: "https://slack.com/oauth/v2/authorize", TokenURL: "https://slack.com/api/oauth.v2.access",
 		Scope: "chat:write", ClientIDEnvVal: d.SlackOAuthClientID, ClientSecretEnvVal: d.SlackOAuthClientSecret,
+	}
+	// repo is required (not a finer-grained scope) because classic GitHub
+	// OAuth Apps only support coarse-grained scopes, and issue creation needs
+	// write access to the repo. This is a distinct provider key/app from the
+	// pre-existing "github" login OAuth app used for sign-in.
+	out["github"] = ConnectorOAuthConfig{
+		AuthURL: "https://github.com/login/oauth/authorize", TokenURL: "https://github.com/login/oauth/access_token",
+		Scope: "repo", ClientIDEnvVal: d.GitHubConnectorClientID, ClientSecretEnvVal: d.GitHubConnectorClientSecret,
 	}
 	return out
 }

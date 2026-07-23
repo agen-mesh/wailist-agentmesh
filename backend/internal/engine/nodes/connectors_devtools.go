@@ -38,7 +38,12 @@ func SetGitHubAPIBaseForTest(base string) {
 }
 
 func sendGitHub(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
-	token := secretVal(node, "githubToken")
+	// OAuth-linked token takes priority: a classic GitHub OAuth app's access
+	// token works identically to a manual PAT here (same Bearer scheme).
+	token := secretVal(node, "githubOAuthAccessToken")
+	if token == "" {
+		token = secretVal(node, "githubToken")
+	}
 	if token == "" {
 		return "github_skipped_no_token", ErrActionSkipped
 	}
