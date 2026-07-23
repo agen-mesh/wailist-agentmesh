@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/agentmesh/backend/internal/db"
 )
@@ -288,7 +291,7 @@ func TestExpireStalePendingTransactions(t *testing.T) {
 	}
 
 	// Row is only a few milliseconds old — a 24h threshold must not touch it.
-	n, err := store.ExpireStalePendingTransactions(ctx, 24*time.Hour)
+	n, err := store.ExpireStalePendingTransactions(ctx, "razorpay", 24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +300,7 @@ func TestExpireStalePendingTransactions(t *testing.T) {
 	}
 
 	// A near-zero threshold makes the row qualify as stale.
-	n2, err := store.ExpireStalePendingTransactions(ctx, time.Millisecond)
+	n2, err := store.ExpireStalePendingTransactions(ctx, "razorpay", time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,11 +309,71 @@ func TestExpireStalePendingTransactions(t *testing.T) {
 	}
 
 	// Re-running must not re-touch rows that are no longer 'pending'.
-	n3, err := store.ExpireStalePendingTransactions(ctx, time.Millisecond)
+	n3, err := store.ExpireStalePendingTransactions(ctx, "razorpay", time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n3 != 0 {
 		t.Fatalf("want 0 rows on second sweep (already expired), got %d", n3)
+	}
+}
+
+func TestExpireStalePendingTransactionsScopesToProvider(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	// The shared test database accumulates pending rows across test runs, so this test
+	// verifies its own rows by provider_order_id rather than asserting on global affected
+	// row counts (which would be flaky against that pre-existing data).
+	url := os.Getenv("TEST_DATABASE_URL")
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	email := fmt.Sprintf("credit-expire-scope-test-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	razorpayOrderID := fmt.Sprintf("order_expire_razorpay_%d", time.Now().UnixNano())
+	if _, err := store.CreateCreditTransaction(ctx, user.ID, razorpayOrderID, 10000, 0.012); err != nil {
+		t.Fatal(err)
+	}
+
+	cryptoOrderID := fmt.Sprintf("order_expire_crypto_%d", time.Now().UnixNano())
+	if _, err := store.CreateCryptoCreditTransaction(ctx, user.ID, "nowpayments", cryptoOrderID, 1999); err != nil {
+		t.Fatal(err)
+	}
+
+	// A zero threshold (cutoff = now) reliably makes a row created moments ago qualify as
+	// stale without a timing race against a fixed small duration like 1ms. Scoping to
+	// "nowpayments" must only ever touch the nowpayments row.
+	if _, err := store.ExpireStalePendingTransactions(ctx, "nowpayments", 0); err != nil {
+		t.Fatal(err)
+	}
+
+	var cryptoStatus string
+	if err := pool.QueryRow(ctx,
+		`SELECT status FROM credit_ledger WHERE provider_order_id = $1 AND provider = 'nowpayments'`,
+		cryptoOrderID,
+	).Scan(&cryptoStatus); err != nil {
+		t.Fatal(err)
+	}
+	if cryptoStatus != "expired" {
+		t.Fatalf("want nowpayments row expired, got status %q", cryptoStatus)
+	}
+
+	var razorpayStatus string
+	if err := pool.QueryRow(ctx,
+		`SELECT status FROM credit_ledger WHERE provider_order_id = $1 AND provider = 'razorpay'`,
+		razorpayOrderID,
+	).Scan(&razorpayStatus); err != nil {
+		t.Fatal(err)
+	}
+	if razorpayStatus != "pending" {
+		t.Fatalf("want razorpay row untouched by a nowpayments-scoped sweep, got status %q", razorpayStatus)
 	}
 }

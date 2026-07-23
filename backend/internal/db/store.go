@@ -563,15 +563,19 @@ func (s *Store) MarkCreditTransactionStatus(ctx context.Context, provider, provi
 	return err
 }
 
-// ExpireStalePendingTransactions marks credit_ledger rows still 'pending' after olderThan
-// as 'expired' — checkouts the user opened but never completed (closed tab, abandoned QR
-// scan). Keeps 'pending' meaningful as "still in progress" rather than accumulating dead rows.
-func (s *Store) ExpireStalePendingTransactions(ctx context.Context, olderThan time.Duration) (int64, error) {
+// ExpireStalePendingTransactions marks credit_ledger rows for provider still 'pending'
+// after olderThan as 'expired' — checkouts the user opened but never completed (closed
+// tab, abandoned QR scan, on-chain payment never sent). Scoped to a single provider so
+// callers can use a per-provider staleness window: fast checkout providers like Razorpay
+// warrant a short window, while on-chain crypto providers like NOWPayments need a much
+// longer one to avoid expiring payments still working through block confirmations. Keeps
+// 'pending' meaningful as "still in progress" rather than accumulating dead rows.
+func (s *Store) ExpireStalePendingTransactions(ctx context.Context, provider string, olderThan time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-olderThan)
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE credit_ledger SET status = 'expired'
-		WHERE status = 'pending' AND created_at < $1
-	`, cutoff)
+		WHERE status = 'pending' AND provider = $1 AND created_at < $2
+	`, provider, cutoff)
 	if err != nil {
 		return 0, err
 	}
