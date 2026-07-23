@@ -148,6 +148,31 @@ func TestAirtableAction_CreatesRecord(t *testing.T) {
 	}
 }
 
+func TestAirtableAction_PrefersOAuthTokenOverManualToken(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	nodes.SetAirtableAPIBaseForTest(srv.URL)
+	defer nodes.SetAirtableAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "at4", Type: models.NodeTypeAction, Template: "airtable",
+		Secrets: map[string]string{"airtableAPIKey": "pat_xxx", "airtableOAuthAccessToken": "oauth-derived-token"},
+		Config:  map[string]string{"airtableBaseID": "appXXX", "airtableTable": "Tasks"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"new lead captured"`))
+	_, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer oauth-derived-token" {
+		t.Errorf("want OAuth token in Authorization header, got %q", gotAuth)
+	}
+}
+
 func TestAirtableAction_SkipsWhenNoAPIKey(t *testing.T) {
 	node := models.WorkflowNode{
 		ID: "at2", Type: models.NodeTypeAction, Template: "airtable",

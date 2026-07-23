@@ -74,7 +74,12 @@ func SetAirtableAPIBaseForTest(base string) {
 }
 
 func sendAirtable(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
-	apiKey := secretVal(node, "airtableAPIKey")
+	// OAuth-linked token takes priority: Airtable's OAuth access token works
+	// identically to a manual personal access token here (same Bearer scheme).
+	apiKey := secretVal(node, "airtableOAuthAccessToken")
+	if apiKey == "" {
+		apiKey = secretVal(node, "airtableAPIKey")
+	}
 	if apiKey == "" {
 		return "airtable_skipped_no_api_key", ErrActionSkipped
 	}

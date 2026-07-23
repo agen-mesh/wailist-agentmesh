@@ -96,6 +96,22 @@ func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
 		TokenAuthStyle: "basic", ExtraAuthParams: map[string]string{"owner": "user"},
 		ClientIDEnvVal: d.NotionClientID, ClientSecretEnvVal: d.NotionClientSecret,
 	}
+	// Airtable requires PKCE for every client (no confidential-client
+	// exemption), hence UsesPKCE here — this is the first provider entry to
+	// actually exercise Task 1's PKCE code path.
+	//
+	// KNOWN GAP: Airtable access tokens expire after ~60 minutes and the
+	// token response includes a refresh_token (valid ~60 days). Re-exchanging
+	// that refresh token and writing the refreshed access token back onto the
+	// node via Store.UpdateWorkflow before each connector call is NOT
+	// implemented here — deliberately out of scope for this task. Without it,
+	// this connector will silently stop working about an hour after linking.
+	// Follow-up task must add refresh support.
+	out["airtable"] = ConnectorOAuthConfig{
+		AuthURL: "https://airtable.com/oauth2/v1/authorize", TokenURL: "https://airtable.com/oauth2/v1/token",
+		Scope: "data.records:write", UsesPKCE: true,
+		ClientIDEnvVal: d.AirtableClientID, ClientSecretEnvVal: d.AirtableClientSecret,
+	}
 	return out
 }
 
