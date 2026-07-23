@@ -42,6 +42,28 @@ type ConnectorOAuthConfig struct {
 	// string, for providers that need fixed parameters beyond the generic
 	// set below (e.g. Notion's required owner=user).
 	ExtraAuthParams map[string]string
+
+	// TokenBodyStyle selects how exchangeConnectorCode encodes the token
+	// exchange request body. "" (default) sends
+	// application/x-www-form-urlencoded, per the generic OAuth 2.0
+	// authorization_code grant. "json" sends the same fields as a JSON
+	// object instead with a Content-Type: application/json request, which
+	// Atlassian's token endpoint requires — per
+	// developer.atlassian.com/cloud/jira/platform/oauth-2-3lo-apps/ its
+	// example exchange is a JSON body, not form-encoded, unlike every other
+	// provider in this registry.
+	TokenBodyStyle string
+
+	// PostExchangeHook, when non-nil, runs once right after a successful
+	// token exchange and its returned map is merged into the node's Config
+	// alongside the token linkConnectorToken already writes. Only Jira needs
+	// this today: its access token isn't directly usable against any URL
+	// derivable from config the user typed in (unlike every other provider
+	// here) — it first requires a separate authenticated call to discover
+	// the cloudId to address the Jira REST API through
+	// api.atlassian.com/ex/jira/{cloudId}/. Left nil for every provider that
+	// doesn't need an extra post-exchange call.
+	PostExchangeHook func(ctx context.Context, accessToken string) (map[string]string, error)
 }
 
 // testProviderOverrides holds provider configs injected by tests via
@@ -185,6 +207,40 @@ func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
 	out["clickup"] = ConnectorOAuthConfig{
 		AuthURL: "https://app.clickup.com/api", TokenURL: "https://api.clickup.com/api/v2/oauth/token",
 		ClientIDEnvVal: d.ClickUpClientID, ClientSecretEnvVal: d.ClickUpClientSecret,
+	}
+	// developer.atlassian.com/cloud/jira/platform/oauth-2-3lo-apps/: audience
+	// and prompt are both marked "(required)" on the /authorize redirect (not
+	// just audience, which is the only one most write-ups mention), and the
+	// token endpoint's own documented example is a JSON request body, not the
+	// form-encoded body every other provider in this registry uses — hence
+	// TokenBodyStyle: "json" (see its doc comment). "write:jira-work" is a
+	// real documented classic scope ("Create and manage issues"), not a typo
+	// for the granular write:issue:jira scope.
+	//
+	// Jira's OAuth access token is not usable directly against
+	// https://{domain}.atlassian.net the way the manual API-token path in
+	// sendJira works — it must instead be sent to
+	// https://api.atlassian.com/ex/jira/{cloudId}/..., and cloudId is only
+	// discoverable via a separate authenticated call to
+	// /oauth/token/accessible-resources made once right after the token
+	// exchange. PostExchangeHook (see its doc comment on ConnectorOAuthConfig)
+	// carries that lookup and writes its result into
+	// node.Config["jiraOAuthCloudID"].
+	//
+	// KNOWN GAP: unlike Airtable/HubSpot/Asana's refresh tokens above, which
+	// stay valid across multiple uses until they expire, Atlassian's refresh
+	// tokens ROTATE on every use — the docs state that using a refresh token
+	// disables it and issues a new one in the same response. A future refresh
+	// implementation here must persist the NEW refresh token every single
+	// time it refreshes, not just the new access token, or the very next
+	// refresh attempt will fail against an already-invalidated token. Same
+	// deliberately-deferred scope as the other KNOWN GAP entries above.
+	out["jira"] = ConnectorOAuthConfig{
+		AuthURL: "https://auth.atlassian.com/authorize", TokenURL: "https://auth.atlassian.com/oauth/token",
+		Scope: "write:jira-work", TokenBodyStyle: "json",
+		ExtraAuthParams:  map[string]string{"audience": "api.atlassian.com", "prompt": "consent"},
+		PostExchangeHook: jiraPostExchangeHook,
+		ClientIDEnvVal:   d.JiraClientID, ClientSecretEnvVal: d.JiraClientSecret,
 	}
 	for name, url := range connectorTokenURLOverridesForTest {
 		if cfg, ok := out[name]; ok {
@@ -410,7 +466,7 @@ func (d *Deps) ConnectorOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := d.linkConnectorToken(r.Context(), claims.WorkflowID, claims.NodeID, provider, accessToken, refreshToken, expiresIn); err != nil {
+	if err := d.linkConnectorToken(r.Context(), claims.WorkflowID, claims.NodeID, cfg, provider, accessToken, refreshToken, expiresIn); err != nil {
 		d.connectorRedirectFail(w, r, claims.WorkflowID, "link_failed")
 		return
 	}
@@ -435,7 +491,7 @@ func (d *Deps) connectorRedirectFail(w http.ResponseWriter, r *http.Request, wor
 // whole graph back — the same read-mutate-write shape UpdateWorkflow's
 // handler already uses, just triggered from the OAuth callback instead of a
 // frontend save.
-func (d *Deps) linkConnectorToken(ctx context.Context, workflowID, nodeID, provider, accessToken, refreshToken string, expiresIn int) error {
+func (d *Deps) linkConnectorToken(ctx context.Context, workflowID, nodeID string, cfg ConnectorOAuthConfig, provider, accessToken, refreshToken string, expiresIn int) error {
 	wf, err := d.Store.GetWorkflow(ctx, workflowID)
 	if err != nil {
 		return err
@@ -462,6 +518,15 @@ func (d *Deps) linkConnectorToken(ctx context.Context, workflowID, nodeID, provi
 	if expiresIn > 0 {
 		wf.Nodes[idx].Config[connectorExpiresConfigKey(provider)] = time.Now().Add(time.Duration(expiresIn) * time.Second).Format(time.RFC3339)
 	}
+	if cfg.PostExchangeHook != nil {
+		extra, err := cfg.PostExchangeHook(ctx, accessToken)
+		if err != nil {
+			return fmt.Errorf("post-exchange hook: %w", err)
+		}
+		for k, v := range extra {
+			wf.Nodes[idx].Config[k] = v
+		}
+	}
 	_, err = d.Store.UpdateWorkflow(ctx, workflowID, wf.Name, models.WorkflowGraph{Nodes: wf.Nodes, Edges: wf.Edges})
 	return err
 }
@@ -471,20 +536,48 @@ func (d *Deps) linkConnectorToken(ctx context.Context, workflowID, nodeID, provi
 // expires_in) that every in-scope provider in this plan uses. verifier is
 // sent as code_verifier only when non-empty (PKCE providers).
 func exchangeConnectorCode(cfg ConnectorOAuthConfig, code, redirectURI, verifier string) (accessToken, refreshToken string, expiresIn int, err error) {
-	form := url.Values{}
-	if cfg.TokenAuthStyle != "basic" {
-		form.Set("client_id", cfg.ClientIDEnvVal)
-		form.Set("client_secret", cfg.ClientSecretEnvVal)
-	}
-	form.Set("code", code)
-	form.Set("redirect_uri", redirectURI)
-	form.Set("grant_type", "authorization_code")
-	if verifier != "" {
-		form.Set("code_verifier", verifier)
-	}
+	var req *http.Request
+	if cfg.TokenBodyStyle == "json" {
+		payload := map[string]string{
+			"code":         code,
+			"redirect_uri": redirectURI,
+			"grant_type":   "authorization_code",
+		}
+		if cfg.TokenAuthStyle != "basic" {
+			payload["client_id"] = cfg.ClientIDEnvVal
+			payload["client_secret"] = cfg.ClientSecretEnvVal
+		}
+		if verifier != "" {
+			payload["code_verifier"] = verifier
+		}
+		body, mErr := json.Marshal(payload)
+		if mErr != nil {
+			return "", "", 0, mErr
+		}
+		req, err = http.NewRequest(http.MethodPost, cfg.TokenURL, strings.NewReader(string(body)))
+		if err != nil {
+			return "", "", 0, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+	} else {
+		form := url.Values{}
+		if cfg.TokenAuthStyle != "basic" {
+			form.Set("client_id", cfg.ClientIDEnvVal)
+			form.Set("client_secret", cfg.ClientSecretEnvVal)
+		}
+		form.Set("code", code)
+		form.Set("redirect_uri", redirectURI)
+		form.Set("grant_type", "authorization_code")
+		if verifier != "" {
+			form.Set("code_verifier", verifier)
+		}
 
-	req, _ := http.NewRequest(http.MethodPost, cfg.TokenURL, strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req, err = http.NewRequest(http.MethodPost, cfg.TokenURL, strings.NewReader(form.Encode()))
+		if err != nil {
+			return "", "", 0, err
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
 	req.Header.Set("Accept", "application/json")
 	if cfg.TokenAuthStyle == "basic" {
 		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(cfg.ClientIDEnvVal+":"+cfg.ClientSecretEnvVal)))
@@ -510,6 +603,61 @@ func exchangeConnectorCode(cfg ConnectorOAuthConfig, code, redirectURI, verifier
 		return "", "", 0, fmt.Errorf("no access token in response")
 	}
 	return tok.AccessToken, tok.RefreshToken, tok.ExpiresIn, nil
+}
+
+// jiraAccessibleResourcesURL is overridden in tests via
+// SetJiraAccessibleResourcesURLForTest, mirroring
+// connectorTokenURLOverridesForTest's role for the token endpoint — so a test
+// can drive the real "jira" registry entry's PostExchangeHook against a local
+// fake server instead of the real api.atlassian.com host.
+var jiraAccessibleResourcesURL = "https://api.atlassian.com/oauth/token/accessible-resources"
+
+// SetJiraAccessibleResourcesURLForTest overrides the accessible-resources
+// lookup URL. Call only from tests. Pass "" to reset to the real endpoint.
+func SetJiraAccessibleResourcesURLForTest(u string) {
+	if u == "" {
+		jiraAccessibleResourcesURL = "https://api.atlassian.com/oauth/token/accessible-resources"
+	} else {
+		jiraAccessibleResourcesURL = u
+	}
+}
+
+// jiraPostExchangeHook calls accessible-resources with the just-exchanged
+// token and returns the first accessible site's cloudId, keyed the same way
+// sendJira (connectors_devtools.go) reads it back out of node.Config. A token
+// can in principle have access to more than one Atlassian site, but this
+// registry entry has no per-node way to ask the user which one to use at
+// link time, so — like the rest of this plan's connectors, which all target
+// a single fixed destination per node — it takes the first and only one.
+func jiraPostExchangeHook(ctx context.Context, accessToken string) (map[string]string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jiraAccessibleResourcesURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	var resources []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &resources); err != nil {
+		return nil, err
+	}
+	if len(resources) == 0 {
+		return nil, fmt.Errorf("jira: token has no accessible resources")
+	}
+	return map[string]string{"jiraOAuthCloudID": resources[0].ID}, nil
 }
 
 func randURLSafe(n int) (string, error) {

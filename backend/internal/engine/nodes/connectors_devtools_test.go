@@ -260,6 +260,78 @@ func TestJiraAction_SkipsWhenDomainInvalid(t *testing.T) {
 	}
 }
 
+func TestJiraAction_OAuthTokenUsesCloudIDURLAndBearerAuth(t *testing.T) {
+	var gotPath, gotAuth string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	nodes.SetJiraAPIBaseForTest(srv.URL)
+	defer nodes.SetJiraAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "jr5", Type: models.NodeTypeAction, Template: "jira",
+		Secrets: map[string]string{"jiraOAuthAccessToken": "oauth-derived-token", "jiraAPIToken": "manual-token-should-be-ignored"},
+		Config: map[string]string{
+			"jiraOAuthCloudID": "cloud-xyz", "jiraProjectKey": "ENG",
+		},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"deploy failed"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "jira_issue_created" {
+		t.Errorf("want 'jira_issue_created', got %v", result)
+	}
+	if gotPath != "/rest/api/3/issue" {
+		t.Errorf("want issue path, got %q", gotPath)
+	}
+	if gotAuth != "Bearer oauth-derived-token" {
+		t.Errorf("want bearer auth with OAuth token, got %q", gotAuth)
+	}
+	fields, _ := gotBody["fields"].(map[string]any)
+	if fields["summary"] != "deploy failed" {
+		t.Errorf("want summary from message, got %v", fields)
+	}
+	project, _ := fields["project"].(map[string]any)
+	if project["key"] != "ENG" {
+		t.Errorf("want project key ENG, got %v", project)
+	}
+}
+
+func TestJiraAction_OAuthTokenSkipsWhenNoCloudID(t *testing.T) {
+	requestReceived := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestReceived = true
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	nodes.SetJiraAPIBaseForTest(srv.URL)
+	defer nodes.SetJiraAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "jr6", Type: models.NodeTypeAction, Template: "jira",
+		Secrets: map[string]string{"jiraOAuthAccessToken": "oauth-derived-token"},
+		Config:  map[string]string{"jiraProjectKey": "ENG"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"deploy failed"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
+	}
+	if result != "jira_skipped_missing_config" {
+		t.Errorf("want 'jira_skipped_missing_config', got %v", result)
+	}
+	if requestReceived {
+		t.Error("expected no HTTP request to be dispatched without a cloudId")
+	}
+}
+
 func TestLinearAction_CreatesIssueViaGraphQL(t *testing.T) {
 	var gotAuth string
 	var gotBody map[string]any

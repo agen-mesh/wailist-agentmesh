@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -533,5 +534,171 @@ func TestConnectorOAuthAirtableTokenExchangeUsesBasicAuth(t *testing.T) {
 	}
 	if sawClientCredsInForm {
 		t.Fatal("client_id/client_secret should not be sent in the form body for airtable's token exchange")
+	}
+}
+
+// TestConnectorOAuthJiraTokenExchangeUsesJSONBodyAndAudienceParam exercises
+// the real, registered "jira" provider entry end-to-end through
+// ConnectorOAuthStart/ConnectorOAuthCallback, confirming two of Jira's
+// documented divergences from every other provider in this registry: the
+// /authorize redirect carries audience=api.atlassian.com and prompt=consent,
+// and the token exchange POSTs a JSON body (Content-Type: application/json)
+// instead of the form-encoded body every other connector sends.
+func TestConnectorOAuthJiraTokenExchangeUsesJSONBodyAndAudienceParam(t *testing.T) {
+	var gotContentType string
+	var gotBody map[string]any
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotContentType = r.Header.Get("Content-Type")
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"access_token":"fake-jira-access-token","refresh_token":"fake-jira-refresh-token","expires_in":3600}`))
+	}))
+	defer provider.Close()
+
+	resources := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`[{"id":"cloud-id-abc123","name":"Acme","url":"https://acme.atlassian.net"}]`))
+	}))
+	defer resources.Close()
+
+	handlers.SetConnectorTokenURLForTest("jira", provider.URL+"/token")
+	defer handlers.ClearConnectorTokenURLForTest("jira")
+	handlers.SetJiraAccessibleResourcesURLForTest(resources.URL)
+	defer handlers.SetJiraAccessibleResourcesURLForTest("")
+
+	store := testStore(t)
+	d := &handlers.Deps{
+		Store: store, JWTSecret: "test-jwt-secret-not-for-production-use-only-32b", BaseURL: "https://example.test", EncryptionKey: "00000000000000000000000000000000",
+		JiraClientID: "test-jira-client-id", JiraClientSecret: "test-jira-client-secret",
+	}
+
+	userID, workflowID, nodeID := setupConnectorTestFixtures(t, store)
+
+	startReq := httptest.NewRequest(http.MethodGet, "/connectors/oauth/jira/start?workflowId="+workflowID+"&nodeId="+nodeID, nil)
+	startReq = startReq.WithContext(context.WithValue(startReq.Context(), handlers.CtxUserID, userID))
+	startReq = withURLParam(startReq, "provider", "jira")
+	startRec := httptest.NewRecorder()
+	d.ConnectorOAuthStart(startRec, startReq)
+
+	if startRec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d, body=%s", startRec.Code, http.StatusFound, startRec.Body.String())
+	}
+	loc, err := url.Parse(startRec.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loc.Query().Get("audience") != "api.atlassian.com" {
+		t.Fatalf("audience = %q, want api.atlassian.com", loc.Query().Get("audience"))
+	}
+	if loc.Query().Get("prompt") != "consent" {
+		t.Fatalf("prompt = %q, want consent", loc.Query().Get("prompt"))
+	}
+	state := loc.Query().Get("state")
+	stateCookie := startRec.Result().Cookies()[0]
+
+	cbReq := httptest.NewRequest(http.MethodGet, "/connectors/oauth/jira/callback?code=the-auth-code&state="+url.QueryEscape(state), nil)
+	cbReq = cbReq.WithContext(context.WithValue(cbReq.Context(), handlers.CtxUserID, userID))
+	cbReq = withURLParam(cbReq, "provider", "jira")
+	cbReq.AddCookie(stateCookie)
+	cbRec := httptest.NewRecorder()
+
+	d.ConnectorOAuthCallback(cbRec, cbReq)
+
+	if cbRec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d, body=%s", cbRec.Code, http.StatusFound, cbRec.Body.String())
+	}
+	if gotContentType != "application/json" {
+		t.Fatalf("token exchange Content-Type = %q, want application/json", gotContentType)
+	}
+	if gotBody["client_id"] != "test-jira-client-id" || gotBody["client_secret"] != "test-jira-client-secret" {
+		t.Fatalf("expected client credentials in JSON token exchange body, got %v", gotBody)
+	}
+	if gotBody["grant_type"] != "authorization_code" || gotBody["code"] != "the-auth-code" {
+		t.Fatalf("unexpected token exchange body: %v", gotBody)
+	}
+
+	wf, err := store.GetWorkflow(context.Background(), workflowID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var node models.WorkflowNode
+	for _, n := range wf.Nodes {
+		if n.ID == nodeID {
+			node = n
+		}
+	}
+	if node.Secrets["jiraOAuthAccessToken"] == "" {
+		t.Fatal("expected jiraOAuthAccessToken to be set after a successful exchange")
+	}
+	if node.Config["jiraOAuthCloudID"] != "cloud-id-abc123" {
+		t.Fatalf("jiraOAuthCloudID = %q, want %q", node.Config["jiraOAuthCloudID"], "cloud-id-abc123")
+	}
+}
+
+// TestConnectorOAuthJiraLinkFailsWhenAccessibleResourcesLookupFails proves the
+// whole link is rejected (no partial state written) when the post-exchange
+// accessible-resources call itself fails — e.g. because the token somehow
+// isn't valid against that endpoint. Without cloudId, sendJira's OAuth branch
+// can never build a usable request, so silently linking anyway would leave a
+// connector that looks connected but can never work.
+func TestConnectorOAuthJiraLinkFailsWhenAccessibleResourcesLookupFails(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"access_token":"fake-jira-access-token"}`))
+	}))
+	defer provider.Close()
+
+	resources := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`[]`))
+	}))
+	defer resources.Close()
+
+	handlers.SetConnectorTokenURLForTest("jira", provider.URL+"/token")
+	defer handlers.ClearConnectorTokenURLForTest("jira")
+	handlers.SetJiraAccessibleResourcesURLForTest(resources.URL)
+	defer handlers.SetJiraAccessibleResourcesURLForTest("")
+
+	store := testStore(t)
+	d := &handlers.Deps{
+		Store: store, JWTSecret: "test-jwt-secret-not-for-production-use-only-32b", BaseURL: "https://example.test", EncryptionKey: "00000000000000000000000000000000",
+		JiraClientID: "test-jira-client-id", JiraClientSecret: "test-jira-client-secret",
+	}
+
+	userID, workflowID, nodeID := setupConnectorTestFixtures(t, store)
+
+	startReq := httptest.NewRequest(http.MethodGet, "/connectors/oauth/jira/start?workflowId="+workflowID+"&nodeId="+nodeID, nil)
+	startReq = startReq.WithContext(context.WithValue(startReq.Context(), handlers.CtxUserID, userID))
+	startReq = withURLParam(startReq, "provider", "jira")
+	startRec := httptest.NewRecorder()
+	d.ConnectorOAuthStart(startRec, startReq)
+	state := mustParseLocationState(t, startRec.Header().Get("Location"))
+	stateCookie := startRec.Result().Cookies()[0]
+
+	cbReq := httptest.NewRequest(http.MethodGet, "/connectors/oauth/jira/callback?code=the-auth-code&state="+url.QueryEscape(state), nil)
+	cbReq = cbReq.WithContext(context.WithValue(cbReq.Context(), handlers.CtxUserID, userID))
+	cbReq = withURLParam(cbReq, "provider", "jira")
+	cbReq.AddCookie(stateCookie)
+	cbRec := httptest.NewRecorder()
+
+	d.ConnectorOAuthCallback(cbRec, cbReq)
+
+	loc := cbRec.Header().Get("Location")
+	if !strings.Contains(loc, "connectError=") {
+		t.Fatalf("expected redirect to carry a connectError when the accessible-resources lookup fails, got %q", loc)
+	}
+
+	wf, err := store.GetWorkflow(context.Background(), workflowID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var node models.WorkflowNode
+	for _, n := range wf.Nodes {
+		if n.ID == nodeID {
+			node = n
+		}
+	}
+	if node.Secrets["jiraOAuthAccessToken"] != "" {
+		t.Fatal("expected no token to be persisted when the post-exchange hook fails")
 	}
 }

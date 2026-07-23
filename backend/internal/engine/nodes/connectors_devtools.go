@@ -79,6 +79,46 @@ func SetJiraAPIBaseForTest(base string) {
 }
 
 func sendJira(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	// OAuth-linked and manual API-token paths are genuinely different request
+	// shapes, not a credential swap like the other connectors in this plan:
+	// an OAuth token is bearer-authed against
+	// api.atlassian.com/ex/jira/{cloudId} (cloudId discovered once at link
+	// time — see jiraPostExchangeHook in connector_oauth.go), while the
+	// manual path below is Basic-authed directly against the tenant's own
+	// {domain}.atlassian.net host. Handled as two independent blocks on
+	// purpose; the manual block is untouched from before OAuth support.
+	if oauthToken := secretVal(node, "jiraOAuthAccessToken"); oauthToken != "" {
+		projectKey := configVal(node, "jiraProjectKey", "")
+		cloudID := configVal(node, "jiraOAuthCloudID", "")
+		if projectKey == "" || cloudID == "" {
+			return "jira_skipped_missing_config", ErrActionSkipped
+		}
+		issueType := configVal(node, "jiraIssueType", "Task")
+		base := jiraAPIBase
+		if base == "" {
+			base = "https://api.atlassian.com/ex/jira/" + cloudID
+		}
+		target := base + "/rest/api/3/issue"
+		msg := rc.Message()
+		payload := map[string]any{
+			"fields": map[string]any{
+				"project":   map[string]any{"key": projectKey},
+				"summary":   issueTitle(msg),
+				"issuetype": map[string]any{"name": issueType},
+				"description": map[string]any{
+					"type":    "doc",
+					"version": 1,
+					"content": []map[string]any{{
+						"type":    "paragraph",
+						"content": []map[string]any{{"type": "text", "text": msg}},
+					}},
+				},
+			},
+		}
+		headers := map[string]string{"Authorization": "Bearer " + oauthToken}
+		return postJSON(ctx, target, headers, payload, "jira_issue_created", "Jira")
+	}
+
 	apiToken := secretVal(node, "jiraAPIToken")
 	if apiToken == "" {
 		return "jira_skipped_no_api_token", ErrActionSkipped
