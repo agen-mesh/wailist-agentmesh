@@ -313,6 +313,14 @@ func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
 	// Asana/Linear's gaps above. Without it, this connector will silently
 	// stop working about two hours after linking. Follow-up task must add
 	// refresh support.
+	//
+	// Additionally, same as Atlassian/Jira's KNOWN GAP above: per GitLab's own
+	// OAuth docs (docs.gitlab.com/ee/api/oauth2.html), refresh tokens ROTATE
+	// on every use — refreshing invalidates the existing access_token and
+	// refresh_token and returns a new pair. A future refresh implementation
+	// here must persist the NEW refresh token every single time it refreshes,
+	// not just the new access token, or the very next refresh attempt will
+	// fail against an already-invalidated token.
 	out["gitlab"] = ConnectorOAuthConfig{
 		AuthURL: "https://gitlab.com/oauth/authorize", TokenURL: "https://gitlab.com/oauth/token",
 		Scope: "api", ClientIDEnvVal: d.GitLabClientID, ClientSecretEnvVal: d.GitLabClientSecret,

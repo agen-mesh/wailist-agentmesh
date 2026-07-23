@@ -562,6 +562,23 @@ func TestGitLabAction_SkipsWhenNoToken(t *testing.T) {
 	}
 }
 
+func TestGitLabAction_SkipsWhenNeitherTokenNorProjectID(t *testing.T) {
+	// Token presence must be checked before projectID (mirrors sendLinear),
+	// so a node missing everything reports the token gap, not the project
+	// gap — this pins the check ordering against regression.
+	node := models.WorkflowNode{
+		ID: "gl3b", Type: models.NodeTypeAction, Template: "gitlab",
+	}
+	rc := engine.NewRunContext("r1", []byte(`"pipeline broke"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
+	}
+	if result != "gitlab_skipped_no_token" {
+		t.Errorf("want 'gitlab_skipped_no_token', got %v", result)
+	}
+}
+
 func TestGitLabAction_SkipsWhenNoProjectID(t *testing.T) {
 	node := models.WorkflowNode{
 		ID: "gl4", Type: models.NodeTypeAction, Template: "gitlab",

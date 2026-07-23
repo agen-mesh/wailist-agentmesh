@@ -270,6 +270,15 @@ func SetGitLabOAuthAPIBaseForTest(base string) {
 }
 
 func sendGitLab(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	// Credential presence (either token) must be checked before projectID,
+	// same ordering as sendLinear above, so a node missing both a token and
+	// a projectID reports gitlab_skipped_no_token rather than
+	// gitlab_skipped_no_project_id.
+	oauthToken := secretVal(node, "gitlabOAuthAccessToken")
+	token := secretVal(node, "gitlabAPIToken")
+	if oauthToken == "" && token == "" {
+		return "gitlab_skipped_no_token", ErrActionSkipped
+	}
 	projectID := configVal(node, "gitlabProjectID", "")
 	if projectID == "" {
 		return "gitlab_skipped_no_project_id", ErrActionSkipped
@@ -284,16 +293,12 @@ func sendGitLab(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	// that OAuth tokens don't use at all. Branch cleanly on which secret is
 	// present rather than trying to unify the two into one header
 	// construction, same shape as sendJira above.
-	if oauthToken := secretVal(node, "gitlabOAuthAccessToken"); oauthToken != "" {
+	if oauthToken != "" {
 		target := gitlabOAuthAPIBase + "/api/v4/projects/" + url.PathEscape(projectID) + "/issues"
 		headers := map[string]string{"Authorization": "Bearer " + oauthToken}
 		return postJSON(ctx, target, headers, payload, "gitlab_issue_created", "GitLab")
 	}
 
-	token := secretVal(node, "gitlabAPIToken")
-	if token == "" {
-		return "gitlab_skipped_no_token", ErrActionSkipped
-	}
 	base := strings.TrimRight(configVal(node, "gitlabBaseURL", "https://gitlab.com"), "/")
 	target := base + "/api/v4/projects/" + url.PathEscape(projectID) + "/issues"
 	headers := map[string]string{"PRIVATE-TOKEN": token}
