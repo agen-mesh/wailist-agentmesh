@@ -248,19 +248,54 @@ func sendLinear(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	return "linear_issue_created", nil
 }
 
-func sendGitLab(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
-	token := secretVal(node, "gitlabAPIToken")
-	if token == "" {
-		return "gitlab_skipped_no_token", ErrActionSkipped
+// gitlabOAuthAPIBase is deliberately a fixed constant-like var, never derived
+// from node.Config's gitlabBaseURL, and overridden only in tests via
+// SetGitLabOAuthAPIBaseForTest. The OAuth app backing gitlabOAuthAccessToken
+// is registered against gitlab.com's own OAuth service, so a token minted
+// through it is only ever valid there — never against a self-hosted instance
+// — regardless of what gitlabBaseURL a node happens to have configured (e.g.
+// left over from, or set alongside, the unrelated manual-token path below).
+// Self-hosted GitLab OAuth-linking is out of scope; self-hosted still only
+// works via the manual PRIVATE-TOKEN path, which does read gitlabBaseURL.
+var gitlabOAuthAPIBase = "https://gitlab.com"
+
+// SetGitLabOAuthAPIBaseForTest overrides the OAuth-path GitLab API base URL.
+// Call only from tests. Pass "" to reset to the real https://gitlab.com.
+func SetGitLabOAuthAPIBaseForTest(base string) {
+	if base == "" {
+		gitlabOAuthAPIBase = "https://gitlab.com"
+	} else {
+		gitlabOAuthAPIBase = base
 	}
+}
+
+func sendGitLab(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	projectID := configVal(node, "gitlabProjectID", "")
 	if projectID == "" {
 		return "gitlab_skipped_no_project_id", ErrActionSkipped
 	}
-	base := strings.TrimRight(configVal(node, "gitlabBaseURL", "https://gitlab.com"), "/")
-	target := base + "/api/v4/projects/" + url.PathEscape(projectID) + "/issues"
 	msg := rc.Message()
 	payload := map[string]any{"title": issueTitle(msg), "description": msg}
+
+	// OAuth and manual tokens need genuinely different headers here, not just
+	// a different prefix on the same one: GitLab's docs specify OAuth-issued
+	// tokens go through "Authorization: Bearer <token>", while PRIVATE-TOKEN
+	// (used below for personal access tokens) is a GitLab-specific header
+	// that OAuth tokens don't use at all. Branch cleanly on which secret is
+	// present rather than trying to unify the two into one header
+	// construction, same shape as sendJira above.
+	if oauthToken := secretVal(node, "gitlabOAuthAccessToken"); oauthToken != "" {
+		target := gitlabOAuthAPIBase + "/api/v4/projects/" + url.PathEscape(projectID) + "/issues"
+		headers := map[string]string{"Authorization": "Bearer " + oauthToken}
+		return postJSON(ctx, target, headers, payload, "gitlab_issue_created", "GitLab")
+	}
+
+	token := secretVal(node, "gitlabAPIToken")
+	if token == "" {
+		return "gitlab_skipped_no_token", ErrActionSkipped
+	}
+	base := strings.TrimRight(configVal(node, "gitlabBaseURL", "https://gitlab.com"), "/")
+	target := base + "/api/v4/projects/" + url.PathEscape(projectID) + "/issues"
 	headers := map[string]string{"PRIVATE-TOKEN": token}
 	return postJSON(ctx, target, headers, payload, "gitlab_issue_created", "GitLab")
 }

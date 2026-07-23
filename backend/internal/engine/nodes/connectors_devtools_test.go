@@ -577,6 +577,114 @@ func TestGitLabAction_SkipsWhenNoProjectID(t *testing.T) {
 	}
 }
 
+func TestGitLabAction_OAuthTokenUsesBearerAuthAndAlwaysTargetsGitLabCom(t *testing.T) {
+	var gotPath, gotAuth, gotPrivateToken string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		gotPrivateToken = r.Header.Get("PRIVATE-TOKEN")
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	nodes.SetGitLabOAuthAPIBaseForTest(srv.URL)
+	defer nodes.SetGitLabOAuthAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "gl5", Type: models.NodeTypeAction, Template: "gitlab",
+		Secrets: map[string]string{"gitlabOAuthAccessToken": "oauth-derived-token"},
+		// gitlabBaseURL deliberately points somewhere that would fail DNS
+		// resolution if the OAuth branch ever read it — a self-hosted-looking
+		// host has no bearing on where an OAuth-derived token (only ever valid
+		// against gitlab.com) can actually be used. Success here proves the
+		// OAuth branch never even looked at this value.
+		Config: map[string]string{"gitlabProjectID": "42", "gitlabBaseURL": "https://self-hosted.example.invalid"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"pipeline broke"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "gitlab_issue_created" {
+		t.Errorf("want 'gitlab_issue_created', got %v", result)
+	}
+	if gotPath != "/api/v4/projects/42/issues" {
+		t.Errorf("want project issues path, got %q", gotPath)
+	}
+	if gotAuth != "Bearer oauth-derived-token" {
+		t.Errorf("want 'Authorization: Bearer <token>', got %q", gotAuth)
+	}
+	if gotPrivateToken != "" {
+		t.Errorf("want no PRIVATE-TOKEN header on the OAuth path, got %q", gotPrivateToken)
+	}
+	if gotBody["title"] != "pipeline broke" {
+		t.Errorf("want title in JSON body, got %v", gotBody)
+	}
+}
+
+func TestGitLabAction_OAuthTokenPreferredOverManualToken(t *testing.T) {
+	var gotAuth, gotPrivateToken string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotPrivateToken = r.Header.Get("PRIVATE-TOKEN")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	nodes.SetGitLabOAuthAPIBaseForTest(srv.URL)
+	defer nodes.SetGitLabOAuthAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "gl6", Type: models.NodeTypeAction, Template: "gitlab",
+		Secrets: map[string]string{"gitlabOAuthAccessToken": "oauth-derived-token", "gitlabAPIToken": "manual-token-should-be-ignored"},
+		Config:  map[string]string{"gitlabProjectID": "42"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"pipeline broke"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "gitlab_issue_created" {
+		t.Errorf("want 'gitlab_issue_created', got %v", result)
+	}
+	if gotAuth != "Bearer oauth-derived-token" {
+		t.Errorf("want bearer auth with OAuth token, got %q", gotAuth)
+	}
+	if gotPrivateToken != "" {
+		t.Errorf("want no PRIVATE-TOKEN header when an OAuth token is present, got %q", gotPrivateToken)
+	}
+}
+
+func TestGitLabAction_ManualTokenUnaffectedByOAuthCodePath(t *testing.T) {
+	var gotPath, gotToken string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotToken = r.Header.Get("PRIVATE-TOKEN")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{
+		ID: "gl7", Type: models.NodeTypeAction, Template: "gitlab",
+		Secrets: map[string]string{"gitlabAPIToken": "glpat-xxx"},
+		Config:  map[string]string{"gitlabProjectID": "42", "gitlabBaseURL": srv.URL},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"pipeline broke"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "gitlab_issue_created" {
+		t.Errorf("want 'gitlab_issue_created', got %v", result)
+	}
+	if gotPath != "/api/v4/projects/42/issues" {
+		t.Errorf("want project issues path, got %q", gotPath)
+	}
+	if gotToken != "glpat-xxx" {
+		t.Errorf("want PRIVATE-TOKEN header still used and custom gitlabBaseURL still respected, got %q", gotToken)
+	}
+}
+
 func TestSentryAction_SendsEnvelope(t *testing.T) {
 	var gotPath, gotAuth, gotContentType string
 	var gotBody string

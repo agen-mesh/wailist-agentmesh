@@ -290,6 +290,33 @@ func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
 		PostExchangeHook: mailchimpPostExchangeHook,
 		ClientIDEnvVal:   d.MailchimpClientID, ClientSecretEnvVal: d.MailchimpClientSecret,
 	}
+	// docs.gitlab.com/ee/api/oauth2.html: "api" is GitLab's own documented
+	// scope for "complete read/write access to the API" — there is no
+	// narrower scope that covers issue creation, unlike some other providers
+	// in this registry. PKCE is offered as the more-secure option there but
+	// not required for a confidential client (one with a client_secret), and
+	// the token endpoint takes client_id/client_secret as regular form-body
+	// fields (no TokenAuthStyle needed) — same shape as Slack/GitHub/HubSpot/
+	// Asana/ClickUp/Linear above, unlike Notion/Airtable's Basic auth.
+	//
+	// This app is registered against gitlab.com itself, so the resulting
+	// token is only ever valid there; self-hosted GitLab OAuth-linking is out
+	// of scope for this task (see gitlabOAuthAPIBase's doc comment in
+	// connectors_devtools.go's sendGitLab — the OAuth branch there hardcodes
+	// gitlab.com and never reads the node's configurable gitlabBaseURL).
+	//
+	// KNOWN GAP: GitLab OAuth access tokens expire after ~2 hours and the
+	// token response includes a refresh_token. Re-exchanging that refresh
+	// token and writing the refreshed access token back onto the node via
+	// Store.UpdateWorkflow before each connector call is NOT implemented here
+	// — deliberately out of scope for this task, same as Airtable/HubSpot/
+	// Asana/Linear's gaps above. Without it, this connector will silently
+	// stop working about two hours after linking. Follow-up task must add
+	// refresh support.
+	out["gitlab"] = ConnectorOAuthConfig{
+		AuthURL: "https://gitlab.com/oauth/authorize", TokenURL: "https://gitlab.com/oauth/token",
+		Scope: "api", ClientIDEnvVal: d.GitLabClientID, ClientSecretEnvVal: d.GitLabClientSecret,
+	}
 	for name, url := range connectorTokenURLOverridesForTest {
 		if cfg, ok := out[name]; ok {
 			cfg.TokenURL = url
