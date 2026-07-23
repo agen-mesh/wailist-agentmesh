@@ -1454,6 +1454,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   asana: {
     label: "Asana config",
+    oauthProvider: "asana",
     fields: [
       {
         kind: "secret",
