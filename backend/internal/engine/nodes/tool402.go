@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -177,7 +178,7 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, aw mod
 		return map[string]any{"error": "payment required but no agent wallet configured"}, nil
 	}
 
-	relayURL := relayBaseURL + "/x402/relay?target=" + node.Endpoint
+	relayURL := relayBaseURL + "/x402/relay?target=" + url.QueryEscape(node.Endpoint)
 
 	quoteReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, relayURL, nil)
 	quoteResp, err := toolHTTPClient.Do(quoteReq)

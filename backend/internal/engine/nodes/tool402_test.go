@@ -244,3 +244,50 @@ func TestX402LegacyTargetBypassesRelay(t *testing.T) {
 		t.Fatalf("want legacy direct-pay path unchanged, got %v", m)
 	}
 }
+
+// TestX402V2TargetWithAmpersandInQueryString verifies that endpoint URLs
+// containing & (e.g. model=gpt4&format=json) are properly URL-encoded when
+// passed to the relay, so the relay's parsing of the target parameter receives
+// the full original URL, not a truncated prefix at the first &.
+func TestX402V2TargetWithAmpersandInQueryString(t *testing.T) {
+	var capturedTargetParam string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPaymentRequired)
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+	}))
+	defer target.Close()
+
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedTargetParam = r.URL.Query().Get("target")
+		if r.Header.Get("X-Payment") != "" {
+			w.Write([]byte(`{"data":"relayed paid response"}`))
+			return
+		}
+		w.WriteHeader(http.StatusPaymentRequired)
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+	}))
+	defer relay.Close()
+
+	// Create an endpoint URL with & in the query string
+	endpointWithQuery := target.URL + "?model=gpt4&format=json"
+	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool402, Endpoint: endpointWithQuery}
+	rc := engine.NewRunContext("r1", nil)
+	aw := models.AgentWallet{AgentNodeID: "a1", EncryptedMnemonic: "enc-mnemonic"}
+	signer := &mockSigner{txID: "unused-legacy-path"}
+	usdcSigner := &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0}
+
+	result, err := nodes.ExecuteTool402V2(context.Background(), node, rc, aw, signer, usdcSigner, relay.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify the relay received the full endpoint URL, not truncated at &
+	if capturedTargetParam != endpointWithQuery {
+		t.Fatalf("want target param %q, got %q (was truncated at &)", endpointWithQuery, capturedTargetParam)
+	}
+
+	m, ok := result.(map[string]any)
+	if !ok || m["data"] != "relayed paid response" {
+		t.Fatalf("want relayed response, got %v", result)
+	}
+}
