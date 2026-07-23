@@ -325,6 +325,42 @@ func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
 		AuthURL: "https://gitlab.com/oauth/authorize", TokenURL: "https://gitlab.com/oauth/token",
 		Scope: "api", ClientIDEnvVal: d.GitLabClientID, ClientSecretEnvVal: d.GitLabClientSecret,
 	}
+	// developer.todoist.com/guides/#oauth: the brief's starting URLs were both
+	// wrong-subdomain guesses — the authorize endpoint is on app.todoist.com
+	// (not todoist.com) and the token endpoint is on api.todoist.com (not
+	// todoist.com); corrected here. "task:add" is confirmed as the exact,
+	// narrowest documented scope name covering sendTodoist's only action
+	// (creating a task). This app is a confidential client registered with a
+	// client_id/client_secret via Todoist's App Management Console, not the
+	// separate public-client "OAuth Client ID Metadata Document" flow, so
+	// PKCE is not required here (that flow is the only one requiring it).
+	// The token endpoint's documented example sends client_id/client_secret/
+	// code/redirect_uri as a plain form body (client_secret_post, the
+	// documented default) — same shape as Slack/GitHub/HubSpot/Asana/
+	// ClickUp/Linear/GitLab above, so no TokenAuthStyle override needed.
+	//
+	// Confirmed against the same docs: OAuth access tokens and manual
+	// personal API tokens both authenticate identically via "Authorization:
+	// Bearer <token>", so sendTodoist needs only a preference swap, no
+	// header-format branching (unlike Airtable/Trello-style pairs).
+	//
+	// KNOWN GAP, correcting the brief's "tokens do not expire" assumption:
+	// that is only true of legacy Todoist apps created before refresh tokens
+	// existed. Per the docs, "Refresh tokens are enabled by default for
+	// newly-created applications" and "Access tokens issued to these
+	// applications expire one hour after they are issued" — since this app
+	// will be newly created (no live client_id/secret exist yet), its tokens
+	// WILL expire hourly and DO need refresh. Re-exchanging the refresh token
+	// and persisting the result via Store.UpdateWorkflow before each
+	// connector call is NOT implemented here — deliberately out of scope for
+	// this task, same as Airtable/HubSpot/Asana/Linear/GitLab's gaps above.
+	// Also same as GitLab/Jira above: Todoist's refresh tokens rotate on
+	// every use, so any future refresh implementation must persist the NEW
+	// refresh token every time, not just the new access token.
+	out["todoist"] = ConnectorOAuthConfig{
+		AuthURL: "https://app.todoist.com/oauth/authorize", TokenURL: "https://api.todoist.com/oauth/access_token",
+		Scope: "task:add", ClientIDEnvVal: d.TodoistClientID, ClientSecretEnvVal: d.TodoistClientSecret,
+	}
 	for name, url := range connectorTokenURLOverridesForTest {
 		if cfg, ok := out[name]; ok {
 			cfg.TokenURL = url

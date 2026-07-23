@@ -228,7 +228,12 @@ func SetTodoistAPIBaseForTest(base string) {
 }
 
 func sendTodoist(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
-	apiKey := secretVal(node, "todoistAPIKey")
+	// OAuth-linked token takes priority: Todoist's OAuth access token works
+	// identically to a manual personal API token here (same Bearer scheme).
+	apiKey := secretVal(node, "todoistOAuthAccessToken")
+	if apiKey == "" {
+		apiKey = secretVal(node, "todoistAPIKey")
+	}
 	if apiKey == "" {
 		return "todoist_skipped_no_api_key", ErrActionSkipped
 	}

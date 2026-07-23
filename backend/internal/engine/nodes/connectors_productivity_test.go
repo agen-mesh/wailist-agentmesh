@@ -534,3 +534,27 @@ func TestTodoistAction_SkipsWhenNoAPIKey(t *testing.T) {
 		t.Errorf("want 'todoist_skipped_no_api_key', got %v", result)
 	}
 }
+
+func TestTodoistAction_PrefersOAuthTokenOverManualToken(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	nodes.SetTodoistAPIBaseForTest(srv.URL)
+	defer nodes.SetTodoistAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "td4", Type: models.NodeTypeAction, Template: "todoist",
+		Secrets: map[string]string{"todoistAPIKey": "manual-secret-xxx", "todoistOAuthAccessToken": "oauth-derived-token"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"buy milk"`))
+	_, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer oauth-derived-token" {
+		t.Errorf("want OAuth token in Authorization header, got %q", gotAuth)
+	}
+}
