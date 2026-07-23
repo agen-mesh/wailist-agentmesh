@@ -232,6 +232,16 @@ func (d *Deps) RazorpayWebhook(w http.ResponseWriter, r *http.Request) {
 // Unlike Razorpay, NOWPayments quotes directly in USD, so there's no FX step: the ledger
 // row is created up front with the exact credit amount, and NOWPaymentsWebhook completes
 // it once the customer's on-chain payment (in whatever coin they choose) reaches "finished".
+//
+// The ledger row is created BEFORE the NOWPayments invoice is requested — deliberately the
+// opposite of the natural-seeming order — so that a DB failure can never leave a real,
+// payable invoice at NOWPayments with no matching ledger row (which would make the
+// eventual "finished" webhook hit ErrCreditTransactionNotFound and 400 forever, leaving a
+// paying customer never credited: this webhook is the sole completion path for crypto,
+// with no client-side verify fallback like Razorpay has). The failure mode this order
+// leaves instead — invoice creation failing after the ledger row already exists — is a
+// harmless dead 'pending' row with no real invoice behind it: nothing to pay, so it never
+// gets paid, and it expires naturally via the stale-transaction sweep.
 func (d *Deps) CreateCryptoInvoice(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(CtxUserID).(string)
 
@@ -252,6 +262,12 @@ func (d *Deps) CreateCryptoInvoice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	orderID := uuid.New().String()
+	if _, err := d.Store.CreateCryptoCreditTransaction(r.Context(), userID, "nowpayments", orderID, body.AmountUSDCents); err != nil {
+		log.Printf("nowpayments invoice: create ledger row: %v", err)
+		respond.Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
 	invoice, err := d.NOWPayments.CreateInvoice(
 		r.Context(),
 		body.AmountUSDCents,
@@ -261,14 +277,11 @@ func (d *Deps) CreateCryptoInvoice(w http.ResponseWriter, r *http.Request) {
 		d.FrontendURL+"/billing?crypto=cancelled",
 	)
 	if err != nil {
+		// The ledger row created above is now an orphan with no real invoice behind it —
+		// harmless: there's nothing to pay, so it will never be completed, and it expires
+		// naturally via the stale-transaction sweep. No special cleanup needed.
 		log.Printf("nowpayments invoice: %v", err)
 		respond.Error(w, http.StatusBadGateway, "nowpayments invoice creation failed")
-		return
-	}
-
-	if _, err := d.Store.CreateCryptoCreditTransaction(r.Context(), userID, "nowpayments", orderID, body.AmountUSDCents); err != nil {
-		log.Printf("nowpayments invoice: create ledger row: %v", err)
-		respond.Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 

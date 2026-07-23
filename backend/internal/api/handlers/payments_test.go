@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/agentmesh/backend/internal/api/handlers"
 	"github.com/agentmesh/backend/internal/payments"
@@ -336,6 +339,56 @@ func TestCreateCryptoInvoiceRejectsBelowMinimum(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", w.Code)
+	}
+}
+
+func TestCreateCryptoInvoiceLeavesOrphanedPendingRowOnInvoiceFailure(t *testing.T) {
+	// The ledger row is created BEFORE the NOWPayments invoice request precisely so that a
+	// failure calling NOWPayments leaves only a harmless dead 'pending' row — never a real
+	// invoice with no matching ledger row (see CreateCryptoInvoice's doc comment). This
+	// test proves the orphan actually lands as 'pending' (not lost, not left in some other
+	// state) when invoice creation fails.
+	base := testDeps(t)
+	d := &handlers.Deps{
+		Store:       base.Store,
+		NOWPayments: &fakeNOWPayments{createErr: fmt.Errorf("nowpayments: simulated outage")},
+	}
+
+	email := fmt.Sprintf("crypto-invoice-orphan-test-%d@example.com", time.Now().UnixNano())
+	user, err := d.Store.CreateUser(context.Background(), email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := json.Marshal(map[string]int64{"amount_usd_cents": 1999})
+	req := httptest.NewRequest(http.MethodPost, "/payments/nowpayments/invoice", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), handlers.CtxUserID, user.ID))
+	w := httptest.NewRecorder()
+
+	d.CreateCryptoInvoice(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("want 502, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify by user_id (fresh per test run) rather than order_id, since the handler
+	// doesn't — and shouldn't — leak the internal order_id in an error response.
+	url := os.Getenv("TEST_DATABASE_URL")
+	pool, err := pgxpool.New(context.Background(), url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	var count int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM credit_ledger WHERE user_id = $1 AND provider = 'nowpayments' AND status = 'pending'`,
+		user.ID,
+	).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("want exactly 1 orphaned pending ledger row for this user, got %d", count)
 	}
 }
 
