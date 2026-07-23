@@ -40,6 +40,11 @@ func main() {
 
 	razorpayClient := payments.NewRazorpayClient(mustEnv("RAZORPAY_KEY_ID"), mustEnv("RAZORPAY_KEY_SECRET"), mustEnv("RAZORPAY_WEBHOOK_SECRET"))
 
+	nowPaymentsClient := payments.NewNOWPaymentsClient(mustEnv("NOWPAYMENTS_API_KEY"), mustEnv("NOWPAYMENTS_IPN_SECRET"))
+	if envOr("NOWPAYMENTS_SANDBOX", "false") == "true" {
+		nowPaymentsClient.UseSandbox()
+	}
+
 	runner := engine.NewRunner(store, broker, walletSvc)
 
 	go expireStalePendingTransactionsLoop(ctx, store)
@@ -61,6 +66,7 @@ func main() {
 
 		Razorpay:      razorpayClient,
 		RazorpayKeyID: razorpayClient.KeyID,
+		NOWPayments:   nowPaymentsClient,
 	}
 
 	r := api.NewRouter(deps)
@@ -85,24 +91,32 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// expireStalePendingTransactionsLoop marks abandoned Razorpay checkouts (order created,
+// expireStalePendingTransactionsLoop marks abandoned checkouts (order/invoice created,
 // never completed) as 'expired' so they stop being reported as in-progress. Runs on a
-// fixed interval for the life of the process; errors are logged, not fatal.
+// fixed interval for the life of the process; errors are logged, not fatal. Sweeps each
+// payment provider with its own staleness window: Razorpay checkouts are fast, so 30
+// minutes of no completion means abandoned; NOWPayments crypto invoices settle on-chain
+// and routinely take longer than that across multiple block confirmations, so they get a
+// generous 24-hour window instead, to avoid marking real in-flight payments as expired
+// mid-payment.
 func expireStalePendingTransactionsLoop(ctx context.Context, store *db.Store) {
 	const (
-		checkInterval = 5 * time.Minute
-		staleAfter    = 30 * time.Minute
+		checkInterval         = 5 * time.Minute
+		razorpayStaleAfter    = 30 * time.Minute
+		nowPaymentsStaleAfter = 24 * time.Hour
 	)
 	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
 	for range ticker.C {
-		n, err := store.ExpireStalePendingTransactions(ctx, staleAfter)
-		if err != nil {
-			log.Printf("expire stale pending transactions: %v", err)
-			continue
+		if n, err := store.ExpireStalePendingTransactions(ctx, "razorpay", razorpayStaleAfter); err != nil {
+			log.Printf("expire stale razorpay transactions: %v", err)
+		} else if n > 0 {
+			log.Printf("expired %d stale razorpay transactions", n)
 		}
-		if n > 0 {
-			log.Printf("expired %d stale pending credit transactions", n)
+		if n, err := store.ExpireStalePendingTransactions(ctx, "nowpayments", nowPaymentsStaleAfter); err != nil {
+			log.Printf("expire stale nowpayments transactions: %v", err)
+		} else if n > 0 {
+			log.Printf("expired %d stale nowpayments transactions", n)
 		}
 	}
 }

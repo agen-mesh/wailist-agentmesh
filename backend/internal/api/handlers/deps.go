@@ -22,6 +22,13 @@ type RazorpayClient interface {
 	VerifyWebhookSignature(body []byte, signature string) bool
 }
 
+// NOWPaymentsClient is the subset of *payments.NOWPaymentsClient the handlers need.
+// Defined here so tests can inject a fake without hitting the real API.
+type NOWPaymentsClient interface {
+	CreateInvoice(ctx context.Context, amountUSDCents int64, orderID, ipnCallbackURL, successURL, cancelURL string) (payments.Invoice, error)
+	VerifyIPNSignature(body []byte, signature string) bool
+}
+
 type Deps struct {
 	Store         *db.Store
 	Broker        *sse.Broker
@@ -39,4 +46,6 @@ type Deps struct {
 
 	Razorpay      RazorpayClient
 	RazorpayKeyID string
+
+	NOWPayments NOWPaymentsClient
 }

@@ -78,3 +78,5 @@ frontend/next-env.d.ts
 /usage-preview.html
 # root-level planning/scratch docs
 /Docs/
+# subagent-driven-development progress ledger (scratch, not part of the shipped project)
+/.superpowers/

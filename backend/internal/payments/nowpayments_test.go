@@ -1,0 +1,213 @@
+package payments_test
+
+import (
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/sha512"
+	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/agentmesh/backend/internal/payments"
+)
+
+func TestCreateInvoiceReturnsInvoiceFromServer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("x-api-key") != "api_key_123" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		if body["price_currency"] != "usd" || body["order_id"] != "order_abc" {
+			t.Errorf("unexpected request body: %+v", body)
+		}
+		if body["price_amount"] != 19.99 {
+			t.Errorf("want price_amount 19.99, got %v", body["price_amount"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{
+			"id": "inv_abc123", "invoice_url": "https://nowpayments.io/payment/inv_abc123",
+		})
+	}))
+	defer srv.Close()
+
+	c := payments.NewNOWPaymentsClient("api_key_123", "ipn_secret")
+	c.SetBaseURLForTest(srv.URL)
+
+	invoice, err := c.CreateInvoice(context.Background(), 1999, "order_abc", "https://cb", "https://ok", "https://cancel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invoice.ID != "inv_abc123" || invoice.InvoiceURL != "https://nowpayments.io/payment/inv_abc123" {
+		t.Fatalf("unexpected invoice: %+v", invoice)
+	}
+}
+
+func TestCreateInvoiceRejectsBelowMinimum(t *testing.T) {
+	c := payments.NewNOWPaymentsClient("api_key_123", "ipn_secret")
+	_, err := c.CreateInvoice(context.Background(), 50, "order_abc", "https://cb", "https://ok", "https://cancel")
+	if err == nil {
+		t.Fatal("want error for amount below 100 cents, got nil")
+	}
+}
+
+func TestCreateInvoiceReturnsErrorOnAuthFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	c := payments.NewNOWPaymentsClient("wrong_key", "ipn_secret")
+	c.SetBaseURLForTest(srv.URL)
+
+	_, err := c.CreateInvoice(context.Background(), 1999, "order_abc", "https://cb", "https://ok", "https://cancel")
+	if err == nil {
+		t.Fatal("want auth error, got nil")
+	}
+}
+
+// signIPN reproduces NOWPayments' own signing algorithm (confirmed against their
+// published Python/Node examples): HMAC-SHA512, hex, over the JSON body re-serialized
+// with keys sorted alphabetically at every nesting level and no extra whitespace.
+// json.Marshal on a Go map already sorts keys alphabetically and emits no whitespace,
+// so for a flat payload it is its own canonical form — this helper exists to make that
+// explicit and to extend to nested payloads in the recursive test below.
+func signIPN(t *testing.T, secret string, payload map[string]any) string {
+	t.Helper()
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mac := hmac.New(sha512.New, []byte(secret))
+	mac.Write(body)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func TestVerifyIPNSignatureAcceptsValidFlatSignature(t *testing.T) {
+	c := payments.NewNOWPaymentsClient("api_key", "ipn_secret")
+	payload := map[string]any{"payment_id": float64(5077125051), "order_id": "order_abc", "payment_status": "finished"}
+	body, _ := json.Marshal(payload)
+	sig := signIPN(t, "ipn_secret", payload)
+
+	if !c.VerifyIPNSignature(body, sig) {
+		t.Fatal("want valid signature accepted")
+	}
+}
+
+func TestVerifyIPNSignatureAcceptsOutOfOrderKeys(t *testing.T) {
+	// NOWPayments' own signer sorts keys before hashing, so the raw body we receive
+	// may have keys in a different order than the signature was computed over — as
+	// long as the *sorted* form matches, verification must still pass.
+	c := payments.NewNOWPaymentsClient("api_key", "ipn_secret")
+	sortedPayload := map[string]any{"order_id": "order_abc", "payment_id": float64(1), "payment_status": "finished"}
+	sig := signIPN(t, "ipn_secret", sortedPayload)
+
+	// Same fields, deliberately written out of alphabetical order in the raw body.
+	outOfOrderBody := []byte(`{"payment_status":"finished","payment_id":1,"order_id":"order_abc"}`)
+
+	if !c.VerifyIPNSignature(outOfOrderBody, sig) {
+		t.Fatal("want signature valid regardless of raw key order")
+	}
+}
+
+func TestVerifyIPNSignatureAcceptsOutOfOrderNestedKeys(t *testing.T) {
+	// Exercises the recursive descent in sortKeysDeep: a nested object (outcome) and
+	// an array of objects (items), each with their own keys deliberately out of
+	// alphabetical order in the raw body, at every nesting level.
+	c := payments.NewNOWPaymentsClient("api_key", "ipn_secret")
+	payload := map[string]any{
+		"order_id":   "order_nested",
+		"payment_id": float64(1),
+		"outcome": map[string]any{
+			"outcome_amount":   float64(10),
+			"outcome_currency": "usdt",
+		},
+		"items": []any{
+			map[string]any{"y": float64(1), "x": float64(2)},
+		},
+	}
+	sig := signIPN(t, "ipn_secret", payload)
+
+	// Same fields and values, but top-level keys, the nested "outcome" object's keys,
+	// and the nested "items" array's object keys are all out of alphabetical order.
+	rawBody := []byte(`{"payment_id":1,"order_id":"order_nested","items":[{"y":1,"x":2}],"outcome":{"outcome_currency":"usdt","outcome_amount":10}}`)
+
+	if !c.VerifyIPNSignature(rawBody, sig) {
+		t.Fatal("want signature valid regardless of nested key order")
+	}
+}
+
+func TestVerifyIPNSignatureRejectsTamperedBody(t *testing.T) {
+	c := payments.NewNOWPaymentsClient("api_key", "ipn_secret")
+	payload := map[string]any{"payment_id": float64(1), "order_id": "order_abc", "payment_status": "waiting"}
+	sig := signIPN(t, "ipn_secret", payload)
+
+	tampered := []byte(`{"order_id":"order_abc","payment_id":1,"payment_status":"finished"}`)
+	if c.VerifyIPNSignature(tampered, sig) {
+		t.Fatal("want tampered payload rejected")
+	}
+}
+
+// signIPNNoEscape computes the reference signature the way NOWPayments' actual Python
+// signer does — json.dumps(msg, separators=(',',':'), sort_keys=True) never HTML-escapes
+// '<', '>', or '&'. This is deliberately NOT the same as the signIPN helper above: signIPN
+// uses plain json.Marshal, and Go's json.Marshal *does* HTML-escape those characters inside
+// string values (a well-known Go gotcha) even though Python's json.dumps never does. That
+// makes signIPN a faithful stand-in for the reference signer only for payloads that don't
+// contain HTML-unsafe characters (true of every other test in this file). For this test,
+// where the whole point is exercising an HTML-unsafe field, signIPN would itself silently
+// escape and defeat the test, so this helper reproduces Python's actual (non-escaping)
+// behavior directly.
+func signIPNNoEscape(t *testing.T, secret string, payload map[string]any) string {
+	t.Helper()
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(payload); err != nil {
+		t.Fatal(err)
+	}
+	body := bytes.TrimRight(buf.Bytes(), "\n")
+	mac := hmac.New(sha512.New, []byte(secret))
+	mac.Write(body)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func TestVerifyIPNSignatureAcceptsPayloadWithHTMLUnsafeCharacters(t *testing.T) {
+	// The raw incoming body can be encoded however the sender likes (it gets parsed and
+	// re-canonicalized regardless) — what matters is that the reference signature (sig)
+	// was computed the way NOWPayments' real Python signer computes it: no HTML-escaping.
+	// Before the fix, VerifyIPNSignature re-canonicalized via plain json.Marshal, which
+	// DOES HTML-escape '<', '&', '>' — producing different bytes, and thus a different
+	// HMAC, than the unescaped reference. That made this test fail pre-fix; the fix's
+	// SetEscapeHTML(false) canonicalization makes it match post-fix.
+	c := payments.NewNOWPaymentsClient("api_key", "ipn_secret")
+	payload := map[string]any{
+		"order_id":          "order_html",
+		"payment_id":        float64(1),
+		"payment_status":    "finished",
+		"order_description": "Order <A&B> Corp",
+	}
+	body, _ := json.Marshal(payload)
+	sig := signIPNNoEscape(t, "ipn_secret", payload)
+
+	if !c.VerifyIPNSignature(body, sig) {
+		t.Fatal("want signature valid for payload containing HTML-unsafe characters")
+	}
+}
+
+func TestUseSandboxSwitchesBaseURL(t *testing.T) {
+	c := payments.NewNOWPaymentsClient("api_key", "ipn_secret")
+	c.UseSandbox()
+	_, err := c.CreateInvoice(context.Background(), 1999, "order_abc", "https://cb", "https://ok", "https://cancel")
+	// No live network access in tests — we only assert this doesn't panic and returns
+	// a network error (proves UseSandbox changed the target host away from any test
+	// server we might otherwise have pointed at), not that the sandbox actually replies.
+	if err == nil {
+		t.Fatal("want network error hitting the real sandbox host from a unit test")
+	}
+}

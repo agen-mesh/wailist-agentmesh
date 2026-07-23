@@ -388,6 +388,23 @@ func (s *Store) CreateCreditTransaction(ctx context.Context, userID, providerOrd
 	return txn, err
 }
 
+// CreateCryptoCreditTransaction records a pending ledger row for a hosted crypto invoice
+// (NOWPayments or any future crypto gateway sharing this shape). Unlike the Razorpay path,
+// the amount is already USD-denominated by the gateway, so there is no FX rate to store.
+func (s *Store) CreateCryptoCreditTransaction(ctx context.Context, userID, provider, providerOrderID string, amountUSDCents int64) (models.CreditTransaction, error) {
+	creditUSDMicros := amountUSDCents * 10_000
+	var txn models.CreditTransaction
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO credit_ledger (user_id, provider, provider_order_id, status, amount_usd_cents, credit_usd_micros)
+		VALUES ($1, $2, $3, 'pending', $4, $5)
+		RETURNING id, user_id, provider, provider_order_id, status, amount_usd_cents, credit_usd_micros, created_at
+	`, userID, provider, providerOrderID, amountUSDCents, creditUSDMicros).Scan(
+		&txn.ID, &txn.UserID, &txn.Provider, &txn.ProviderOrderID, &txn.Status,
+		&txn.AmountUSDCents, &txn.CreditUSDMicros, &txn.CreatedAt,
+	)
+	return txn, err
+}
+
 // ErrCreditTransactionNotFound is returned when no credit_ledger row exists for the given
 // provider order ID — the caller supplied an order Razorpay never told us about (or that
 // our own CreateCreditTransaction failed to record). Callers should treat this as a
@@ -400,7 +417,7 @@ var ErrCreditTransactionNotFound = errors.New("credit transaction not found")
 // The bool return is true only when this call is the one that actually completed the
 // transaction (false on a replay) — callers use it to fire an audit-log notification
 // exactly once per real credit, not once per redundant client-verify/webhook race.
-func (s *Store) CompleteCreditTransaction(ctx context.Context, providerOrderID, providerPaymentID string) (int64, bool, error) {
+func (s *Store) CompleteCreditTransaction(ctx context.Context, provider, providerOrderID, providerPaymentID string) (int64, bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return 0, false, err
@@ -410,15 +427,16 @@ func (s *Store) CompleteCreditTransaction(ctx context.Context, providerOrderID, 
 	var (
 		id              string
 		userID          string
+		status          string
 		creditUSDMicros int64
 		completedAt     *time.Time
 	)
 	err = tx.QueryRow(ctx, `
-		SELECT id, user_id, credit_usd_micros, completed_at
+		SELECT id, user_id, status, credit_usd_micros, completed_at
 		FROM credit_ledger
-		WHERE provider_order_id = $1 AND provider = 'razorpay'
+		WHERE provider_order_id = $1 AND provider = $2
 		FOR UPDATE
-	`, providerOrderID).Scan(&id, &userID, &creditUSDMicros, &completedAt)
+	`, providerOrderID, provider).Scan(&id, &userID, &status, &creditUSDMicros, &completedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, false, ErrCreditTransactionNotFound
 	}
@@ -426,13 +444,10 @@ func (s *Store) CompleteCreditTransaction(ctx context.Context, providerOrderID, 
 		return 0, false, err
 	}
 
-	// Gate on completed_at, not the status string: RefundCreditTransaction moves status
-	// to 'refunded' after a full refund but never clears completed_at. If this gated on
-	// status == "completed" instead, a replayed verify call or duplicate webhook delivery
-	// arriving after a refund would find status == "refunded", fall through this check,
-	// and re-credit a payment the user was already refunded for — a real double-dip since
-	// Razorpay signatures don't expire and can be replayed indefinitely.
-	if completedAt != nil {
+	// Gate on completed_at (replay-safety, unchanged) *and* on status != 'failed': a row
+	// a crypto webhook already marked failed/expired must never be resurrected by a
+	// late or out-of-order "finished" IPN retry — see MarkCreditTransactionStatus.
+	if completedAt != nil || status == "failed" {
 		return creditUSDMicros, false, nil
 	}
 
@@ -535,15 +550,32 @@ func (s *Store) GetCreditBalance(ctx context.Context, userID string) (int64, err
 	return balance, err
 }
 
-// ExpireStalePendingTransactions marks credit_ledger rows still 'pending' after olderThan
-// as 'expired' — checkouts the user opened but never completed (closed tab, abandoned QR
-// scan). Keeps 'pending' meaningful as "still in progress" rather than accumulating dead rows.
-func (s *Store) ExpireStalePendingTransactions(ctx context.Context, olderThan time.Duration) (int64, error) {
+// MarkCreditTransactionStatus moves a still-pending ledger row directly to status
+// (e.g. "failed"/"expired" for a NOWPayments IPN that will never complete, or "partial"
+// for partially_paid) without touching the user's balance — a pending row never credited
+// anything, so there's nothing to reverse. No-op if the row is no longer pending, so it's
+// safe to call on IPN replays.
+func (s *Store) MarkCreditTransactionStatus(ctx context.Context, provider, providerOrderID, status string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE credit_ledger SET status = $1
+		WHERE provider_order_id = $2 AND provider = $3 AND status = 'pending'
+	`, status, providerOrderID, provider)
+	return err
+}
+
+// ExpireStalePendingTransactions marks credit_ledger rows for provider still 'pending'
+// after olderThan as 'expired' — checkouts the user opened but never completed (closed
+// tab, abandoned QR scan, on-chain payment never sent). Scoped to a single provider so
+// callers can use a per-provider staleness window: fast checkout providers like Razorpay
+// warrant a short window, while on-chain crypto providers like NOWPayments need a much
+// longer one to avoid expiring payments still working through block confirmations. Keeps
+// 'pending' meaningful as "still in progress" rather than accumulating dead rows.
+func (s *Store) ExpireStalePendingTransactions(ctx context.Context, provider string, olderThan time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-olderThan)
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE credit_ledger SET status = 'expired'
-		WHERE status = 'pending' AND created_at < $1
-	`, cutoff)
+		WHERE status = 'pending' AND provider = $1 AND created_at < $2
+	`, provider, cutoff)
 	if err != nil {
 		return 0, err
 	}

@@ -188,8 +188,9 @@ type CreditTransaction struct {
 	ProviderOrderID   string     `json:"providerOrderId"`
 	ProviderPaymentID *string    `json:"providerPaymentId,omitempty"`
 	Status            string     `json:"status"`
-	AmountINRPaise    int64      `json:"amountInrPaise"`
-	FXRateUSDPerINR   float64    `json:"fxRateUsdPerInr"`
+	AmountINRPaise    *int64     `json:"amountInrPaise,omitempty"`
+	FXRateUSDPerINR   *float64   `json:"fxRateUsdPerInr,omitempty"`
+	AmountUSDCents    *int64     `json:"amountUsdCents,omitempty"`
 	CreditUSDMicros   int64      `json:"creditUsdMicros"`
 	CreatedAt         time.Time  `json:"createdAt"`
 	CompletedAt       *time.Time `json:"completedAt,omitempty"`
