@@ -132,15 +132,13 @@ func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
 		Scope: "data.records:write", UsesPKCE: true, TokenAuthStyle: "basic",
 		ClientIDEnvVal: d.AirtableClientID, ClientSecretEnvVal: d.AirtableClientSecret,
 	}
-	// HubSpot's docs list crm.objects.notes.read/.write scopes for the notes
-	// API, but that scope is not actually addable to an app's OAuth config in
-	// HubSpot's own account settings (a known HubSpot-side gap reported on
-	// their developer community) — crm.objects.contacts.write is what's
-	// actually grantable and what HubSpot's own API reference lists as the
-	// scope requirement for POST /crm/v3/objects/notes, so that's used here
-	// instead. HubSpot's token endpoint takes client_id/client_secret as
-	// regular form fields (no TokenAuthStyle needed), unlike Notion/Airtable
-	// above.
+	// HubSpot's CRM object model binds Notes to Contacts rather than giving
+	// notes their own scope — developers.hubspot.com/docs/api/crm/notes lists
+	// crm.objects.contacts.read/.write as the scope requirement for this
+	// endpoint (including POST), not a crm.objects.notes.* scope, so don't
+	// "fix" this back to the more obvious-looking guess. HubSpot's token
+	// endpoint takes client_id/client_secret as regular form fields (no
+	// TokenAuthStyle needed), unlike Notion/Airtable above.
 	//
 	// KNOWN GAP: HubSpot access tokens expire after ~30 minutes and the token
 	// response includes a refresh_token. Re-exchanging that refresh token and
