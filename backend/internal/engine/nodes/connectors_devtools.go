@@ -172,8 +172,16 @@ func SetLinearAPIBaseForTest(base string) {
 }
 
 func sendLinear(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	// Unlike Jira, the OAuth and manual paths here hit the same endpoint with
+	// the same payload and the same GraphQL body-level error shape below —
+	// only the Authorization header differs (Linear's docs distinguish
+	// personal API keys, sent raw, from OAuth-issued tokens, which require
+	// "Bearer") — so this branches on just the header, ClickUp-style, rather
+	// than duplicating the request/response handling into two full paths the
+	// way sendJira does for its genuinely different endpoints.
+	oauthToken := secretVal(node, "linearOAuthAccessToken")
 	apiKey := secretVal(node, "linearAPIKey")
-	if apiKey == "" {
+	if oauthToken == "" && apiKey == "" {
 		return "linear_skipped_no_api_key", ErrActionSkipped
 	}
 	teamID := configVal(node, "linearTeamID", "")
@@ -191,7 +199,12 @@ func sendLinear(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 			},
 		},
 	}
-	headers := map[string]string{"Authorization": apiKey}
+	var headers map[string]string
+	if oauthToken != "" {
+		headers = map[string]string{"Authorization": "Bearer " + oauthToken}
+	} else {
+		headers = map[string]string{"Authorization": apiKey}
+	}
 	// Linear's GraphQL API returns HTTP 200 for application-level failures
 	// (bad auth, bad team ID, validation errors), putting them in a top-level
 	// "errors" array or issueCreate.success:false instead of the status code —

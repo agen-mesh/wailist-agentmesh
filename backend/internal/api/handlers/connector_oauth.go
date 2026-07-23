@@ -242,6 +242,27 @@ func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
 		PostExchangeHook: jiraPostExchangeHook,
 		ClientIDEnvVal:   d.JiraClientID, ClientSecretEnvVal: d.JiraClientSecret,
 	}
+	// linear.app/developers/oauth-2-0-authentication: PKCE is supported but
+	// not required, and the token endpoint accepts client_id/client_secret
+	// as regular form-body fields (Basic auth is offered as an alternative,
+	// but not required, so no TokenAuthStyle needed) — same shape as Slack/
+	// GitHub/HubSpot/Asana/ClickUp above. "issues:create" is used instead of
+	// the broader "write" scope because sendLinear only ever creates issues
+	// and Linear documents issues:create as its own narrower scope for
+	// exactly that action.
+	//
+	// KNOWN GAP: Linear OAuth access tokens expire after 24 hours and the
+	// token response includes a refresh_token. Re-exchanging that refresh
+	// token and writing the refreshed access token back onto the node via
+	// Store.UpdateWorkflow before each connector call is NOT implemented
+	// here — deliberately out of scope for this task, same as Airtable/
+	// HubSpot/Asana's gaps above. Without it, this connector will silently
+	// stop working a day after linking. Follow-up task must add refresh
+	// support.
+	out["linear"] = ConnectorOAuthConfig{
+		AuthURL: "https://linear.app/oauth/authorize", TokenURL: "https://api.linear.app/oauth/token",
+		Scope: "issues:create", ClientIDEnvVal: d.LinearClientID, ClientSecretEnvVal: d.LinearClientSecret,
+	}
 	for name, url := range connectorTokenURLOverridesForTest {
 		if cfg, ok := out[name]; ok {
 			cfg.TokenURL = url

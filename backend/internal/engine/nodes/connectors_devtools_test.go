@@ -443,6 +443,56 @@ func TestLinearAction_SkipsWhenNoTeamID(t *testing.T) {
 	}
 }
 
+func TestLinearAction_OAuthTokenUsesBearerAuthAndIsPreferredOverAPIKey(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":{"issueCreate":{"success":true}}}`))
+	}))
+	defer srv.Close()
+	nodes.SetLinearAPIBaseForTest(srv.URL)
+	defer nodes.SetLinearAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "li5", Type: models.NodeTypeAction, Template: "linear",
+		Secrets: map[string]string{"linearOAuthAccessToken": "oauth-derived-token", "linearAPIKey": "manual-key-should-be-ignored"},
+		Config:  map[string]string{"linearTeamID": "team123"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"flaky test in CI"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "linear_issue_created" {
+		t.Errorf("want 'linear_issue_created', got %v", result)
+	}
+	if gotAuth != "Bearer oauth-derived-token" {
+		t.Errorf("want bearer auth with OAuth token, got %q", gotAuth)
+	}
+}
+
+func TestLinearAction_OAuthTokenFailsOnGraphQLErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":null,"errors":[{"message":"Entity not found: Team"}]}`))
+	}))
+	defer srv.Close()
+	nodes.SetLinearAPIBaseForTest(srv.URL)
+	defer nodes.SetLinearAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "li6", Type: models.NodeTypeAction, Template: "linear",
+		Secrets: map[string]string{"linearOAuthAccessToken": "oauth-derived-token"},
+		Config:  map[string]string{"linearTeamID": "bad-team"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"test message"`))
+	_, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err == nil {
+		t.Fatal("want error on GraphQL-level failure returned with HTTP 200 via the OAuth path, got nil")
+	}
+}
+
 func TestGitLabAction_CreatesIssue(t *testing.T) {
 	var gotPath, gotToken string
 	var gotBody map[string]any
