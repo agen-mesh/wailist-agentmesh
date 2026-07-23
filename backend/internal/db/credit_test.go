@@ -33,7 +33,7 @@ func TestCreditTransactionLifecycle(t *testing.T) {
 		t.Fatalf("want %d got %d", wantMicros, txn.CreditUSDMicros)
 	}
 
-	credited, applied, err := store.CompleteCreditTransaction(ctx, orderID, "pay_test_1")
+	credited, applied, err := store.CompleteCreditTransaction(ctx, "razorpay", orderID, "pay_test_1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestCreditTransactionLifecycle(t *testing.T) {
 	}
 
 	// Replay must not double-credit, and must report applied=false.
-	credited2, applied2, err := store.CompleteCreditTransaction(ctx, orderID, "pay_test_1")
+	credited2, applied2, err := store.CompleteCreditTransaction(ctx, "razorpay", orderID, "pay_test_1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestRefundCreditTransactionFullRefundReversesBalance(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantMicros := int64(50000.0 / 100.0 * 0.012 * 1e6)
-	if _, _, err := store.CompleteCreditTransaction(ctx, orderID, "pay_refund_test"); err != nil {
+	if _, _, err := store.CompleteCreditTransaction(ctx, "razorpay", orderID, "pay_refund_test"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -150,7 +150,7 @@ func TestCompleteCreditTransactionCannotDoubleDipAfterRefund(t *testing.T) {
 	if _, err := store.CreateCreditTransaction(ctx, user.ID, orderID, 50000, 0.012); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := store.CompleteCreditTransaction(ctx, orderID, "pay_doubledip_test"); err != nil {
+	if _, _, err := store.CompleteCreditTransaction(ctx, "razorpay", orderID, "pay_doubledip_test"); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := store.RefundCreditTransaction(ctx, orderID, 50000); err != nil {
@@ -168,7 +168,7 @@ func TestCompleteCreditTransactionCannotDoubleDipAfterRefund(t *testing.T) {
 	// Replaying the same completion (e.g. a re-delivered webhook, or the signed verify
 	// payload replayed by an attacker) must not re-credit — the user already got their
 	// money back via the refund.
-	_, applied, err := store.CompleteCreditTransaction(ctx, orderID, "pay_doubledip_test")
+	_, applied, err := store.CompleteCreditTransaction(ctx, "razorpay", orderID, "pay_doubledip_test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestRefundCreditTransactionPartialRefundReversesProportionally(t *testing.T
 	if _, err := store.CreateCreditTransaction(ctx, user.ID, orderID, 100000, 0.012); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := store.CompleteCreditTransaction(ctx, orderID, "pay_partial_refund_test"); err != nil {
+	if _, _, err := store.CompleteCreditTransaction(ctx, "razorpay", orderID, "pay_partial_refund_test"); err != nil {
 		t.Fatal(err)
 	}
 

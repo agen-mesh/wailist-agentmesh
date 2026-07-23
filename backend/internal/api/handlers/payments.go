@@ -104,7 +104,7 @@ func (d *Deps) VerifyRazorpayPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	creditedMicros, applied, err := d.Store.CompleteCreditTransaction(r.Context(), body.OrderID, body.PaymentID)
+	creditedMicros, applied, err := d.Store.CompleteCreditTransaction(r.Context(), "razorpay", body.OrderID, body.PaymentID)
 	if errors.Is(err, db.ErrCreditTransactionNotFound) {
 		respond.Error(w, http.StatusBadRequest, "unknown order")
 		return
@@ -176,7 +176,7 @@ func (d *Deps) RazorpayWebhook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		creditedMicros, applied, err := d.Store.CompleteCreditTransaction(r.Context(), orderID, paymentID)
+		creditedMicros, applied, err := d.Store.CompleteCreditTransaction(r.Context(), "razorpay", orderID, paymentID)
 		if err != nil {
 			if errors.Is(err, db.ErrCreditTransactionNotFound) {
 				// A 4xx here tells Razorpay to stop retrying — this order will never exist,

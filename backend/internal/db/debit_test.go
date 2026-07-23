@@ -23,7 +23,7 @@ func fundUser(t *testing.T, store *db.Store, userID string, micros int64) {
 	if _, err := store.CreateCreditTransaction(ctx, userID, orderID, 100, fxRate); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := store.CompleteCreditTransaction(ctx, orderID, "pay_"+orderID); err != nil {
+	if _, _, err := store.CompleteCreditTransaction(ctx, "razorpay", orderID, "pay_"+orderID); err != nil {
 		t.Fatal(err)
 	}
 }
