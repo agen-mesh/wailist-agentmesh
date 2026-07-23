@@ -56,13 +56,15 @@ type ConnectorOAuthConfig struct {
 
 	// PostExchangeHook, when non-nil, runs once right after a successful
 	// token exchange and its returned map is merged into the node's Config
-	// alongside the token linkConnectorToken already writes. Only Jira needs
-	// this today: its access token isn't directly usable against any URL
-	// derivable from config the user typed in (unlike every other provider
-	// here) — it first requires a separate authenticated call to discover
-	// the cloudId to address the Jira REST API through
-	// api.atlassian.com/ex/jira/{cloudId}/. Left nil for every provider that
-	// doesn't need an extra post-exchange call.
+	// alongside the token linkConnectorToken already writes. Jira and
+	// Mailchimp need this: neither one's access token is directly usable
+	// against any URL derivable from config the user typed in (unlike every
+	// other provider here) — each first requires a separate authenticated
+	// call to discover, respectively, the cloudId to address the Jira REST
+	// API through api.atlassian.com/ex/jira/{cloudId}/, or the dc
+	// (datacenter) suffix to address Mailchimp's API through
+	// {dc}.api.mailchimp.com. Left nil for every provider that doesn't need
+	// an extra post-exchange call.
 	PostExchangeHook func(ctx context.Context, accessToken string) (map[string]string, error)
 }
 
@@ -262,6 +264,31 @@ func (d *Deps) registerConnectorProviders() map[string]ConnectorOAuthConfig {
 	out["linear"] = ConnectorOAuthConfig{
 		AuthURL: "https://linear.app/oauth/authorize", TokenURL: "https://api.linear.app/oauth/token",
 		Scope: "issues:create", ClientIDEnvVal: d.LinearClientID, ClientSecretEnvVal: d.LinearClientSecret,
+	}
+	// mailchimp.com/developer/marketing/guides/access-user-data-oauth-2/:
+	// Mailchimp has no scope concept (consent is account-wide) and no PKCE, and
+	// its token endpoint takes client_id/client_secret as regular form-body
+	// fields (no TokenAuthStyle needed) — same shape as Slack/GitHub/HubSpot/
+	// Asana/ClickUp/Linear above.
+	//
+	// Mailchimp's OAuth access token isn't usable directly against any
+	// derivable API host the way sendMailchimp's manual-key path works —
+	// manual keys embed their datacenter suffix directly (<key>-<dc>), but an
+	// OAuth token carries no such suffix. It must instead be sent, once right
+	// after exchange, to https://login.mailchimp.com/oauth2/metadata, whose
+	// JSON response's dc field gives the same suffix. PostExchangeHook (see
+	// its doc comment) carries that lookup and writes its result into
+	// node.Config["mailchimpOAuthDC"], same shape as Jira's cloudId lookup
+	// above.
+	//
+	// No KNOWN GAP here: per the same docs, "Mailchimp Marketing access
+	// tokens do not expire, so you don't need to use a refresh_token" — no
+	// refresh_token is even issued, unlike Airtable/HubSpot/Asana/Linear
+	// above, so there is no refresh gap to document for this connector.
+	out["mailchimp"] = ConnectorOAuthConfig{
+		AuthURL: "https://login.mailchimp.com/oauth2/authorize", TokenURL: "https://login.mailchimp.com/oauth2/token",
+		PostExchangeHook: mailchimpPostExchangeHook,
+		ClientIDEnvVal:   d.MailchimpClientID, ClientSecretEnvVal: d.MailchimpClientSecret,
 	}
 	for name, url := range connectorTokenURLOverridesForTest {
 		if cfg, ok := out[name]; ok {
@@ -679,6 +706,60 @@ func jiraPostExchangeHook(ctx context.Context, accessToken string) (map[string]s
 		return nil, fmt.Errorf("jira: token has no accessible resources")
 	}
 	return map[string]string{"jiraOAuthCloudID": resources[0].ID}, nil
+}
+
+// mailchimpMetadataURL is overridden in tests via
+// SetMailchimpMetadataURLForTest, mirroring jiraAccessibleResourcesURL's role
+// for Jira — so a test can drive the real "mailchimp" registry entry's
+// PostExchangeHook against a local fake server instead of the real
+// login.mailchimp.com host.
+var mailchimpMetadataURL = "https://login.mailchimp.com/oauth2/metadata"
+
+// SetMailchimpMetadataURLForTest overrides the metadata lookup URL. Call only
+// from tests. Pass "" to reset to the real endpoint.
+func SetMailchimpMetadataURLForTest(u string) {
+	if u == "" {
+		mailchimpMetadataURL = "https://login.mailchimp.com/oauth2/metadata"
+	} else {
+		mailchimpMetadataURL = u
+	}
+}
+
+// mailchimpPostExchangeHook calls the metadata endpoint with the
+// just-exchanged token and returns its dc (datacenter) field, keyed the same
+// way sendMailchimp (connectors_data.go) reads it back out of node.Config.
+// The metadata endpoint takes the access token via a literal "OAuth <token>"
+// Authorization scheme, not the "Bearer <token>" every other provider in this
+// registry uses — confirmed against Mailchimp's own docs, not a guess.
+func mailchimpPostExchangeHook(ctx context.Context, accessToken string) (map[string]string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, mailchimpMetadataURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "OAuth "+accessToken)
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	var meta struct {
+		DC string `json:"dc"`
+	}
+	if err := json.Unmarshal(body, &meta); err != nil {
+		return nil, err
+	}
+	if meta.DC == "" {
+		return nil, fmt.Errorf("mailchimp: metadata response has no dc")
+	}
+	return map[string]string{"mailchimpOAuthDC": meta.DC}, nil
 }
 
 func randURLSafe(n int) (string, error) {

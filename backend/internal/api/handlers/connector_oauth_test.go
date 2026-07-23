@@ -702,3 +702,150 @@ func TestConnectorOAuthJiraLinkFailsWhenAccessibleResourcesLookupFails(t *testin
 		t.Fatal("expected no token to be persisted when the post-exchange hook fails")
 	}
 }
+
+// TestConnectorOAuthMailchimpLinkStoresOAuthDC exercises the real, registered
+// "mailchimp" provider entry end-to-end through ConnectorOAuthStart/
+// ConnectorOAuthCallback, proving its PostExchangeHook calls the metadata
+// endpoint and writes the returned dc into node.Config, same shape as Jira's
+// cloudId test above.
+func TestConnectorOAuthMailchimpLinkStoresOAuthDC(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"access_token":"fake-mailchimp-access-token"}`))
+	}))
+	defer provider.Close()
+
+	var gotAuth string
+	metadata := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"dc":"us21"}`))
+	}))
+	defer metadata.Close()
+
+	handlers.SetConnectorTokenURLForTest("mailchimp", provider.URL+"/token")
+	defer handlers.ClearConnectorTokenURLForTest("mailchimp")
+	handlers.SetMailchimpMetadataURLForTest(metadata.URL)
+	defer handlers.SetMailchimpMetadataURLForTest("")
+
+	store := testStore(t)
+	d := &handlers.Deps{
+		Store: store, JWTSecret: "test-jwt-secret-not-for-production-use-only-32b", BaseURL: "https://example.test", EncryptionKey: "00000000000000000000000000000000",
+		MailchimpClientID: "test-mailchimp-client-id", MailchimpClientSecret: "test-mailchimp-client-secret",
+	}
+
+	userID, workflowID, nodeID := setupConnectorTestFixtures(t, store)
+
+	startReq := httptest.NewRequest(http.MethodGet, "/connectors/oauth/mailchimp/start?workflowId="+workflowID+"&nodeId="+nodeID, nil)
+	startReq = startReq.WithContext(context.WithValue(startReq.Context(), handlers.CtxUserID, userID))
+	startReq = withURLParam(startReq, "provider", "mailchimp")
+	startRec := httptest.NewRecorder()
+	d.ConnectorOAuthStart(startRec, startReq)
+
+	if startRec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d, body=%s", startRec.Code, http.StatusFound, startRec.Body.String())
+	}
+	loc, err := url.Parse(startRec.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := loc.Query().Get("state")
+	stateCookie := startRec.Result().Cookies()[0]
+
+	cbReq := httptest.NewRequest(http.MethodGet, "/connectors/oauth/mailchimp/callback?code=the-auth-code&state="+url.QueryEscape(state), nil)
+	cbReq = cbReq.WithContext(context.WithValue(cbReq.Context(), handlers.CtxUserID, userID))
+	cbReq = withURLParam(cbReq, "provider", "mailchimp")
+	cbReq.AddCookie(stateCookie)
+	cbRec := httptest.NewRecorder()
+
+	d.ConnectorOAuthCallback(cbRec, cbReq)
+
+	if cbRec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d, body=%s", cbRec.Code, http.StatusFound, cbRec.Body.String())
+	}
+	if gotAuth != "OAuth fake-mailchimp-access-token" {
+		t.Fatalf("metadata Authorization header = %q, want literal OAuth scheme", gotAuth)
+	}
+
+	wf, err := store.GetWorkflow(context.Background(), workflowID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var node models.WorkflowNode
+	for _, n := range wf.Nodes {
+		if n.ID == nodeID {
+			node = n
+		}
+	}
+	if node.Secrets["mailchimpOAuthAccessToken"] == "" {
+		t.Fatal("expected mailchimpOAuthAccessToken to be set after a successful exchange")
+	}
+	if node.Config["mailchimpOAuthDC"] != "us21" {
+		t.Fatalf("mailchimpOAuthDC = %q, want %q", node.Config["mailchimpOAuthDC"], "us21")
+	}
+}
+
+// TestConnectorOAuthMailchimpLinkFailsWhenMetadataLookupFails proves the whole
+// link is rejected (no partial state written) when the post-exchange metadata
+// call itself fails, same shape as Jira's equivalent failure test above.
+func TestConnectorOAuthMailchimpLinkFailsWhenMetadataLookupFails(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"access_token":"fake-mailchimp-access-token"}`))
+	}))
+	defer provider.Close()
+
+	metadata := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	}))
+	defer metadata.Close()
+
+	handlers.SetConnectorTokenURLForTest("mailchimp", provider.URL+"/token")
+	defer handlers.ClearConnectorTokenURLForTest("mailchimp")
+	handlers.SetMailchimpMetadataURLForTest(metadata.URL)
+	defer handlers.SetMailchimpMetadataURLForTest("")
+
+	store := testStore(t)
+	d := &handlers.Deps{
+		Store: store, JWTSecret: "test-jwt-secret-not-for-production-use-only-32b", BaseURL: "https://example.test", EncryptionKey: "00000000000000000000000000000000",
+		MailchimpClientID: "test-mailchimp-client-id", MailchimpClientSecret: "test-mailchimp-client-secret",
+	}
+
+	userID, workflowID, nodeID := setupConnectorTestFixtures(t, store)
+
+	startReq := httptest.NewRequest(http.MethodGet, "/connectors/oauth/mailchimp/start?workflowId="+workflowID+"&nodeId="+nodeID, nil)
+	startReq = startReq.WithContext(context.WithValue(startReq.Context(), handlers.CtxUserID, userID))
+	startReq = withURLParam(startReq, "provider", "mailchimp")
+	startRec := httptest.NewRecorder()
+	d.ConnectorOAuthStart(startRec, startReq)
+	state := mustParseLocationState(t, startRec.Header().Get("Location"))
+	stateCookie := startRec.Result().Cookies()[0]
+
+	cbReq := httptest.NewRequest(http.MethodGet, "/connectors/oauth/mailchimp/callback?code=the-auth-code&state="+url.QueryEscape(state), nil)
+	cbReq = cbReq.WithContext(context.WithValue(cbReq.Context(), handlers.CtxUserID, userID))
+	cbReq = withURLParam(cbReq, "provider", "mailchimp")
+	cbReq.AddCookie(stateCookie)
+	cbRec := httptest.NewRecorder()
+
+	d.ConnectorOAuthCallback(cbRec, cbReq)
+
+	loc := cbRec.Header().Get("Location")
+	if !strings.Contains(loc, "connectError=") {
+		t.Fatalf("expected redirect to carry a connectError when the metadata lookup fails, got %q", loc)
+	}
+
+	wf, err := store.GetWorkflow(context.Background(), workflowID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var node models.WorkflowNode
+	for _, n := range wf.Nodes {
+		if n.ID == nodeID {
+			node = n
+		}
+	}
+	if node.Secrets["mailchimpOAuthAccessToken"] != "" {
+		t.Fatal("expected no token to be persisted when the post-exchange hook fails")
+	}
+}
