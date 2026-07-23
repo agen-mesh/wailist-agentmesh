@@ -1389,6 +1389,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   airtable: {
     label: "Airtable config",
+    oauthProvider: "airtable",
     fields: [
       {
         kind: "secret",
