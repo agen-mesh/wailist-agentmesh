@@ -2,8 +2,10 @@ package db_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/agentmesh/backend/internal/db"
 )
@@ -26,7 +28,8 @@ func TestRecordInboundSettlementThenOutbound(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	row, err := store.RecordInboundSettlement(ctx, "https://example.com/paid", "INBOUND-TX-1", 100000)
+	inboundTxID := fmt.Sprintf("INBOUND-TX-1-%d", time.Now().UnixNano())
+	row, err := store.RecordInboundSettlement(ctx, "https://example.com/paid", inboundTxID, 100000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,10 +46,11 @@ func TestRecordInboundSettlementRejectsReplay(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	if _, err := store.RecordInboundSettlement(ctx, "https://example.com/paid", "INBOUND-TX-REPLAY", 100000); err != nil {
+	inboundTxID := fmt.Sprintf("INBOUND-TX-REPLAY-%d", time.Now().UnixNano())
+	if _, err := store.RecordInboundSettlement(ctx, "https://example.com/paid", inboundTxID, 100000); err != nil {
 		t.Fatal(err)
 	}
-	_, err := store.RecordInboundSettlement(ctx, "https://example.com/paid", "INBOUND-TX-REPLAY", 100000)
+	_, err := store.RecordInboundSettlement(ctx, "https://example.com/paid", inboundTxID, 100000)
 	if err != db.ErrDuplicateSettlement {
 		t.Fatalf("want ErrDuplicateSettlement, got %v", err)
 	}
