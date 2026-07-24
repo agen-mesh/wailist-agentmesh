@@ -1,6 +1,5 @@
 "use client";
 import { useState } from "react";
-import { RazorpayCheckoutButton } from "@/components/billing/RazorpayCheckoutButton";
 import { PurchaseHistory } from "@/components/billing/PurchaseHistory";
 import { LowBalanceBanner } from "@/components/billing/LowBalanceBanner";
 import { AutoRechargeSettings } from "@/components/billing/AutoRechargeSettings";
@@ -13,7 +12,6 @@ const PRESETS_INR_PAISE = [10000, 50000, 100000, 200000]; // ₹100, ₹500, ₹
 export default function BillingPage() {
   const [amountPaise, setAmountPaise] = useState(PRESETS_INR_PAISE[1]);
   const [customINR, setCustomINR] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const { lastPurchase } = useCredits();
 
@@ -32,6 +30,8 @@ export default function BillingPage() {
     Number.isFinite(effectiveAmountPaise) && effectiveAmountPaise >= 100
       ? effectiveAmountPaise / 100
       : 0;
+
+  const canCheckout = checkoutAmountINR > 0;
 
   return (
     <div style={{ maxWidth: 480, margin: "48px auto", padding: 24 }}>
@@ -52,12 +52,13 @@ export default function BillingPage() {
             style={{
               height: 32,
               padding: "0 12px",
-              borderRadius: 6,
+              borderRadius: "var(--r-2)",
               border:
                 amountPaise === p && !customINR
                   ? "1px solid var(--accent)"
                   : "1px solid var(--border)",
               background: "transparent",
+              color: "var(--fg)",
               cursor: "pointer",
             }}
           >
@@ -91,8 +92,10 @@ export default function BillingPage() {
           width: "100%",
           height: 36,
           padding: "0 12px",
-          borderRadius: 6,
+          borderRadius: "var(--r-2)",
           border: "1px solid var(--border)",
+          background: "var(--bg)",
+          color: "var(--fg)",
           marginBottom: 16,
         }}
       />
@@ -118,50 +121,28 @@ export default function BillingPage() {
         </button>
       )}
 
-      <div
+      <button
+        type="button"
+        onClick={() => setCheckoutOpen(true)}
+        disabled={!canCheckout}
         style={{
-          display: "flex",
-          gap: 12,
-          alignItems: "center",
-          marginTop: 24,
+          width: "100%",
+          height: 44,
+          marginTop: 8,
+          borderRadius: "var(--r-2)",
+          border: "1px solid var(--accent-line)",
+          background: "var(--accent)",
+          color: "var(--accent-fg)",
+          fontSize: 14,
+          fontWeight: 600,
+          cursor: canCheckout ? "pointer" : "default",
+          opacity: canCheckout ? 1 : 0.5,
         }}
       >
-        {effectiveAmountPaise >= 100 ? (
-          <RazorpayCheckoutButton
-            amountINRPaise={effectiveAmountPaise}
-            onSuccess={(credited) =>
-              setMessage(`Credited $${(credited / 1e6).toFixed(2)}`)
-            }
-            onError={(err) => setMessage(`Error: ${err}`)}
-          />
-        ) : (
-          <p style={{ color: "var(--danger)", fontSize: 13 }}>
-            Minimum amount is ₹1
-          </p>
-        )}
-
-        <button
-          type="button"
-          onClick={() => setCheckoutOpen(true)}
-          disabled={checkoutAmountINR <= 0}
-          style={{
-            height: 36,
-            padding: "0 16px",
-            borderRadius: "var(--r-2)",
-            border: "1px solid var(--border-strong)",
-            background: "transparent",
-            color: "var(--fg-muted)",
-            fontSize: 13,
-            fontWeight: 500,
-            cursor: checkoutAmountINR <= 0 ? "default" : "pointer",
-            opacity: checkoutAmountINR <= 0 ? 0.5 : 1,
-          }}
-        >
-          Open checkout
-        </button>
-      </div>
-
-      {message && <p style={{ marginTop: 16, fontSize: 13 }}>{message}</p>}
+        {canCheckout
+          ? `Continue to checkout · ₹${checkoutAmountINR.toFixed(2)}`
+          : "Enter an amount of ₹1 or more"}
+      </button>
 
       <PurchaseHistory onBuyAgain={openCheckoutFor} />
 
