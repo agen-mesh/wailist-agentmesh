@@ -282,6 +282,14 @@ func TestExpireStalePendingTransactions(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The sweep is table-wide and this package's tests share one database with
+	// no per-test cleanup, so expire any pending rows left by other tests first.
+	// Otherwise a leftover 'pending' row can be caught by the sweeps below and
+	// throw off the counts (flaky second-sweep failure).
+	if _, err := store.ExpireStalePendingTransactions(ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+
 	orderID := fmt.Sprintf("order_expire_%d", time.Now().UnixNano())
 	if _, err := store.CreateCreditTransaction(ctx, user.ID, orderID, 10000, 0.012); err != nil {
 		t.Fatal(err)
@@ -296,7 +304,9 @@ func TestExpireStalePendingTransactions(t *testing.T) {
 		t.Fatalf("want 0 rows expired (too fresh), got %d", n)
 	}
 
-	// A near-zero threshold makes the row qualify as stale.
+	// A near-zero threshold makes the row qualify as stale. Sleep first so the
+	// row is reliably older than the 1ms threshold (avoids a timing flake).
+	time.Sleep(5 * time.Millisecond)
 	n2, err := store.ExpireStalePendingTransactions(ctx, time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
