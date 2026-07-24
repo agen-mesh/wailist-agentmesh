@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useCredits } from "@/lib/credits/store";
+import { LowBalanceBanner } from "@/components/billing/LowBalanceBanner";
 import {
   Logo,
   Pill,
@@ -163,6 +165,9 @@ export function UsagePage() {
           testnet
         </Pill>
         <div style={{ flex: 1 }} />
+        <button style={ghostBtnSm} onClick={() => router.push("/billing")}>
+          Credits
+        </button>
         <button
           style={{
             ...ghostBtnSm,
@@ -330,6 +335,7 @@ export function UsagePage() {
               onRangeChange={changeRange}
               scopedWf={scopedWf}
               onOpenWorkflow={(id) => router.push(`/workflows/${id}`)}
+              onTopUp={() => router.push("/billing")}
               loading={loading}
             />
           )}
@@ -345,6 +351,7 @@ function UsageBody({
   onRangeChange,
   scopedWf,
   onOpenWorkflow,
+  onTopUp,
   loading,
 }: {
   data: UsagePayload;
@@ -352,9 +359,11 @@ function UsageBody({
   onRangeChange: (r: UsageRange) => void;
   scopedWf: string | null;
   onOpenWorkflow: (id: string) => void;
+  onTopUp: () => void;
   loading: boolean;
 }) {
   const { timeseries, byWorkflow, byEndpoint, settlements } = data;
+  const { balanceUSD } = useCredits();
 
   const workflows = scopedWf
     ? byWorkflow.filter((w) => w.workflowId === scopedWf)
@@ -379,6 +388,7 @@ function UsageBody({
 
   return (
     <div style={{ opacity: loading ? 0.6 : 1, transition: "opacity .15s" }}>
+      <LowBalanceBanner onTopUp={onTopUp} />
       {/* Header row above the Endpoints table: credits left (left) mirrors the range selector (right).
           Keep the empty headspace above it — content starts low on the page. */}
       <div
@@ -403,11 +413,17 @@ function UsageBody({
         >
           {(() => {
             const b = data.summary.budget;
-            const left = b ? b.limit - b.used : null;
+            // "Credits left" is the prepaid wallet — the same single source the
+            // billing page shows — so the two pages always agree. The box works
+            // in ALGO and converts to USD at display (compactUsd × rate), so
+            // convert the USD wallet balance back to ALGO here. The mock plan
+            // allowance (b.limit) is used only as the progress-bar reference; it
+            // is never added to the figure.
+            const walletAlgo = balanceUSD / ALGO_USD;
+            const left = balanceUSD > 0 || b ? walletAlgo : null;
+            const limit = b ? b.limit : 0;
             const pctLeft =
-              b && b.limit > 0
-                ? Math.max(0, Math.min(1, (b.limit - b.used) / b.limit))
-                : null;
+              limit > 0 ? Math.max(0, Math.min(1, walletAlgo / limit)) : null;
             const tone =
               pctLeft == null
                 ? "var(--accent)"
@@ -433,9 +449,11 @@ function UsageBody({
                 }}
               >
                 <button
+                  type="button"
                   className="credit-topup"
                   aria-label="Credit top-up"
                   title="Credit top-up"
+                  onClick={onTopUp}
                 >
                   <svg
                     width="15"
