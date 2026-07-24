@@ -5,9 +5,10 @@ import type { PaymentMethod } from "@/components/checkout/types";
 import { gstBreakdown } from "@/lib/credits/fx";
 
 const METHOD_LABELS: Record<PaymentMethod, string> = {
-  card: "Credit card",
-  paypal: "Paypal",
-  cod: "Cash on delivery",
+  razorpay: "Razorpay",
+  nowpayments: "NOWPayments",
+  paypal: "PayPal",
+  stripe: "Stripe",
 };
 
 const dateFmt = new Intl.DateTimeFormat("en", {
