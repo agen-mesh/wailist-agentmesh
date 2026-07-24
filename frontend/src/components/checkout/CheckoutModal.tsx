@@ -15,7 +15,9 @@ import { PaymentInfoPanel } from "./PaymentInfoPanel";
 // the dialog as a flex column so its body scrolls, and the responsive collapse
 // of the two-column layout on narrow viewports.
 const DIALOG_CSS = `
-.checkout-dialog { display: flex; flex-direction: column; max-height: 90vh; }
+/* margin:auto re-centres the modal — Tailwind's preflight resets the native
+   dialog's default centring margin, which otherwise pins it to the top-left. */
+.checkout-dialog { display: flex; flex-direction: column; max-height: 90vh; margin: auto; }
 .checkout-dialog[open] { animation: checkout-in 0.24s var(--ease); }
 .checkout-dialog::backdrop { background: rgba(8,7,12,0.7); backdrop-filter: blur(4px); }
 .checkout-split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; }

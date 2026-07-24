@@ -20,7 +20,18 @@ const dateFmt = new Intl.DateTimeFormat("en", {
 // legible on paper, so print inverts the receipt to black-on-white and hides
 // everything else on the page.
 const RECEIPT_CSS = `
+/* margin:auto re-centres the modal — Tailwind's preflight resets the native
+   dialog's default centring margin, which otherwise pins it to the top-left. */
+.receipt-dialog { margin: auto; }
+.receipt-dialog[open] { animation: receipt-in 0.22s var(--ease); }
 .receipt-dialog::backdrop { background: rgba(8,7,12,0.7); backdrop-filter: blur(4px); }
+@keyframes receipt-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .receipt-dialog[open] { animation: none; }
+}
 @media print {
   body > *:not(.receipt-dialog) { display: none !important; }
   .receipt-dialog { position: static !important; box-shadow: none !important; border: none !important; }
