@@ -24,18 +24,23 @@ export function useRazorpayCheckout({
   onError: (message: string) => void;
   onDismiss?: () => void;
 }) {
-  const [ready, setReady] = useState(false);
+  // Initialise from whether the script is already present so we never need a
+  // synchronous setState in the effect for the already-loaded case.
+  const [ready, setReady] = useState(
+    () => typeof window !== "undefined" && !!window.Razorpay,
+  );
   const [loading, setLoading] = useState(false);
-  // Keep callbacks fresh without re-creating `pay` on every parent render.
+
+  // Keep the latest callbacks in a ref without re-creating `pay` every render.
+  // Written in an effect (not during render) so it satisfies react-hooks rules.
   const cbs = useRef({ onSuccess, onError, onDismiss });
-  cbs.current = { onSuccess, onError, onDismiss };
+  useEffect(() => {
+    cbs.current = { onSuccess, onError, onDismiss };
+  });
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.Razorpay) {
-      setReady(true);
-      return;
-    }
+    // Nothing to load on the server or when the script is already available.
+    if (typeof window === "undefined" || window.Razorpay) return;
     const onLoad = () => setReady(true);
     const onErr = () => cbs.current.onError("payment script failed to load");
     let script = document.querySelector<HTMLScriptElement>(
