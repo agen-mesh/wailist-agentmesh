@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -650,4 +651,46 @@ func (s *Store) ListDebitLedger(ctx context.Context, runID string) ([]models.Deb
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// --- X402 Relay Settlement methods ---
+
+// ErrDuplicateSettlement is returned when an inbound settlement's txid has already
+// been recorded — a replayed X-PAYMENT payload must never be processed twice.
+var ErrDuplicateSettlement = errors.New("duplicate settlement txid")
+
+func (s *Store) RecordInboundSettlement(ctx context.Context, targetURL, inboundTxID string, amountAssetMicros int64) (models.X402RelaySettlement, error) {
+	var row models.X402RelaySettlement
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO x402_relay_settlements (target_url, inbound_tx_id, amount_asset_micros)
+		VALUES ($1, $2, $3)
+		RETURNING id, target_url, inbound_tx_id, outbound_tx_id, amount_asset_micros, status, created_at
+	`, targetURL, inboundTxID, amountAssetMicros).Scan(
+		&row.ID, &row.TargetURL, &row.InboundTxID, &row.OutboundTxID, &row.AmountAssetMicros, &row.Status, &row.CreatedAt,
+	)
+	if err != nil && strings.Contains(err.Error(), "duplicate key value") {
+		return models.X402RelaySettlement{}, ErrDuplicateSettlement
+	}
+	return row, err
+}
+
+func (s *Store) RecordOutboundSettlement(ctx context.Context, id, outboundTxID, status string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE x402_relay_settlements SET outbound_tx_id = $2, status = $3 WHERE id = $1
+	`, id, outboundTxID, status)
+	return err
+}
+
+// GetX402RelaySettlementByInboundTx looks up a relay ledger row by its
+// inbound settlement tx id — used to verify what was actually recorded
+// (e.g. the settled amount) after a relay flow completes.
+func (s *Store) GetX402RelaySettlementByInboundTx(ctx context.Context, inboundTxID string) (models.X402RelaySettlement, error) {
+	var row models.X402RelaySettlement
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, target_url, inbound_tx_id, outbound_tx_id, amount_asset_micros, status, created_at
+		FROM x402_relay_settlements WHERE inbound_tx_id = $1
+	`, inboundTxID).Scan(
+		&row.ID, &row.TargetURL, &row.InboundTxID, &row.OutboundTxID, &row.AmountAssetMicros, &row.Status, &row.CreatedAt,
+	)
+	return row, err
 }

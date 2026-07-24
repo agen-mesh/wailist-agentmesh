@@ -16,6 +16,7 @@ import (
 	"github.com/agentmesh/backend/internal/payments"
 	"github.com/agentmesh/backend/internal/sse"
 	"github.com/agentmesh/backend/internal/wallet"
+	"github.com/agentmesh/backend/internal/x402"
 )
 
 func main() {
@@ -38,6 +39,22 @@ func main() {
 		envOr("ALGORAND_NETWORK", "testnet"),
 	)
 
+	platformWalletAddr := os.Getenv("PLATFORM_WALLET_ADDRESS")
+	platformWalletEncMnemonic := os.Getenv("PLATFORM_WALLET_ENC_MNEMONIC")
+	if platformWalletAddr == "" || platformWalletEncMnemonic == "" {
+		log.Fatal("PLATFORM_WALLET_ADDRESS and PLATFORM_WALLET_ENC_MNEMONIC must both be set — the platform wallet's payTo address must stay fixed for the whole competition, so it is provisioned once out-of-band, never auto-generated at startup")
+	}
+
+	usdcAssetID := uint64(10458941) // testnet default
+	relayNetwork := "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=" // testnet default
+	relayFeePayer := "ZMFK2OI7ZBD2U27ISERZC4S6LKM6WMFJPZQ4MYNJDZ2VNBNMBA67RA22AA"
+	if envOr("ALGORAND_NETWORK", "testnet") == "mainnet" {
+		usdcAssetID = 31566704
+		relayNetwork = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="
+	}
+
+	facilitatorClient := x402.NewFacilitatorClient(envOr("FACILITATOR_URL", "https://facilitator.goplausible.xyz"))
+
 	razorpayClient := payments.NewRazorpayClient(mustEnv("RAZORPAY_KEY_ID"), mustEnv("RAZORPAY_KEY_SECRET"), mustEnv("RAZORPAY_WEBHOOK_SECRET"))
 
 	nowPaymentsClient := payments.NewNOWPaymentsClient(mustEnv("NOWPAYMENTS_API_KEY"), mustEnv("NOWPAYMENTS_IPN_SECRET"))
@@ -45,7 +62,7 @@ func main() {
 		nowPaymentsClient.UseSandbox()
 	}
 
-	runner := engine.NewRunner(store, broker, walletSvc)
+	runner := engine.NewRunner(store, broker, walletSvc, envOr("BASE_URL", "http://localhost:8080"))
 
 	go expireStalePendingTransactionsLoop(ctx, store)
 
@@ -67,6 +84,14 @@ func main() {
 		Razorpay:      razorpayClient,
 		RazorpayKeyID: razorpayClient.KeyID,
 		NOWPayments:   nowPaymentsClient,
+
+		PlatformWalletAddress:     platformWalletAddr,
+		PlatformWalletEncMnemonic: platformWalletEncMnemonic,
+		FacilitatorClient:         facilitatorClient,
+		USDCAssetID:               usdcAssetID,
+		RelayNetwork:              relayNetwork,
+		RelayFeePayer:             relayFeePayer,
+		USDCSigner:                walletSvc,
 	}
 
 	r := api.NewRouter(deps)

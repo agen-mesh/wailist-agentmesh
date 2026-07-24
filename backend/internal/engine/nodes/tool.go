@@ -131,6 +131,24 @@ func callHTTP(ctx context.Context, node models.WorkflowNode, rc RunContexter) (a
 	return string(b), nil
 }
 
+// ValidateURL rejects non-http(s) schemes and userinfo — the same guard
+// used before every tool node HTTP call. Exported so other packages (e.g.
+// the x402 relay handler) that fetch a caller-supplied URL can apply the
+// identical scheme/userinfo check before making an outbound request.
+func ValidateURL(raw string) error {
+	return validateURL(raw)
+}
+
+// SafeHTTPClient returns the shared http.Client whose Transport re-resolves
+// and blocks private/internal IPs at dial time (defeating DNS rebinding) and
+// re-validates every redirect hop. Exported so other packages that fetch a
+// caller-supplied URL (e.g. the x402 relay handler) reuse the same SSRF
+// protection as tool node HTTP execution, rather than making an unguarded
+// request with http.DefaultClient.
+func SafeHTTPClient() *http.Client {
+	return toolHTTPClient
+}
+
 // validateURL rejects non-http(s) schemes and userinfo.
 // IP-level SSRF blocking happens at dial time via dialAndValidate.
 func validateURL(raw string) error {

@@ -18,18 +18,20 @@ import (
 )
 
 type Runner struct {
-	store     *db.Store
-	broker    *sse.Broker
-	walletSvc nodes.WalletSigner
-	registry  *runRegistry
+	store        *db.Store
+	broker       *sse.Broker
+	walletSvc    nodes.WalletSigner
+	registry     *runRegistry
+	relayBaseURL string
 }
 
-func NewRunner(store *db.Store, broker *sse.Broker, walletSvc nodes.WalletSigner) *Runner {
+func NewRunner(store *db.Store, broker *sse.Broker, walletSvc nodes.WalletSigner, relayBaseURL string) *Runner {
 	return &Runner{
-		store:     store,
-		broker:    broker,
-		walletSvc: walletSvc,
-		registry:  newRunRegistry(),
+		store:        store,
+		broker:       broker,
+		walletSvc:    walletSvc,
+		registry:     newRunRegistry(),
+		relayBaseURL: relayBaseURL,
 	}
 }
 
@@ -292,7 +294,12 @@ func (r *Runner) executeNode(
 				}
 			}
 		}
-		result, err := nodes.ExecuteTool402(ctx, node, rc, aw, r.walletSvc)
+		// r.walletSvc's dynamic type (*wallet.Service) also satisfies
+		// USDCGroupSigner (Task 3); the assertion is nil-safe if a test double
+		// only implements WalletSigner, and ExecuteTool402V2 falls back to a
+		// graceful "no wallet configured" result rather than paying via relay.
+		usdcSigner, _ := r.walletSvc.(nodes.USDCGroupSigner)
+		result, err := nodes.ExecuteTool402V2(ctx, node, rc, aw, r.walletSvc, usdcSigner, r.relayBaseURL)
 		if err != nil {
 			return nil, err
 		}

@@ -8,6 +8,7 @@ import (
 	"github.com/agentmesh/backend/internal/payments"
 	"github.com/agentmesh/backend/internal/sse"
 	"github.com/agentmesh/backend/internal/wallet"
+	"github.com/agentmesh/backend/internal/x402"
 )
 
 type contextKey string
@@ -29,6 +30,14 @@ type NOWPaymentsClient interface {
 	VerifyIPNSignature(body []byte, signature string) bool
 }
 
+// USDCSigner builds a gasless USDC atomic-payment group for the X-Payment
+// header. Satisfied by *wallet.Service (SignUSDCPaymentGroup).
+type USDCSigner interface {
+	SignUSDCPaymentGroup(ctx context.Context, encMnemonic, payTo string, assetID, amountMicros uint64, feePayerAddr string) ([]string, int, error)
+}
+
+var _ USDCSigner = (*wallet.Service)(nil)
+
 type Deps struct {
 	Store         *db.Store
 	Broker        *sse.Broker
@@ -48,4 +57,12 @@ type Deps struct {
 	RazorpayKeyID string
 
 	NOWPayments NOWPaymentsClient
+
+	PlatformWalletAddress     string
+	PlatformWalletEncMnemonic string
+	FacilitatorClient         *x402.FacilitatorClient
+	USDCAssetID               uint64
+	RelayNetwork              string
+	RelayFeePayer             string
+	USDCSigner                USDCSigner
 }
