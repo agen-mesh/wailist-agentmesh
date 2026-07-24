@@ -413,16 +413,17 @@ function UsageBody({
         >
           {(() => {
             const b = data.summary.budget;
-            // Purchased credits (mock wallet) add to whatever the usage budget
-            // reports, so a top-up shows in "credits left" immediately. The box
-            // works in ALGO and converts to USD at display (compactUsd × rate),
-            // so convert the USD wallet balance back to ALGO before combining.
+            // "Credits left" is the prepaid wallet — the same single source the
+            // billing page shows — so the two pages always agree. The box works
+            // in ALGO and converts to USD at display (compactUsd × rate), so
+            // convert the USD wallet balance back to ALGO here. The mock plan
+            // allowance (b.limit) is used only as the progress-bar reference; it
+            // is never added to the figure.
             const walletAlgo = balanceUSD / ALGO_USD;
-            const remaining = (b ? b.limit - b.used : 0) + walletAlgo;
-            const left = b || balanceUSD > 0 ? remaining : null;
-            const limit = b ? b.limit + walletAlgo : 0;
+            const left = balanceUSD > 0 || b ? walletAlgo : null;
+            const limit = b ? b.limit : 0;
             const pctLeft =
-              limit > 0 ? Math.max(0, Math.min(1, remaining / limit)) : null;
+              limit > 0 ? Math.max(0, Math.min(1, walletAlgo / limit)) : null;
             const tone =
               pctLeft == null
                 ? "var(--accent)"
