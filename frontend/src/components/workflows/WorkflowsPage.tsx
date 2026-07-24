@@ -2,22 +2,19 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Logo,
   Pill,
   Tag,
-  Hairline,
   IconSearch,
   IconGrid,
   Card,
   ghostBtnSm,
 } from "@/components/ui";
+import { Topbar } from "@/components/Topbar";
 import { Workflow } from "@/lib/types";
-import { useAuth } from "@/hooks/useAuth";
 import { workflows as workflowsApi } from "@/lib/api";
 
 export function WorkflowsPage() {
   const router = useRouter();
-  const { signOut } = useAuth();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
   const [view, setView] = useState<"rows" | "grid">("rows");
@@ -55,11 +52,6 @@ export function WorkflowsPage() {
     }
   }, [creating, router]);
 
-  const handleSignOut = async () => {
-    await signOut();
-    router.push("/");
-  };
-
   const activeCount = wfList.filter((w) => w.status === "active").length;
 
   return (
@@ -72,63 +64,7 @@ export function WorkflowsPage() {
         background: "var(--bg)",
       }}
     >
-      {/* Topbar */}
-      <div
-        style={{
-          height: 56,
-          flexShrink: 0,
-          background: "var(--bg-elev-1)",
-          borderBottom: "1px solid var(--border)",
-          padding: "0 24px",
-          display: "flex",
-          alignItems: "center",
-          gap: 14,
-        }}
-      >
-        <button
-          onClick={() => router.push("/")}
-          style={{
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            padding: 0,
-          }}
-        >
-          <Logo size={18} />
-        </button>
-        <Hairline vertical length={22} />
-        <button style={ghostBtnSm}>Acme Capital ▾</button>
-        <Pill mono dot tone="ok">
-          testnet
-        </Pill>
-        <div style={{ flex: 1 }} />
-        <button style={ghostBtnSm} onClick={() => router.push("/billing")}>Credits</button>
-        <button style={ghostBtnSm} onClick={() => router.push("/usage")}>
-          Usage
-        </button>
-        <button style={ghostBtnSm}>Credentials</button>
-        <button style={ghostBtnSm}>Settings</button>
-        <Hairline vertical length={22} />
-        <button style={ghostBtnSm} onClick={handleSignOut}>
-          Sign out
-        </button>
-        <div
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: 999,
-            background: "var(--accent)",
-            color: "var(--accent-fg)",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 11,
-            fontWeight: 700,
-          }}
-        >
-          AC
-        </div>
-      </div>
+      <Topbar />
 
       {/* Main */}
       <div style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>
@@ -499,11 +435,12 @@ function WorkflowRows({
   onOpen: (id: string) => void;
 }) {
   return (
-    <Card style={{ padding: 0, overflow: "hidden" }}>
+    <Card style={{ padding: 0, overflowX: "auto" }}>
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1.6fr 100px 80px 110px 130px 160px 80px",
+          gridTemplateColumns:
+            "minmax(180px, 240px) minmax(96px, 1fr) minmax(80px, 1fr) minmax(96px, 1fr) minmax(110px, 1fr) minmax(120px, 1fr) 80px",
           gap: 12,
           padding: "10px 16px",
           background: "var(--bg-elev-2)",
@@ -529,7 +466,8 @@ function WorkflowRows({
           onClick={() => onOpen(wf.id)}
           style={{
             display: "grid",
-            gridTemplateColumns: "1.6fr 100px 80px 110px 130px 160px 80px",
+            gridTemplateColumns:
+              "minmax(180px, 240px) minmax(96px, 1fr) minmax(80px, 1fr) minmax(96px, 1fr) minmax(110px, 1fr) minmax(120px, 1fr) 80px",
             gap: 12,
             padding: "14px 16px",
             alignItems: "center",

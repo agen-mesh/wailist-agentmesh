@@ -1,15 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Logo,
-  Pill,
-  Hairline,
-  IconSearch,
-  Card,
-  ghostBtnSm,
-} from "@/components/ui";
-import { useAuth } from "@/hooks/useAuth";
+import { IconSearch, Card, ghostBtnSm } from "@/components/ui";
+import { Topbar } from "@/components/Topbar";
 import { usage as usageApi } from "@/lib/api";
 import {
   UsageRange,
@@ -42,7 +35,6 @@ const CAT_LABEL: Record<UsageCategory, string> = {
 
 export function UsagePage() {
   const router = useRouter();
-  const { signOut } = useAuth();
 
   const [range, setRange] = useState<UsageRange>("30d");
   const [data, setData] = useState<UsagePayload | null>(null);
@@ -91,11 +83,6 @@ export function UsagePage() {
     };
   }, [range, reloadNonce]);
 
-  const handleSignOut = async () => {
-    await signOut();
-    router.push("/");
-  };
-
   const changeRange = (r: UsageRange) => {
     setLoading(true);
     setLoadError(null);
@@ -131,70 +118,7 @@ export function UsagePage() {
         background: "var(--bg)",
       }}
     >
-      {/* Topbar */}
-      <div
-        style={{
-          height: 56,
-          flexShrink: 0,
-          background: "var(--bg-elev-1)",
-          borderBottom: "1px solid var(--border)",
-          padding: "0 24px",
-          display: "flex",
-          alignItems: "center",
-          gap: 14,
-        }}
-      >
-        <button
-          onClick={() => router.push("/")}
-          style={{
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            padding: 0,
-          }}
-        >
-          <Logo size={18} />
-        </button>
-        <Hairline vertical length={22} />
-        <button style={ghostBtnSm} onClick={() => router.push("/workflows")}>
-          ← Workflows
-        </button>
-        <Pill mono dot tone="ok">
-          testnet
-        </Pill>
-        <div style={{ flex: 1 }} />
-        <button
-          style={{
-            ...ghostBtnSm,
-            borderColor: "var(--accent-line)",
-            color: "var(--accent)",
-          }}
-        >
-          Usage
-        </button>
-        <button style={ghostBtnSm}>Credentials</button>
-        <button style={ghostBtnSm}>Settings</button>
-        <Hairline vertical length={22} />
-        <button style={ghostBtnSm} onClick={handleSignOut}>
-          Sign out
-        </button>
-        <div
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: 999,
-            background: "var(--accent)",
-            color: "var(--accent-fg)",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 11,
-            fontWeight: 700,
-          }}
-        >
-          AC
-        </div>
-      </div>
+      <Topbar />
 
       {/* Main */}
       <div style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>
