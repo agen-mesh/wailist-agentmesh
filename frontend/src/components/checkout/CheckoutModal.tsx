@@ -16,10 +16,23 @@ import { PaymentInfoPanel } from "./PaymentInfoPanel";
 // of the two-column layout on narrow viewports.
 const DIALOG_CSS = `
 .checkout-dialog { display: flex; flex-direction: column; max-height: 90vh; }
+.checkout-dialog[open] { animation: checkout-in 0.24s var(--ease); }
 .checkout-dialog::backdrop { background: rgba(8,7,12,0.7); backdrop-filter: blur(4px); }
 .checkout-split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; }
+.checkout-check { animation: checkout-pulse 2.4s var(--ease) infinite; }
+@keyframes checkout-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes checkout-pulse {
+  0%, 100% { box-shadow: 0 0 26px 2px var(--accent-glow); }
+  50% { box-shadow: 0 0 10px 0 var(--accent-glow); }
+}
 @media (max-width: 860px) {
   .checkout-split { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .checkout-dialog[open], .checkout-check { animation: none; }
 }
 `;
 
@@ -95,9 +108,10 @@ export function CheckoutModal({
             }}
           >
             <div
+              className="checkout-check"
               style={{
-                width: 48,
-                height: 48,
+                width: 52,
+                height: 52,
                 borderRadius: 999,
                 background: "var(--accent-soft)",
                 border: "1px solid var(--accent-line)",
@@ -105,7 +119,7 @@ export function CheckoutModal({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: 22,
+                fontSize: 24,
               }}
             >
               ✓
@@ -185,16 +199,28 @@ export function CheckoutModal({
                 marginBottom: 20,
               }}
             >
-              <h2
-                style={{
-                  fontSize: 18,
-                  fontWeight: 700,
-                  color: "var(--fg)",
-                  margin: 0,
-                }}
-              >
-                Checkout
-              </h2>
+              <div>
+                <h2
+                  style={{
+                    fontSize: 19,
+                    fontWeight: 700,
+                    color: "var(--fg)",
+                    margin: 0,
+                    letterSpacing: "-0.01em",
+                  }}
+                >
+                  Checkout
+                </h2>
+                <p
+                  style={{
+                    margin: "3px 0 0",
+                    fontSize: 12.5,
+                    color: "var(--fg-muted)",
+                  }}
+                >
+                  Complete your credit top-up
+                </p>
+              </div>
               <button
                 type="button"
                 aria-label="Close checkout"
