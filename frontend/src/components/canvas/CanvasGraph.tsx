@@ -63,6 +63,22 @@ export function CanvasGraph({
   // while a run is active so the animated edges advance.
   const [, setAnimTick] = useState(0);
 
+  // Latest-value refs for the window mousemove/mouseup listeners below. Those
+  // handlers need current view/hover/workflow, but depending on them directly
+  // made the effect tear down and re-register both global listeners on every
+  // frame of a pan or drag (view changes each mousemove). Reading through refs
+  // lets the effect subscribe once on mount and still see fresh values.
+  const viewRef = useRef(view);
+  const hoverPortRef = useRef(hoverPort);
+  const workflowRef = useRef(workflow);
+  const setWorkflowRef = useRef(setWorkflow);
+  useEffect(() => {
+    viewRef.current = view;
+    hoverPortRef.current = hoverPort;
+    workflowRef.current = workflow;
+    setWorkflowRef.current = setWorkflow;
+  });
+
   useEffect(() => {
     if (!running) return;
     const id = setInterval(() => setAnimTick((t) => t + 1), 90);
@@ -117,9 +133,9 @@ export function CanvasGraph({
       }
       if (dragRef.current) {
         const { id, sx, sy, ox, oy } = dragRef.current;
-        const dx = (e.clientX - sx) / view.k;
-        const dy = (e.clientY - sy) / view.k;
-        setWorkflow((wf) => ({
+        const dx = (e.clientX - sx) / viewRef.current.k;
+        const dy = (e.clientY - sy) / viewRef.current.k;
+        setWorkflowRef.current((wf) => ({
           ...wf,
           nodes: wf.nodes.map((n) =>
             n.id === id ? { ...n, x: ox + dx, y: oy + dy } : n,
@@ -128,12 +144,13 @@ export function CanvasGraph({
       }
       if (wireRef.current && wrapRef.current) {
         const rect = wrapRef.current.getBoundingClientRect();
+        const v = viewRef.current;
         setWire((w) =>
           w
             ? {
                 ...w,
-                x: (e.clientX - rect.left - view.x) / view.k,
-                y: (e.clientY - rect.top - view.y) / view.k,
+                x: (e.clientX - rect.left - v.x) / v.k,
+                y: (e.clientY - rect.top - v.y) / v.k,
               }
             : w,
         );
@@ -145,30 +162,19 @@ export function CanvasGraph({
       setPanning(false);
       dragRef.current = null;
 
-      if (
-        wireRef.current &&
-        hoverPort &&
-        hoverPort.nodeId !== wireRef.current.fromId
-      ) {
-        const fromNode = workflow.nodes.find(
-          (n) => n.id === wireRef.current!.fromId,
-        );
-        const toNode = workflow.nodes.find((n) => n.id === hoverPort.nodeId);
+      const hp = hoverPortRef.current;
+      if (wireRef.current && hp && hp.nodeId !== wireRef.current.fromId) {
+        const nodes = workflowRef.current.nodes;
+        const fromNode = nodes.find((n) => n.id === wireRef.current!.fromId);
+        const toNode = nodes.find((n) => n.id === hp.nodeId);
         if (
           fromNode &&
           toNode &&
-          isValidConnection(
-            fromNode,
-            wireRef.current.fromPort,
-            toNode,
-            hoverPort.port,
-          )
+          isValidConnection(fromNode, wireRef.current.fromPort, toNode, hp.port)
         ) {
           const kind =
-            hoverPort.port === "model" || hoverPort.port === "tools"
-              ? "attach"
-              : "flow";
-          setWorkflow((wf) => ({
+            hp.port === "model" || hp.port === "tools" ? "attach" : "flow";
+          setWorkflowRef.current((wf) => ({
             ...wf,
             edges: [
               ...wf.edges,
@@ -177,7 +183,7 @@ export function CanvasGraph({
                 from: fromNode.id,
                 to: toNode.id,
                 kind,
-                toPort: hoverPort.port,
+                toPort: hp.port,
               },
             ],
           }));
@@ -193,7 +199,8 @@ export function CanvasGraph({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [view, hoverPort, workflow, setWorkflow]);
+    // Subscribes once: all mutable values are read through refs above.
+  }, []);
 
   const removeEdge = (id: string) =>
     setWorkflow((wf) => ({
@@ -205,7 +212,12 @@ export function CanvasGraph({
     e.preventDefault();
     const data = e.dataTransfer.getData("application/agentmesh");
     if (!data || !wrapRef.current) return;
-    const meta: Partial<WorkflowNode> = JSON.parse(data);
+    let meta: Partial<WorkflowNode>;
+    try {
+      meta = JSON.parse(data);
+    } catch {
+      return; // malformed payload — ignore the drop rather than throw
+    }
     const rect = wrapRef.current.getBoundingClientRect();
     const t = NODE_TYPES[meta.type!];
     const x = (e.clientX - rect.left - view.x) / view.k - (t ? t.w / 2 : 90);

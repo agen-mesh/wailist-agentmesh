@@ -9,6 +9,7 @@ import {
   Hairline,
   IconPlay,
   IconStop,
+  ghostBtnSm,
 } from "@/components/ui";
 import { workflows as workflowsApi } from "@/lib/api";
 import { CanvasGraph } from "./CanvasGraph";
@@ -702,21 +703,6 @@ function ChatRunModal({
   );
 }
 
-const ghostBtnSm: React.CSSProperties = {
-  height: 28,
-  padding: "0 10px",
-  fontSize: 12,
-  fontWeight: 500,
-  background: "transparent",
-  border: "1px solid var(--border-strong)",
-  borderRadius: "var(--r-2)",
-  color: "var(--fg-muted)",
-  cursor: "pointer",
-  fontFamily: "var(--font-sans)",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 4,
-};
 const btnStyle: React.CSSProperties = {
   height: 28,
   padding: "0 12px",
