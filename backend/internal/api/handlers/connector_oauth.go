@@ -594,7 +594,11 @@ func (d *Deps) ConnectorOAuthCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Deps) connectorRedirectURI(provider string) string {
-	return strings.TrimRight(d.BaseURL, "/") + "/connectors/oauth/" + provider + "/callback"
+	// Route through the frontend's /api proxy so the auth cookie (set on the
+	// frontend domain) is forwarded by the browser on the callback redirect.
+	// In production this is the same domain; in dev localhost:3000/api proxies
+	// to localhost:8081 via next.config.ts rewrites.
+	return strings.TrimRight(d.FrontendURL, "/") + "/api/connectors/oauth/" + provider + "/callback"
 }
 
 func (d *Deps) connectorRedirectFail(w http.ResponseWriter, r *http.Request, workflowID, reason string) {
