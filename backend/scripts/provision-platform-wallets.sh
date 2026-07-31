@@ -75,10 +75,18 @@ provision_one() {
   echo "Provisioning $var_prefix ($label)"
   echo "--------------------------------------------------------------"
 
-  local full_output enc_mnemonic info address
+  local full_output enc_mnemonic info address gen_status
+  set +e
   full_output=$(go run ./cmd/walletgen \
     -enc-key="$ENC_KEY" -network="$NETWORK" -algod-url="$ALGOD_URL" \
     -skip-opt-in -show-mnemonic 2>&1)
+  gen_status=$?
+  set -e
+  if [ "$gen_status" -ne 0 ]; then
+    echo "walletgen exited with status $gen_status:" >&2
+    printf '%s\n' "$full_output" >&2
+    exit 1
+  fi
 
   enc_mnemonic=$(printf '%s\n' "$full_output" | tail -n1)
   info=$(printf '%s\n' "$full_output" | head -n -1)
