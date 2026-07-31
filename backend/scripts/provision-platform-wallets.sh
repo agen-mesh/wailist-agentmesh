@@ -11,16 +11,36 @@
 # format. Fund the freshly generated addresses from your existing wallets
 # with a normal transfer instead.
 #
-# Nothing sensitive touches disk: the raw mnemonic is shown on your
-# terminal exactly once per wallet (stderr, live) and never written to a
-# file. Only the ENCRYPTION_KEY-encrypted mnemonic (ciphertext) is held in
-# memory for the rest of the run, to build the final env var summary and,
-# if you opt in, push to Railway.
+# Writes two local files at the end (both gitignored, never pushed):
+#   scripts/wallets.env                    -- ciphertext only (addresses +
+#                                              ENCRYPTION_KEY-encrypted
+#                                              mnemonics). Useless without
+#                                              ENCRYPTION_KEY, safe to share
+#                                              with a cofounder/store long-term.
+#   scripts/wallets.SECRET-mnemonics.txt   -- the raw 25-word phrases in
+#                                              PLAINTEXT. A real, complete
+#                                              private key backup sitting on
+#                                              this disk -- treat it like
+#                                              cash, not a normal file
+#                                              (chmod 600'd automatically,
+#                                              but that's not encryption).
 #
 # Run from anywhere; it cds to backend/ itself.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+ENV_FILE="scripts/wallets.env"
+SECRET_FILE="scripts/wallets.SECRET-mnemonics.txt"
+for f in "$ENV_FILE" "$SECRET_FILE"; do
+  if [ -f "$f" ]; then
+    backup="${f}.bak.$(date +%s)"
+    mv "$f" "$backup"
+    echo "Existing $f found -- moved to $backup rather than overwriting silently." >&2
+  fi
+done
+: > "$SECRET_FILE"
+chmod 600 "$SECRET_FILE"
 
 echo "=== AgentMesh platform wallet provisioning ==="
 echo
@@ -71,6 +91,16 @@ provision_one() {
   fi
 
   printf '%s\n' "$info"
+
+  local raw_mnemonic
+  raw_mnemonic=$(printf '%s\n' "$info" | sed -n '/^=== RAW MNEMONIC/,/^=== do not paste/p' | sed '1d;$d')
+  {
+    echo "=== $var_prefix ($label) ==="
+    echo "Address: $address"
+    echo "Mnemonic: $raw_mnemonic"
+    echo
+  } >> "$SECRET_FILE"
+
   echo
   echo ">>> Import the 25 words above into Pera now: Add Wallet > Import Account > Algo25 (legacy)."
   read -r -p "Press Enter once you've written it down / imported it... "
@@ -95,20 +125,33 @@ provision_one() {
 provision_one PLATFORM_WALLET "Wallet 2 — payTo, receives inbound settlements"
 provision_one PLATFORM_SPEND_WALLET "Wallet 1 — spend, pays outbound on behalf of user credits"
 
+{
+  echo "ALGORAND_NETWORK=$NETWORK"
+  echo "ALGOD_URL=$ALGOD_URL"
+  echo "PLATFORM_WALLET_ADDRESS=${ADDR[PLATFORM_WALLET]}"
+  echo "PLATFORM_WALLET_ENC_MNEMONIC=${ENC[PLATFORM_WALLET]}"
+  echo "PLATFORM_SPEND_WALLET_ADDRESS=${ADDR[PLATFORM_SPEND_WALLET]}"
+  echo "PLATFORM_SPEND_WALLET_ENC_MNEMONIC=${ENC[PLATFORM_SPEND_WALLET]}"
+} > "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+
 echo
 echo "================================================================"
-echo "Done. Env vars for your deploy (ciphertext only — safe to store):"
+echo "Done. Env vars for your deploy (ciphertext only — safe to store/share):"
 echo "================================================================"
-echo "ALGORAND_NETWORK=$NETWORK"
-echo "ALGOD_URL=$ALGOD_URL"
-echo "PLATFORM_WALLET_ADDRESS=${ADDR[PLATFORM_WALLET]}"
-echo "PLATFORM_WALLET_ENC_MNEMONIC=${ENC[PLATFORM_WALLET]}"
-echo "PLATFORM_SPEND_WALLET_ADDRESS=${ADDR[PLATFORM_SPEND_WALLET]}"
-echo "PLATFORM_SPEND_WALLET_ENC_MNEMONIC=${ENC[PLATFORM_SPEND_WALLET]}"
+cat "$ENV_FILE"
 echo
-echo "The raw 25-word mnemonics were only ever shown above, once each — not"
-echo "repeated here. Clear your terminal scrollback once you've imported"
-echo "them into a wallet app and/or written them down offline."
+echo "Written to: $(pwd)/$ENV_FILE"
+echo "  -> ciphertext only, useless without ENCRYPTION_KEY. Safe to share with"
+echo "     your cofounder / keep for your own records. Gitignored -- will"
+echo "     never get committed or pushed."
+echo
+echo "Raw 25-word mnemonics written to: $(pwd)/$SECRET_FILE"
+echo "  -> PLAINTEXT private keys. chmod 600'd, gitignored, but that is NOT"
+echo "     encryption -- treat this file like a physical key. Move it"
+echo "     somewhere durable and offline (or a password manager) and delete"
+echo "     the copy on this machine once you have; don't let it linger here"
+echo "     or sync into a cloud-backed folder."
 echo
 
 read -r -p "Push these 6 vars to Railway now via 'railway variable set' (--skip-deploys, no redeploy triggered)? [y/N] " PUSH
