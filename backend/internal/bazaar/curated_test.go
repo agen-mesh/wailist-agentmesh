@@ -75,3 +75,31 @@ func TestMergeDoesNotDuplicate(t *testing.T) {
 		t.Errorf("curated URL appears %d times, want exactly 1", count)
 	}
 }
+
+func TestMergeMatchesURLWithTrailingSlashVariant(t *testing.T) {
+	curatedURL := Curated()[0].URL
+	catalog := []Resource{
+		{ID: "cat1", URL: curatedURL + "/", Method: "GET", SettleCount: 9},
+	}
+	got := Merge(catalog)
+
+	count := 0
+	var matched *Resource
+	for i := range got {
+		// Both the trailing-slash catalog URL and the bare curated URL must
+		// resolve to ONE row, not two.
+		if got[i].URL == curatedURL || got[i].URL == curatedURL+"/" {
+			count++
+			matched = &got[i]
+		}
+	}
+	if count != 1 {
+		t.Fatalf("want exactly 1 row for the trailing-slash variant, got %d", count)
+	}
+	if !matched.Supported {
+		t.Error("trailing-slash variant must still be marked Supported")
+	}
+	if matched.SettleCount != 9 {
+		t.Errorf("SettleCount = %d, want 9 (catalog telemetry must survive)", matched.SettleCount)
+	}
+}

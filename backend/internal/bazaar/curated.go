@@ -1,6 +1,10 @@
 package bazaar
 
-import "net/http"
+import (
+	"net/http"
+	"net/url"
+	"strings"
+)
 
 // Curated is AgentMesh's own registry of officially-supported x402 providers.
 //
@@ -50,6 +54,25 @@ func Curated() []Resource {
 	}
 }
 
+// normalizeURLForMatch makes two URLs comparable for Merge's purposes: it
+// lowercases the scheme and host (case-insensitive per RFC 3986) and trims
+// exactly one trailing slash from the path, so a catalog entry differing from
+// a curated URL only by trailing-slash or scheme/host case still matches
+// instead of silently producing a duplicate row for the same real endpoint.
+// It is used only for comparison — Resource.URL itself is never rewritten.
+func normalizeURLForMatch(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+	if len(u.Path) > 1 {
+		u.Path = strings.TrimSuffix(u.Path, "/")
+	}
+	return u.String()
+}
+
 // Merge annotates catalog entries that match a curated URL as Supported, and
 // appends curated entries the catalog does not list at all.
 //
@@ -59,14 +82,14 @@ func Merge(catalog []Resource) []Resource {
 	curated := Curated()
 	byURL := make(map[string]Resource, len(curated))
 	for _, c := range curated {
-		byURL[c.URL] = c
+		byURL[normalizeURLForMatch(c.URL)] = c
 	}
 
 	out := make([]Resource, 0, len(catalog)+len(curated))
 	matched := make(map[string]bool, len(curated))
 	for _, r := range catalog {
-		if c, ok := byURL[r.URL]; ok {
-			matched[r.URL] = true
+		if c, ok := byURL[normalizeURLForMatch(r.URL)]; ok {
+			matched[normalizeURLForMatch(c.URL)] = true
 			r.Supported = true
 			r.Provider = c.Provider
 			// A hand-authored description and param set are strictly better
@@ -84,7 +107,7 @@ func Merge(catalog []Resource) []Resource {
 		out = append(out, r)
 	}
 	for _, c := range curated {
-		if !matched[c.URL] {
+		if !matched[normalizeURLForMatch(c.URL)] {
 			out = append(out, c)
 		}
 	}
