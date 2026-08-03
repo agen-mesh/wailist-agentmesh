@@ -35,10 +35,14 @@ export function BazaarPage() {
   // section is that it is always visible.
   useEffect(() => {
     let cancelled = false;
+    // supported: true asks the backend to filter over the FULL merged catalog,
+    // not just the first 100-by-settle-count entries — a curated entry with
+    // zero catalog matches (e.g. Tendril) is appended past that cutoff, so a
+    // client-side .filter() over one page could silently miss it.
     bazaar
-      .list({ offset: 0, limit: 100 })
+      .list({ offset: 0, limit: 100, supported: true })
       .then((page) => {
-        if (!cancelled) setSupported(page.items.filter((i) => i.supported));
+        if (!cancelled) setSupported(page.items);
       })
       .catch(() => {
         /* the main list surfaces the error; a missing pinned row is not fatal */
@@ -53,10 +57,12 @@ export function BazaarPage() {
   // useEffect, so the reset lands in the same commit as the query change
   // instead of firing a second, cascading render.
   const [resetForQuery, setResetForQuery] = useState(activeQuery);
+  const [noMore, setNoMore] = useState(false);
   if (resetForQuery !== activeQuery) {
     setResetForQuery(activeQuery);
     setItems([]);
     setTotal(0);
+    setNoMore(false);
   }
 
   // Bumped every time a search reset commits, so an in-flight loadMore
@@ -85,12 +91,23 @@ export function BazaarPage() {
         offset,
         limit: PAGE_SIZE,
         q: activeQuery || undefined,
+        // The grid only shows unsupported entries — a supported one already
+        // renders in the pinned section above, and showing it twice under
+        // contradictory copy ("Community listings — you configure the fields
+        // yourself") is actively wrong for a supported card.
+        supported: false,
       });
       // A reset that happened while this request was in flight bumped the
       // generation counter — this response's total no longer describes the
       // current query, so skip it. items below has its own independent guard.
       if (requestGeneration.current === myGeneration) {
         setTotal(page.total);
+        // A short page (fewer items than asked for) means there is nothing
+        // more to fetch, regardless of what `total` says — `total` counts
+        // the whole filtered set and can disagree with pagination in edge
+        // cases (e.g. a concurrent catalog refresh), but a short page from
+        // the backend is authoritative on its own.
+        if (page.items.length < PAGE_SIZE) setNoMore(true);
       }
       // Guard against a concurrent reset landing between the request and its
       // response, which would otherwise append a stale page.
@@ -108,8 +125,13 @@ export function BazaarPage() {
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
-    const done = total > 0 && items.length >= total;
-    if (done || loading) return;
+    // noMore (a short page) is the authoritative "stop fetching" signal — see
+    // loadMore. Also gate on !error: a failed request leaves `loading` back
+    // at false without ever marking noMore, and without this guard the
+    // observer effect (re-created because loadMore's identity changed) would
+    // immediately re-fire the same failing request forever. Auto-retry was
+    // never the intent — the manual "Retry" button below is.
+    if (noMore || loading || error) return;
     const io = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) loadMore();
@@ -118,9 +140,11 @@ export function BazaarPage() {
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [loadMore, items.length, total, loading]);
+  }, [loadMore, noMore, loading, error]);
 
-  const exhausted = total > 0 && items.length >= total;
+  // Same signal the observer uses to stop fetching, so the UI's "done" state
+  // and the fetch-stopping state can never disagree.
+  const exhausted = noMore;
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -131,16 +155,13 @@ export function BazaarPage() {
         </h1>
         <p style={{ margin: "6px 0 0", fontSize: 13, color: "var(--fg-muted)", lineHeight: 1.6 }}>
           Every paid endpoint listed in GoPlausible&apos;s Algorand catalog. Add
-          any of them to a workflow — supported ones arrive with their fields
-          already set up.
+          any of them to a workflow — supported ones are verified by
+          AgentMesh, and arrive with hand-authored fields where we have them.
         </p>
 
         {supported.length > 0 && (
           <section style={{ marginTop: 24 }}>
-            <SectionHeading
-              title="Supported"
-              note="Verified by AgentMesh — fields are pre-configured."
-            />
+            <SectionHeading title="Supported" note="Verified by AgentMesh." />
             <div style={GRID}>
               {supported.map((r) => (
                 <ResourceCard key={r.id} resource={r} onAdd={setAdding} />

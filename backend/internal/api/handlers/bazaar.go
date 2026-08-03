@@ -98,6 +98,25 @@ func (d *Deps) BazaarResources(w http.ResponseWriter, r *http.Request) {
 		items = filtered
 	}
 
+	// supported=1/true keeps only endorsed entries (the pinned "Supported"
+	// section); supported=0/false excludes them (the paged grid, so a card
+	// never renders twice under contradictory copy). Any other/absent value
+	// leaves items untouched. A curated entry with zero catalog matches
+	// (e.g. Tendril) only ever gets pulled in via Merge's "not present in the
+	// catalog" append, which can land far past any page-size cutoff by settle
+	// count — so this filter must run over the full merged set, not a slice
+	// of it, for supported=1 to find it at all.
+	if supportedParam := r.URL.Query().Get("supported"); supportedParam != "" {
+		want := supportedParam == "1" || supportedParam == "true"
+		filtered := make([]bazaar.Resource, 0, len(items))
+		for _, it := range items {
+			if it.Supported == want {
+				filtered = append(filtered, it)
+			}
+		}
+		items = filtered
+	}
+
 	offset := clampAtoi(r.URL.Query().Get("offset"), 0, 0, len(items))
 	limit := clampAtoi(r.URL.Query().Get("limit"), bazaarPageDefault, 1, bazaarPageMax)
 

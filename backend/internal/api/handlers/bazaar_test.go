@@ -122,6 +122,50 @@ func TestBazaarResourcesSearchFilters(t *testing.T) {
 	}
 }
 
+func TestBazaarResourcesSupportedFilterIncludesUnmatchedCuratedEntries(t *testing.T) {
+	var hits int32
+	srv := fakeCatalog(5, &hits) // none of these match any curated URL
+	defer srv.Close()
+	d := &Deps{BazaarBaseURL: srv.URL}
+
+	rec := httptest.NewRecorder()
+	d.BazaarResources(rec, httptest.NewRequest(http.MethodGet, "/bazaar/resources?supported=1&limit=100", nil))
+	var page struct {
+		Items []bazaar.Resource `json:"items"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &page)
+	if len(page.Items) == 0 {
+		t.Fatal("supported=1 returned nothing, but curated entries with zero catalog matches must still appear")
+	}
+	for _, it := range page.Items {
+		if !it.Supported {
+			t.Errorf("supported=1 returned an unsupported entry: %s", it.URL)
+		}
+	}
+}
+
+func TestBazaarResourcesSupportedFalseExcludesSupportedEntries(t *testing.T) {
+	var hits int32
+	srv := fakeCatalog(5, &hits)
+	defer srv.Close()
+	d := &Deps{BazaarBaseURL: srv.URL}
+
+	rec := httptest.NewRecorder()
+	d.BazaarResources(rec, httptest.NewRequest(http.MethodGet, "/bazaar/resources?supported=0&limit=100", nil))
+	var page struct {
+		Items []bazaar.Resource `json:"items"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &page)
+	if len(page.Items) == 0 {
+		t.Fatal("supported=0 returned nothing, want the synthetic unsupported entries")
+	}
+	for _, it := range page.Items {
+		if it.Supported {
+			t.Errorf("supported=0 returned a supported entry: %s", it.URL)
+		}
+	}
+}
+
 func TestBazaarResourcesUpstreamFailureIsBadGateway(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
