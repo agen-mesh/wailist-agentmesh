@@ -10,9 +10,14 @@ import {
 import type { Workflow } from "@/lib/types";
 
 // Picks which canvas an endpoint lands on. The node itself travels in the
-// destination URL rather than being written server-side, so nothing is
-// persisted until the user actually saves that workflow — adding an endpoint
-// from here can never silently mutate a deployed workflow.
+// destination URL rather than being written server-side — this page never
+// saves anything on its own. The canvas DOES auto-save on any workflow
+// change (including this auto-added node) on a ~1.5s debounce, but it
+// deliberately suppresses exactly that one auto-save cycle after applying a
+// pending add (see the `justLoaded` reuse in CanvasPage.tsx's `?add=`
+// effect) — the same skip-once mechanism used for the initial load. So the
+// node is never persisted by the act of adding it; only the user's next real
+// edit (drag, wire, field change) triggers an actual save.
 export function AddToWorkflowDialog({
   resource,
   onClose,

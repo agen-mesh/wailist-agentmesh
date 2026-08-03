@@ -347,6 +347,16 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       x: 220 + offset,
       y: 180 + offset,
     } as WorkflowNode;
+    // Reuse the same skip-once mechanism the initial load uses: a Bazaar
+    // visit should never silently mutate a workflow the user didn't
+    // explicitly choose to save, but this auto-add DOES change `workflow`
+    // state, which the auto-save effect below would otherwise persist on its
+    // very next debounce cycle (~1.5s) — including onto an already-deployed
+    // workflow. Setting justLoaded here makes the auto-save effect treat this
+    // change exactly like the initial load: skip once. The user's next
+    // INTENTIONAL edit (drag, wire, field change) triggers a real save
+    // normally.
+    justLoaded.current = true;
     // This is a one-shot sync from an external source (the URL) into React
     // state, gated by consumedAdd so it can only fire once per mount — not
     // the derived-state-cascade pattern this rule exists to catch.
