@@ -120,17 +120,34 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   // a different workflow remounts this component and every piece of state
   // returns to its initial value (loading=true, selectedId=null, …).
   useEffect(() => {
+    // Guards against a stale response overwriting fresher state: React 18
+    // Strict Mode double-invokes this effect in dev (mount → cleanup →
+    // remount), firing two real GETs with nothing to cancel the first. If
+    // the first (meant to be discarded) resolves AFTER something else has
+    // already changed `workflow` in between — e.g. a Bazaar-added node —
+    // its unconditional setWorkflow silently wipes that change out. The
+    // same race can happen for real (not just in dev) if workflowId changes
+    // quickly. Confirmed live: this is exactly what made a Bazaar-added
+    // node "appear then vanish" a second later.
+    let cancelled = false;
     if (workflowId === "new") {
       workflowsApi
         .create("Untitled workflow")
-        .then((wf) => router.replace(`/workflows/${wf.id}`))
-        .catch(() => setLoading(false));
-      return;
+        .then((wf) => {
+          if (!cancelled) router.replace(`/workflows/${wf.id}`);
+        })
+        .catch(() => {
+          if (!cancelled) setLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
     }
 
     workflowsApi
       .get(workflowId)
       .then((wf) => {
+        if (cancelled) return;
         justLoaded.current = true;
         setWorkflow(wf);
         // Deployment state comes from the workflow's own status. It used to
@@ -142,8 +159,11 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         setLoading(false);
       })
       .catch(() => {
-        router.push("/workflows");
+        if (!cancelled) router.push("/workflows");
       });
+    return () => {
+      cancelled = true;
+    };
   }, [workflowId, router]);
 
   // Auto-save: debounce 1.5s after any change, skip on initial load.
