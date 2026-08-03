@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -144,6 +145,24 @@ func TestFetchAllPagesUntilShortPage(t *testing.T) {
 	}
 	if len(got) != 250 {
 		t.Fatalf("want 250 resources across pages, got %d", len(got))
+	}
+}
+
+func TestNormaliseNeverProducesNilParams(t *testing.T) {
+	raw := upstreamItem("no-params", "https://noparams.example/api", mainnet)
+	delete(raw, "discoveryInfo") // no declared inputs at all
+	srv := fakeUpstream(t, []map[string]any{raw})
+	defer srv.Close()
+	got, err := FetchAll(context.Background(), srv.Client(), srv.URL)
+	if err != nil {
+		t.Fatalf("FetchAll: %v", err)
+	}
+	if got[0].Params == nil {
+		t.Fatal("Params must never be nil (marshals as JSON null, crashes the frontend) — want []Param{}")
+	}
+	b, _ := json.Marshal(got[0])
+	if strings.Contains(string(b), `"params":null`) {
+		t.Fatal("Params marshaled as JSON null")
 	}
 }
 

@@ -47,12 +47,16 @@ export const bazaar = {
     offset: number;
     limit: number;
     q?: string;
+    supported?: boolean;
   }): Promise<BazaarPage> => {
     const qs = new URLSearchParams({
       offset: String(opts.offset),
       limit: String(opts.limit),
     });
     if (opts.q) qs.set("q", opts.q);
+    if (opts.supported !== undefined) {
+      qs.set("supported", opts.supported ? "1" : "0");
+    }
     const res = await fetch(`${BASE}/bazaar/resources?${qs}`, {
       credentials: "include",
     });
@@ -78,8 +82,12 @@ export function formatPrice(amountMicros: number): string {
 export function resourceToNode(r: BazaarResource): Partial<WorkflowNode> {
   // Catalog param examples are placeholders, never usable values — seed every
   // field empty and let the description show the example.
+  // (r.params ?? []): defense in depth. The backend guarantees a non-nil
+  // array, but a mirror of an external catalog should never trust its own
+  // past output blindly.
+  const params = r.params ?? [];
   const paramDefaults: Record<string, string> = {};
-  for (const p of r.params) paramDefaults[p.name] = "";
+  for (const p of params) paramDefaults[p.name] = "";
 
   return {
     type: "tool402",
@@ -98,7 +106,7 @@ export function resourceToNode(r: BazaarResource): Partial<WorkflowNode> {
     // Inspector honest: the price shown came from a cache, and Discover is
     // what confirms it against the endpoint's real 402 challenge.
     priceLive: false,
-    discoveredParams: r.params.map((p) => ({
+    discoveredParams: params.map((p) => ({
       name: p.name,
       type: p.type,
       required: p.required,

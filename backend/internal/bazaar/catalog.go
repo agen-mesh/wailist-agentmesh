@@ -185,6 +185,12 @@ func normalise(raw rawResource) (Resource, bool) {
 		Host:         parsed.Hostname(),
 		Params:       paramsFrom(raw),
 	}
+	if res.Params == nil {
+		// paramsFrom returns nil (not an empty slice) when an entry declares no
+		// inputs. A nil slice marshals as JSON null, which crashes every
+		// frontend consumer that iterates/dereferences `params` unguarded.
+		res.Params = []Param{}
+	}
 	if ex := raw.DiscoveryInfo.Output.Example; ex != nil {
 		if b, err := json.Marshal(ex); err == nil && len(b) <= 4096 {
 			res.OutputExample = string(b)

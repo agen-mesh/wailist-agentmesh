@@ -50,6 +50,10 @@ func Curated() []Resource {
 			Network:     AlgorandMainnet,
 			Asset:       "31566704",
 			Supported:   true,
+			// No hand-authored params for this one yet (see Merge) — explicit
+			// []Param{} rather than the nil zero value, which marshals as JSON
+			// null and crashes the frontend grid.
+			Params: []Param{},
 		},
 	}
 }
