@@ -1,7 +1,8 @@
 "use client";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { WorkflowNode, Workflow } from "@/lib/types";
+import { decodePendingNode } from "@/lib/bazaar";
 import {
   Toast,
   Logo,
@@ -119,17 +120,34 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   // a different workflow remounts this component and every piece of state
   // returns to its initial value (loading=true, selectedId=null, …).
   useEffect(() => {
+    // Guards against a stale response overwriting fresher state: React 18
+    // Strict Mode double-invokes this effect in dev (mount → cleanup →
+    // remount), firing two real GETs with nothing to cancel the first. If
+    // the first (meant to be discarded) resolves AFTER something else has
+    // already changed `workflow` in between — e.g. a Bazaar-added node —
+    // its unconditional setWorkflow silently wipes that change out. The
+    // same race can happen for real (not just in dev) if workflowId changes
+    // quickly. Confirmed live: this is exactly what made a Bazaar-added
+    // node "appear then vanish" a second later.
+    let cancelled = false;
     if (workflowId === "new") {
       workflowsApi
         .create("Untitled workflow")
-        .then((wf) => router.replace(`/workflows/${wf.id}`))
-        .catch(() => setLoading(false));
-      return;
+        .then((wf) => {
+          if (!cancelled) router.replace(`/workflows/${wf.id}`);
+        })
+        .catch(() => {
+          if (!cancelled) setLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
     }
 
     workflowsApi
       .get(workflowId)
       .then((wf) => {
+        if (cancelled) return;
         justLoaded.current = true;
         setWorkflow(wf);
         // Deployment state comes from the workflow's own status. It used to
@@ -141,8 +159,11 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         setLoading(false);
       })
       .catch(() => {
-        router.push("/workflows");
+        if (!cancelled) router.push("/workflows");
       });
+    return () => {
+      cancelled = true;
+    };
   }, [workflowId, router]);
 
   // Auto-save: debounce 1.5s after any change, skip on initial load.
@@ -322,6 +343,47 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     },
     [],
   );
+
+  // A node handed over from the Bazaar page (/workflows/{id}?add=…). The
+  // canvas otherwise only gains nodes by drag-and-drop, which cannot cross a
+  // page boundary — see encodePendingNode in lib/bazaar.ts.
+  const searchParams = useSearchParams();
+  const pendingAdd = searchParams.get("add");
+  const consumedAdd = useRef(false);
+  useEffect(() => {
+    if (!pendingAdd || consumedAdd.current || !workflow) return;
+    const meta = decodePendingNode(pendingAdd);
+    // Consume the param either way: a malformed value must not re-trigger on
+    // every render, and must not survive a refresh as a phantom pending node.
+    consumedAdd.current = true;
+    router.replace(`/workflows/${workflow.id}`);
+    if (!meta) return;
+    // Drop it slightly off-centre so it never lands exactly on an existing
+    // node when several are added in a row.
+    const offset = workflow.nodes.length * 24;
+    const node = {
+      ...meta,
+      id: `n_${Date.now()}`,
+      x: 220 + offset,
+      y: 180 + offset,
+    } as WorkflowNode;
+    // Reuse the same skip-once mechanism the initial load uses: a Bazaar
+    // visit should never silently mutate a workflow the user didn't
+    // explicitly choose to save, but this auto-add DOES change `workflow`
+    // state, which the auto-save effect below would otherwise persist on its
+    // very next debounce cycle (~1.5s) — including onto an already-deployed
+    // workflow. Setting justLoaded here makes the auto-save effect treat this
+    // change exactly like the initial load: skip once. The user's next
+    // INTENTIONAL edit (drag, wire, field change) triggers a real save
+    // normally.
+    justLoaded.current = true;
+    // This is a one-shot sync from an external source (the URL) into React
+    // state, gated by consumedAdd so it can only fire once per mount — not
+    // the derived-state-cascade pattern this rule exists to catch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setWorkflow((wf) => (wf ? { ...wf, nodes: [...wf.nodes, node] } : wf));
+    showToast(`Added ${meta.name ?? "endpoint"} to the canvas`);
+  }, [pendingAdd, workflow, router, setWorkflow, showToast]);
 
   // Wrapper typed as non-null so child components don't need to change.
   // Safe because children only render after the null guard above.

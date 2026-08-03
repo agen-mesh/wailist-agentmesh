@@ -125,6 +125,11 @@ export function Topbar() {
             onClick={() => router.push("/workflows")}
           />
           <NavLink
+            label="Bazaar"
+            active={pathname.startsWith("/bazaar")}
+            onClick={() => router.push("/bazaar")}
+          />
+          <NavLink
             label="Usage"
             active={pathname.startsWith("/usage")}
             onClick={() => router.push("/usage")}

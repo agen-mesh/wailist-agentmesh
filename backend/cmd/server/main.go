@@ -137,6 +137,10 @@ func main() {
 		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 
+		// Empty falls back to GoPlausible's facilitator (see
+		// defaultBazaarBaseURL) — set only to point at a mirror or a fake.
+		BazaarBaseURL: os.Getenv("BAZAAR_BASE_URL"),
+
 		Cashfree:      cashfreeClient,
 		CashfreeAppID: cashfreeClient.AppID,
 		NOWPayments:   nowPaymentsClient,

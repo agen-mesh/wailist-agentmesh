@@ -64,6 +64,7 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Get("/runs/{runId}/stream", d.StreamRun)
 
 		r.Post("/tools/x402/quote", d.X402Quote)
+		r.Get("/bazaar/resources", d.BazaarResources)
 
 		r.Post("/payments/cashfree/order", d.CreateCashfreeOrder)
 		r.Post("/payments/cashfree/verify", d.VerifyCashfreePayment)
