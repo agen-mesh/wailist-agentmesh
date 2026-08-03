@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { resourceToNode, formatPrice, type BazaarResource } from "./bazaar";
+import {
+  resourceToNode,
+  formatPrice,
+  encodePendingNode,
+  decodePendingNode,
+  type BazaarResource,
+} from "./bazaar";
 
 const base: BazaarResource = {
   id: "r1",
@@ -76,5 +82,30 @@ describe("resourceToNode", () => {
       "Tendril",
     );
     expect(resourceToNode(base).name).toBe("api.example.com");
+  });
+});
+
+describe("pending node encoding", () => {
+  it("round-trips a node through a URL-safe string", () => {
+    const node = resourceToNode(base);
+    const decoded = decodePendingNode(encodePendingNode(node));
+    expect(decoded).toEqual(node);
+  });
+
+  it("survives unicode in a description", () => {
+    const node = resourceToNode({ ...base, description: "quote — live ✦ data" });
+    expect(decodePendingNode(encodePendingNode(node))?.description).toBe(
+      "quote — live ✦ data",
+    );
+  });
+
+  it("returns null for a malformed value rather than throwing", () => {
+    expect(decodePendingNode("!!!not-base64!!!")).toBeNull();
+  });
+
+  it("rejects a payload that is not a tool402 node", () => {
+    // The URL is user-editable, so an arbitrary object must not become a node.
+    const bad = encodePendingNode({ type: "agent" } as never);
+    expect(decodePendingNode(bad)).toBeNull();
   });
 });

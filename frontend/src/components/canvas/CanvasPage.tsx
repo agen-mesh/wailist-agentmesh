@@ -1,7 +1,8 @@
 "use client";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { WorkflowNode, Workflow } from "@/lib/types";
+import { decodePendingNode } from "@/lib/bazaar";
 import {
   Toast,
   Logo,
@@ -322,6 +323,37 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     },
     [],
   );
+
+  // A node handed over from the Bazaar page (/workflows/{id}?add=…). The
+  // canvas otherwise only gains nodes by drag-and-drop, which cannot cross a
+  // page boundary — see encodePendingNode in lib/bazaar.ts.
+  const searchParams = useSearchParams();
+  const pendingAdd = searchParams.get("add");
+  const consumedAdd = useRef(false);
+  useEffect(() => {
+    if (!pendingAdd || consumedAdd.current || !workflow) return;
+    const meta = decodePendingNode(pendingAdd);
+    // Consume the param either way: a malformed value must not re-trigger on
+    // every render, and must not survive a refresh as a phantom pending node.
+    consumedAdd.current = true;
+    router.replace(`/workflows/${workflow.id}`);
+    if (!meta) return;
+    // Drop it slightly off-centre so it never lands exactly on an existing
+    // node when several are added in a row.
+    const offset = workflow.nodes.length * 24;
+    const node = {
+      ...meta,
+      id: `n_${Date.now()}`,
+      x: 220 + offset,
+      y: 180 + offset,
+    } as WorkflowNode;
+    // This is a one-shot sync from an external source (the URL) into React
+    // state, gated by consumedAdd so it can only fire once per mount — not
+    // the derived-state-cascade pattern this rule exists to catch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setWorkflow((wf) => (wf ? { ...wf, nodes: [...wf.nodes, node] } : wf));
+    showToast(`Added ${meta.name ?? "endpoint"} to the canvas`);
+  }, [pendingAdd, workflow, router, setWorkflow, showToast]);
 
   // Wrapper typed as non-null so child components don't need to change.
   // Safe because children only render after the null guard above.

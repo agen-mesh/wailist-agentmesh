@@ -107,3 +107,30 @@ export function resourceToNode(r: BazaarResource): Partial<WorkflowNode> {
     paramDefaults,
   };
 }
+
+// A node handed from the Bazaar page to a workflow canvas travels in the URL,
+// because the canvas only otherwise accepts nodes via a drag event that
+// cannot cross a page boundary. base64url keeps it safe in a query string;
+// encodeURIComponent first so non-Latin-1 characters survive btoa.
+export function encodePendingNode(node: Partial<WorkflowNode>): string {
+  const json = JSON.stringify(node);
+  const b64 = btoa(encodeURIComponent(json));
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// decodePendingNode is deliberately strict: this value comes from a URL a user
+// can edit by hand, so anything that is not a tool402 node is rejected outright
+// rather than dropped onto the canvas as a malformed node.
+export function decodePendingNode(raw: string): Partial<WorkflowNode> | null {
+  try {
+    const b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
+    const parsed = JSON.parse(decodeURIComponent(atob(b64)));
+    if (!parsed || typeof parsed !== "object") return null;
+    if (parsed.type !== "tool402" || typeof parsed.endpoint !== "string") {
+      return null;
+    }
+    return parsed as Partial<WorkflowNode>;
+  } catch {
+    return null;
+  }
+}
