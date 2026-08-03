@@ -1,0 +1,92 @@
+package bazaar
+
+import "net/http"
+
+// Curated is AgentMesh's own registry of officially-supported x402 providers.
+//
+// It is deliberately NOT derived from the GoPlausible catalog. Verified live
+// 2026-08-03: of the launch providers, only CANIX402 appears in
+// /discovery/resources at all (14 entries) — Tendril and Prism return zero
+// matches across all 779 entries despite Tendril sitting at rank 4 on the
+// challenge leaderboard. A "supported" list built by filtering catalog data
+// would silently omit them.
+//
+// Params here are hand-authored, not scraped: the whole point of the supported
+// tier is that a user fills labelled fields instead of hand-writing JSON.
+func Curated() []Resource {
+	return []Resource{
+		{
+			ID:          "curated:tendril-run",
+			URL:         "https://tendrilregister.007575.xyz/x402/run",
+			Method:      http.MethodPost,
+			Provider:    "Tendril",
+			Host:        "tendrilregister.007575.xyz",
+			Description: "Run a Python script on rented compute and get its stdout back. No lease needed — Tendril picks the machine, runs the job in a throwaway sandbox, and destroys it. Requires a positive Tendril credit balance on the paying wallet.",
+			Network:     AlgorandMainnet,
+			Asset:       "31566704",
+			PayTo:       "ZIK7QQE7ZX446TW3PN7PQ5UDZNTY7JI5RYNTIU3LPEYBOSTVWI6PTNSWKI",
+			// Flat gate fee only. Execution time is billed separately from a
+			// Tendril-side credit balance keyed to the paying wallet address.
+			AmountMicros: 10000,
+			Supported:    true,
+			Params: []Param{{
+				Name:        "payload",
+				Type:        "string",
+				Required:    true,
+				Description: "Python source to execute. Its stdout is returned as `result`.",
+			}},
+		},
+		{
+			ID:          "curated:canix-quotes",
+			URL:         "https://canix402-api.compx.io/execution/quotes",
+			Method:      http.MethodPost,
+			Provider:    "CANIX402",
+			Host:        "canix402-api.compx.io",
+			Description: "Algorand DeFi execution quotes across supported protocols.",
+			Network:     AlgorandMainnet,
+			Asset:       "31566704",
+			Supported:   true,
+		},
+	}
+}
+
+// Merge annotates catalog entries that match a curated URL as Supported, and
+// appends curated entries the catalog does not list at all.
+//
+// Live telemetry on a matched entry (settle counts, last seen) is preserved —
+// the registry supplies curation, the catalog supplies facts.
+func Merge(catalog []Resource) []Resource {
+	curated := Curated()
+	byURL := make(map[string]Resource, len(curated))
+	for _, c := range curated {
+		byURL[c.URL] = c
+	}
+
+	out := make([]Resource, 0, len(catalog)+len(curated))
+	matched := make(map[string]bool, len(curated))
+	for _, r := range catalog {
+		if c, ok := byURL[r.URL]; ok {
+			matched[r.URL] = true
+			r.Supported = true
+			r.Provider = c.Provider
+			// A hand-authored description and param set are strictly better
+			// than the publisher's own, which is why the entry is curated.
+			if c.Description != "" {
+				r.Description = c.Description
+			}
+			if len(c.Params) > 0 {
+				r.Params = c.Params
+			}
+			if c.Method != "" {
+				r.Method = c.Method
+			}
+		}
+		out = append(out, r)
+	}
+	for _, c := range curated {
+		if !matched[c.URL] {
+			out = append(out, c)
+		}
+	}
+	return out
+}
