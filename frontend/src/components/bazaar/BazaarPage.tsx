@@ -1,8 +1,10 @@
 "use client";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Topbar } from "@/components/Topbar";
 import { bazaar, type BazaarResource } from "@/lib/bazaar";
 import { ResourceCard } from "./ResourceCard";
+import { EndpointRow } from "./EndpointRow";
+import { ProviderGroupCard } from "./ProviderGroupCard";
 import { AddToWorkflowDialog } from "./AddToWorkflowDialog";
 
 const PAGE_SIZE = 30;
@@ -13,6 +15,184 @@ const GRID: React.CSSProperties = {
   gap: 12,
 };
 
+// The community list renders as one bordered row-list rather than a card
+// grid: a card grid puts variable-height cards into CSS grid cells (no
+// masonry), which produced a visibly broken, ragged layout once entries
+// with different description lengths sat next to each other. A uniform-
+// height row list has no such alignment problem, and reads as the same
+// "real API directory" language as the rest of the page's dense data.
+const BAZAAR_CSS = `
+.bz-list {
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  overflow: hidden;
+  background: var(--bg-elev-1);
+}
+.bz-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 16px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  text-align: left;
+  font-family: var(--font-sans);
+  color: inherit;
+  transition: background 0.15s var(--ease);
+}
+.bz-row--group {
+  cursor: pointer;
+}
+.bz-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  transform: scaleY(0);
+  transition: transform 0.15s var(--ease);
+}
+.bz-row--group:hover,
+.bz-row--group:focus-visible {
+  background: var(--bg-elev-2);
+}
+.bz-row--group:hover::before,
+.bz-row--group:focus-visible::before {
+  transform: scaleY(1);
+}
+.bz-row__icon {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.bz-row__chevron {
+  transition: transform 0.2s var(--ease);
+}
+.bz-row__chevron[data-open="true"] {
+  transform: rotate(90deg);
+}
+.bz-row__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bz-row__path {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+}
+.bz-row__desc {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bz-row__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.bz-row__price {
+  color: var(--fg);
+  font-weight: 600;
+}
+.bz-row__price-unit {
+  margin-right: 2px;
+}
+.bz-row__stat {
+  white-space: nowrap;
+}
+.bz-pill {
+  padding: 1px 6px;
+  border-radius: var(--r-1);
+  background: var(--bg-elev-3);
+  border: 1px solid var(--border-strong);
+  font-size: 10px;
+}
+.bz-row__add {
+  flex-shrink: 0;
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--fg);
+  border-radius: var(--r-2);
+  font-size: 11.5px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition:
+    background 0.15s var(--ease),
+    border-color 0.15s var(--ease),
+    color 0.15s var(--ease);
+}
+.bz-row__add:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.bz-group-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.22s var(--ease);
+}
+.bz-group-body[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.bz-group-body__inner {
+  overflow: hidden;
+  min-height: 0;
+  background: var(--bg-elev-2);
+}
+.bz-supported-card {
+  transition:
+    transform 0.15s var(--ease),
+    box-shadow 0.15s var(--ease),
+    border-color 0.15s var(--ease);
+}
+.bz-supported-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border-color: var(--accent-line);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bz-row,
+  .bz-row::before,
+  .bz-row__chevron,
+  .bz-group-body,
+  .bz-supported-card {
+    transition: none !important;
+  }
+  .bz-supported-card:hover {
+    transform: none;
+  }
+}
+`;
+
 export function BazaarPage() {
   const [supported, setSupported] = useState<BazaarResource[]>([]);
   const [items, setItems] = useState<BazaarResource[]>([]);
@@ -21,6 +201,33 @@ export function BazaarPage() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState<BazaarResource | null>(null);
+
+  // Endpoints sharing a host collapse into one ProviderGroupCard so a single
+  // heavy publisher doesn't bury everything else (one host is over 70% of the
+  // raw catalog). Grouping is client-side over whatever's loaded so far —
+  // this stays correct with the existing paged fetch, no backend change
+  // needed, and a group simply grows as more of its host's entries scroll
+  // in. Map preserves first-seen order, which is that host's highest
+  // settle-count entry's position (items already arrive settle-count
+  // sorted) — so a provider surfaces where its best single entry would have.
+  const groupedItems = useMemo(() => {
+    const byHost = new Map<string, BazaarResource[]>();
+    for (const r of items) {
+      const list = byHost.get(r.host);
+      if (list) list.push(r);
+      else byHost.set(r.host, [r]);
+    }
+    return Array.from(byHost.entries());
+  }, [items]);
+  const [expandedHosts, setExpandedHosts] = useState<Set<string>>(new Set());
+  const toggleHost = useCallback((host: string) => {
+    setExpandedHosts((cur) => {
+      const next = new Set(cur);
+      if (next.has(host)) next.delete(host);
+      else next.add(host);
+      return next;
+    });
+  }, []);
 
   // The active search, debounced — separate from `query` so typing does not
   // fire a request per keystroke.
@@ -148,6 +355,7 @@ export function BazaarPage() {
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      <style>{BAZAAR_CSS}</style>
       <Topbar />
       <div style={{ padding: "24px 24px 64px", maxWidth: 1180, width: "100%", margin: "0 auto" }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: "var(--fg)" }}>
@@ -164,7 +372,9 @@ export function BazaarPage() {
             <SectionHeading title="Supported" note="Verified by AgentMesh." />
             <div style={GRID}>
               {supported.map((r) => (
-                <ResourceCard key={r.id} resource={r} onAdd={setAdding} />
+                <div key={r.id} className="bz-supported-card">
+                  <ResourceCard resource={r} onAdd={setAdding} />
+                </div>
               ))}
             </div>
           </section>
@@ -204,10 +414,21 @@ export function BazaarPage() {
             />
           </div>
 
-          <div style={GRID}>
-            {items.map((r) => (
-              <ResourceCard key={r.id} resource={r} onAdd={setAdding} />
-            ))}
+          <div className="bz-list">
+            {groupedItems.map(([host, resources]) =>
+              resources.length === 1 ? (
+                <EndpointRow key={resources[0].id} resource={resources[0]} onAdd={setAdding} />
+              ) : (
+                <ProviderGroupCard
+                  key={host}
+                  host={host}
+                  resources={resources}
+                  expanded={expandedHosts.has(host)}
+                  onToggle={() => toggleHost(host)}
+                  onAdd={setAdding}
+                />
+              ),
+            )}
           </div>
 
           {error && (
