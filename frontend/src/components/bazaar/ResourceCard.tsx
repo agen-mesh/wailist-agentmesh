@@ -18,6 +18,14 @@ export function ResourceCard({
   onAdd: (r: BazaarResource) => void;
 }) {
   const paramCount = resource.params.length;
+  let displayPath = resource.url;
+  try {
+    displayPath = new URL(resource.url).pathname;
+  } catch {
+    // Malformed URL from an unexpected catalog entry — fall back to showing
+    // the raw string rather than crashing this card (and every card
+    // rendered alongside it in the same list).
+  }
   return (
     <div
       style={{
@@ -73,7 +81,7 @@ export function ResourceCard({
             }}
             title={resource.url}
           >
-            {resource.method} {new URL(resource.url).pathname}
+            {resource.method} {displayPath}
           </div>
         </div>
         {resource.supported && <Pill tone="warm">Supported</Pill>}
