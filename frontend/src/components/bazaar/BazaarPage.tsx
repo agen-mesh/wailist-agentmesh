@@ -59,10 +59,26 @@ export function BazaarPage() {
     setTotal(0);
   }
 
+  // Bumped every time a search reset commits, so an in-flight loadMore
+  // response from a stale (pre-reset) request can tell it's stale and skip
+  // applying setTotal — items already self-guards via its own offset check,
+  // but total has no equivalent natural staleness signal to compare against.
+  // This lives in an effect (not the render-time reset above) because refs
+  // must not be read or written during render — only in effects/event
+  // handlers — and runs after the reset's render has committed, which is
+  // still strictly before any new loadMore call can be dispatched (the
+  // IntersectionObserver sentinel's callback fires asynchronously, never
+  // synchronously within this render's effects).
+  const requestGeneration = useRef(0);
+  useEffect(() => {
+    requestGeneration.current += 1;
+  }, [activeQuery]);
+
   const loadMore = useCallback(async () => {
     if (loading) return;
     setLoading(true);
     setError(null);
+    const myGeneration = requestGeneration.current;
     try {
       const offset = items.length;
       const page = await bazaar.list({
@@ -70,7 +86,12 @@ export function BazaarPage() {
         limit: PAGE_SIZE,
         q: activeQuery || undefined,
       });
-      setTotal(page.total);
+      // A reset that happened while this request was in flight bumped the
+      // generation counter — this response's total no longer describes the
+      // current query, so skip it. items below has its own independent guard.
+      if (requestGeneration.current === myGeneration) {
+        setTotal(page.total);
+      }
       // Guard against a concurrent reset landing between the request and its
       // response, which would otherwise append a stale page.
       setItems((cur) => (cur.length === offset ? [...cur, ...page.items] : cur));
