@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -49,13 +50,21 @@ func (d *Deps) bazaarBaseURL() string {
 }
 
 // catalog returns the merged catalog, refreshing it if the cache has expired.
-func (d *Deps) catalog(r *http.Request) ([]bazaar.Resource, error) {
+//
+// The refresh is bounded by its own timeout rather than any single caller's
+// request context: this is a shared resource guarded by a mutex, so every
+// other request waiting on the lock would otherwise be aborted right along
+// with whichever caller happened to trigger the refresh and then had its own
+// connection cancelled (browser tab closed, navigation away) mid-crawl.
+func (d *Deps) catalog() ([]bazaar.Resource, error) {
 	d.bazaarCache.mu.Lock()
 	defer d.bazaarCache.mu.Unlock()
 	if d.bazaarCache.items != nil && time.Since(d.bazaarCache.fetchedAt) < bazaarCacheTTL {
 		return d.bazaarCache.items, nil
 	}
-	fetched, err := bazaar.FetchAll(r.Context(), bazaarHTTPClient, d.bazaarBaseURL())
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	fetched, err := bazaar.FetchAll(ctx, bazaarHTTPClient, d.bazaarBaseURL())
 	if err != nil {
 		// Serve stale rather than nothing: a transient upstream blip should
 		// not empty a page that was working a moment ago.
@@ -72,7 +81,7 @@ func (d *Deps) catalog(r *http.Request) ([]bazaar.Resource, error) {
 
 // BazaarResources serves one page of the mirrored x402 catalog.
 func (d *Deps) BazaarResources(w http.ResponseWriter, r *http.Request) {
-	items, err := d.catalog(r)
+	items, err := d.catalog()
 	if err != nil {
 		respond.Error(w, http.StatusBadGateway, "could not reach the x402 catalog")
 		return
