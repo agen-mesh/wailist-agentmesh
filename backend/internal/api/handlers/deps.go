@@ -57,6 +57,12 @@ type Deps struct {
 	GoogleClientID     string
 	GoogleClientSecret string
 
+	// BazaarBaseURL is GoPlausible's facilitator, whose public
+	// /discovery/resources catalog backs the Bazaar page. Overridable so tests
+	// can point at a fake upstream.
+	BazaarBaseURL string
+	bazaarCache   bazaarCache
+
 	Cashfree    CashfreeClient
 	CashfreeAppID string
 
