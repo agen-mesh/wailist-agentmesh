@@ -17,7 +17,11 @@ export function ResourceCard({
   resource: BazaarResource;
   onAdd: (r: BazaarResource) => void;
 }) {
-  const paramCount = resource.params.length;
+  // (resource.params ?? []): defense in depth. The backend guarantees a
+  // non-nil array, but a mirror of an external catalog should never trust
+  // its own past output blindly.
+  const params = resource.params ?? [];
+  const paramCount = params.length;
   let displayPath = resource.url;
   try {
     displayPath = new URL(resource.url).pathname;
@@ -132,6 +136,16 @@ export function ResourceCard({
       {!resource.supported && (
         <div style={{ fontSize: 11, color: "var(--fg-dim)", lineHeight: 1.5 }}>
           Community listing — you&apos;ll configure its fields yourself after adding.
+        </div>
+      )}
+
+      {/* A supported entry without curated params (no hand-authored fields
+          yet, e.g. CANIX402 today) must not imply this card is pre-configured
+          — only endorsement is guaranteed, not a filled-in form. */}
+      {resource.supported && paramCount === 0 && (
+        <div style={{ fontSize: 11, color: "var(--fg-dim)", lineHeight: 1.5 }}>
+          Officially supported — this endpoint takes no input, or its fields
+          aren&apos;t set up yet. Configure via Discover after adding.
         </div>
       )}
 
