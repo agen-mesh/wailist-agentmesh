@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Topbar } from "@/components/Topbar";
 import { bazaar, type BazaarResource } from "@/lib/bazaar";
 import { ResourceCard } from "./ResourceCard";
@@ -63,14 +63,14 @@ export function BazaarPage() {
   // response from a stale (pre-reset) request can tell it's stale and skip
   // applying setTotal — items already self-guards via its own offset check,
   // but total has no equivalent natural staleness signal to compare against.
-  // This lives in an effect (not the render-time reset above) because refs
-  // must not be read or written during render — only in effects/event
-  // handlers — and runs after the reset's render has committed, which is
-  // still strictly before any new loadMore call can be dispatched (the
-  // IntersectionObserver sentinel's callback fires asynchronously, never
-  // synchronously within this render's effects).
+  // This must be useLayoutEffect, not useEffect: a plain useEffect is
+  // deferred past paint via a macrotask, leaving a window (until that
+  // macrotask runs) during which a stale request's already-queued
+  // microtask continuation (the code right after `await bazaar.list(...)`)
+  // could read the pre-bump value and slip through. useLayoutEffect runs
+  // synchronously in the commit phase, closing that window entirely.
   const requestGeneration = useRef(0);
-  useEffect(() => {
+  useLayoutEffect(() => {
     requestGeneration.current += 1;
   }, [activeQuery]);
 
