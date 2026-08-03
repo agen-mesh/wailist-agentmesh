@@ -108,4 +108,15 @@ describe("pending node encoding", () => {
     const bad = encodePendingNode({ type: "agent" } as never);
     expect(decodePendingNode(bad)).toBeNull();
   });
+
+  it("rejects a payload with a valid endpoint but the wrong type", () => {
+    // Isolates the type check from the endpoint check: a payload that only
+    // fails on `type` must still be rejected, not waved through because it
+    // happens to carry a syntactically valid endpoint.
+    const bad = encodePendingNode({
+      type: "agent",
+      endpoint: "https://evil.example.com",
+    } as never);
+    expect(decodePendingNode(bad)).toBeNull();
+  });
 });
