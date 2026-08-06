@@ -131,6 +131,10 @@ export function Card({ style, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
 // Small ghost button used in topbars and row actions on the workflows and
 // usage pages. A style const (not a component) so callers can spread-extend
 // it: { ...ghostBtnSm, width: 28 }.
+// `whiteSpace: nowrap` + `flexShrink: 0` are load-bearing, not cosmetic: the
+// height is fixed, so a label allowed to wrap in a narrow flex row renders two
+// lines inside a 28px box and spills over the border. Buttons keep their
+// intrinsic width and let the row wrap instead.
 export const ghostBtnSm: CSSProperties = {
   height: 28,
   padding: "0 10px",
@@ -145,6 +149,8 @@ export const ghostBtnSm: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 4,
+  whiteSpace: "nowrap",
+  flexShrink: 0,
 };
 
 // ── Tag ──────────────────────────────────────────────────────────────────
@@ -181,12 +187,17 @@ export function Tag({ children }: { children: React.ReactNode }) {
 export function Hairline({
   vertical = false,
   length = "100%",
+  className,
 }: {
   vertical?: boolean;
   length?: string | number;
+  // Lets callers attach a responsive utility (e.g. `hide-md`) to a separator
+  // whose neighbours drop out at a breakpoint.
+  className?: string;
 }) {
   return (
     <div
+      className={className}
       style={{
         background: "var(--border)",
         width: vertical ? 1 : length,

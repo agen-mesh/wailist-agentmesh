@@ -115,7 +115,7 @@ export function UsagePage() {
   return (
     <div
       style={{
-        height: "100vh",
+        height: "100dvh",
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
@@ -130,7 +130,7 @@ export function UsagePage() {
           style={{
             maxWidth: 1280,
             margin: "0 auto",
-            padding: "36px 24px 80px",
+            padding: "var(--wf-page-pad)",
           }}
         >
           {scopedWf && (
@@ -717,9 +717,10 @@ function UsageBody({
           }
         />
         <div
+          className="hide-md"
           style={{
             display: "grid",
-            gridTemplateColumns: SETTLE_GRID,
+            gridTemplateColumns: "var(--us-settle-cols)",
             gap: 14,
             padding: "8px 10px",
             background: "var(--bg-elev-2)",
@@ -740,7 +741,7 @@ function UsageBody({
               key={s.txId}
               style={{
                 display: "grid",
-                gridTemplateColumns: SETTLE_GRID,
+                gridTemplateColumns: "var(--us-settle-cols)",
                 gap: 14,
                 alignItems: "center",
                 padding: "11px 10px",
@@ -838,7 +839,6 @@ const ASC_FIRST: readonly SortKey[] = ["endpoint", "type"];
 
 // Unit price gets 120px so "26*/1M" fits on one line (cell is nowrap).
 const EP_GRID = "1.9fr 1.15fr 66px 66px 120px 108px 116px 78px 92px";
-const SETTLE_GRID = "minmax(0,1.9fr) minmax(0,1.15fr) 140px 114px 108px"; // Endpoint · Hash · Workflow · Amount · Time
 
 function EndpointTable({
   rows,
@@ -959,8 +959,8 @@ function EndpointTable({
               height: 32,
               paddingLeft: 30,
               paddingRight: 12,
-              width: 240,
-              maxWidth: "100%",
+              width: "100%",
+              maxWidth: 240,
               background: "var(--bg-elev-2)",
               border: "1px solid var(--border)",
               borderRadius: "var(--r-2)",
