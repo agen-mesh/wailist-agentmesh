@@ -51,7 +51,7 @@ func sendGitHub(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 		return "github_skipped_invalid_repo", ErrActionSkipped
 	}
 	target := githubAPIBase + "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(name) + "/issues"
-	msg := rc.Message()
+	msg := resolveMessage(node, rc)
 	payload := map[string]any{"title": issueTitle(msg), "body": msg}
 	headers := map[string]string{
 		"Authorization": "Bearer " + token,
@@ -93,7 +93,7 @@ func sendJira(ctx context.Context, node models.WorkflowNode, rc RunContexter) (a
 		base = "https://" + domain + ".atlassian.net"
 	}
 	target := base + "/rest/api/3/issue"
-	msg := rc.Message()
+	msg := resolveMessage(node, rc)
 	payload := map[string]any{
 		"fields": map[string]any{
 			"project":   map[string]any{"key": projectKey},
@@ -135,7 +135,7 @@ func sendLinear(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	if teamID == "" {
 		return "linear_skipped_no_team_id", ErrActionSkipped
 	}
-	msg := rc.Message()
+	msg := resolveMessage(node, rc)
 	payload := map[string]any{
 		"query": `mutation IssueCreate($input: IssueCreateInput!) { issueCreate(input: $input) { success } }`,
 		"variables": map[string]any{
@@ -201,7 +201,7 @@ func sendGitLab(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	}
 	base := strings.TrimRight(configVal(node, "gitlabBaseURL", "https://gitlab.com"), "/")
 	target := base + "/api/v4/projects/" + url.PathEscape(projectID) + "/issues"
-	msg := rc.Message()
+	msg := resolveMessage(node, rc)
 	payload := map[string]any{"title": issueTitle(msg), "description": msg}
 	headers := map[string]string{"PRIVATE-TOKEN": token}
 	return postJSON(ctx, target, headers, payload, "gitlab_issue_created", "GitLab")
@@ -228,7 +228,7 @@ func sendSentry(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 		"timestamp": now.Unix(),
 		"platform":  "other",
 		"level":     "info",
-		"message":   map[string]any{"formatted": rc.Message()},
+		"message":   map[string]any{"formatted": resolveMessage(node, rc)},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("Sentry: encode event: %w", err)

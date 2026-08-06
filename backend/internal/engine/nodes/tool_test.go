@@ -2,6 +2,7 @@ package nodes_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -51,5 +52,137 @@ func TestHTTPTool(t *testing.T) {
 	m, ok := result.(map[string]any)
 	if !ok || m["status"] != "ok" {
 		t.Fatalf("want {status:ok} got %v", result)
+	}
+}
+
+func TestHTTPTool_PutSendsBody(t *testing.T) {
+	var gotMethod, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	node := models.WorkflowNode{ID: "t4", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "PUT"}
+	rc := engine.NewRunContext("r1", []byte(`{"name":"x"}`))
+	if _, err := nodes.ExecuteTool(context.Background(), node, rc); err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != "PUT" {
+		t.Errorf("want PUT, got %s", gotMethod)
+	}
+	if !strings.Contains(gotBody, "name") {
+		t.Errorf("want body to carry the message, got %q", gotBody)
+	}
+}
+
+func TestHTTPTool_GetSendsNoBody(t *testing.T) {
+	var gotContentLength int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotContentLength = r.ContentLength
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	node := models.WorkflowNode{ID: "t5", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "GET"}
+	rc := engine.NewRunContext("r1", []byte(`{"name":"x"}`))
+	if _, err := nodes.ExecuteTool(context.Background(), node, rc); err != nil {
+		t.Fatal(err)
+	}
+	if gotContentLength > 0 {
+		t.Errorf("want no body on GET, got Content-Length %d", gotContentLength)
+	}
+}
+
+func TestHTTPTool_AppliesCustomHeaders(t *testing.T) {
+	var gotHeader string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeader = r.Header.Get("X-Api-Key")
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	node := models.WorkflowNode{
+		ID: "t6", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "GET",
+		Secrets: map[string]string{"httpHeadersJSON": `{"X-Api-Key":"secret123"}`},
+	}
+	rc := engine.NewRunContext("r1", nil)
+	if _, err := nodes.ExecuteTool(context.Background(), node, rc); err != nil {
+		t.Fatal(err)
+	}
+	if gotHeader != "secret123" {
+		t.Errorf("want custom header applied, got %q", gotHeader)
+	}
+}
+
+func TestHTTPTool_AppliesBasicAuth(t *testing.T) {
+	var gotUser, gotPass string
+	var gotOK bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUser, gotPass, gotOK = r.BasicAuth()
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	node := models.WorkflowNode{
+		ID: "t7", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "GET",
+		Secrets: map[string]string{"httpBasicUser": "alice", "httpBasicPass": "hunter2"},
+	}
+	rc := engine.NewRunContext("r1", nil)
+	if _, err := nodes.ExecuteTool(context.Background(), node, rc); err != nil {
+		t.Fatal(err)
+	}
+	if !gotOK || gotUser != "alice" || gotPass != "hunter2" {
+		t.Errorf("want basic auth alice/hunter2, got %q/%q ok=%v", gotUser, gotPass, gotOK)
+	}
+}
+
+func TestHTTPTool_InvalidHeadersJSONErrors(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "t8", Type: models.NodeTypeTool, Template: "http", URL: "http://example.com", Method: "GET",
+		Secrets: map[string]string{"httpHeadersJSON": `not json`},
+	}
+	rc := engine.NewRunContext("r1", nil)
+	if _, err := nodes.ExecuteTool(context.Background(), node, rc); err == nil {
+		t.Fatal("want error for invalid headers JSON, got nil")
+	}
+}
+
+func TestHTTPTool_AppliesBodyTemplate(t *testing.T) {
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	node := models.WorkflowNode{
+		ID: "t9", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "POST",
+		Config: map[string]string{"httpBodyTemplate": `{"summary":"{{ result.extract }}"}`},
+	}
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("h1", map[string]any{"extract": "Algorand is fast."})
+	if _, err := nodes.ExecuteTool(context.Background(), node, rc); err != nil {
+		t.Fatal(err)
+	}
+	want := `{"summary":"Algorand is fast."}`
+	if gotBody != want {
+		t.Errorf("want templated body %q, got %q", want, gotBody)
+	}
+}
+
+func TestHTTPTool_NoBodyTemplateSendsRawMessageAsBefore(t *testing.T) {
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	node := models.WorkflowNode{ID: "t10", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "POST"}
+	rc := engine.NewRunContext("r1", []byte(`"raw message"`))
+	if _, err := nodes.ExecuteTool(context.Background(), node, rc); err != nil {
+		t.Fatal(err)
+	}
+	if gotBody != "raw message" {
+		t.Errorf("want unchanged raw-message behavior, got %q", gotBody)
 	}
 }

@@ -1217,3 +1217,82 @@ func (s *Store) LatestActiveLeaseForUser(ctx context.Context, userID string) (mo
 		 WHERE user_id = $1 AND status = 'active'
 		 ORDER BY started_at DESC LIMIT 1`, userID))
 }
+
+const oauthCredentialCols = `id, user_id, provider, account_label, access_token_enc,
+	refresh_token_enc, scopes, expires_at, created_at, updated_at`
+
+func scanOAuthCredential(row pgx.Row) (models.OAuthCredential, error) {
+	var c models.OAuthCredential
+	err := row.Scan(&c.ID, &c.UserID, &c.Provider, &c.AccountLabel, &c.AccessTokenEnc,
+		&c.RefreshTokenEnc, &c.Scopes, &c.ExpiresAt, &c.CreatedAt, &c.UpdatedAt)
+	return c, err
+}
+
+// InsertOAuthCredential persists a newly-connected account. accessTokenEnc/
+// refreshTokenEnc must already be encrypted -- this layer never sees a raw
+// token, mirroring how encryptNodes/decryptNodes keep node secrets out of
+// the store package (here it's the caller's job instead, since the caller
+// is the one holding the encryption key during the OAuth callback).
+func (s *Store) InsertOAuthCredential(ctx context.Context, c models.OAuthCredential) (models.OAuthCredential, error) {
+	return scanOAuthCredential(s.pool.QueryRow(ctx, `
+		INSERT INTO oauth_credentials (user_id, provider, account_label, access_token_enc,
+			refresh_token_enc, scopes, expires_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		RETURNING `+oauthCredentialCols,
+		c.UserID, c.Provider, c.AccountLabel, c.AccessTokenEnc,
+		c.RefreshTokenEnc, c.Scopes, c.ExpiresAt))
+}
+
+func (s *Store) GetOAuthCredential(ctx context.Context, id string) (models.OAuthCredential, error) {
+	return scanOAuthCredential(s.pool.QueryRow(ctx,
+		`SELECT `+oauthCredentialCols+` FROM oauth_credentials WHERE id = $1`, id))
+}
+
+// ListOAuthCredentials backs the Inspector's "connect account" picker --
+// never returns the encrypted tokens themselves (the struct's json tags
+// already omit them, but this is also the query boundary: no caller of this
+// method needs the ciphertext, only GetOAuthCredential's node-execution path
+// does).
+func (s *Store) ListOAuthCredentials(ctx context.Context, userID, provider string) ([]models.OAuthCredential, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+oauthCredentialCols+` FROM oauth_credentials
+		 WHERE user_id = $1 AND provider = $2 ORDER BY created_at DESC`, userID, provider)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []models.OAuthCredential
+	for rows.Next() {
+		c, err := scanOAuthCredential(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// UpdateOAuthCredentialTokens persists a refreshed access token (and,
+// usually, a rotated refresh token) after RefreshToken exchanges an expired
+// one. refreshTokenEnc may be "" -- a provider re-issuing an access token
+// doesn't always send a new refresh token, and "" here means "leave the
+// existing one alone" (COALESCE against NULLIF), never "erase it": erasing
+// a still-valid refresh token would permanently strand this credential the
+// next time its access token expires.
+func (s *Store) UpdateOAuthCredentialTokens(ctx context.Context, id, accessTokenEnc, refreshTokenEnc string, expiresAt time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE oauth_credentials
+		   SET access_token_enc = $2,
+		       refresh_token_enc = COALESCE(NULLIF($3, ''), refresh_token_enc),
+		       expires_at = $4,
+		       updated_at = now()
+		 WHERE id = $1`, id, accessTokenEnc, refreshTokenEnc, expiresAt)
+	return err
+}
+
+// DeleteOAuthCredential is owner-checked by the caller (handlers layer)
+// before this runs, same pattern as DeleteWorkflow.
+func (s *Store) DeleteOAuthCredential(ctx context.Context, id string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM oauth_credentials WHERE id = $1`, id)
+	return err
+}

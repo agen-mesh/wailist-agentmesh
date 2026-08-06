@@ -94,6 +94,16 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Post("/leases/{id}/release", d.ReleaseLease)
 		r.Get("/leases/{id}/key", d.DownloadLeaseKey)
 		r.Get("/leases/{id}/terminal", d.LeaseTerminal)
+
+		// Connects an external account (Gmail/Sheets/Calendar/Drive today) a
+		// workflow node calls on this user's behalf -- distinct from
+		// /auth/oauth above, which signs a person INTO AgentMesh and lives
+		// outside this group since there's no session yet at that point.
+		// This flow requires one already, hence living here instead.
+		r.Get("/oauth2/{provider}/start", d.OAuth2CredStart)
+		r.Get("/oauth2/{provider}/callback", d.OAuth2CredCallback)
+		r.Get("/oauth2/credentials", d.OAuth2CredList)
+		r.Delete("/oauth2/credentials/{id}", d.OAuth2CredDelete)
 	})
 
 	return r

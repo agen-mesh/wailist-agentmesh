@@ -15,7 +15,7 @@ func sendSlack(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 	if webhookURL == "" {
 		return "slack_skipped_no_webhook_url", ErrActionSkipped
 	}
-	payload := map[string]any{"text": rc.Message()}
+	payload := map[string]any{"text": resolveMessage(node, rc)}
 	return postJSON(ctx, webhookURL, nil, payload, "slack_sent", "Slack")
 }
 
@@ -24,7 +24,7 @@ func sendDiscord(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	if webhookURL == "" {
 		return "discord_skipped_no_webhook_url", ErrActionSkipped
 	}
-	payload := map[string]any{"content": rc.Message()}
+	payload := map[string]any{"content": resolveMessage(node, rc)}
 	return postJSON(ctx, webhookURL, nil, payload, "discord_sent", "Discord")
 }
 
@@ -36,7 +36,7 @@ func sendTeams(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 	payload := map[string]any{
 		"@type":    "MessageCard",
 		"@context": "http://schema.org/extensions",
-		"text":     rc.Message(),
+		"text":     resolveMessage(node, rc),
 	}
 	return postJSON(ctx, webhookURL, nil, payload, "teams_sent", "Teams")
 }
@@ -46,7 +46,7 @@ func sendGoogleChat(ctx context.Context, node models.WorkflowNode, rc RunContext
 	if webhookURL == "" {
 		return "google_chat_skipped_no_webhook_url", ErrActionSkipped
 	}
-	payload := map[string]any{"text": rc.Message()}
+	payload := map[string]any{"text": resolveMessage(node, rc)}
 	return postJSON(ctx, webhookURL, nil, payload, "google_chat_sent", "Google Chat")
 }
 
@@ -57,7 +57,7 @@ func sendNtfy(ctx context.Context, node models.WorkflowNode, rc RunContexter) (a
 	}
 	server := configVal(node, "ntfyServerURL", "https://ntfy.sh")
 	target := strings.TrimRight(server, "/") + "/" + url.PathEscape(topic)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(rc.Message()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(resolveMessage(node, rc)))
 	if err != nil {
 		return nil, fmt.Errorf("ntfy: build request: %w", err)
 	}
@@ -83,15 +83,47 @@ func SetTelegramAPIBaseForTest(base string) {
 }
 
 func sendTelegram(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
-	token := secretVal(node, "telegramBotToken")
+	// TrimSpace guards against a stray newline or trailing space surviving
+	// a copy-paste from BotFather's message -- Telegram's own router keys
+	// off the token in the URL path, so any such byte turns a genuinely
+	// valid token into a 404 "Not Found" that looks identical to a wrong
+	// token, with nothing in the response to tell them apart.
+	token := strings.TrimSpace(secretVal(node, "telegramBotToken"))
 	if token == "" {
 		return "telegram_skipped_no_bot_token", ErrActionSkipped
 	}
-	chatID := configVal(node, "telegramChatID", "")
+	chatID := strings.TrimSpace(configVal(node, "telegramChatID", ""))
 	if chatID == "" {
 		return "telegram_skipped_no_chat_id", ErrActionSkipped
 	}
 	target := telegramAPIBase + "/bot" + token + "/sendMessage"
-	payload := map[string]any{"chat_id": chatID, "text": rc.Message()}
+	payload := map[string]any{"chat_id": chatID, "text": resolveMessage(node, rc)}
 	return postJSON(ctx, target, nil, payload, "telegram_sent", "Telegram")
+}
+
+// getTelegramUpdates reads new messages the bot has received via long
+// polling's non-blocking form (getUpdates without a wait), rather than
+// only ever being able to send. It's the first genuinely read-capable
+// connector op -- see connector_helpers.go's getJSON.
+func getTelegramUpdates(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	token := strings.TrimSpace(secretVal(node, "telegramBotToken"))
+	if token == "" {
+		return "telegram_skipped_no_bot_token", ErrActionSkipped
+	}
+	q := url.Values{}
+	if offset := configVal(node, "telegramOffset", ""); offset != "" {
+		q.Set("offset", offset)
+	}
+	if limit := configVal(node, "telegramLimit", ""); limit != "" {
+		q.Set("limit", limit)
+	}
+	target := telegramAPIBase + "/bot" + token + "/getUpdates"
+	if len(q) > 0 {
+		target += "?" + q.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("telegram: build request: %w", err)
+	}
+	return getJSON(req, "Telegram")
 }

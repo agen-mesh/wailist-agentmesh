@@ -84,10 +84,28 @@ func BuildAttachMap(nodes []models.WorkflowNode, edges []models.WorkflowEdge) ma
 		}
 		switch e.ToPort {
 		case "model":
-			s := src
-			cfg.Provider = &s
+			// Only a real Provider node has meaningful model-attach
+			// semantics -- guards the same class of gap as "tools" below.
+			if src.Type == models.NodeTypeProvider {
+				s := src
+				cfg.Provider = &s
+			}
 		case "tools":
-			cfg.Tools = append(cfg.Tools, src)
+			// Only tool/tool402 nodes have real dispatch as an
+			// agent-attached tool (executeFunctionCall in provider.go
+			// special-cases tool402 and falls back to ExecuteTool, which
+			// understands tool's own templates, for everything else).
+			// Any other type reaching here -- e.g. a Google node, which
+			// the frontend deliberately never offers as an attach source --
+			// would silently no-op in ExecuteTool's default case while
+			// still being billed as a successful call. The frontend
+			// already blocks wiring this client-side; this is the
+			// server-side backstop for a hand-crafted or future-regressed
+			// edge that bypasses it (UpdateWorkflow persists edges from
+			// request JSON with no server-side edge-kind/node-type check).
+			if src.Type == models.NodeTypeTool || src.Type == models.NodeTypeTool402 {
+				cfg.Tools = append(cfg.Tools, src)
+			}
 		}
 		result[e.To] = cfg
 	}

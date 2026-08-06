@@ -39,7 +39,7 @@ func sendNotion(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 			"paragraph": map[string]any{
 				"rich_text": []map[string]any{{
 					"type": "text",
-					"text": map[string]any{"content": rc.Message()},
+					"text": map[string]any{"content": resolveMessage(node, rc)},
 				}},
 			},
 		}},
@@ -80,7 +80,7 @@ func sendAirtable(ctx context.Context, node models.WorkflowNode, rc RunContexter
 	}
 	fieldName := configVal(node, "airtableFieldName", "Notes")
 	target := airtableAPIBase + "/v0/" + url.PathEscape(baseID) + "/" + url.PathEscape(table)
-	payload := map[string]any{"fields": map[string]any{fieldName: rc.Message()}}
+	payload := map[string]any{"fields": map[string]any{fieldName: resolveMessage(node, rc)}}
 	headers := map[string]string{"Authorization": "Bearer " + apiKey}
 	return postJSON(ctx, target, headers, payload, "airtable_record_created", "Airtable")
 }
@@ -115,7 +115,7 @@ func sendTrello(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	q.Set("key", apiKey)
 	q.Set("token", token)
 	target := trelloAPIBase + "/1/cards?" + q.Encode()
-	msg := rc.Message()
+	msg := resolveMessage(node, rc)
 	payload := map[string]any{
 		"idList": listID,
 		"name":   issueTitle(msg),
@@ -146,7 +146,7 @@ func sendAsana(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 	if projectID == "" {
 		return "asana_skipped_no_project_id", ErrActionSkipped
 	}
-	msg := rc.Message()
+	msg := resolveMessage(node, rc)
 	payload := map[string]any{
 		"data": map[string]any{
 			"name":     issueTitle(msg),
@@ -181,7 +181,7 @@ func sendClickUp(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 		return "clickup_skipped_no_list_id", ErrActionSkipped
 	}
 	target := clickupAPIBase + "/api/v2/list/" + url.PathEscape(listID) + "/task"
-	msg := rc.Message()
+	msg := resolveMessage(node, rc)
 	payload := map[string]any{"name": issueTitle(msg), "description": msg}
 	headers := map[string]string{"Authorization": apiKey}
 	return postJSON(ctx, target, headers, payload, "clickup_task_created", "ClickUp")
@@ -205,7 +205,7 @@ func sendTodoist(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	if apiKey == "" {
 		return "todoist_skipped_no_api_key", ErrActionSkipped
 	}
-	msg := rc.Message()
+	msg := resolveMessage(node, rc)
 	payload := map[string]any{"content": issueTitle(msg), "description": msg}
 	if projectID := configVal(node, "todoistProjectID", ""); projectID != "" {
 		payload["project_id"] = projectID

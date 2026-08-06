@@ -8,10 +8,11 @@ import {
   AGENT_TEMPLATES,
   PROVIDER_TEMPLATES,
   TOOL_TEMPLATES,
-  TOOL402_TEMPLATES,
   ACTION_TEMPLATES,
+  ACTION_CATEGORIES,
   END_TEMPLATES,
   TENDRIL_TEMPLATES,
+  GOOGLE_TEMPLATES,
 } from "@/lib/data";
 import { IconSearch } from "@/components/ui";
 
@@ -74,18 +75,18 @@ const PALETTE_TABS = [
     }),
   },
   {
+    // No preset list: every x402 endpoint is different money moving to a
+    // different real place, so this tab offers only the "New x402
+    // Endpoint" custom creator below (paste URL -> Discover probes the
+    // live 402 challenge for method/price). A prior preset list here
+    // (Tavily/Firecrawl/etc.) pointed at invented hostnames nothing
+    // real answers to -- removed rather than fixed in place.
     id: "x402",
     label: "x402",
-    items: () => TOOL402_TEMPLATES,
+    items: () => [] as never[],
     type: "tool402",
     dotColor: "magenta" as const,
-    map: (it: (typeof TOOL402_TEMPLATES)[0]): Partial<WorkflowNode> => ({
-      type: "tool402",
-      template: it.id,
-      name: it.name,
-      icon: it.icon,
-      sub: `${it.provider} · ${it.price} / ${it.unit}`,
-    }),
+    map: (): Partial<WorkflowNode> => ({ type: "tool402" }),
   },
   {
     id: "tendril",
@@ -119,6 +120,20 @@ const PALETTE_TABS = [
     }),
   },
   {
+    id: "google",
+    label: "Google",
+    items: () => GOOGLE_TEMPLATES,
+    type: "google",
+    dotColor: "accent" as const,
+    map: (it: (typeof GOOGLE_TEMPLATES)[0]): Partial<WorkflowNode> => ({
+      type: "google",
+      template: it.id,
+      name: it.name,
+      icon: it.icon,
+      sub: it.desc,
+    }),
+  },
+  {
     id: "end",
     label: "End",
     items: () => END_TEMPLATES,
@@ -135,6 +150,53 @@ const PALETTE_TABS = [
 ] as const;
 
 type TabId = (typeof PALETTE_TABS)[number]["id"];
+
+// ── Actions-tab search & grouping ───────────────────────────────────────────
+// Scoped entirely to the Actions tab (see `isActions` below) -- the rest of
+// the palette keeps its original flat, unranked `.includes()` filter.
+
+interface ActionEntry {
+  meta: Partial<WorkflowNode>;
+  category?: string;
+}
+
+// Ranks a name-starts-with match above a name-contains match above a
+// sub/category-only match, so e.g. typing "tel" surfaces "Telegram Message"
+// before something whose description merely mentions it.
+function scoreEntry(e: ActionEntry, q: string): number {
+  if (!q) return 0;
+  const name = (e.meta.name ?? e.meta.label ?? "").toLowerCase();
+  const sub = (e.meta.sub ?? "").toLowerCase();
+  const category = (e.category ?? "").toLowerCase();
+  if (name.startsWith(q)) return 3;
+  if (name.includes(q)) return 2;
+  if (sub.includes(q) || category.includes(q)) return 1;
+  return 0;
+}
+
+// Wraps the first case-insensitive match of `q` in `text` with the app's own
+// accent-soft chip token -- reuses the existing accent pairing (already used
+// by CreateRow's dashed box) instead of introducing a new highlight color.
+function highlightMatch(text: string, q: string): React.ReactNode {
+  if (!q) return text;
+  const idx = text.toLowerCase().indexOf(q.toLowerCase());
+  if (idx === -1) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <span
+        style={{
+          background: "var(--accent-soft)",
+          color: "var(--accent)",
+          borderRadius: 2,
+        }}
+      >
+        {text.slice(idx, idx + q.length)}
+      </span>
+      {text.slice(idx + q.length)}
+    </>
+  );
+}
 
 const CREATE_META: Record<string, Partial<WorkflowNode>> = {
   triggers: {
@@ -191,6 +253,19 @@ const CREATE_META: Record<string, Partial<WorkflowNode>> = {
     icon: "✦",
     sub: "your own action",
   },
+  // Google has no "custom operation" concept -- all 11 real ones (Gmail/
+  // Sheets/Calendar/Drive) are already listed individually below. This
+  // create-row defaults to the most common one (send) purely so dragging
+  // the dashed "+" card behaves consistently with every other tab; picking
+  // a different Google row below is the normal way to get a different op.
+  google: {
+    type: "google",
+    custom: true,
+    name: "Custom Gmail Send",
+    icon: "✉",
+    sub: "or drag a specific op below",
+    template: "gmail_send",
+  },
   end: {
     type: "end",
     custom: true,
@@ -226,6 +301,27 @@ export function PalettePanel({
         .includes(q.toLowerCase()) ||
       (i.sub ?? "").toLowerCase().includes(q.toLowerCase()),
   );
+
+  // The Actions tab is the one palette tab that's actually a connector
+  // library (23 real integrations) -- everything below is scoped to it via
+  // `isActions` so every other tab keeps using `filtered` above, untouched.
+  const isActions = tab === "actions";
+  const q_ = q.trim().toLowerCase();
+  const actionEntries: ActionEntry[] = isActions
+    ? (items as { category?: string }[]).map((raw, i) => ({
+        meta: mapped[i],
+        category: raw.category,
+      }))
+    : [];
+  const actionSearched = q_
+    ? actionEntries
+        .filter((e) => scoreEntry(e, q_) > 0)
+        .sort((a, b) => {
+          const s = scoreEntry(b, q_) - scoreEntry(a, q_);
+          if (s !== 0) return s;
+          return (a.meta.name ?? "").localeCompare(b.meta.name ?? "");
+        })
+    : actionEntries;
 
   // Reflow the item list into two columns once the panel is dragged wide.
   const cols = width >= PALETTE_TWO_COL_MIN ? 2 : 1;
@@ -358,6 +454,21 @@ export function PalettePanel({
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
+        {isActions && (
+          <div
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: "var(--fg-dim)",
+              marginTop: 6,
+              paddingLeft: 2,
+            }}
+          >
+            {q_
+              ? `${actionSearched.length} of ${actionEntries.length} connectors`
+              : `${actionEntries.length} connectors`}
+          </div>
+        )}
       </div>
 
       <div
@@ -381,19 +492,90 @@ export function PalettePanel({
           />
         </div>
 
-        {filtered.map((it, i) => (
-          <DraggableRow
-            key={i}
-            icon={(it.icon ?? "") as string}
-            template={(it.template ?? "") as string}
-            title={(it.name ?? it.label ?? "") as string}
-            sub={(it.sub ?? "") as string}
-            dotColor={tabDef.dotColor}
-            onDragStart={(e) => onDragNodeStart(e, it)}
-          />
-        ))}
+        {isActions ? (
+          q_ ? (
+            // Searching: flat, ranked, matched text highlighted.
+            actionSearched.map((e, i) => {
+              const title = (e.meta.name ?? e.meta.label ?? "") as string;
+              const sub = (e.meta.sub ?? "") as string;
+              return (
+                <DraggableRow
+                  key={i}
+                  icon={(e.meta.icon ?? "") as string}
+                  template={(e.meta.template ?? "") as string}
+                  title={title}
+                  titleNode={highlightMatch(title, q_)}
+                  sub={sub}
+                  subNode={highlightMatch(sub, q_)}
+                  dotColor={tabDef.dotColor}
+                  onDragStart={(e2) => onDragNodeStart(e2, e.meta)}
+                />
+              );
+            })
+          ) : (
+            // Browsing: grouped under category headers, mirroring the
+            // backend's own connectors_{messaging,productivity,...}.go split.
+            // Note: each group renders as one grid-spanning wrapper so its
+            // header never breaks the column flow -- as a side effect, the
+            // column-reflow FLIP animation above glides per-group rather
+            // than per-row while this view is showing (every other tab, and
+            // the searching view above, keep the original per-row glide).
+            ACTION_CATEGORIES.map((cat) => {
+              const group = actionEntries.filter((e) => e.category === cat);
+              if (group.length === 0) return null;
+              return (
+                <div key={cat} style={{ gridColumn: "1 / -1" }}>
+                  <div
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.08em",
+                      color: "var(--fg-dim)",
+                      padding: "10px 2px 6px",
+                    }}
+                  >
+                    {cat} · {group.length}
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+                      gap: 6,
+                    }}
+                  >
+                    {group.map((e, i) => (
+                      <DraggableRow
+                        key={i}
+                        icon={(e.meta.icon ?? "") as string}
+                        template={(e.meta.template ?? "") as string}
+                        title={(e.meta.name ?? e.meta.label ?? "") as string}
+                        sub={(e.meta.sub ?? "") as string}
+                        dotColor={tabDef.dotColor}
+                        onDragStart={(e2) => onDragNodeStart(e2, e.meta)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })
+          )
+        ) : (
+          filtered.map((it, i) => (
+            <DraggableRow
+              key={i}
+              icon={(it.icon ?? "") as string}
+              template={(it.template ?? "") as string}
+              title={(it.name ?? it.label ?? "") as string}
+              sub={(it.sub ?? "") as string}
+              dotColor={tabDef.dotColor}
+              onDragStart={(e) => onDragNodeStart(e, it)}
+            />
+          ))
+        )}
 
-        {filtered.length === 0 && (
+        {((isActions && q_ && actionSearched.length === 0) ||
+          (!isActions && filtered.length === 0)) && (
           <div
             style={{
               gridColumn: "1 / -1",
@@ -504,14 +686,21 @@ function DraggableRow({
   icon,
   template,
   title,
+  titleNode,
   sub,
+  subNode,
   dotColor,
   onDragStart,
 }: {
   icon: string;
   template?: string;
   title: string;
+  // Optional pre-rendered override for title/sub, used by the Actions tab's
+  // search view to show the matched substring highlighted. Falls back to the
+  // plain string every other caller already passes.
+  titleNode?: React.ReactNode;
   sub: string;
+  subNode?: React.ReactNode;
   dotColor: "mute" | "accent" | "magenta";
   onDragStart: (e: React.DragEvent) => void;
 }) {
@@ -569,7 +758,7 @@ function DraggableRow({
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12, fontWeight: 500, color: "var(--fg)" }}>
-          {title}
+          {titleNode ?? title}
         </div>
         <div
           style={{
@@ -581,7 +770,7 @@ function DraggableRow({
             textOverflow: "ellipsis",
           }}
         >
-          {sub}
+          {subNode ?? sub}
         </div>
       </div>
     </div>

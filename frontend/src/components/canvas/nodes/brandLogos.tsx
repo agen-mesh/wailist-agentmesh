@@ -47,6 +47,7 @@ const BRAND_ICONS: Record<string, SimpleIcon> = {
   google_chat: siGooglechat,
   ntfy: siNtfy,
   telegram: siTelegram,
+  telegram_get_updates: siTelegram,
   // Dev tools
   github: siGithub,
   gitlab: siGitlab,

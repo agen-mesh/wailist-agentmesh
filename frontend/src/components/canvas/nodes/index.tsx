@@ -8,10 +8,10 @@ import {
   AGENT_TEMPLATES,
   PROVIDER_TEMPLATES,
   TOOL_TEMPLATES,
-  TOOL402_TEMPLATES,
   ACTION_TEMPLATES,
   END_TEMPLATES,
   TENDRIL_TEMPLATES,
+  GOOGLE_TEMPLATES,
 } from "@/lib/data";
 import { Pill } from "@/components/ui";
 
@@ -44,6 +44,8 @@ export function CanvasNode(props: NodeProps) {
       return <EndNode {...props} />;
     case "tendril":
       return <TendrilNode {...props} />;
+    case "google":
+      return <GoogleNode {...props} />;
     default:
       return null;
   }
@@ -715,6 +717,23 @@ function ToolNode({
         onLeave={onPortLeave}
         onMouseDown={(e) => onStartWire(e, "top")}
       />
+      <SidePort
+        side="left"
+        color="var(--fg)"
+        node={node}
+        port="in"
+        onHover={() => onPortHover("in")}
+        onLeave={onPortLeave}
+      />
+      <SidePort
+        side="right"
+        color="var(--fg)"
+        node={node}
+        port="out"
+        onHover={() => onPortHover("out")}
+        onLeave={onPortLeave}
+        onMouseDown={(e) => onStartWire(e, "out")}
+      />
     </NodeShell>
   );
 }
@@ -729,13 +748,15 @@ function Tool402Node({
   onStartWire,
 }: NodeProps) {
   const t = NODE_TYPES.tool402;
-  const tpl = TOOL402_TEMPLATES.find((x) => x.id === node.template);
+  // No preset template list anymore (TOOL402_TEMPLATES removed -- see
+  // node-cleanup plan Part A1); every x402 node is custom, so it always
+  // carries its own name/provider/price/unit/icon set at creation time.
   const magenta = "#E879F9";
-  const name = node.name ?? tpl?.name ?? "x402 Tool";
-  const provider = node.provider ?? tpl?.provider ?? "";
-  const price = node.price ?? tpl?.price;
-  const unit = node.unit ?? tpl?.unit ?? "call";
-  const icon = node.icon ?? tpl?.icon ?? "✦";
+  const name = node.name ?? "x402 Tool";
+  const provider = node.provider ?? "";
+  const price = node.price;
+  const unit = node.unit ?? "call";
+  const icon = node.icon ?? "✦";
 
   return (
     <NodeShell
@@ -913,6 +934,58 @@ function ActionNode({
       <SidePort
         side="right"
         color="var(--fg)"
+        node={node}
+        port="out"
+        onHover={() => onPortHover("out")}
+        onLeave={onPortLeave}
+        onMouseDown={(e) => onStartWire(e, "out")}
+      />
+    </NodeShell>
+  );
+}
+
+// ── Google (Gmail/Sheets/Calendar/Drive) ────────────────────────────────────
+// Flow-only, same shape as ActionNode -- see google's PORT_POS comment in
+// portUtils.ts for why there's no "top" attach port.
+function GoogleNode({
+  node,
+  selected,
+  onMouseDown,
+  onPortHover,
+  onPortLeave,
+  onStartWire,
+}: NodeProps) {
+  const t = NODE_TYPES.google;
+  const tpl = GOOGLE_TEMPLATES.find((x) => x.id === node.template);
+  return (
+    <NodeShell
+      node={node}
+      selected={selected}
+      onMouseDown={onMouseDown}
+      W={t.w}
+      H={t.h}
+      accent="var(--accent)"
+    >
+      <NodeHeader
+        icon={node.icon ?? tpl?.icon ?? "G"}
+        template={node.template}
+        iconBg="var(--accent-soft)"
+        iconColor="var(--accent)"
+        kicker="google"
+        title={node.name ?? tpl?.name ?? "Google"}
+        sub={node.sub ?? tpl?.desc}
+      />
+      <SidePort
+        side="left"
+        color="var(--accent)"
+        node={node}
+        port="in"
+        onHover={() => onPortHover("in")}
+        onLeave={onPortLeave}
+      />
+      <SidePort
+        side="right"
+        color="var(--accent)"
         node={node}
         port="out"
         onHover={() => onPortHover("out")}

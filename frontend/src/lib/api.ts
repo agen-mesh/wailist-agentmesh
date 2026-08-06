@@ -446,6 +446,44 @@ export const tools = {
   },
 };
 
+// -- OAuth2 connected accounts (Gmail/Sheets/Calendar/Drive) --------------
+// Distinct from `auth` above: that signs a person INTO AgentMesh; this
+// connects an EXTERNAL account a Google-type workflow node calls on the
+// user's behalf. See backend/internal/api/handlers/oauth2creds.go.
+export interface OAuthCredentialSummary {
+  id: string;
+  provider: string;
+  accountLabel: string;
+  scopes: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export const oauth2 = {
+  // A full-page redirect (Google's consent screen), not a fetch -- the
+  // caller should set window.location.href to this, not call it as an
+  // async request.
+  connectURL: (provider: string): string => `${BASE}/oauth2/${provider}/start`,
+
+  listCredentials: async (provider: string): Promise<OAuthCredentialSummary[]> => {
+    if (!BASE) return []; // No connected-account concept in mock mode.
+    const res = await fetch(
+      `${BASE}/oauth2/credentials?provider=${encodeURIComponent(provider)}`,
+      { credentials: "include" },
+    );
+    if (!res.ok) return [];
+    return res.json().catch(() => []);
+  },
+
+  deleteCredential: async (id: string): Promise<void> => {
+    if (!BASE) return;
+    await fetch(`${BASE}/oauth2/credentials/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+  },
+};
+
 // -- Waitlist -------------------------------------------------------------
 export const waitlist = {
   // TODO: POST /waitlist

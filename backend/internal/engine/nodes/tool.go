@@ -127,24 +127,61 @@ func ExecuteTool(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	}
 }
 
+// httpMethodsWithBody are the methods callHTTP attaches rc.Message() to as a
+// request body -- GET/HEAD/OPTIONS never carry one, matching real HTTP
+// semantics rather than the old POST-only special case.
+var httpMethodsWithBody = map[string]bool{
+	http.MethodPost:   true,
+	http.MethodPut:    true,
+	http.MethodPatch:  true,
+	http.MethodDelete: true,
+}
+
 func callHTTP(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	if err := urlValidator(node.URL); err != nil {
 		return nil, err
 	}
-	method := node.Method
+	method := strings.ToUpper(strings.TrimSpace(node.Method))
 	if method == "" {
 		method = http.MethodGet
 	}
 	var bodyReader io.Reader
-	if method == http.MethodPost {
-		bodyReader = bytes.NewReader([]byte(rc.Message()))
+	if httpMethodsWithBody[method] {
+		// httpBodyTemplate is this node's own template key, distinct from
+		// messageTemplate -- a different node type/Inspector, and "body" is
+		// the accurate term for what a request carries, vs. a connector's
+		// "message". Same {{ result }} / {{ result.field }} syntax either
+		// way (expandTemplate); empty means send rc.Message() verbatim, as
+		// before.
+		body := rc.Message()
+		if tmpl := configVal(node, "httpBodyTemplate", ""); tmpl != "" {
+			body = expandTemplate(tmpl, rc)
+		}
+		bodyReader = bytes.NewReader([]byte(body))
 	}
 	req, err := http.NewRequestWithContext(ctx, method, node.URL, bodyReader)
 	if err != nil {
 		return nil, err
 	}
-	if method == http.MethodPost {
+	if httpMethodsWithBody[method] {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	// Custom headers: a JSON object of header name -> value, e.g.
+	// {"X-Api-Key": "...", "Authorization": "Bearer ..."}. Kept in Secrets
+	// rather than Config -- headers commonly carry credentials and there's
+	// no way to tell which ones from the shape alone, so the whole blob
+	// gets the encrypted-at-rest treatment.
+	if raw := secretVal(node, "httpHeadersJSON"); raw != "" {
+		var headers map[string]string
+		if err := json.Unmarshal([]byte(raw), &headers); err != nil {
+			return nil, fmt.Errorf("http: invalid headers JSON: %w", err)
+		}
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+	}
+	if user := secretVal(node, "httpBasicUser"); user != "" {
+		req.SetBasicAuth(user, secretVal(node, "httpBasicPass"))
 	}
 	resp, err := toolHTTPClient.Do(req)
 	if err != nil {

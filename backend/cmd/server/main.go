@@ -141,6 +141,10 @@ func main() {
 		"groq":      os.Getenv("PLATFORM_GROQ_API_KEY"),
 		"mistral":   os.Getenv("PLATFORM_MISTRAL_API_KEY"),
 	})
+	// Reuses the same Google app already configured for sign-in-with-Google
+	// (below) -- Gmail/Sheets/Calendar/Drive nodes fail closed with a clear
+	// error if unset, same pattern as SetTendril.
+	runner.SetGoogleOAuth(os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET"))
 
 	var tendrilClient *tendril.Client
 	var tendrilSession *tendril.Session
