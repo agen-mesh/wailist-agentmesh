@@ -124,8 +124,6 @@ type Deps struct {
 	MailchimpClientSecret       string
 	GitLabClientID              string
 	GitLabClientSecret          string
-	TrelloClientID              string
-	TrelloClientSecret          string
 	TodoistClientID             string
 	TodoistClientSecret         string
 }

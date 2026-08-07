@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -548,7 +549,8 @@ func (d *Deps) ConnectorOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	cookieName := connectorStateCookieName(provider)
 	cookie, err := r.Cookie(cookieName)
 	stateParam := r.URL.Query().Get("state")
-	if err != nil || cookie.Value == "" || cookie.Value != stateParam {
+	if err != nil || cookie.Value == "" ||
+		subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(stateParam)) != 1 {
 		d.connectorRedirectFail(w, r, "", "invalid_state")
 		return
 	}

@@ -25,6 +25,7 @@ import {
 
 interface InspectorProps {
   selected: WorkflowNode | null;
+  workflowId: string;
   onUpdate: (n: WorkflowNode) => void;
   onDelete: () => void;
   onClose: () => void;
@@ -33,6 +34,7 @@ interface InspectorProps {
 
 export function Inspector({
   selected,
+  workflowId,
   onUpdate,
   onDelete,
   onClose,

@@ -216,8 +216,6 @@ func main() {
 		MailchimpClientSecret:       os.Getenv("MAILCHIMP_CLIENT_SECRET"),
 		GitLabClientID:              os.Getenv("GITLAB_CLIENT_ID"),
 		GitLabClientSecret:          os.Getenv("GITLAB_CLIENT_SECRET"),
-		TrelloClientID:              os.Getenv("TRELLO_CLIENT_ID"),
-		TrelloClientSecret:          os.Getenv("TRELLO_CLIENT_SECRET"),
 		TodoistClientID:             os.Getenv("TODOIST_CLIENT_ID"),
 		TodoistClientSecret:         os.Getenv("TODOIST_CLIENT_SECRET"),
 	}

@@ -21,7 +21,6 @@ const PROVIDER_NAMES: Record<string, string> = {
   mailchimp: "Mailchimp",
   gitlab: "GitLab",
   todoist: "Todoist",
-  trello: "Trello",
 };
 
 function displayName(provider: string) {

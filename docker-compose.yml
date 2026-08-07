@@ -77,8 +77,6 @@ services:
       MAILCHIMP_CLIENT_SECRET: placeholder_mailchimp_client_secret
       GITLAB_CLIENT_ID: placeholder_gitlab_client_id
       GITLAB_CLIENT_SECRET: placeholder_gitlab_client_secret
-      TRELLO_CLIENT_ID: placeholder_trello_client_id
-      TRELLO_CLIENT_SECRET: placeholder_trello_client_secret
       TODOIST_CLIENT_ID: placeholder_todoist_client_id
       TODOIST_CLIENT_SECRET: placeholder_todoist_client_secret
 
