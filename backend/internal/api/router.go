@@ -94,6 +94,9 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Post("/leases/{id}/release", d.ReleaseLease)
 		r.Get("/leases/{id}/key", d.DownloadLeaseKey)
 		r.Get("/leases/{id}/terminal", d.LeaseTerminal)
+
+		r.Get("/connectors/oauth/{provider}/start", d.ConnectorOAuthStart)
+		r.Get("/connectors/oauth/{provider}/callback", d.ConnectorOAuthCallback)
 	})
 
 	return r

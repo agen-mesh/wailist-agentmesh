@@ -16,6 +16,7 @@ import {
 import { IconClose, StatusDot } from "@/components/ui";
 import { BrandLogo } from "./nodes/brandLogos";
 import { tools as toolsApi } from "@/lib/api";
+import { ConnectorOAuthButton } from "./ConnectorOAuthButton";
 import {
   tendril as tendrilApi,
   estimateLeaseHoursCostUSD,
@@ -24,6 +25,7 @@ import {
 
 interface InspectorProps {
   selected: WorkflowNode | null;
+  workflowId: string;
   onUpdate: (n: WorkflowNode) => void;
   onDelete: () => void;
   onClose: () => void;
@@ -32,6 +34,7 @@ interface InspectorProps {
 
 export function Inspector({
   selected,
+  workflowId,
   onUpdate,
   onDelete,
   onClose,
@@ -137,7 +140,11 @@ export function Inspector({
           <TriggerInspector node={selected} onUpdate={onUpdate} />
         )}
         {selected.type === "action" && (
-          <ActionInspector node={selected} onUpdate={onUpdate} />
+          <ActionInspector
+            node={selected}
+            workflowId={workflowId}
+            onUpdate={onUpdate}
+          />
         )}
         {selected.type === "end" && (
           <EndInspector node={selected} onUpdate={onUpdate} />
@@ -1693,16 +1700,24 @@ type ConnectorField =
 
 const CONNECTOR_CONFIG_FIELDS: Record<
   string,
-  { label: string; fields: ConnectorField[] }
+  { label: string; oauthProvider?: string; fields: ConnectorField[] }
 > = {
   slack: {
     label: "Slack config",
+    oauthProvider: "slack",
     fields: [
       {
         kind: "secret",
         key: "slackWebhookURL",
         label: "Webhook URL",
+        hint: "or connect above for bot-token mode",
         placeholder: "https://hooks.slack.com/services/…",
+      },
+      {
+        kind: "config",
+        key: "slackChannel",
+        label: "Channel ID (bot-token mode)",
+        placeholder: "C0123456789",
       },
     ],
   },
@@ -1782,6 +1797,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   github: {
     label: "GitHub config",
+    oauthProvider: "github",
     fields: [
       {
         kind: "secret",
@@ -1799,6 +1815,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   notion: {
     label: "Notion config",
+    oauthProvider: "notion",
     fields: [
       {
         kind: "secret",
@@ -1816,6 +1833,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   airtable: {
     label: "Airtable config",
+    oauthProvider: "airtable",
     fields: [
       {
         kind: "secret",
@@ -1845,6 +1863,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   hubspot: {
     label: "HubSpot config",
+    oauthProvider: "hubspot",
     fields: [
       {
         kind: "secret",
@@ -1879,6 +1898,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   asana: {
     label: "Asana config",
+    oauthProvider: "asana",
     fields: [
       {
         kind: "secret",
@@ -1896,6 +1916,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   clickup: {
     label: "ClickUp config",
+    oauthProvider: "clickup",
     fields: [
       {
         kind: "secret",
@@ -1913,6 +1934,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   jira: {
     label: "Jira config",
+    oauthProvider: "jira",
     fields: [
       {
         kind: "secret",
@@ -1948,6 +1970,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   mailchimp: {
     label: "Mailchimp config",
+    oauthProvider: "mailchimp",
     fields: [
       {
         kind: "secret",
@@ -1972,6 +1995,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   linear: {
     label: "Linear config",
+    oauthProvider: "linear",
     fields: [
       {
         kind: "secret",
@@ -1989,6 +2013,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   todoist: {
     label: "Todoist config",
+    oauthProvider: "todoist",
     fields: [
       {
         kind: "secret",
@@ -2007,6 +2032,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   gitlab: {
     label: "GitLab config",
+    oauthProvider: "gitlab",
     fields: [
       {
         kind: "secret",
@@ -2290,9 +2316,11 @@ function AuthDocLink({ href, label }: { href: string; label: string }) {
 
 function ConnectorConfigSection({
   node,
+  workflowId,
   onUpdate,
 }: {
   node: WorkflowNode;
+  workflowId: string;
   onUpdate: (n: WorkflowNode) => void;
 }) {
   const spec = CONNECTOR_CONFIG_FIELDS[node.template ?? ""];
@@ -2325,6 +2353,13 @@ function ConnectorConfigSection({
 
   return (
     <>
+      {spec.oauthProvider && (
+        <ConnectorOAuthButton
+          provider={spec.oauthProvider}
+          workflowId={workflowId}
+          node={node}
+        />
+      )}
       {secretFields.length > 0 && (
         <Section label="Authentication">
           <div
@@ -2375,9 +2410,11 @@ function ConnectorConfigSection({
 // ── Action Inspector ───────────────────────────────────────────────────────
 function ActionInspector({
   node,
+  workflowId,
   onUpdate,
 }: {
   node: WorkflowNode;
+  workflowId: string;
   onUpdate: (n: WorkflowNode) => void;
 }) {
   return (
@@ -2478,7 +2515,11 @@ function ActionInspector({
         </Section>
       )}
 
-      <ConnectorConfigSection node={node} onUpdate={onUpdate} />
+      <ConnectorConfigSection
+        node={node}
+        workflowId={workflowId}
+        onUpdate={onUpdate}
+      />
     </>
   );
 }

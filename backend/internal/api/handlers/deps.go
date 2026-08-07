@@ -101,4 +101,29 @@ type Deps struct {
 	// here so the Tendril console's direct-action endpoints (topup/rent/run)
 	// can call nodes.ExecuteTendril without going through a workflow run.
 	TendrilSession *tendril.Session
+
+	SlackOAuthClientID          string
+	SlackOAuthClientSecret      string
+	GitHubConnectorClientID     string
+	GitHubConnectorClientSecret string
+	NotionClientID              string
+	NotionClientSecret          string
+	AirtableClientID            string
+	AirtableClientSecret        string
+	HubSpotClientID             string
+	HubSpotClientSecret         string
+	AsanaClientID               string
+	AsanaClientSecret           string
+	ClickUpClientID             string
+	ClickUpClientSecret         string
+	JiraClientID                string
+	JiraClientSecret            string
+	LinearClientID              string
+	LinearClientSecret          string
+	MailchimpClientID           string
+	MailchimpClientSecret       string
+	GitLabClientID              string
+	GitLabClientSecret          string
+	TodoistClientID             string
+	TodoistClientSecret         string
 }
