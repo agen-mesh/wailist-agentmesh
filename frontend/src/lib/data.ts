@@ -18,6 +18,7 @@ export const NODE_TYPES: Record<string, NodeTypeMeta> = {
   tool402: { w: 220, h: 84, ports: ["top"] },
   action: { w: 200, h: 64, ports: ["in", "out"] },
   end: { w: 200, h: 60, ports: ["in"] },
+  tendril: { w: 240, h: 96, ports: ["in", "out", "top"] },
 };
 
 export const TRIGGER_TEMPLATES = [
@@ -41,10 +42,73 @@ export const AGENT_TEMPLATES = [
 export const PROVIDER_TEMPLATES = [
   { id: "gemini", name: "Google Gemini", model: "gemini-2.5-flash", icon: "G" },
   { id: "openai", name: "OpenAI", model: "gpt-4.1", icon: "O" },
-  { id: "anthropic", name: "Anthropic", model: "claude-sonnet-4", icon: "A" },
-  { id: "mistral", name: "Mistral", model: "mistral-large", icon: "M" },
-  { id: "groq", name: "Groq", model: "llama-3.3-70b", icon: "q" },
+  { id: "anthropic", name: "Anthropic", model: "claude-sonnet-4-6", icon: "A" },
+  { id: "mistral", name: "Mistral", model: "mistral-large-latest", icon: "M" },
+  { id: "groq", name: "Groq", model: "llama-3.3-70b-versatile", icon: "q" },
 ];
+
+// Display-only mirror of backend/internal/engine/nodes/tier.go's modelTiers
+// map -- the backend is the billing-authoritative source; this only drives
+// the Inspector's tier badge so the fee is visible before a run happens.
+// Keep in sync by hand when either the model dropdowns or the Go tier map
+// change.
+export const MODEL_TIERS: Record<
+  string,
+  Record<string, "economy" | "standard" | "frontier">
+> = {
+  gemini: {
+    "gemini-2.5-flash": "economy",
+    "gemini-2.0-flash": "economy",
+    "gemini-1.5-flash": "economy",
+    "gemini-2.5-pro": "standard",
+    "gemini-1.5-pro": "standard",
+  },
+  openai: {
+    "gpt-4o-mini": "economy",
+    "o4-mini": "economy",
+    "gpt-4.1": "standard",
+    "gpt-4o": "standard",
+    o3: "frontier",
+  },
+  anthropic: {
+    "claude-haiku-4-5": "economy",
+    "claude-sonnet-4-6": "standard",
+    "claude-3-5-sonnet-20241022": "standard",
+    "claude-opus-4-8": "frontier",
+  },
+  groq: {
+    "llama-3.1-8b-instant": "economy",
+    "gemma2-9b-it": "economy",
+    "llama-3.3-70b-versatile": "standard",
+    "mixtral-8x7b-32768": "standard",
+  },
+  mistral: {
+    "mistral-small-latest": "economy",
+    "codestral-latest": "economy",
+    "mistral-large-latest": "standard",
+    "mistral-medium-latest": "standard",
+  },
+};
+
+// Display-only mirror of backend/internal/models.PlatformKeyEconomy/Standard/
+// FrontierFeeUSDMicros -- same hand-sync caveat as MODEL_TIERS above: the
+// backend is billing-authoritative, this only drives the Inspector's fee
+// badge. Keep in sync by hand when the Go constants change.
+export const TIER_FEES: Record<"economy" | "standard" | "frontier", number> =
+  {
+    economy: 0.03,
+    standard: 0.09,
+    frontier: 0.15,
+  };
+
+// modelTier mirrors nodes.ModelTier's default: unrecognized template/model
+// pairs are "standard", never "economy".
+export function modelTier(
+  template: string,
+  model: string,
+): "economy" | "standard" | "frontier" {
+  return MODEL_TIERS[template]?.[model] ?? "standard";
+}
 
 export const TOOL_TEMPLATES = [
   { id: "http", name: "HTTP Request", desc: "GET/POST any URL", icon: "⟶" },
@@ -172,6 +236,37 @@ export const END_TEMPLATES = [
   { id: "done", name: "End", desc: "Mark complete", icon: "■" },
 ];
 
+export const TENDRIL_TEMPLATES = [
+  {
+    id: "tendril_topup",
+    name: "Buy Tendril Credit",
+    desc: "AgentMesh credits → Tendril credit",
+    action: "topup" as const,
+    icon: "＄",
+  },
+  {
+    id: "tendril_rent",
+    name: "Rent a Machine",
+    desc: "Open a metered SSH session",
+    action: "rent" as const,
+    icon: "▣",
+  },
+  {
+    id: "tendril_run",
+    name: "Run a Job",
+    desc: "Execute Python on the machine",
+    action: "run" as const,
+    icon: "▶",
+  },
+  {
+    id: "tendril_release",
+    name: "Release",
+    desc: "Stop the meter and bill",
+    action: "release" as const,
+    icon: "■",
+  },
+];
+
 export const SAMPLE_WORKFLOW: Workflow = {
   id: "wf-weather",
   name: "Weather Agent Test",
@@ -211,7 +306,7 @@ export const SAMPLE_WORKFLOW: Workflow = {
       y: 430,
       name: "x402 Weather",
       description:
-        "Real-time weather data — temperature, wind, conditions for any city worldwide. Accepts: city (string, required), units (celsius|fahrenheit, optional).",
+        "Real-time weather data: temperature, wind, conditions for any city worldwide. Accepts: city (string, required), units (celsius|fahrenheit, optional).",
       endpoint: "http://localhost:4402/weather",
       price: "0.065",
       unit: "call",
@@ -626,7 +721,7 @@ export function buildUsage(range: UsageRange): UsagePayload {
     EP_SEEDS.reduce((a, s) => a + (s.tokens30 ?? 0), 0) * mult,
   );
 
-  // Credit balance is account-level — it must NOT change with the selected chart
+  // Credit balance is account-level -- it must NOT change with the selected chart
   // range. Compute lifetime spend at full scale (no range multiplier) so
   // "credits left" reads the same across 24h / 7d / 30d.
   const lifetimeSpend = r6(
@@ -637,10 +732,10 @@ export function buildUsage(range: UsageRange): UsagePayload {
     }, 0),
   );
 
-  // No spending cap — an account just holds a credit balance (grows on top-up,
+  // No spending cap -- an account just holds a credit balance (grows on top-up,
   // shrinks on spend). "Total bought" = balance + lifetime spend, and % left is
   // computed against that, so there is no fixed limit.
-  const creditsBalance = 250; // mock remaining balance (ALGO) — real value comes from the account
+  const creditsBalance = 250; // mock remaining balance (ALGO) -- real value comes from the account
 
   // Workflows
   const byWorkflow: WorkflowSpend[] = WF_SEEDS.map((w) => ({
@@ -651,7 +746,7 @@ export function buildUsage(range: UsageRange): UsagePayload {
     calls: Math.round(w.calls30 * mult),
   })).sort((a, b) => b.algo - a.algo);
 
-  // Settlements (most recent x402 payments — independent of range)
+  // Settlements (most recent x402 payments -- independent of range)
   const x402Seeds = EP_SEEDS.filter((s) => s.type === "x402");
   // Guard the modulo below: with no x402 seeds, `i % 0` is NaN and the indexed
   // seed is undefined, which throws and takes the whole page down.

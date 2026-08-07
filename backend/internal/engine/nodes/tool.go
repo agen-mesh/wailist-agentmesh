@@ -83,6 +83,37 @@ var toolHTTPClient = &http.Client{
 	},
 }
 
+// outboundPayHTTPTimeout is deliberately longer than httpTimeout's 10s --
+// the outbound paid leg to a real x402 target isn't a simple fetch: a
+// standards-compliant target does its own facilitator verify+settle round
+// trip before it can answer at all (confirmed live 2026-08-01: a real
+// target, canix402-api.compx.io, genuinely took >10s end-to-end and was
+// timing out here, producing "context deadline exceeded" on a payment that
+// had, in fact, already been signed and was headed to a real merchant --
+// the outbound leg specifically needs more patience than a generic tool
+// HTTP call or an unauthenticated 402 probe, neither of which involves a
+// third party's own settlement machinery).
+const outboundPayHTTPTimeout = 30 * time.Second
+
+var outboundPayHTTPClient = &http.Client{
+	Timeout: outboundPayHTTPTimeout,
+	Transport: &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return dialFn(ctx, network, addr)
+		},
+	},
+	CheckRedirect: toolHTTPClient.CheckRedirect,
+}
+
+// SafeOutboundPayHTTPClient is SafeHTTPClient's counterpart for the one
+// call site that pays a real target directly (PayTargetFromWallet2) --
+// same SSRF-safe dial/redirect behavior, longer timeout. See
+// outboundPayHTTPTimeout's doc comment for why a longer timeout is needed
+// specifically here and not for SafeHTTPClient's other callers.
+func SafeOutboundPayHTTPClient() *http.Client {
+	return outboundPayHTTPClient
+}
+
 func ExecuteTool(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	switch node.Template {
 	case "calc":
@@ -171,14 +202,14 @@ func isPrivateIP(ip net.IP) bool {
 		"172.16.0.0/12",
 		"192.168.0.0/16",
 		"127.0.0.0/8",
-		"169.254.0.0/16",   // link-local
-		"100.64.0.0/10",    // CGNAT
-		"::1/128",          // loopback IPv6
-		"fc00::/7",         // unique local IPv6
-		"fe80::/10",        // link-local IPv6
-		"224.0.0.0/4",      // multicast
-		"240.0.0.0/4",      // reserved
-		"0.0.0.0/8",        // this network
+		"169.254.0.0/16", // link-local
+		"100.64.0.0/10",  // CGNAT
+		"::1/128",        // loopback IPv6
+		"fc00::/7",       // unique local IPv6
+		"fe80::/10",      // link-local IPv6
+		"224.0.0.0/4",    // multicast
+		"240.0.0.0/4",    // reserved
+		"0.0.0.0/8",      // this network
 	}
 	for _, cidr := range private {
 		_, network, err := net.ParseCIDR(cidr)

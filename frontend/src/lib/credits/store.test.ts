@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { creditsForTopup } from "./fx";
 
 // `store.ts` keeps its wallet state in a module-level variable (mirroring a
-// real singleton store), so each test needs a fresh module instance —
+// real singleton store), so each test needs a fresh module instance --
 // otherwise state written by one test would leak into the next. Reset both
 // the module registry and localStorage before every test, then re-import.
 const STORAGE_KEY = "agentmesh_credits_v1";
@@ -36,16 +36,18 @@ describe("addPurchase", () => {
     ]);
   });
 
-  it("accumulates balanceUSD across purchases", async () => {
+  // balanceUSD is no longer locally accumulated by addPurchase, and is never
+  // persisted to localStorage at all (see store.ts's module comment) --
+  // it is fetched from the backend by refreshBalance, the only source of
+  // truth for what a run can actually spend. A cached local balance
+  // previously went stale the instant a run spent credits in another tab.
+  it("never persists balanceUSD to localStorage", async () => {
     const { addPurchase } = await freshStore();
     addPurchase({ amountINR: 500, method: "cashfree" });
     addPurchase({ amountINR: 1000, method: "cashfree" });
 
     const raw = JSON.parse(window.localStorage.getItem(STORAGE_KEY)!);
-    expect(raw.balanceUSD).toBeCloseTo(
-      creditsForTopup(500) + creditsForTopup(1000),
-      10,
-    );
+    expect(raw.balanceUSD).toBeUndefined();
   });
 
   it("persists to localStorage under the expected key", async () => {
@@ -71,9 +73,6 @@ describe("addPurchase", () => {
 
     expect(purchase.creditsUSD).toBe(realBackendCredited);
     expect(purchase.creditsUSD).not.toBeCloseTo(mockEstimate, 5);
-
-    const raw = JSON.parse(window.localStorage.getItem(STORAGE_KEY)!);
-    expect(raw.balanceUSD).toBe(realBackendCredited);
   });
 
   it("falls back to the mock-FX amount when no override is given", async () => {

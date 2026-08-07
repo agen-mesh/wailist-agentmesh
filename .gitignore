@@ -7,6 +7,7 @@ CLAUDE.md
 
 # dependencies
 /frontend/node_modules
+/frontend/.pnpm-store
 /.pnp
 .pnp.*
 .yarn/*
@@ -81,3 +82,5 @@ frontend/next-env.d.ts
 /Docs/
 # subagent-driven-development progress ledger (scratch, not part of the shipped project)
 /.superpowers/
+# subagent-driven-development plans/specs (scratch, not part of the shipped project)
+/docs/superpowers/

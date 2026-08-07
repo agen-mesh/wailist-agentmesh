@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Terms & Conditions — AgentMesh",
+  title: "Terms & Conditions | AgentMesh",
   description: "AgentMesh platform terms of service, including credits policy and acceptable use.",
 };
 
@@ -64,7 +64,7 @@ function LegalDoc() {
         <P>You must provide accurate, complete, and current information when registering. You are responsible for maintaining the confidentiality of your credentials and for all activity that occurs under your account. You must be at least 18 years old to use the Platform.</P>
       </Section>
 
-      {/* ── CREDITS — the section Cashfree reviewers care most about ── */}
+      {/* -- CREDITS: the section Cashfree reviewers care most about -- */}
       <Section n="4" title="Platform Credits" highlight>
         <P>The following terms govern the purchase and use of {COMPANY} Credits (&ldquo;Credits&rdquo;). By purchasing Credits you explicitly acknowledge and accept each condition below.</P>
 
@@ -77,7 +77,7 @@ function LegalDoc() {
         </SubSection>
 
         <SubSection title="4.3 No Monetary or Cash Value">
-          <P>Credits carry <strong>zero monetary value</strong>. They cannot be exchanged, converted, or redeemed for cash, fiat currency, cryptocurrency, or any other monetary equivalent — either by {COMPANY} or any third party — under any circumstances.</P>
+          <P>Credits carry <strong>zero monetary value</strong>. They cannot be exchanged, converted, or redeemed for cash, fiat currency, cryptocurrency, or any other monetary equivalent, either by {COMPANY} or any third party, under any circumstances.</P>
         </SubSection>
 
         <SubSection title="4.4 Non-Transferability">
@@ -96,12 +96,12 @@ function LegalDoc() {
           <P>Upon voluntary closure of your account, any remaining Credit balance is forfeited without compensation. {COMPANY} encourages you to deplete your Credit balance before closing your account.</P>
         </SubSection>
 
-        <SubSection title="4.8 Final Sales — No Refunds">
+        <SubSection title="4.8 Final Sales: No Refunds">
           <P>All Credit purchases are <strong>final and non-refundable</strong> once the Credits are provisioned to your account. Please see our <Link href="/refund-policy" style={inlineLink}>Cancellation &amp; Refund Policy</Link> for full details.</P>
         </SubSection>
 
         <Notice>
-          Summary: Credits are a prepaid platform resource — like fuel for your agent pipelines. They are not money, cannot become money, and cannot leave the Platform.
+          Summary: Credits are a prepaid platform resource, like fuel for your agent pipelines. They are not money, cannot become money, and cannot leave the Platform.
         </Notice>
       </Section>
 
@@ -114,11 +114,11 @@ function LegalDoc() {
       </Section>
 
       <Section n="7" title="Pricing and Billing">
-        <P>Workflow execution is billed against your Credit balance in real time. Pricing for individual tool calls and model usage is displayed in the Platform and may change with 30 days&apos; notice. {COMPANY} does not extend credit — you must maintain a positive Credit balance to run workflows.</P>
+        <P>Workflow execution is billed against your Credit balance in real time. Pricing for individual tool calls and model usage is set by {COMPANY} and may change at any time without prior notice. {COMPANY} does not extend credit; you must maintain a positive Credit balance to run workflows.</P>
       </Section>
 
       <Section n="8" title="Disclaimer of Warranties">
-        <P>The Platform is provided &ldquo;as is&rdquo; and &ldquo;as available&rdquo; without warranty of any kind, express or implied. {COMPANY} does not warrant that the Platform will be uninterrupted, error-free, or free of harmful components. AI-generated outputs are probabilistic and may be inaccurate — you are solely responsible for validating any output before relying on it.</P>
+        <P>The Platform is provided &ldquo;as is&rdquo; and &ldquo;as available&rdquo; without warranty of any kind, express or implied. {COMPANY} does not warrant that the Platform will be uninterrupted, error-free, or free of harmful components. AI-generated outputs are probabilistic and may be inaccurate; you are solely responsible for validating any output before relying on it.</P>
       </Section>
 
       <Section n="9" title="Limitation of Liability">

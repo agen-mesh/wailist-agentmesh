@@ -1,7 +1,25 @@
 export type NodeType =
-  "trigger" | "agent" | "provider" | "tool" | "tool402" | "action" | "end";
+  | "trigger"
+  | "agent"
+  | "provider"
+  | "tool"
+  | "tool402"
+  | "action"
+  | "end"
+  | "tendril";
 export type EdgeKind = "flow" | "attach";
 export type PortName = "in" | "out" | "model" | "tools" | "top";
+
+// CustomParam is one hand-defined input field on an x402 node. A "file" kind
+// carries its bytes base64-encoded in `value` and switches the whole outbound
+// request to multipart/form-data.
+export interface CustomParam {
+  name: string;
+  kind: "text" | "file";
+  value?: string;
+  fileName?: string;
+  mimeType?: string;
+}
 
 export interface WorkflowNode {
   id: string;
@@ -23,6 +41,7 @@ export interface WorkflowNode {
   // provider-specific
   apiKey?: string;
   model?: string;
+  keyMode?: "byok" | "platform";
   // tool-specific
   url?: string;
   method?: string;
@@ -31,6 +50,7 @@ export interface WorkflowNode {
   description?: string;
   price?: string;
   unit?: string;
+  asset?: string;
   provider?: string;
   priceLive?: boolean;
   discoveredParams?: Array<{
@@ -41,6 +61,15 @@ export interface WorkflowNode {
     default?: string;
   }>;
   paramDefaults?: Record<string, string>;
+  // User-defined input fields, for endpoints that publish no input schema of
+  // their own (nothing can discover what those need, so the user states it).
+  customParams?: CustomParam[];
+  // How those fields reach the endpoint: "params" (default) builds the
+  // request from the fields themselves, "json" sends bodyTemplate as the
+  // body with {{...}} references to them. Fields alone cannot express a
+  // nested body, and real endpoints want one.
+  bodyMode?: "params" | "json";
+  bodyTemplate?: string;
   // trigger-specific
   source?: string;
   // email action-specific
@@ -50,10 +79,16 @@ export interface WorkflowNode {
   emailBody?: string;
   emailApiKey?: string;
   emailProvider?: string;
-  // generic per-connector storage — credentials go in secrets (encrypted server-side,
+  // generic per-connector storage -- credentials go in secrets (encrypted server-side,
   // "__enc__" sentinel on read), non-secret settings go in config
   secrets?: Record<string, string>;
   config?: Record<string, string>;
+  // tendril-specific
+  tendrilAction?: "topup" | "rent" | "run" | "release";
+  tendrilNodeId?: string;
+  tendrilHours?: string;
+  // USD of AgentMesh credit to convert into Tendril credit, on a topup node.
+  tendrilAmount?: string;
 }
 
 export interface WorkflowEdge {
@@ -69,7 +104,9 @@ export interface Workflow {
   name: string;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
-  status?: "active" | "paused" | "draft";
+  // "deployed" is what the backend actually stores (models.WorkflowStatusDeployed);
+  // it was missing here, so deployment state had to be inferred indirectly.
+  status?: "active" | "paused" | "draft" | "deployed";
   updated?: string;
   updatedAt?: string;
   agents?: number;

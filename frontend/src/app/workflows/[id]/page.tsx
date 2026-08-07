@@ -1,4 +1,4 @@
-import { CanvasPage } from "@/components/canvas/CanvasPage";
+import { WorkflowRoute } from "@/components/workflows/WorkflowRoute";
 
 export default async function CanvasPageRoute({
   params,
@@ -7,6 +7,7 @@ export default async function CanvasPageRoute({
 }) {
   const { id } = await params;
   // key ties component identity to the workflow id: switching workflows
-  // remounts CanvasPage so all editor state resets to initial values.
-  return <CanvasPage key={id} workflowId={id} />;
+  // remounts WorkflowRoute so all editor/console state resets to initial
+  // values instead of carrying over from whatever was previously open.
+  return <WorkflowRoute key={id} workflowId={id} />;
 }

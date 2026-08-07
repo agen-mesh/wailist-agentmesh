@@ -1,4 +1,4 @@
-import { WorkflowNode, NodeType, PortCoord, PortName } from "./types";
+import { WorkflowNode, NodeType, PortCoord, PortName, EdgeKind } from "./types";
 import { NODE_TYPES } from "./data";
 
 type PortFn = (W: number, H: number) => PortCoord;
@@ -13,12 +13,26 @@ const PORT_POS: Record<NodeType, Partial<Record<PortName, PortFn>>> = {
   },
   provider: { top: (W) => ({ x: W / 2, y: 0 }) },
   tool: { top: (W) => ({ x: W / 2, y: 0 }) },
-  tool402: { top: (W) => ({ x: W / 2, y: 0 }) },
+  // tool402 can be wired either way: "top" as a tool attached to an agent
+  // (existing behavior), or "in"/"out" as a standalone step directly in the
+  // trigger→…→end flow chain — the node already renders both sets of ports.
+  tool402: {
+    top: (W) => ({ x: W / 2, y: 0 }),
+    in: (W, H) => ({ x: 0, y: H / 2 }),
+    out: (W, H) => ({ x: W, y: H / 2 }),
+  },
   action: {
     in: (W, H) => ({ x: 0, y: H / 2 }),
     out: (W, H) => ({ x: W, y: H / 2 }),
   },
   end: { in: (W, H) => ({ x: 0, y: H / 2 }) },
+  // Same dual-port shape as tool402: "top" for a future agent attach, "in"/
+  // "out" for the standalone trigger→rent→end flow this ships today.
+  tendril: {
+    top: (W) => ({ x: W / 2, y: 0 }),
+    in: (W, H) => ({ x: 0, y: H / 2 }),
+    out: (W, H) => ({ x: W, y: H / 2 }),
+  },
 };
 
 export function portWorld(node: WorkflowNode, port: PortName): PortCoord {
@@ -31,10 +45,19 @@ export function portWorld(node: WorkflowNode, port: PortName): PortCoord {
   return { x: node.x + p.x, y: node.y + p.y };
 }
 
-export function portForFrom(n: WorkflowNode): PortName {
+// kind picks which of tool402's two source ports an edge rendered from —
+// "top" when it's attached to an agent as a tool, "out" when it's a flow
+// step. Every other type has exactly one source port regardless of kind.
+export function portForFrom(n: WorkflowNode, kind: EdgeKind = "flow"): PortName {
+  if (kind === "attach") return "top";
   if (n.type === "trigger" || n.type === "agent" || n.type === "action")
     return "out";
-  if (n.type === "provider" || n.type === "tool" || n.type === "tool402")
+  if (
+    n.type === "provider" ||
+    n.type === "tool" ||
+    n.type === "tool402" ||
+    n.type === "tendril"
+  )
     return "top";
   return "out";
 }
@@ -60,11 +83,22 @@ export function isValidConnection(
   ) {
     return toPort === "model" || toPort === "tools";
   }
-  // flow: trigger/agent/action → agent/action/end (in port)
+  // flow: trigger/agent/action/tool402/tendril → agent/action/end/tool402/tendril
+  // (in port). tool402 is included on both sides so an x402 endpoint can sit
+  // directly in the flow chain (e.g. trigger → tool402 → end), not just hang
+  // off an agent as an attached tool — the runner already executes tool402 as
+  // a standalone step (see runner.go's NodeTypeTool402 case). tendril mirrors
+  // it for the same reason: a standalone Tendril workflow is
+  // trigger → rent → end, not an agent-attached resource (agent-driven
+  // Tendril attach is deliberately out of scope for now).
   if (toPort === "in") {
     return (
-      (["trigger", "agent", "action"] as NodeType[]).includes(from.type) &&
-      (["agent", "action", "end"] as NodeType[]).includes(to.type)
+      (
+        ["trigger", "agent", "action", "tool402", "tendril"] as NodeType[]
+      ).includes(from.type) &&
+      (
+        ["agent", "action", "end", "tool402", "tendril"] as NodeType[]
+      ).includes(to.type)
     );
   }
   return false;

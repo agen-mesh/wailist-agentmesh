@@ -1,26 +1,19 @@
 "use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import {
-  Logo,
-  Pill,
-  Hairline,
-  IconArrow,
-  IconWallet,
-  ghostBtnSm,
-} from "@/components/ui";
-import { useAuth } from "@/hooks/useAuth";
+import { useEffect, useState } from "react";
+import { IconArrow, IconWallet } from "@/components/ui";
+import { Topbar } from "@/components/Topbar";
 import { PurchaseHistory } from "@/components/billing/PurchaseHistory";
 import { CheckoutModal } from "@/components/checkout/CheckoutModal";
 import { useCredits } from "@/lib/credits/store";
 import { bonusRate, creditsForTopup } from "@/lib/credits/fx";
+import { credits as creditsApi } from "@/lib/api";
 
 const PRESETS_INR = [100, 500, 1000, 2000];
 const LOW_BALANCE_USD = 5;
 
 const HOW_IT_WORKS = [
   "Credits are spent as your agents call paid tools, x402 endpoints, and LLM providers.",
-  "Testnet usage is always free — you only pay for mainnet calls.",
+  "Testnet usage is always free. You only pay for mainnet calls.",
   "Top-ups of ₹1000 or more earn 5% bonus credits.",
   "Every purchase generates a printable receipt for your records.",
 ];
@@ -49,21 +42,51 @@ const panelStyle: React.CSSProperties = {
 const fmtUSD = (n: number) => `$${n.toFixed(2)}`;
 
 export default function BillingPage() {
-  const router = useRouter();
-  const { signOut } = useAuth();
-  const { balanceUSD, lastPurchase } = useCredits();
+  const { balanceUSD, balanceKnown, lastPurchase, refreshBalance } =
+    useCredits();
   const [amountINR, setAmountINR] = useState<number>(PRESETS_INR[1]);
   const [customINR, setCustomINR] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+
+  // Read the authoritative balance (users.credit_balance_usd_micros) every time
+  // this page is opened. The store keeps a cross-route copy in memory, but it
+  // goes stale the moment a run spends credits in another tab — and this is the
+  // page where the number has to be right.
+  useEffect(() => {
+    void refreshBalance();
+  }, [refreshBalance]);
+
+  const [couponCode, setCouponCode] = useState("");
+  const [couponState, setCouponState] = useState<
+    "idle" | "loading" | "success" | "error"
+  >("idle");
+  const [couponMessage, setCouponMessage] = useState("");
 
   const openCheckoutFor = (inr: number) => {
     setCustomINR(String(inr));
     setCheckoutOpen(true);
   };
 
-  const handleSignOut = async () => {
-    await signOut();
-    router.push("/");
+  const applyCoupon = async () => {
+    const code = couponCode.trim();
+    if (!code || couponState === "loading") return;
+    setCouponState("loading");
+    try {
+      // The credited amount is whatever this code is configured for on the
+      // backend, so report what the server actually granted.
+      const { creditedUSD } = await creditsApi.redeemCoupon(code);
+      await refreshBalance();
+      setCouponState("success");
+      setCouponMessage(
+        `Coupon applied — ${fmtUSD(creditedUSD)} added to your balance.`,
+      );
+      setCouponCode("");
+    } catch (e) {
+      setCouponState("error");
+      setCouponMessage(
+        e instanceof Error ? e.message : "coupon redemption failed",
+      );
+    }
   };
 
   const parsedCustom = customINR ? parseFloat(customINR) : NaN;
@@ -75,7 +98,10 @@ export default function BillingPage() {
   const checkoutAmountINR = effectiveINR >= 1 ? effectiveINR : 0;
   const canCheckout = checkoutAmountINR > 0;
   const credits = creditsForTopup(checkoutAmountINR);
-  const isLow = balanceUSD < LOW_BALANCE_USD;
+  // Only call a balance "low" once we've actually read it — before the first
+  // fetch lands, balanceUSD is 0 because nothing is known, not because the
+  // account is empty.
+  const isLow = balanceKnown && balanceUSD < LOW_BALANCE_USD;
 
   return (
     <div
@@ -89,71 +115,7 @@ export default function BillingPage() {
     >
       <style>{BILLING_CSS}</style>
 
-      {/* Topbar — matches the workflows / usage pages */}
-      <div
-        style={{
-          height: 56,
-          flexShrink: 0,
-          background: "var(--bg-elev-1)",
-          borderBottom: "1px solid var(--border)",
-          padding: "0 24px",
-          display: "flex",
-          alignItems: "center",
-          gap: 14,
-        }}
-      >
-        <button
-          onClick={() => router.push("/")}
-          style={{
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            padding: 0,
-          }}
-        >
-          <Logo size={18} />
-        </button>
-        <Hairline vertical length={22} />
-        <Pill mono dot tone="ok">
-          testnet
-        </Pill>
-        <div style={{ flex: 1 }} />
-        <button style={ghostBtnSm} onClick={() => router.push("/workflows")}>
-          Workflows
-        </button>
-        <button style={ghostBtnSm} onClick={() => router.push("/usage")}>
-          Usage
-        </button>
-        <button
-          style={{
-            ...ghostBtnSm,
-            borderColor: "var(--accent-line)",
-            color: "var(--accent)",
-          }}
-        >
-          Credits
-        </button>
-        <Hairline vertical length={22} />
-        <button style={ghostBtnSm} onClick={handleSignOut}>
-          Sign out
-        </button>
-        <div
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: 999,
-            background: "var(--accent)",
-            color: "var(--accent-fg)",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 11,
-            fontWeight: 700,
-          }}
-        >
-          AC
-        </div>
-      </div>
+      <Topbar />
 
       {/* Main scroll area */}
       <div style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>
@@ -186,7 +148,7 @@ export default function BillingPage() {
               }}
             >
               Credits are spent as your agents call paid tools and models. Top
-              up anytime — testnet usage stays free.
+              up anytime; testnet usage stays free.
             </p>
           </div>
 
@@ -254,7 +216,7 @@ export default function BillingPage() {
                         fontVariantNumeric: "tabular-nums",
                       }}
                     >
-                      {fmtUSD(balanceUSD)}
+                      {balanceKnown ? fmtUSD(balanceUSD) : "—"}
                     </div>
                   </div>
                   <span
@@ -282,7 +244,11 @@ export default function BillingPage() {
                         background: isLow ? "var(--warm)" : "var(--accent)",
                       }}
                     />
-                    {isLow ? "Low balance" : "Active"}
+                    {!balanceKnown
+                      ? "Checking…"
+                      : isLow
+                        ? "Low balance"
+                        : "Active"}
                   </span>
                 </div>
               </div>
@@ -403,11 +369,23 @@ export default function BillingPage() {
                       ₹
                     </span>
                     <input
-                      type="number"
-                      inputMode="numeric"
+                      // Deliberately type="text", not type="number": a number
+                      // input carries spinner arrows (and scroll-wheel/arrow-key
+                      // stepping) that let the amount change without anyone
+                      // typing it. The value is still numeric — non-numeric
+                      // characters are rejected on input below.
+                      type="text"
+                      inputMode="decimal"
                       placeholder="Custom amount"
                       value={customINR}
-                      onChange={(e) => setCustomINR(e.target.value)}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        // Digits with at most one decimal point; empty clears
+                        // back to the selected preset.
+                        if (next === "" || /^\d*\.?\d*$/.test(next)) {
+                          setCustomINR(next);
+                        }
+                      }}
                       style={{
                         flex: 1,
                         height: "100%",
@@ -508,6 +486,89 @@ export default function BillingPage() {
 
             {/* SIDEBAR column */}
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              {/* Coupon redemption */}
+              <div
+                className="bill-reveal"
+                style={{ ...panelStyle, animationDelay: "0.12s" }}
+              >
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--fg-muted)",
+                    marginBottom: 12,
+                  }}
+                >
+                  Have a coupon?
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="text"
+                    placeholder="Coupon code"
+                    value={couponCode}
+                    onChange={(e) => {
+                      setCouponCode(e.target.value);
+                      if (couponState !== "idle") setCouponState("idle");
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && applyCoupon()}
+                    style={{
+                      flex: 1,
+                      height: 38,
+                      padding: "0 12px",
+                      borderRadius: "var(--r-2)",
+                      border: "1px solid var(--border)",
+                      background: "var(--bg)",
+                      color: "var(--fg)",
+                      fontSize: 13,
+                      fontFamily: "var(--font-mono)",
+                      outline: "none",
+                      textTransform: "uppercase",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={applyCoupon}
+                    disabled={!couponCode.trim() || couponState === "loading"}
+                    style={{
+                      height: 38,
+                      padding: "0 16px",
+                      borderRadius: "var(--r-2)",
+                      border: "1px solid var(--accent-line)",
+                      background: "var(--accent-soft)",
+                      color: "var(--accent)",
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      cursor:
+                        !couponCode.trim() || couponState === "loading"
+                          ? "default"
+                          : "pointer",
+                      opacity:
+                        !couponCode.trim() || couponState === "loading"
+                          ? 0.5
+                          : 1,
+                      fontFamily: "var(--font-sans)",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {couponState === "loading" ? "Applying…" : "Apply"}
+                  </button>
+                </div>
+                {couponMessage && (
+                  <p
+                    style={{
+                      margin: "8px 2px 0",
+                      fontSize: 11.5,
+                      color:
+                        couponState === "success"
+                          ? "var(--accent)"
+                          : "var(--danger)",
+                    }}
+                  >
+                    {couponMessage}
+                  </p>
+                )}
+              </div>
+
               {/* How credits work */}
               <div
                 className="bill-reveal"

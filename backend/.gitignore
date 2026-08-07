@@ -2,3 +2,8 @@
 /walletgen
 *.env
 .env
+
+# platform-wallet provisioning output (see scripts/provision-platform-wallets.sh)
+# -- real secrets (encrypted mnemonics + raw mnemonics), never commit
+/scripts/wallets.env*
+/scripts/wallets.SECRET-mnemonics.txt*

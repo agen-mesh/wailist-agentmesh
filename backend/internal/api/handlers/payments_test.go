@@ -25,9 +25,11 @@ type fakeCashfree struct {
 	statusValue string
 	statusErr   error
 	sigValid    bool
+	gotPhone    string // records the phone CreateOrder was actually called with
 }
 
-func (f *fakeCashfree) CreateOrder(_ context.Context, _ int64, orderID, _, _, _ string) (payments.CashfreeOrder, error) {
+func (f *fakeCashfree) CreateOrder(_ context.Context, _ int64, orderID, _, _, phone string) (payments.CashfreeOrder, error) {
+	f.gotPhone = phone
 	if f.createErr != nil {
 		return payments.CashfreeOrder{}, f.createErr
 	}
@@ -212,6 +214,117 @@ func TestGetCreditBalanceReturnsStoredBalance(t *testing.T) {
 	}
 	if resp.CreditUSDMicros != wantMicros {
 		t.Fatalf("want %d got %d", wantMicros, resp.CreditUSDMicros)
+	}
+}
+
+func redeemCoupon(t *testing.T, d *handlers.Deps, userID, code string) (int, map[string]any) {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{"code": code})
+	req := httptest.NewRequest(http.MethodPost, "/credits/redeem-coupon", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), handlers.CtxUserID, userID))
+	w := httptest.NewRecorder()
+
+	d.RedeemCoupon(w, req)
+
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	return w.Code, resp
+}
+
+// Codes come from configuration now (COUPON_CODES), so these tests install
+// their own catalog rather than depending on a hardcoded one.
+func withTestCoupons(d *handlers.Deps) {
+	d.Store.SetCouponCatalog(map[string]int64{
+		"TESTCODEA": 5_000_000,
+		"TESTCODEB": 5_000_000,
+	})
+}
+
+func TestRedeemCouponCreditsBalanceOnce(t *testing.T) {
+	d := testDeps(t)
+	withTestCoupons(d)
+	email := fmt.Sprintf("coupon-test-%d@example.com", time.Now().UnixNano())
+	user, err := d.Store.CreateUser(context.Background(), email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	code, status := redeemCoupon(t, d, user.ID, "TESTCODEA")
+	if code != http.StatusOK {
+		t.Fatalf("want 200 got %d (%v)", code, status)
+	}
+	if got := status["credit_usd_micros"].(float64); got != 5_000_000 {
+		t.Fatalf("want balance 5000000 got %v", got)
+	}
+	if got := status["credited_usd_micros"].(float64); got != 5_000_000 {
+		t.Fatalf("want credited 5000000 got %v", got)
+	}
+
+	// Same code again: rejected, balance unchanged.
+	code, status = redeemCoupon(t, d, user.ID, "TESTCODEA")
+	if code != http.StatusConflict {
+		t.Fatalf("want 409 got %d (%v)", code, status)
+	}
+	balance, err := d.Store.GetCreditBalance(context.Background(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 5_000_000 {
+		t.Fatalf("want balance still 5000000 got %d", balance)
+	}
+}
+
+func TestRedeemCouponStacksAcrossDistinctCodes(t *testing.T) {
+	d := testDeps(t)
+	withTestCoupons(d)
+	email := fmt.Sprintf("coupon-stack-test-%d@example.com", time.Now().UnixNano())
+	user, err := d.Store.CreateUser(context.Background(), email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if code, status := redeemCoupon(t, d, user.ID, "TESTCODEA"); code != http.StatusOK {
+		t.Fatalf("want 200 got %d (%v)", code, status)
+	}
+	code, status := redeemCoupon(t, d, user.ID, "TESTCODEB")
+	if code != http.StatusOK {
+		t.Fatalf("want 200 got %d (%v)", code, status)
+	}
+	if got := status["credit_usd_micros"].(float64); got != 10_000_000 {
+		t.Fatalf("want stacked balance 10000000 got %v", got)
+	}
+}
+
+func TestRedeemCouponRejectsUnknownCode(t *testing.T) {
+	d := testDeps(t)
+	withTestCoupons(d)
+	email := fmt.Sprintf("coupon-invalid-test-%d@example.com", time.Now().UnixNano())
+	user, err := d.Store.CreateUser(context.Background(), email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	code, status := redeemCoupon(t, d, user.ID, "NOTAREALCODE")
+	if code != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d (%v)", code, status)
+	}
+}
+
+// An unconfigured catalog (COUPON_CODES unset) must reject everything rather
+// than falling back to any built-in code.
+func TestRedeemCouponRejectsEveryCodeWhenCatalogEmpty(t *testing.T) {
+	d := testDeps(t)
+	d.Store.SetCouponCatalog(nil)
+	email := fmt.Sprintf("coupon-empty-test-%d@example.com", time.Now().UnixNano())
+	user, err := d.Store.CreateUser(context.Background(), email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if code, status := redeemCoupon(t, d, user.ID, "TESTCODEA"); code != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d (%v)", code, status)
 	}
 }
 
@@ -432,5 +545,82 @@ func TestNOWPaymentsWebhookMarksPartialWithoutCrediting(t *testing.T) {
 	}
 	if balance != 0 {
 		t.Fatalf("want balance untouched at 0 pending manual reconciliation, got %d", balance)
+	}
+}
+
+// TestCreateCashfreeOrderRejectsMissingPhone pins the fix for a real bug: an
+// order used to be created with a hardcoded "9999999999" whenever the
+// request carried no phone, silently sending a fake number to Cashfree and
+// showing it back to a real paying customer on their receipt. A missing or
+// malformed phone must now fail the request instead of substituting one.
+func TestCreateCashfreeOrderRejectsMissingPhone(t *testing.T) {
+	d := &handlers.Deps{Cashfree: &fakeCashfree{}}
+	body, _ := json.Marshal(map[string]any{"amount_inr_paise": 10000})
+	req := httptest.NewRequest(http.MethodPost, "/payments/cashfree/order", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), handlers.CtxUserID, "user1"))
+	w := httptest.NewRecorder()
+
+	d.CreateCashfreeOrder(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for a missing phone, got %d", w.Code)
+	}
+}
+
+// TestCreateCashfreeOrderRejectsMalformedPhone covers a phone that is
+// present but not a real 10-digit Indian mobile number — too short, or
+// starting with a digit TRAI never assigns to mobiles (0-5).
+func TestCreateCashfreeOrderRejectsMalformedPhone(t *testing.T) {
+	for _, phone := range []string{"12345", "123456789", "0123456789", "notaphone"} {
+		d := &handlers.Deps{Cashfree: &fakeCashfree{}}
+		body, _ := json.Marshal(map[string]any{"amount_inr_paise": 10000, "phone": phone})
+		req := httptest.NewRequest(http.MethodPost, "/payments/cashfree/order", bytes.NewReader(body))
+		req = req.WithContext(context.WithValue(req.Context(), handlers.CtxUserID, "user1"))
+		w := httptest.NewRecorder()
+
+		d.CreateCashfreeOrder(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("phone %q: want 400, got %d", phone, w.Code)
+		}
+	}
+}
+
+// TestCreateCashfreeOrderAcceptsRealPhoneFormats confirms the common ways a
+// user actually types or pastes a number all normalize to the same 10 digits
+// Cashfree receives — plain, with a "+91" country code, with a bare "91",
+// and with spaces/hyphens as a real keypad or paste would produce.
+func TestCreateCashfreeOrderAcceptsRealPhoneFormats(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	payments.SetFetchRateForTest(func(context.Context) (float64, error) { return 0.012, nil })
+	defer payments.SetFetchRateForTest(nil)
+
+	for _, input := range []string{"9876543210", "+91 98765 43210", "919876543210", "98765-43210"} {
+		d := testDeps(t)
+		fake := &fakeCashfree{order: payments.CashfreeOrder{PaymentSessionID: "session_123"}}
+		d.Cashfree = fake
+
+		email := fmt.Sprintf("phone-test-%d@example.com", time.Now().UnixNano())
+		user, err := d.Store.CreateUser(context.Background(), email, "hash")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		body, _ := json.Marshal(map[string]any{"amount_inr_paise": 10000, "phone": input})
+		req := httptest.NewRequest(http.MethodPost, "/payments/cashfree/order", bytes.NewReader(body))
+		req = req.WithContext(context.WithValue(req.Context(), handlers.CtxUserID, user.ID))
+		w := httptest.NewRecorder()
+
+		d.CreateCashfreeOrder(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("phone %q: want 201, got %d (%s)", input, w.Code, w.Body.String())
+		}
+		if fake.gotPhone != "9876543210" {
+			t.Fatalf("phone %q: want normalized to 9876543210, got %q", input, fake.gotPhone)
+		}
 	}
 }

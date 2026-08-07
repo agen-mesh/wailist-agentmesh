@@ -69,6 +69,7 @@ The whole cycle takes under 5 seconds. Algorand transaction fees are ~$0.0002, w
 | Live streaming run logs | ✅ |
 | Email action node | ✅ |
 | GitHub + Google OAuth, email/password auth | ✅ |
+| Tendril compute — rent a machine by the hour, SSH from the console | ✅ |
 
 ---
 

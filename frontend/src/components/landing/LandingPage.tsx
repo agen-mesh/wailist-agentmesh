@@ -34,13 +34,24 @@ export function LandingPage({ signedIn }: LandingPageProps) {
     };
 
     v.style.opacity = "0";
-    v.addEventListener("play", () => { rafId = requestAnimationFrame(tick); });
-    v.addEventListener("ended", () => {
+    let restartId: ReturnType<typeof setTimeout> | undefined;
+    const onPlay = () => { rafId = requestAnimationFrame(tick); };
+    const onEnded = () => {
       v.style.opacity = "0";
-      setTimeout(() => { if (!cancelled) { v.currentTime = 0; v.play().catch(() => {}); } }, 100);
-    });
+      restartId = setTimeout(() => { if (!cancelled) { v.currentTime = 0; v.play().catch(() => {}); } }, 100);
+    };
+    v.addEventListener("play", onPlay);
+    v.addEventListener("ended", onEnded);
     v.play().catch(() => {});
-    return () => { cancelled = true; cancelAnimationFrame(rafId); };
+    // Named handlers so the listeners (and the pending restart timer) are torn
+    // down on unmount -- anonymous ones leaked across StrictMode re-mounts.
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+      clearTimeout(restartId);
+      v.removeEventListener("play", onPlay);
+      v.removeEventListener("ended", onEnded);
+    };
   }, []);
 
   // IntersectionObserver for scroll-reveal
@@ -272,7 +283,7 @@ function LandingPillars() {
                 <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, background: "linear-gradient(90deg, transparent, var(--accent), transparent)", opacity: 0.4 }} />
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 28 }}>
                   <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--accent)", padding: "3px 9px", border: "1px solid var(--accent-line)", borderRadius: 999, background: "var(--accent-soft)", letterSpacing: "0.06em" }}>{p.tag}</span>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-dim)", letterSpacing: "0.08em", textTransform: "uppercase" }}>— {p.kicker}</span>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-dim)", letterSpacing: "0.08em", textTransform: "uppercase" }}>· {p.kicker}</span>
                 </div>
                 <h3 style={{ margin: 0, fontSize: 22, fontWeight: 500, letterSpacing: "-0.022em", lineHeight: 1.25 }}>{p.title}</h3>
                 <p style={{ margin: "14px 0 0", color: "var(--fg-muted)", fontSize: 14.5, lineHeight: 1.65 }}>{p.body}</p>
@@ -336,9 +347,9 @@ function LandingWaitlist() {
     const email = data.get("email") as string;
     try {
       await waitlist.join(email);
-      alert("Thanks — we'll be in touch.");
+      alert("Thanks! We'll be in touch.");
     } catch {
-      alert("Thanks — we'll be in touch.");
+      alert("Thanks! We'll be in touch.");
     }
   };
 
@@ -382,7 +393,7 @@ function LandingFooter() {
       <div style={{ maxWidth: 1280, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-dim)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <Logo size={14} />
-          <span>© {new Date().getFullYear()} AgentMesh</span>
+          <span>© {new Date().getFullYear()} AgentMesh · SOUBHAGYA SADHUKHAN</span>
         </div>
         <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
           <a href="/terms" style={linkStyle}>Terms &amp; Conditions</a>

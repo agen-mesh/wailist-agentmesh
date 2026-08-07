@@ -13,6 +13,7 @@ const (
 	NodeTypeTool402  NodeType = "tool402"
 	NodeTypeAction   NodeType = "action"
 	NodeTypeEnd      NodeType = "end"
+	NodeTypeTendril  NodeType = "tendril"
 )
 
 const (
@@ -26,6 +27,30 @@ type ParamDef struct {
 	Required    bool   `json:"required"`
 	Description string `json:"description"`
 	Default     string `json:"default,omitempty"`
+}
+
+// How a tool402 node builds its request. See WorkflowNode.BodyMode.
+const (
+	BodyModeParams = "params"
+	BodyModeJSON   = "json"
+)
+
+// CustomParam is an input field a user defined by hand on a tool402 node,
+// for the many real endpoints that publish no Bazaar input schema at all
+// (confirmed 2026-08-02: prism-99h2.onrender.com declares none) — nothing can
+// discover what those need, so the user states it.
+//
+// Kind "file" carries its bytes base64-encoded in Value and switches the whole
+// request to multipart/form-data. Files ride inside the workflow document
+// rather than separate blob storage, which keeps them bound to the node that
+// uses them (no orphaned uploads, no extra lifecycle to get wrong) at the cost
+// of a size ceiling — see maxParamFileBytes.
+type CustomParam struct {
+	Name     string `json:"name"`
+	Kind     string `json:"kind"` // "text" | "file"
+	Value    string `json:"value,omitempty"`
+	FileName string `json:"fileName,omitempty"`
+	MIMEType string `json:"mimeType,omitempty"`
 }
 
 type WorkflowNode struct {
@@ -42,13 +67,18 @@ type WorkflowNode struct {
 	Balance      string   `json:"balance,omitempty"`
 	APIKey       string   `json:"apiKey,omitempty"`
 	Model        string   `json:"model,omitempty"`
-	URL          string   `json:"url,omitempty"`
-	Method       string   `json:"method,omitempty"`
-	Endpoint     string   `json:"endpoint,omitempty"`
-	Price        string   `json:"price,omitempty"`
-	Unit         string   `json:"unit,omitempty"`
-	Provider     string   `json:"provider,omitempty"`
-	Source       string   `json:"source,omitempty"`
+	// KeyMode selects which API key a Provider node's LLM call uses: "byok"
+	// (default, empty string) uses APIKey; "platform" uses AgentMesh's own
+	// key for that Template, resolved server-side and never round-tripped
+	// to the client.
+	KeyMode  string `json:"keyMode,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Method   string `json:"method,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
+	Price    string `json:"price,omitempty"`
+	Unit     string `json:"unit,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Source   string `json:"source,omitempty"`
 	// email action fields
 	EmailTo       string `json:"emailTo,omitempty"`
 	EmailFrom     string `json:"emailFrom,omitempty"`
@@ -58,7 +88,35 @@ type WorkflowNode struct {
 	EmailProvider string `json:"emailProvider,omitempty"`
 	// x402 tool discovered params (populated by frontend discover)
 	DiscoveredParams []ParamDef `json:"discoveredParams,omitempty"`
-	Description      string     `json:"description,omitempty"`
+	// ParamDefaults holds the values a user typed for DiscoveredParams in the
+	// canvas. Applied to the outbound request at call time (query string for
+	// GET, JSON body otherwise) — see nodes.applyParamDefaults. Only fills
+	// params not already supplied per-call, so an agent's LLM-chosen args
+	// still win over these static fallbacks. Non-secret, like Config.
+	ParamDefaults map[string]string `json:"paramDefaults,omitempty"`
+	// CustomParams are user-defined fields, used alongside (and taking
+	// precedence over) DiscoveredParams for endpoints that declare nothing.
+	CustomParams []CustomParam `json:"customParams,omitempty"`
+	// BodyMode selects how CustomParams/ParamDefaults reach the endpoint:
+	// "" or BodyModeParams builds the request from the fields themselves
+	// (query string for GET, flat JSON or multipart otherwise), while
+	// BodyModeJSON sends BodyTemplate verbatim as the JSON body.
+	//
+	// The fields-only shape cannot express a nested body, and real endpoints
+	// want one: prism-99h2.onrender.com/resume-screen-accurate takes
+	// {"task_description": "...", "files": [{"filename": "...",
+	// "content_base64": "..."}]} — an array of objects with a file's bytes
+	// inside a JSON string. No arrangement of flat key/value fields produces
+	// that, and the endpoint declares no schema we could generate a form
+	// from, so the caller has to be able to write the body itself.
+	BodyMode string `json:"bodyMode,omitempty"`
+	// BodyTemplate is the JSON body for BodyModeJSON, with placeholders
+	// filled from CustomParams at call time — see nodes.expandBodyTemplate
+	// for the supported forms. Attached files stay in CustomParams and are
+	// referenced from here rather than uploaded separately, since the whole
+	// point of this mode is bodies where a file is one field among others.
+	BodyTemplate string `json:"bodyTemplate,omitempty"`
+	Description  string `json:"description,omitempty"`
 	// Secrets holds per-connector credential values for connectors added after the
 	// original dedicated fields (APIKey, EmailAPIKey, ...). Each value is encrypted
 	// independently, exactly like EmailAPIKey, via encryptNodes/maskNodes/decryptNodes.
@@ -66,6 +124,20 @@ type WorkflowNode struct {
 	// Config holds per-connector non-secret settings (list IDs, project keys, channel
 	// names, etc.) for the same connectors. Never encrypted.
 	Config map[string]string `json:"config,omitempty"`
+	// Tendril node fields. TendrilAction is "topup" | "rent" | "run" | "release";
+	// TendrilHours is how many hours of credit to guarantee before renting,
+	// as a decimal string ("1", "2", "0.5") — a string, like every other
+	// canvas-entered value on this struct.
+	TendrilAction string `json:"tendrilAction,omitempty"`
+	TendrilNodeID string `json:"tendrilNodeId,omitempty"`
+	TendrilHours  string `json:"tendrilHours,omitempty"`
+	// TendrilAmount is USD of AgentMesh credit to convert into Tendril
+	// credit, on a topup node.
+	TendrilAmount string `json:"tendrilAmount,omitempty"`
+	// TendrilLeaseToken is a bearer the TARGET needs, carried to the relay
+	// out of band. Never persisted on a saved workflow — it is only ever set
+	// on the synthesized nodes payTendril builds at call time.
+	TendrilLeaseToken string `json:"-"`
 }
 
 type WorkflowEdge struct {
@@ -177,6 +249,8 @@ type User struct {
 	ID           string    `json:"id"`
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"-"`
+	Name         string    `json:"name"`
+	OrgName      string    `json:"orgName"`
 	CreatedAt    time.Time `json:"createdAt"`
 }
 
@@ -208,25 +282,131 @@ type DebitEntry struct {
 	Kind            string    `json:"kind"`
 	AmountUSDMicros int64     `json:"amountUsdMicros"`
 	CreatedAt       time.Time `json:"createdAt"`
+	// Model, TokensIn, TokensOut are only set for DebitKindPlatformKeyLLMFee
+	// rows — internal margin-tracking data, not billing-authoritative (the
+	// charge is the flat tier fee regardless of actual token count).
+	Model     *string `json:"model,omitempty"`
+	TokensIn  *int    `json:"tokensIn,omitempty"`
+	TokensOut *int    `json:"tokensOut,omitempty"`
 }
 
 const (
-	DebitKindByokFlatFee     = "byok_flat_fee"
-	DebitKindX402PlatformFee = "x402_platform_fee"
-	DebitKindX402RelayCost   = "x402_relay_cost"
+	DebitKindByokFlatFee       = "byok_flat_fee"
+	DebitKindX402PlatformFee   = "x402_platform_fee"
+	DebitKindX402RelayCost     = "x402_relay_cost"
+	DebitKindPlatformKeyLLMFee = "platform_key_llm_fee"
+	DebitKindTendrilLease      = "tendril_lease"
+)
+
+// TendrilLease is one rented Tendril machine. A lease deliberately outlives
+// the run that opened it: a workflow run finishes in seconds while the machine
+// meters for hours, so this is a first-class AgentMesh resource with its own
+// release lifecycle rather than run-scoped state.
+type TendrilLease struct {
+	ID         string `json:"id"`
+	UserID     string `json:"userId"`
+	WorkflowID string `json:"workflowId"`
+	RunID      string `json:"runId"`
+	NodeID     string `json:"nodeId"`
+
+	LeaseID          string `json:"leaseId"`
+	LeaseTokenEnc    string `json:"-"`
+	TendrilNodeID    string `json:"tendrilNodeId"`
+	TendrilNodeLabel string `json:"tendrilNodeLabel"`
+
+	SSHHost          string `json:"sshHost"`
+	SSHPort          int    `json:"sshPort"`
+	SSHUsername      string `json:"sshUsername"`
+	SSHCommand       string `json:"sshCommand"`
+	SSHPublicKey     string `json:"sshPublicKey"`
+	SSHPrivateKeyEnc string `json:"-"`
+	SSHPasswordEnc   string `json:"-"`
+
+	RateUSDMicrosPerHour int64      `json:"rateUsdMicrosPerHour"`
+	HoursPurchased       float64    `json:"hoursPurchased"`
+	ReservedUSDMicros    int64      `json:"reservedUsdMicros"`
+	ChargedUSDMicros     *int64     `json:"chargedUsdMicros,omitempty"`
+	UsedSeconds          *int64     `json:"usedSeconds,omitempty"`
+	Status               string     `json:"status"`
+	StartedAt            time.Time  `json:"startedAt"`
+	FundedUntil          time.Time  `json:"fundedUntil"`
+	ReleasedAt           *time.Time `json:"releasedAt,omitempty"`
+}
+
+// TendrilCreditEntry is one row of the append-only tendril_credit_ledger
+// table — a movement of a single user's Tendril credit sub-ledger, distinct
+// from and never checked against the shared Wallet 2 pool balance.
+type TendrilCreditEntry struct {
+	ID              string    `json:"id"`
+	UserID          string    `json:"userId"`
+	Kind            string    `json:"kind"`
+	AmountUSDMicros int64     `json:"amountUsdMicros"`
+	LeaseID         *string   `json:"leaseId,omitempty"`
+	TxID            *string   `json:"txId,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
+}
+
+const (
+	TendrilCreditKindTopup  = "topup"  // AgentMesh credits -> Tendril credits
+	TendrilCreditKindCharge = "charge" // Tendril credits -> compute
+	TendrilCreditKindRefund = "refund" // unused reservation returned
 )
 
 const (
-	ByokFlatFeeUSDMicros     int64 = 10_000  // $0.01
-	X402PlatformFeeUSDMicros int64 = 500_000 // $0.50
+	ByokFlatFeeUSDMicros     int64 = 500_000   // $0.50
+	X402PlatformFeeUSDMicros int64 = 1_500_000 // $1.50
+	// X402ProbeFloorUSDMicros is the pre-call balance floor checked before
+	// letting an agent make ANY outbound HTTP request to a tool402 node's
+	// endpoint -- including the unauthenticated probe that just fetches the
+	// 402 price quote, before any real payment exists. Checked at two call
+	// sites: nodes.executeFunctionCall (an agent-attached tool402 call not
+	// covered by run funding) and Runner.executeNode (a standalone
+	// NodeTypeTool402 node, which is never run-funded). Deliberately its own
+	// constant, separate from X402PlatformFeeUSDMicros: this one guards
+	// against an unfunded caller driving unbounded outbound requests through
+	// a tool402 node (SSRF / DoS-amplification risk), not against
+	// underpaying -- so it should stay cheap even as the real platform
+	// markup moves for pricing reasons.
+	X402ProbeFloorUSDMicros int64 = 50_000 // $0.05
+	// MaxSingleX402QuoteUSDMicros is a sanity ceiling on any one attached
+	// tool402 node's live quote during reserveAndFundRun's estimate
+	// summation — generous against any real tool price, tight against an
+	// adversarial or compromised target quoting near int64's range to
+	// force the running sum to overflow negative.
+	MaxSingleX402QuoteUSDMicros int64 = 1_000_000_000 // $1,000/call
 )
 
 type X402RelaySettlement struct {
 	ID                string    `json:"id"`
 	TargetURL         string    `json:"targetUrl"`
-	InboundTxID       string    `json:"inboundTxId"`
+	InboundTxID       *string   `json:"inboundTxId,omitempty"`
 	OutboundTxID      *string   `json:"outboundTxId,omitempty"`
 	AmountAssetMicros int64     `json:"amountAssetMicros"`
 	Status            string    `json:"status"`
 	CreatedAt         time.Time `json:"createdAt"`
 }
+
+// X402RunFunding is a single real GoPlausible-facilitated inbound payment
+// (Wallet 1 -> Wallet 2) that pre-funds a whole run's worth of downstream
+// x402 tool calls, instead of settling one inbound payment per call. Mirrors
+// x402_run_fundings' columns exactly.
+type X402RunFunding struct {
+	ID                string    `json:"id"`
+	RunID             string    `json:"runId"`
+	InboundTxID       string    `json:"inboundTxId"`
+	AmountAssetMicros int64     `json:"amountAssetMicros"`
+	CreatedAt         time.Time `json:"createdAt"`
+}
+
+// Platform-key LLM tiers follow Zapier's flat-multiplier pattern: a fixed
+// credit charge per tier per call, known upfront so it can feed the pre-run
+// cost estimate, rather than live per-token metering. Token usage is still
+// captured (DebitEntry.TokensIn/TokensOut) purely to confirm these
+// multiples hold a healthy margin against real provider cost as
+// pricing/models change. Tier ratio (1x/3x/5x) is relative to the economy
+// tier itself, not to ByokFlatFeeUSDMicros — the two moved independently.
+const (
+	PlatformKeyEconomyFeeUSDMicros  int64 = 30_000  // $0.03 (1x)
+	PlatformKeyStandardFeeUSDMicros int64 = 90_000  // $0.09 (3x)
+	PlatformKeyFrontierFeeUSDMicros int64 = 150_000 // $0.15 (5x)
+)

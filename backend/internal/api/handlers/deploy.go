@@ -25,33 +25,20 @@ func (d *Deps) Deploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Agents no longer get their own on-chain wallet. Every paid x402 call is
+	// funded by the platform's own wallets — Wallet 1 (spend) pays the target
+	// via the relay, Wallet 2 settles — and is metered against the user's
+	// credit balance. Minting a per-agent Algorand account here produced
+	// accounts that had to be separately funded, could hold stranded dust,
+	// and were only ever reachable by the legacy pre-relay direct-pay dialect.
 	type agentResult struct {
-		NodeID  string `json:"nodeId"`
-		Address string `json:"address"`
-		Network string `json:"network"`
+		NodeID string `json:"nodeId"`
 	}
-	var agents []agentResult
-
+	agents := []agentResult{}
 	for _, node := range wf.Nodes {
-		if node.Type != models.NodeTypeAgent {
-			continue
+		if node.Type == models.NodeTypeAgent {
+			agents = append(agents, agentResult{NodeID: node.ID})
 		}
-		address, encMnemonic, err := d.Wallet.GenerateWallet()
-		if err != nil {
-			respond.Error(w, http.StatusInternalServerError, fmt.Sprintf("wallet creation failed: %v", err))
-			return
-		}
-		if err := d.Store.InsertAgentWallet(ctx, models.AgentWallet{
-			WorkflowID:        id,
-			AgentNodeID:       node.ID,
-			Address:           address,
-			EncryptedMnemonic: encMnemonic,
-			Network:           d.Wallet.Network(),
-		}); err != nil {
-			respond.Error(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		agents = append(agents, agentResult{NodeID: node.ID, Address: address, Network: d.Wallet.Network()})
 	}
 
 	runEndpoint := fmt.Sprintf("%s/run/%s", d.BaseURL, id)
@@ -61,9 +48,6 @@ func (d *Deps) Deploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if agents == nil {
-		agents = []agentResult{}
-	}
 	respond.JSON(w, http.StatusOK, map[string]any{
 		"workflowId":  id,
 		"status":      "deployed",

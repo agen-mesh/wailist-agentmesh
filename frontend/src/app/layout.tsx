@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AgentMesh — Visual canvas for autonomous agent networks",
+  title: "AgentMesh",
   description: "Design, deploy, and monitor AI agent workflows.",
 };
 

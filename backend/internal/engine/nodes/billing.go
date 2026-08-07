@@ -57,6 +57,15 @@ type PaymentLedger struct {
 	Release func(ctx context.Context, amountUSDMicros int64)
 }
 
+// RunLedger and CallLedger both wrap PaymentLedger with the same method
+// set, but are distinct Go types so X402RelayConfig.Ledger (run-level, in-
+// memory pool) and .LegacyLedger (per-call, DB-backed) can never be
+// accidentally read in place of each other -- a future edit that mixes them
+// up now fails to compile instead of silently misbilling (see
+// X402RelayConfig's field comments for why the distinction matters).
+type RunLedger PaymentLedger
+type CallLedger PaymentLedger
+
 // ErrActionSkipped is returned by Action node implementations (email + all
 // connectors) when required credentials/config are missing, so the node
 // short-circuits before making any real network call. runner.go's
@@ -64,6 +73,15 @@ type PaymentLedger struct {
 // skip message is still returned to the workflow as the node's result, but
 // the flat BYOK fee is not charged, since no billable work happened.
 var ErrActionSkipped = errors.New("action skipped: missing required configuration")
+
+// ErrSettlementIndeterminate wraps a Facilitator.Settle call whose response
+// never arrived (network timeout, connection reset, or any other transport-
+// level failure) -- unlike a definitively-decoded SettleResult{Success:
+// false}, this means we genuinely don't know whether the facilitator
+// broadcast and confirmed the payment before the response was lost.
+// Callers must not release a reservation on this error the way they would
+// for a real, received rejection -- the money may have already moved.
+var ErrSettlementIndeterminate = errors.New("x402: facilitator settle response lost, payment fate unknown")
 
 // ErrBalanceBlocked wraps a BalanceChecker failure so the agent loop can
 // hard-stop instead of feeding the failure back to the LLM as a retryable

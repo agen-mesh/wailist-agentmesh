@@ -26,7 +26,19 @@ func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		// x402 clients send payment proofs via Payment-Signature (the v2
+		// spec's canonical header, base64 JSON) or X-Payment (legacy, raw
+		// JSON); X-Relay-Method and X-Relay-Body tell the relay what to
+		// forward to the target. Without these on the allow-list, no
+		// browser-based agent or crawler can complete a paid call at all --
+		// the preflight rejects the payment header before the request is
+		// ever sent.
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Payment-Signature, X-Payment, X-Relay-Method, X-Relay-Body")
+		// Response headers are invisible to browser JS unless exposed:
+		// Payment-Required carries the 402 challenge (base64 JSON), and the
+		// three settlement headers carry the inbound/outbound tx ids the run
+		// console displays.
+		w.Header().Set("Access-Control-Expose-Headers", "Payment-Required, X-Inbound-Settled, X-Settlement-TxId, X-Outbound-Settlement-TxId")
 		if allowCreds {
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}

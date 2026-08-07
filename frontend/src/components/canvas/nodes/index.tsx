@@ -1,6 +1,7 @@
 "use client";
 import React from "react";
 import { WorkflowNode, PortName } from "@/lib/types";
+import { BrandLogo } from "./brandLogos";
 import {
   NODE_TYPES,
   TRIGGER_TEMPLATES,
@@ -10,6 +11,7 @@ import {
   TOOL402_TEMPLATES,
   ACTION_TEMPLATES,
   END_TEMPLATES,
+  TENDRIL_TEMPLATES,
 } from "@/lib/data";
 import { Pill } from "@/components/ui";
 
@@ -18,7 +20,7 @@ interface NodeProps {
   selected: boolean;
   deployed: boolean;
   onMouseDown: (e: React.MouseEvent) => void;
-  onStartWire: (e: React.MouseEvent) => void;
+  onStartWire: (e: React.MouseEvent, port: PortName) => void;
   onPortHover: (port: PortName) => void;
   onPortLeave: () => void;
   attachedSummary?: { model: string | null; tools: number };
@@ -40,6 +42,8 @@ export function CanvasNode(props: NodeProps) {
       return <ActionNode {...props} />;
     case "end":
       return <EndNode {...props} />;
+    case "tendril":
+      return <TendrilNode {...props} />;
     default:
       return null;
   }
@@ -97,6 +101,7 @@ function NodeShell({
 
 function NodeHeader({
   icon,
+  template,
   iconBg,
   iconColor,
   kicker,
@@ -104,6 +109,7 @@ function NodeHeader({
   sub,
 }: {
   icon: string;
+  template?: string;
   iconBg: string;
   iconColor: string;
   kicker: string;
@@ -134,7 +140,7 @@ function NodeHeader({
           flexShrink: 0,
         }}
       >
-        {icon}
+        <BrandLogo template={template} fallback={icon} />
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
@@ -350,6 +356,7 @@ function TriggerNode({
     >
       <NodeHeader
         icon={node.icon ?? tpl?.icon ?? "▶"}
+        template={node.template}
         iconBg="var(--bg-elev-3)"
         iconColor="var(--fg)"
         kicker="trigger"
@@ -363,7 +370,7 @@ function TriggerNode({
         port="out"
         onHover={() => onPortHover("out")}
         onLeave={onPortLeave}
-        onMouseDown={onStartWire}
+        onMouseDown={(e) => onStartWire(e, "out")}
       />
     </NodeShell>
   );
@@ -383,9 +390,6 @@ function AgentNode({
   const t = NODE_TYPES.agent;
   const tpl =
     AGENT_TEMPLATES.find((x) => x.id === node.template) ?? AGENT_TEMPLATES[0];
-  const shortAddr = node.wallet
-    ? `${node.wallet.slice(0, 6)}…${node.wallet.slice(-4)}`
-    : null;
 
   return (
     <NodeShell
@@ -421,7 +425,11 @@ function AgentNode({
             flexShrink: 0,
           }}
         >
-          {node.icon ?? tpl.icon}
+          <BrandLogo
+            template={node.template}
+            fallback={node.icon ?? tpl.icon}
+            size={16}
+          />
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
@@ -455,7 +463,9 @@ function AgentNode({
         )}
       </div>
 
-      {/* Wallet row — fully contained, no overflow */}
+      {/* Status row. Agents have no wallet of their own: paid tool calls are
+          funded by the platform wallets and metered against the user's
+          credits, so there is no per-agent address or balance to show. */}
       <div
         style={{
           padding: "8px 14px 10px",
@@ -468,45 +478,9 @@ function AgentNode({
           overflow: "hidden",
         }}
       >
-        {deployed && shortAddr ? (
-          <>
-            {/* Address pill */}
-            <span
-              style={{
-                flex: 1,
-                minWidth: 0,
-                background: "var(--bg)",
-                border: "1px solid var(--border)",
-                borderRadius: 4,
-                padding: "3px 7px",
-                color: "var(--fg-muted)",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {shortAddr}
-            </span>
-            {/* Balance */}
-            <span
-              style={{
-                flexShrink: 0,
-                display: "flex",
-                alignItems: "baseline",
-                gap: 3,
-              }}
-            >
-              <span style={{ color: "var(--accent)", fontWeight: 600 }}>
-                {node.balance ?? "0.00"}
-              </span>
-              <span style={{ color: "var(--fg-dim)", fontSize: 9 }}>ALGO</span>
-            </span>
-          </>
-        ) : (
-          <span style={{ color: "var(--fg-dim)", fontSize: 9.5 }}>
-            {deployed ? "wallet provisioned" : "deploy to provision wallet"}
-          </span>
-        )}
+        <span style={{ color: "var(--fg-dim)", fontSize: 9.5 }}>
+          {deployed ? "live · paid calls billed to credits" : "not deployed"}
+        </span>
       </div>
 
       {/* Sub-port labels */}
@@ -555,7 +529,7 @@ function AgentNode({
         port="out"
         onHover={() => onPortHover("out")}
         onLeave={onPortLeave}
-        onMouseDown={onStartWire}
+        onMouseDown={(e) => onStartWire(e, "out")}
         top={38}
       />
       <BottomPort
@@ -635,7 +609,7 @@ function ProviderNode({
   const t = NODE_TYPES.provider;
   const tpl = PROVIDER_TEMPLATES.find((x) => x.id === node.template);
   const hasKey = !!node.apiKey;
-  // Always a fixed mask, never a slice of the raw value — the canvas node is
+  // Always a fixed mask, never a slice of the raw value -- the canvas node is
   // visible in screen shares/recordings, unlike the Inspector's password
   // input, so no characters of an unsaved key should ever render here.
   const maskedKey = hasKey ? "•".repeat(14) : null;
@@ -650,6 +624,7 @@ function ProviderNode({
     >
       <NodeHeader
         icon={node.icon ?? tpl?.icon ?? "+"}
+        template={node.template}
         iconBg="var(--bg-elev-3)"
         iconColor="var(--accent)"
         kicker="ai provider"
@@ -697,7 +672,7 @@ function ProviderNode({
         port="top"
         onHover={() => onPortHover("top")}
         onLeave={onPortLeave}
-        onMouseDown={onStartWire}
+        onMouseDown={(e) => onStartWire(e, "top")}
       />
     </NodeShell>
   );
@@ -725,6 +700,7 @@ function ToolNode({
     >
       <NodeHeader
         icon={node.icon ?? tpl?.icon ?? "⟶"}
+        template={node.template}
         iconBg="var(--bg-elev-3)"
         iconColor="var(--fg)"
         kicker="tool · standard"
@@ -737,7 +713,7 @@ function ToolNode({
         port="top"
         onHover={() => onPortHover("top")}
         onLeave={onPortLeave}
-        onMouseDown={onStartWire}
+        onMouseDown={(e) => onStartWire(e, "top")}
       />
     </NodeShell>
   );
@@ -794,7 +770,7 @@ function Tool402Node({
             fontWeight: 600,
           }}
         >
-          {icon}
+          <BrandLogo template={node.template} fallback={icon} />
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
@@ -859,10 +835,13 @@ function Tool402Node({
         {price != null ? (
           <span style={{ color: magenta }}>
             {price}
-            <span style={{ color: "var(--fg-dim)" }}> / {unit}</span>
+            <span style={{ color: "var(--fg-dim)" }}>
+              {" "}
+              {node.asset ?? "USDC"} / {unit}
+            </span>
           </span>
         ) : (
-          <span style={{ color: "var(--fg-dim)" }}>price — set endpoint</span>
+          <span style={{ color: "var(--fg-dim)" }}>price: set endpoint</span>
         )}
       </div>
       <TopPort
@@ -871,7 +850,24 @@ function Tool402Node({
         port="top"
         onHover={() => onPortHover("top")}
         onLeave={onPortLeave}
-        onMouseDown={onStartWire}
+        onMouseDown={(e) => onStartWire(e, "top")}
+      />
+      <SidePort
+        side="left"
+        color={magenta}
+        node={node}
+        port="in"
+        onHover={() => onPortHover("in")}
+        onLeave={onPortLeave}
+      />
+      <SidePort
+        side="right"
+        color={magenta}
+        node={node}
+        port="out"
+        onHover={() => onPortHover("out")}
+        onLeave={onPortLeave}
+        onMouseDown={(e) => onStartWire(e, "out")}
       />
     </NodeShell>
   );
@@ -899,6 +895,7 @@ function ActionNode({
     >
       <NodeHeader
         icon={node.icon ?? tpl?.icon ?? "✦"}
+        template={node.template}
         iconBg="var(--bg-elev-3)"
         iconColor="var(--fg)"
         kicker="action"
@@ -920,7 +917,80 @@ function ActionNode({
         port="out"
         onHover={() => onPortHover("out")}
         onLeave={onPortLeave}
-        onMouseDown={onStartWire}
+        onMouseDown={(e) => onStartWire(e, "out")}
+      />
+    </NodeShell>
+  );
+}
+
+// ── Tendril ────────────────────────────────────────────────────────────────
+// Same "paid tool" magenta family as Tool402Node (both spend real x402
+// money), but with in/out flow ports — a standalone Tendril workflow is
+// trigger -> rent -> end, not an agent-attached resource. The top port stays
+// available for a future agent to attach a Tendril node directly.
+function TendrilNode({
+  node,
+  selected,
+  onMouseDown,
+  onPortHover,
+  onPortLeave,
+  onStartWire,
+}: NodeProps) {
+  const t = NODE_TYPES.tendril;
+  const tpl = TENDRIL_TEMPLATES.find((x) => x.id === node.template);
+  const magenta = "#E879F9";
+  const name = node.name ?? tpl?.name ?? "Tendril";
+  const sub = node.sub ?? tpl?.desc ?? "";
+  const icon = node.icon ?? tpl?.icon ?? "▣";
+  const action = node.tendrilAction ?? tpl?.action;
+
+  return (
+    <NodeShell
+      node={node}
+      selected={selected}
+      onMouseDown={onMouseDown}
+      W={t.w}
+      H={t.h}
+      accent={magenta}
+      dashed
+    >
+      <NodeHeader
+        icon={icon}
+        template={node.template}
+        iconBg="rgba(232, 121, 249, 0.14)"
+        iconColor={magenta}
+        kicker="tendril · compute"
+        title={name}
+        sub={
+          action === "rent" && node.tendrilHours
+            ? `${sub} · ${node.tendrilHours}h`
+            : sub
+        }
+      />
+      <TopPort
+        color={magenta}
+        node={node}
+        port="top"
+        onHover={() => onPortHover("top")}
+        onLeave={onPortLeave}
+        onMouseDown={(e) => onStartWire(e, "top")}
+      />
+      <SidePort
+        side="left"
+        color={magenta}
+        node={node}
+        port="in"
+        onHover={() => onPortHover("in")}
+        onLeave={onPortLeave}
+      />
+      <SidePort
+        side="right"
+        color={magenta}
+        node={node}
+        port="out"
+        onHover={() => onPortHover("out")}
+        onLeave={onPortLeave}
+        onMouseDown={(e) => onStartWire(e, "out")}
       />
     </NodeShell>
   );
@@ -947,6 +1017,7 @@ function EndNode({
     >
       <NodeHeader
         icon={node.icon ?? tpl?.icon ?? "■"}
+        template={node.template}
         iconBg="var(--bg-elev-3)"
         iconColor="var(--fg)"
         kicker="end"

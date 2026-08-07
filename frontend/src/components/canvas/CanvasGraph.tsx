@@ -92,7 +92,17 @@ export function CanvasGraph({
   const onBgMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0 && e.button !== 1) return;
     const target = e.target as HTMLElement;
-    if (target.closest("[data-node]") || target.closest("[data-port]")) return;
+    const onNode = !!(
+      target.closest("[data-node]") || target.closest("[data-port]")
+    );
+    if (e.button === 0) {
+      // Left button pans only from empty background, and deselects.
+      if (onNode) return;
+      setSelectedId(null);
+    } else {
+      // Middle (scroll) button pans anywhere; suppress the OS autoscroll.
+      e.preventDefault();
+    }
     panRef.current = {
       active: true,
       sx: e.clientX,
@@ -101,7 +111,6 @@ export function CanvasGraph({
       oy: view.y,
     };
     setPanning(true);
-    setSelectedId(null);
   };
 
   useEffect(() => {
@@ -217,6 +226,7 @@ export function CanvasGraph({
   };
 
   const startNodeDrag = (e: React.MouseEvent, n: WorkflowNode) => {
+    if (e.button !== 0) return; // only the left button moves a node; middle-button falls through to pan
     if ((e.target as HTMLElement).closest("[data-port]")) return;
     e.stopPropagation();
     setSelectedId(n.id);
@@ -285,7 +295,7 @@ export function CanvasGraph({
             const a = workflow.nodes.find((n) => n.id === e.from);
             const b = workflow.nodes.find((n) => n.id === e.to);
             if (!a || !b) return null;
-            const fromPort = portForFrom(a);
+            const fromPort = portForFrom(a, e.kind);
             const toPort = e.toPort ?? portForTo(b);
             const p1 = portWorld(a, fromPort);
             const p2 = portWorld(b, toPort);
@@ -332,7 +342,7 @@ export function CanvasGraph({
             selected={selectedId === n.id}
             deployed={deployed}
             onMouseDown={(e) => startNodeDrag(e, n)}
-            onStartWire={(e) => startWire(e, n.id, portForFrom(n))}
+            onStartWire={(e, port) => startWire(e, n.id, port)}
             onPortHover={(port) => setHoverPort({ nodeId: n.id, port })}
             onPortLeave={() => setHoverPort(null)}
             attachedSummary={attachedSummaries[n.id]}
@@ -400,8 +410,11 @@ export function CanvasGraph({
           left: 16,
           zIndex: 4,
           display: "flex",
-          gap: 12,
+          flexWrap: "wrap",
+          columnGap: 12,
+          rowGap: 6,
           alignItems: "center",
+          maxWidth: "calc(100% - 96px)",
           fontFamily: "var(--font-mono)",
           fontSize: 10,
           color: "var(--fg-dim)",
@@ -411,9 +424,18 @@ export function CanvasGraph({
           ["drag bg", "pan"],
           ["scroll", "zoom"],
           ["drag port", "connect"],
-          ["click edge", "delete"],
+          ["⌫", "delete node"],
         ].map(([k, v]) => (
-          <span key={k}>
+          <span
+            key={k}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
             <span
               style={{
                 display: "inline-flex",
@@ -428,10 +450,12 @@ export function CanvasGraph({
                 fontFamily: "var(--font-mono)",
                 fontSize: 10,
                 color: "var(--fg-muted)",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
               }}
             >
               {k}
-            </span>{" "}
+            </span>
             {v}
           </span>
         ))}

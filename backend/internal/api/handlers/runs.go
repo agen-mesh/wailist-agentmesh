@@ -162,7 +162,12 @@ func (d *Deps) StreamRun(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-r.Context().Done():
 			return
-		case <-time.After(30 * time.Second):
+		// Keepalive well under the ~35s at which these connections were
+		// observed dying with no data flowing, so an idle stream keeps
+		// proving itself alive instead of looking hung to the browser or any
+		// intermediary. A run can legitimately be silent far longer than
+		// this: a single agent step takes ~70s.
+		case <-time.After(10 * time.Second):
 			fmt.Fprintf(w, ": keepalive\n\n")
 			flusher.Flush()
 		}

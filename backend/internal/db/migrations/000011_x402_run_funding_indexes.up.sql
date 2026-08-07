@@ -1,0 +1,2 @@
+CREATE INDEX idx_x402_run_fundings_run_id ON x402_run_fundings(run_id);
+CREATE INDEX idx_x402_relay_settlements_run_funding_id ON x402_relay_settlements(run_funding_id);

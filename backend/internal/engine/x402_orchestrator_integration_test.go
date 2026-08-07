@@ -179,3 +179,7 @@ type fakeUSDCSignerForIntegration struct{}
 func (f *fakeUSDCSignerForIntegration) SignUSDCPaymentGroup(_ context.Context, _, _ string, _, _ uint64, _ string) ([]string, int, error) {
 	return []string{"g0", "g1"}, 0, nil
 }
+
+func (f *fakeUSDCSignerForIntegration) SignUSDCPaymentSingle(_ context.Context, _, _ string, _, _ uint64) ([]string, int, error) {
+	return []string{"g0"}, 0, nil
+}

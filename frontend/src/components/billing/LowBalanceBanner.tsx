@@ -2,7 +2,7 @@
 import { useCredits } from "@/lib/credits/store";
 
 // Reactive low-balance warning driven by the mock wallet: shows when the balance
-// drops below the auto-recharge threshold. Mock only — no real recharge occurs.
+// drops below the auto-recharge threshold. Mock only -- no real recharge occurs.
 export function LowBalanceBanner({ onTopUp }: { onTopUp: () => void }) {
   const { balanceUSD, autoRecharge, hydrated } = useCredits();
 

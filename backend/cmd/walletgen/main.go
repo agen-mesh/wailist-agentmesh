@@ -26,6 +26,7 @@ func main() {
 	importMnemonic := flag.String("import-mnemonic", "", "25-word Algorand mnemonic to import instead of generating a fresh account (e.g. one already generated in Pera or Defly)")
 	skipOptIn := flag.Bool("skip-opt-in", false, "skip the USDC opt-in transaction (do this if the account isn't funded with ALGO yet; opt in separately once it is)")
 	optInOnly := flag.String("opt-in-only", "", "an already-encrypted mnemonic printed by a prior walletgen run — opt it into the USDC asset now that the account is funded, skipping generation/import entirely")
+	showMnemonic := flag.Bool("show-mnemonic", false, "also print the raw (unencrypted) 25-word mnemonic to stderr, once — for writing down or importing into another wallet app (e.g. Pera's Algo25/legacy import). Off by default; the encrypted mnemonic on stdout is the only output needed for normal env-var provisioning")
 	flag.Parse()
 
 	if *encKey == "" {
@@ -66,6 +67,16 @@ func main() {
 
 	fmt.Fprintf(os.Stderr, "Address: %s\n", address)
 	fmt.Fprintf(os.Stderr, "Fund this address with ALGO (fees + min balance) and USDC (spend balance) before use.\n")
+
+	if *showMnemonic {
+		mn, derr := svc.DecryptMnemonic(encMnemonic)
+		if derr != nil {
+			log.Fatalf("failed to decrypt mnemonic for display: %v", derr)
+		}
+		fmt.Fprintln(os.Stderr, "\n=== RAW MNEMONIC — write this down now, or import it directly into a wallet app (shown once) ===")
+		fmt.Fprintln(os.Stderr, mn)
+		fmt.Fprintln(os.Stderr, "=== do not paste the above anywhere except a wallet app's own import/recovery screen ===")
+	}
 
 	if !*skipOptIn {
 		txID, err := svc.OptInAsset(context.Background(), encMnemonic, *assetID)

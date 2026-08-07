@@ -1,6 +1,6 @@
 "use client";
-import { useState, useCallback } from "react";
-import { WorkflowNode } from "@/lib/types";
+import { useEffect, useRef, useState } from "react";
+import { WorkflowNode, CustomParam } from "@/lib/types";
 import {
   PROVIDER_TEMPLATES,
   TOOL_TEMPLATES,
@@ -9,34 +9,43 @@ import {
   ACTION_TEMPLATES,
   END_TEMPLATES,
   AGENT_TEMPLATES,
+  TENDRIL_TEMPLATES,
+  modelTier,
+  TIER_FEES,
 } from "@/lib/data";
-import { Pill, IconClose } from "@/components/ui";
-import { agents as agentsApi, tools as toolsApi } from "@/lib/api";
+import { IconClose, StatusDot } from "@/components/ui";
+import { BrandLogo } from "./nodes/brandLogos";
+import { tools as toolsApi } from "@/lib/api";
 import { ConnectorOAuthButton } from "./ConnectorOAuthButton";
+import {
+  tendril as tendrilApi,
+  estimateLeaseHoursCostUSD,
+  TendrilMachine,
+} from "@/lib/tendril";
 
 interface InspectorProps {
   selected: WorkflowNode | null;
-  deployed: boolean;
-  workflowId: string;
   onUpdate: (n: WorkflowNode) => void;
   onDelete: () => void;
+  onClose: () => void;
+  width?: number;
 }
 
 export function Inspector({
   selected,
-  deployed,
-  workflowId,
   onUpdate,
   onDelete,
+  onClose,
+  width = 320,
 }: InspectorProps) {
-  if (!selected) return <EmptyInspector />;
+  if (!selected) return <EmptyInspector width={width} />;
 
   const meta = nodeMeta(selected);
 
   return (
     <div
       style={{
-        width: 320,
+        width,
         flexShrink: 0,
         borderLeft: "1px solid var(--border)",
         background: "var(--bg-elev-1)",
@@ -69,7 +78,7 @@ export function Inspector({
               fontSize: 12,
             }}
           >
-            {meta.icon}
+            <BrandLogo template={selected.template} fallback={meta.icon} />
           </span>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500 }}>{meta.title}</div>
@@ -85,7 +94,9 @@ export function Inspector({
           </div>
         </div>
         <button
-          onClick={onDelete}
+          onClick={onClose}
+          aria-label="Close inspector"
+          title="Close"
           style={{
             width: 32,
             height: 32,
@@ -112,12 +123,7 @@ export function Inspector({
         }}
       >
         {selected.type === "agent" && (
-          <AgentInspector
-            node={selected}
-            deployed={deployed}
-            workflowId={workflowId}
-            onUpdate={onUpdate}
-          />
+          <AgentInspector node={selected} onUpdate={onUpdate} />
         )}
         {selected.type === "provider" && (
           <ProviderInspector node={selected} onUpdate={onUpdate} />
@@ -141,16 +147,65 @@ export function Inspector({
         {selected.type === "end" && (
           <EndInspector node={selected} onUpdate={onUpdate} />
         )}
+        {selected.type === "tendril" && (
+          <TendrilInspector node={selected} onUpdate={onUpdate} />
+        )}
+      </div>
+
+      <div style={{ padding: 16, borderTop: "1px solid var(--border)" }}>
+        <button
+          onClick={onDelete}
+          style={{
+            width: "100%",
+            height: 36,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            background: "transparent",
+            border: "1px solid var(--danger)",
+            borderRadius: "var(--r-2)",
+            color: "var(--danger)",
+            cursor: "pointer",
+            fontFamily: "var(--font-sans)",
+            fontSize: 13,
+            fontWeight: 500,
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.background =
+              "rgba(255, 92, 92, 0.08)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.background = "transparent";
+          }}
+        >
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 14 14"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M2.5 3.5h9M5.5 3.5V2.5h3v1M4 3.5l.5 8h5l.5-8"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          Delete node
+        </button>
       </div>
     </div>
   );
 }
 
-function EmptyInspector() {
+function EmptyInspector({ width = 320 }: { width?: number }) {
   return (
     <div
       style={{
-        width: 320,
+        width,
         flexShrink: 0,
         borderLeft: "1px solid var(--border)",
         background: "var(--bg-elev-1)",
@@ -239,6 +294,11 @@ function nodeMeta(n: WorkflowNode) {
     },
     action: { list: ACTION_TEMPLATES, bg: "var(--bg-elev-3)", fg: "var(--fg)" },
     end: { list: END_TEMPLATES, bg: "var(--bg-elev-3)", fg: "var(--fg)" },
+    tendril: {
+      list: TENDRIL_TEMPLATES,
+      bg: "rgba(232, 121, 249, 0.14)",
+      fg: "#E879F9",
+    },
   };
   const L = tpls[n.type] ?? tpls.action;
   const tpl = L.list.find((x) => x.id === n.template);
@@ -341,7 +401,7 @@ function SecretField({
         style={monoInputStyle}
         type="password"
         value={isSet ? "" : (val ?? "")}
-        placeholder={isSet ? "Key set — enter to replace" : placeholder}
+        placeholder={isSet ? "Key set, enter to replace" : placeholder}
         onChange={(e) => {
           const next = e.target.value || (isSet ? "__enc__" : "");
           onUpdate({
@@ -424,39 +484,11 @@ const monoInputStyle: React.CSSProperties = {
 // ── Agent Inspector ────────────────────────────────────────────────────────
 function AgentInspector({
   node,
-  deployed,
-  workflowId,
   onUpdate,
 }: {
   node: WorkflowNode;
-  deployed: boolean;
-  workflowId: string;
   onUpdate: (n: WorkflowNode) => void;
 }) {
-  const [copied, setCopied] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const copyAddress = useCallback(() => {
-    if (!node.wallet) return;
-    navigator.clipboard.writeText(node.wallet).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    });
-  }, [node.wallet]);
-
-  const refreshBalance = useCallback(async () => {
-    if (!node.wallet || !workflowId) return;
-    setRefreshing(true);
-    try {
-      const res = await agentsApi.balance(workflowId, node.id);
-      onUpdate({ ...node, balance: res.balance });
-    } catch {
-      // balance fetch failed silently — keep existing value
-    } finally {
-      setRefreshing(false);
-    }
-  }, [node, workflowId, onUpdate]);
-
   return (
     <>
       <Section label="Identity">
@@ -469,168 +501,22 @@ function AgentInspector({
         </Field>
       </Section>
 
-      <Section label="Wallet">
-        {deployed && node.wallet ? (
-          <div
-            style={{
-              padding: 14,
-              background: "var(--bg)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--r-2)",
-            }}
-          >
-            {/* Network badge + address header */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 8,
-              }}
-            >
-              <Pill mono dot tone="ok">
-                algorand testnet
-              </Pill>
-              <button
-                onClick={copyAddress}
-                title="Copy full address"
-                style={iconBtnStyle}
-              >
-                {copied ? "✓" : "⎘"}
-              </button>
-            </div>
-
-            {/* Full address — monospace, selectable, wrapped cleanly */}
-            <div
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 10,
-                color: "var(--fg-muted)",
-                background: "var(--bg-elev-2)",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                padding: "8px 10px",
-                wordBreak: "break-all",
-                lineHeight: 1.7,
-                userSelect: "text",
-                cursor: "text",
-              }}
-            >
-              {node.wallet}
-            </div>
-
-            {/* Balance row */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginTop: 14,
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                <span
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 28,
-                    fontWeight: 600,
-                    color: "var(--accent)",
-                    letterSpacing: "-0.02em",
-                  }}
-                >
-                  {node.balance ?? "0.000000"}
-                </span>
-                <span
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 11,
-                    color: "var(--fg-muted)",
-                  }}
-                >
-                  ALGO
-                </span>
-              </div>
-              <button
-                onClick={refreshBalance}
-                disabled={refreshing}
-                title="Refresh balance from chain"
-                style={{ ...iconBtnStyle, fontSize: 16, width: 32, height: 32 }}
-              >
-                <span
-                  style={{
-                    display: "inline-block",
-                    transition: "transform 0.4s",
-                    transform: refreshing ? "rotate(360deg)" : "none",
-                  }}
-                >
-                  ↻
-                </span>
-              </button>
-            </div>
-            <div
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 10,
-                color: "var(--fg-dim)",
-                marginTop: 2,
-              }}
-            >
-              spent {node.spent ?? "0.000000"} ALGO · last 24h
-            </div>
-
-            {/* Fund hint */}
-            <div
-              style={{
-                marginTop: 12,
-                padding: "8px 10px",
-                background: "var(--bg-elev-2)",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                fontSize: 11,
-                color: "var(--fg-dim)",
-                lineHeight: 1.55,
-              }}
-            >
-              Copy the address above and fund it via the{" "}
-              <a
-                href="https://bank.testnet.algorand.network/"
-                target="_blank"
-                rel="noreferrer"
-                style={{ color: "var(--accent)", textDecoration: "none" }}
-              >
-                Algorand faucet
-              </a>{" "}
-              or Lora testnet. Hit ↻ to see the updated balance.
-            </div>
-          </div>
-        ) : (
-          <div
-            style={{
-              padding: 14,
-              background: "var(--bg)",
-              border: "1px dashed var(--border-strong)",
-              borderRadius: "var(--r-2)",
-              fontSize: 12,
-              color: "var(--fg-muted)",
-              lineHeight: 1.55,
-            }}
-          >
-            <div
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 10,
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-                color: "var(--fg-dim)",
-                marginBottom: 8,
-              }}
-            >
-              not yet deployed
-            </div>
-            This agent will receive an Algorand keypair on testnet when you
-            click <strong style={{ color: "var(--fg)" }}>Deploy</strong>.
-          </div>
-        )}
+      <Section label="Funding">
+        <div
+          style={{
+            padding: 12,
+            background: "var(--bg)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r-2)",
+            fontSize: 11,
+            color: "var(--fg-muted)",
+            lineHeight: 1.5,
+          }}
+        >
+          Agents don&apos;t hold a wallet. Paid x402 tool calls are settled by
+          the platform wallets and billed to your credit balance, so there is
+          nothing to fund or top up per agent.
+        </div>
       </Section>
 
       <Section label="System prompt">
@@ -653,7 +539,7 @@ function AgentInspector({
           style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
         >
           <Field label="Max spend / run">
-            <input style={monoInputStyle} defaultValue="0.50 ALGO" />
+            <input style={monoInputStyle} defaultValue="0.50 USDC" />
           </Field>
           <Field label="Timeout">
             <input style={monoInputStyle} defaultValue="30s" />
@@ -761,26 +647,74 @@ function ProviderInspector({
         </Field>
       </Section>
       <Section label="Credentials">
-        <Field label="API Key" hint="encrypted at rest">
-          <input
-            style={monoInputStyle}
-            type="password"
-            value={node.apiKey === "__enc__" ? "" : (node.apiKey ?? "")}
-            placeholder={
-              node.apiKey === "__enc__"
-                ? "Key set — enter to replace"
-                : "AIza···"
-            }
-            onChange={(e) =>
-              onUpdate({
-                ...node,
-                apiKey:
-                  e.target.value ||
-                  (node.apiKey === "__enc__" ? "__enc__" : ""),
-              })
-            }
-          />
-        </Field>
+        {!node.custom && (
+          <Field label="Key source">
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                style={{
+                  ...monoInputStyle,
+                  cursor: "pointer",
+                  fontWeight: node.keyMode !== "platform" ? 700 : 400,
+                  opacity: node.keyMode !== "platform" ? 1 : 0.6,
+                }}
+                onClick={() => onUpdate({ ...node, keyMode: "byok" })}
+              >
+                Use my key
+              </button>
+              <button
+                type="button"
+                style={{
+                  ...monoInputStyle,
+                  cursor: "pointer",
+                  fontWeight: node.keyMode === "platform" ? 700 : 400,
+                  opacity: node.keyMode === "platform" ? 1 : 0.6,
+                }}
+                onClick={() => onUpdate({ ...node, keyMode: "platform" })}
+              >
+                Use platform key
+              </button>
+            </div>
+          </Field>
+        )}
+        {node.keyMode === "platform" && !node.custom ? (
+          <Field label="Billing" hint="charged per call, no key required">
+            {(() => {
+              const tier = modelTier(
+                node.template ?? "",
+                node.model ?? tpl?.model ?? "",
+              );
+              return (
+                <input
+                  style={monoInputStyle}
+                  readOnly
+                  value={`${tier} tier · $${TIER_FEES[tier].toFixed(2)}/call`}
+                />
+              );
+            })()}
+          </Field>
+        ) : (
+          <Field label="API Key" hint="encrypted at rest">
+            <input
+              style={monoInputStyle}
+              type="password"
+              value={node.apiKey === "__enc__" ? "" : (node.apiKey ?? "")}
+              placeholder={
+                node.apiKey === "__enc__"
+                  ? "Key set, enter to replace"
+                  : "AIza···"
+              }
+              onChange={(e) =>
+                onUpdate({
+                  ...node,
+                  apiKey:
+                    e.target.value ||
+                    (node.apiKey === "__enc__" ? "__enc__" : ""),
+                })
+              }
+            />
+          </Field>
+        )}
       </Section>
       <Section label="Parameters">
         <div
@@ -856,6 +790,95 @@ function ToolInspector({
   );
 }
 
+// Backend enforces the same ceiling (nodes.maxParamFileBytes) — this copy
+// exists to fail fast with a clear message instead of after an upload.
+const MAX_PARAM_FILE_BYTES = 2 * 1024 * 1024;
+
+// btoa needs a binary string; chunked so a multi-MB file doesn't blow the
+// argument limit of String.fromCharCode.
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+// Base64 inflates by 4/3, so the decoded size is what the user actually
+// picked — showing the encoded length would overstate every file by a third.
+// A tool402 node's JSON body references its own fields with {{kind:name}}.
+// Kept in sync with nodes.bodyPlaceholder on the backend, which does the
+// real substitution at call time — this copy only powers the editor's live
+// feedback, so a bad body is caught while typing rather than by an endpoint
+// that charges for the attempt.
+const BODY_PLACEHOLDER = /\{\{(param|file|fileName|fileType):([^}]+)\}\}/g;
+
+// referenceTokens lists what a field can be referenced as. A file offers its
+// bytes, its name, and its type; a text field just its value.
+function referenceTokens(p: CustomParam): string[] {
+  if (!p.name) return [];
+  return p.kind === "file"
+    ? [`{{file:${p.name}}}`, `{{fileName:${p.name}}}`, `{{fileType:${p.name}}}`]
+    : [`{{param:${p.name}}}`];
+}
+
+// validateBodyTemplate reports the first problem with a JSON body, or null.
+// Two failure modes matter, and both are silent until money has moved: a
+// reference to a field that does not exist, and a body that is not valid
+// JSON once filled in.
+function validateBodyTemplate(
+  template: string,
+  fields: CustomParam[],
+  paramDefaults?: Record<string, string>,
+): string | null {
+  if (!template.trim()) return null;
+  const known = new Set(fields.map((f) => f.name).filter(Boolean));
+  const missing = new Set<string>();
+  for (const m of template.matchAll(BODY_PLACEHOLDER)) {
+    const name = m[2].trim();
+    const isDiscoveredValue = m[1] === "param" && paramDefaults?.[name] !== undefined;
+    if (!known.has(name) && !isDiscoveredValue) missing.add(m[0]);
+  }
+  if (missing.size > 0) {
+    return `No field named ${[...missing].join(", ")} — add it below, or fix the name.`;
+  }
+  // Placeholders always sit inside string literals, so a stand-in value is
+  // enough to check the surrounding document's shape.
+  try {
+    JSON.parse(template.replace(BODY_PLACEHOLDER, "x"));
+  } catch (e) {
+    return `Not valid JSON — ${e instanceof Error ? e.message : "check the syntax"}.`;
+  }
+  return null;
+}
+
+// bodySkeleton builds a starting body from whatever fields THIS node has,
+// so the editor teaches the reference syntax without asserting anything
+// about the endpoint. Nothing here knows a vendor's field names: an
+// endpoint's real shape lives in its own docs (and almost none publish a
+// machine-readable schema, so it cannot be generated), while the keys below
+// are only a scaffold the caller edits.
+function bodySkeleton(fields: CustomParam[]): string {
+  const named = fields.filter((f) => f.name);
+  if (named.length === 0) return "{\n  \n}";
+  const lines = named.map(
+    (f) =>
+      `  "${f.name}": "${f.kind === "file" ? `{{file:${f.name}}}` : `{{param:${f.name}}}`}"`,
+  );
+  return `{\n${lines.join(",\n")}\n}`;
+}
+
+
+function formatFileSize(base64: string): string {
+  const bytes = Math.floor((base64.length * 3) / 4);
+  return bytes < 1024
+    ? `${bytes} B`
+    : bytes < 1024 * 1024
+      ? `${(bytes / 1024).toFixed(0)} KB`
+      : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 // ── Tool402 Inspector ──────────────────────────────────────────────────────
 function Tool402Inspector({
   node,
@@ -867,6 +890,7 @@ function Tool402Inspector({
   const tpl = TOOL402_TEMPLATES.find((t) => t.id === node.template);
   const [draft, setDraft] = useState(node.endpoint ?? "");
   const [probing, setProbing] = useState(false);
+  const [fieldError, setFieldError] = useState<string | null>(null);
   const [probeError, setProbeError] = useState<string | null>(null);
   const magenta = "#E879F9";
 
@@ -882,15 +906,31 @@ function Tool402Inspector({
       } catch {
         /* use raw draft */
       }
+      const params = quote.params ?? [];
+      // Seed each discovered param's value: keep whatever the user already
+      // typed for that name, otherwise take the backend's default (the
+      // platform wallet address, for address-shaped params). Values for
+      // params this endpoint no longer declares are dropped rather than
+      // silently sent to a different endpoint after the URL is edited.
+      const seeded: Record<string, string> = {};
+      for (const p of params) {
+        seeded[p.name] = node.paramDefaults?.[p.name] ?? p.default ?? "";
+      }
       onUpdate({
         ...node,
         endpoint: draft.trim(),
         price: quote.price ?? "?",
         unit: quote.unit ?? "call",
+        asset: quote.asset ?? "USDC",
         provider: host,
         priceLive: true,
         description: node.description || quote.description || "",
-        discoveredParams: quote.params ?? [],
+        // The target's own declared method wins over the dropdown's default:
+        // calling a POST-only resource with GET fails before payment is even
+        // considered.
+        method: quote.method ?? node.method ?? "GET",
+        discoveredParams: params,
+        paramDefaults: seeded,
       });
     } catch (err: unknown) {
       setProbeError(err instanceof Error ? err.message : "probe failed");
@@ -900,7 +940,75 @@ function Tool402Inspector({
     }
   };
 
-  if (!node.custom) {
+  const custom = node.customParams ?? [];
+  const hasDiscovered = !!node.discoveredParams?.length;
+  const hasFile = custom.some((p) => p.kind === "file" && p.value);
+  const bodyMode = node.bodyMode === "json" ? "json" : "params";
+  const bodyTemplate = node.bodyTemplate ?? "";
+  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const bodyError = validateBodyTemplate(bodyTemplate, custom, node.paramDefaults);
+  // How the configured values will actually reach the endpoint — worth
+  // stating outright, since it changes with the mode, the method, and
+  // whether a file is attached (a file forces multipart, a body forces POST).
+  const paramTransport =
+    bodyMode === "json"
+      ? "as the JSON body below (POST)"
+      : hasFile
+        ? "as multipart/form-data (POST)"
+        : node.method && node.method !== "GET"
+          ? "in the JSON request body"
+          : "as query params";
+
+  // Inserts a reference at the cursor, so a file can be dropped into the
+  // body without hand-typing a token whose spelling has to match exactly.
+  const insertReference = (token: string) => {
+    const el = bodyRef.current;
+    const base = bodyTemplate || bodySkeleton(custom);
+    if (!el) {
+      onUpdate({ ...node, bodyTemplate: base + token });
+      return;
+    }
+    const start = el.selectionStart ?? base.length;
+    const end = el.selectionEnd ?? start;
+    const next = base.slice(0, start) + token + base.slice(end);
+    onUpdate({ ...node, bodyTemplate: next });
+    requestAnimationFrame(() => {
+      el.focus();
+      const caret = start + token.length;
+      el.setSelectionRange(caret, caret);
+    });
+  };
+
+  const writeFields = (next: CustomParam[]) =>
+    onUpdate({ ...node, customParams: next });
+  const addField = () =>
+    writeFields([...custom, { name: "", kind: "text", value: "" }]);
+  const removeField = (i: number) =>
+    writeFields(custom.filter((_, idx) => idx !== i));
+  const patchField = (i: number, patch: Partial<CustomParam>) =>
+    writeFields(custom.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
+
+  const pickFile = async (i: number, file: File) => {
+    if (file.size > MAX_PARAM_FILE_BYTES) {
+      setFieldError(
+        `${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB — the limit is 2 MB.`,
+      );
+      return;
+    }
+    setFieldError(null);
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      patchField(i, {
+        value: bytesToBase64(bytes),
+        fileName: file.name,
+        mimeType: file.type,
+      });
+    } catch {
+      setFieldError(`Could not read ${file.name}.`);
+    }
+  };
+
+  if (!node.custom && tpl) {
     return (
       <>
         <Section label="x402 endpoint">
@@ -929,7 +1037,7 @@ function Tool402Inspector({
                 {tpl?.price}
               </span>
               <span style={{ color: "var(--fg-muted)" }}>
-                ALGO / {tpl?.unit}
+                USDC / {tpl?.unit}
               </span>
             </div>
           </div>
@@ -962,7 +1070,7 @@ function Tool402Inspector({
             />
           </Field>
           <Field label="Max per call">
-            <input style={monoInputStyle} defaultValue={`${tpl?.price} ALGO`} />
+            <input style={monoInputStyle} defaultValue={`${tpl?.price} USDC`} />
           </Field>
         </Section>
       </>
@@ -991,6 +1099,23 @@ function Tool402Inspector({
               if (e.key === "Enter") discover();
             }}
           />
+        </Field>
+        <Field
+          label="Method"
+          hint={
+            node.method && node.method !== "GET"
+              ? "body = the run's input message (e.g. from a chat trigger)"
+              : undefined
+          }
+        >
+          <select
+            style={monoInputStyle}
+            value={node.method ?? "GET"}
+            onChange={(e) => onUpdate({ ...node, method: e.target.value })}
+          >
+            <option>GET</option>
+            <option>POST</option>
+          </select>
         </Field>
         <button
           onClick={discover}
@@ -1059,7 +1184,7 @@ function Tool402Inspector({
                 {node.price}
               </span>
               <span style={{ color: "var(--fg-muted)" }}>
-                ALGO / {node.unit}
+                {node.asset ?? "USDC"} / {node.unit}
               </span>
             </div>
             <div
@@ -1075,42 +1200,91 @@ function Tool402Inspector({
           </div>
         )}
       </Section>
-      {node.discoveredParams && node.discoveredParams.length > 0 && (
-        <Section label="Endpoint params">
-          <div
-            style={{ fontSize: 11, color: "var(--fg-dim)", marginBottom: 6 }}
-          >
-            Filled automatically by the agent at runtime.
-          </div>
-          <div
-            style={{
-              background: "var(--bg)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--r-2)",
-              overflow: "hidden",
-            }}
-          >
-            {node.discoveredParams.map((p, i) => (
-              <div
-                key={p.name}
+      <Section label="Endpoint params">
+        <div style={{ fontSize: 11, color: "var(--fg-dim)", marginBottom: 8 }}>
+          {hasDiscovered
+            ? "Declared by this endpoint itself. "
+            : "This endpoint declares no inputs, so add whatever fields it needs. "}
+          Sent {paramTransport}.
+          {hasDiscovered && " An attached agent can override them per call."}
+        </div>
+
+        {/* Fields alone can only produce a flat request. An endpoint wanting a
+            nested body — an array of file objects, say — needs the caller to
+            write that shape, so the two ways of building a request are a
+            deliberate, visible choice rather than something inferred. */}
+        <div
+          style={{
+            display: "flex",
+            gap: 2,
+            padding: 2,
+            marginBottom: 10,
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r-2)",
+            background: "var(--bg)",
+          }}
+        >
+          {(
+            [
+              ["params", "Fields"],
+              ["json", "JSON body"],
+            ] as const
+          ).map(([mode, label]) => {
+            const active = bodyMode === mode;
+            return (
+              <button
+                key={mode}
+                onClick={() =>
+                  onUpdate({
+                    ...node,
+                    bodyMode: mode,
+                    // Seed the editor the first time, so the shape and the
+                    // reference syntax are visible instead of a blank box.
+                    bodyTemplate:
+                      mode === "json" && !node.bodyTemplate
+                        ? bodySkeleton(custom)
+                        : node.bodyTemplate,
+                  })
+                }
                 style={{
-                  padding: "8px 12px",
-                  borderBottom:
-                    i < node.discoveredParams!.length - 1
-                      ? "1px solid var(--border)"
-                      : "none",
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: 8,
+                  flex: 1,
+                  height: 26,
+                  border: "none",
+                  borderRadius: "var(--r-1)",
+                  cursor: "pointer",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10.5,
+                  letterSpacing: 0.3,
+                  background: active ? "rgba(232,121,249,0.12)" : "transparent",
+                  color: active ? magenta : "var(--fg-dim)",
                 }}
               >
-                <div style={{ flex: 1 }}>
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
+        {hasDiscovered && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+              marginBottom: 12,
+            }}
+          >
+            {node.discoveredParams!.map((p) => {
+              const value = node.paramDefaults?.[p.name] ?? "";
+              const missing = p.required && !value.trim();
+              return (
+                <div key={p.name}>
                   <div
                     style={{
                       display: "flex",
                       alignItems: "center",
                       gap: 6,
-                      marginBottom: 2,
+                      marginBottom: 4,
                     }}
                   >
                     <span
@@ -1134,44 +1308,312 @@ function Tool402Inspector({
                     >
                       {p.type}
                     </span>
-                    {p.required ? (
-                      <span
-                        style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: 9,
-                          color: "#F87171",
-                        }}
-                      >
-                        required
-                      </span>
-                    ) : (
-                      <span
-                        style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: 9,
-                          color: "var(--fg-dim)",
-                        }}
-                      >
-                        optional
-                      </span>
-                    )}
+                    <span
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 9,
+                        color: missing ? "#F87171" : "var(--fg-dim)",
+                      }}
+                    >
+                      {p.required ? "required" : "optional"}
+                    </span>
                   </div>
+                  <input
+                    style={{
+                      ...monoInputStyle,
+                      borderColor: missing ? "#F87171" : undefined,
+                    }}
+                    value={value}
+                    placeholder={p.required ? "required" : "optional"}
+                    onChange={(e) =>
+                      onUpdate({
+                        ...node,
+                        paramDefaults: {
+                          ...node.paramDefaults,
+                          [p.name]: e.target.value,
+                        },
+                      })
+                    }
+                  />
+                  {p.description && (
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: "var(--fg-muted)",
+                        lineHeight: 1.4,
+                        marginTop: 3,
+                      }}
+                    >
+                      {p.description}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {custom.map((p, i) => (
+            <div
+              key={i}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                padding: 8,
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r-2)",
+                background: "var(--bg)",
+              }}
+            >
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  style={{ ...monoInputStyle, flex: 1, minWidth: 0 }}
+                  placeholder="field name"
+                  value={p.name}
+                  onChange={(e) => patchField(i, { name: e.target.value })}
+                />
+                <select
+                  style={{ ...monoInputStyle, width: 74, flexShrink: 0 }}
+                  value={p.kind}
+                  onChange={(e) =>
+                    patchField(i, {
+                      kind: e.target.value as CustomParam["kind"],
+                      value: "",
+                      fileName: "",
+                      mimeType: "",
+                    })
+                  }
+                >
+                  <option value="text">text</option>
+                  <option value="file">file</option>
+                </select>
+                <button
+                  onClick={() => removeField(i)}
+                  title="remove field"
+                  style={{
+                    width: 30,
+                    flexShrink: 0,
+                    border: "1px solid var(--border)",
+                    background: "transparent",
+                    color: "var(--fg-dim)",
+                    borderRadius: "var(--r-2)",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {p.kind === "file" ? (
+                p.value ? (
                   <div
                     style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      fontFamily: "var(--font-mono)",
                       fontSize: 10,
-                      color: "var(--fg-muted)",
-                      lineHeight: 1.4,
                     }}
                   >
-                    {p.description}
-                    {p.default ? ` · default: ${p.default}` : ""}
+                    <span style={{ color: magenta }}>
+                      📎 {p.fileName || "file"}
+                    </span>
+                    <span style={{ color: "var(--fg-dim)" }}>
+                      {formatFileSize(p.value)}
+                    </span>
+                    <button
+                      onClick={() =>
+                        patchField(i, { value: "", fileName: "", mimeType: "" })
+                      }
+                      style={{
+                        marginLeft: "auto",
+                        border: "none",
+                        background: "none",
+                        color: "var(--fg-dim)",
+                        cursor: "pointer",
+                        fontSize: 11,
+                      }}
+                    >
+                      ✕
+                    </button>
                   </div>
+                ) : (
+                  <input
+                    type="file"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) pickFile(i, f);
+                    }}
+                    style={{ fontSize: 11, color: "var(--fg-muted)" }}
+                  />
+                )
+              ) : (
+                <input
+                  style={monoInputStyle}
+                  placeholder="value"
+                  value={p.value ?? ""}
+                  onChange={(e) => patchField(i, { value: e.target.value })}
+                />
+              )}
+
+              {/* In JSON mode a field is not sent on its own — it is a value
+                  the body can pull in. Clicking drops the exact token at the
+                  cursor, since it has to match the field name character for
+                  character to resolve. */}
+              {bodyMode === "json" && referenceTokens(p).length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {referenceTokens(p).map((token) => (
+                    <button
+                      key={token}
+                      onClick={() => insertReference(token)}
+                      title="insert into the JSON body"
+                      style={{
+                        padding: "2px 6px",
+                        border: "1px solid var(--border)",
+                        borderRadius: "var(--r-1)",
+                        background: bodyTemplate.includes(token)
+                          ? "rgba(232,121,249,0.10)"
+                          : "transparent",
+                        color: bodyTemplate.includes(token)
+                          ? magenta
+                          : "var(--fg-dim)",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 9.5,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {token}
+                    </button>
+                  ))}
                 </div>
-              </div>
-            ))}
+              )}
+            </div>
+          ))}
+        </div>
+
+        {fieldError && (
+          <div
+            style={{
+              marginTop: 8,
+              padding: "6px 8px",
+              background: "rgba(248,113,113,0.08)",
+              border: "1px solid rgba(248,113,113,0.3)",
+              borderRadius: "var(--r-2)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: "#F87171",
+            }}
+          >
+            {fieldError}
           </div>
-        </Section>
-      )}
+        )}
+
+        <button
+          onClick={addField}
+          style={{
+            marginTop: 8,
+            height: 30,
+            width: "100%",
+            border: "1px dashed var(--border-strong)",
+            background: "transparent",
+            color: "var(--fg-muted)",
+            borderRadius: "var(--r-2)",
+            fontSize: 11,
+            cursor: "pointer",
+            fontFamily: "var(--font-sans)",
+          }}
+        >
+          + add field
+        </button>
+
+        {bodyMode === "json" && (
+          <div style={{ marginTop: 14 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                justifyContent: "space-between",
+                marginBottom: 6,
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  letterSpacing: 0.4,
+                  color: "var(--fg-muted)",
+                  textTransform: "uppercase",
+                }}
+              >
+                Request body
+              </span>
+              <span style={{ fontSize: 10, color: "var(--fg-dim)" }}>
+                paste the shape this endpoint documents
+              </span>
+            </div>
+            <textarea
+              ref={bodyRef}
+              spellCheck={false}
+              value={bodyTemplate}
+              onChange={(e) =>
+                onUpdate({ ...node, bodyTemplate: e.target.value })
+              }
+              placeholder={bodySkeleton(custom)}
+              style={{
+                ...monoInputStyle,
+                height: 190,
+                width: "100%",
+                padding: 10,
+                lineHeight: 1.55,
+                resize: "vertical",
+                whiteSpace: "pre",
+                overflowWrap: "normal",
+                overflowX: "auto",
+                borderColor: bodyError ? "rgba(248,113,113,0.5)" : undefined,
+              }}
+            />
+            {bodyError ? (
+              <div
+                style={{
+                  marginTop: 6,
+                  padding: "6px 8px",
+                  background: "rgba(248,113,113,0.08)",
+                  border: "1px solid rgba(248,113,113,0.3)",
+                  borderRadius: "var(--r-2)",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  color: "#F87171",
+                }}
+              >
+                {bodyError}
+              </div>
+            ) : (
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 10,
+                  lineHeight: 1.5,
+                  color: "var(--fg-dim)",
+                }}
+              >
+                {bodyTemplate.trim() ? (
+                  <>
+                    <span style={{ color: "var(--accent)" }}>✓ valid JSON</span>
+                    {" — keys must match what the endpoint documents; field"}
+                    {" names are yours, they only appear inside {{…}}. A file's"}
+                    {" bytes are filled in at call time, never pasted here."}
+                  </>
+                ) : (
+                  "Paste the body this endpoint documents, then click a field's chip above to reference it."
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </Section>
       <Section label="Tool description">
         <Field label="What this tool does" hint="shown to agent">
           <textarea
@@ -1699,6 +2141,177 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
 };
 
+// ── Per-connector auth metadata ─────────────────────────────────────────────
+// Where each connector's credential is obtained. Every live connector requires
+// an account login to get its credential EXCEPT ntfy (token is optional), which
+// is why it alone carries needsLogin: false.
+const CONNECTOR_AUTH: Record<
+  string,
+  { needsLogin: boolean; docUrl: string; linkLabel: string }
+> = {
+  slack: {
+    needsLogin: true,
+    docUrl: "https://api.slack.com/apps",
+    linkLabel: "Create webhook",
+  },
+  discord: {
+    needsLogin: true,
+    docUrl:
+      "https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks",
+    linkLabel: "Create webhook",
+  },
+  teams: {
+    needsLogin: true,
+    docUrl:
+      "https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook",
+    linkLabel: "Create webhook",
+  },
+  google_chat: {
+    needsLogin: true,
+    docUrl: "https://developers.google.com/workspace/chat/quickstart/webhooks",
+    linkLabel: "Create webhook",
+  },
+  ntfy: {
+    needsLogin: false,
+    docUrl: "https://docs.ntfy.sh/publish/",
+    linkLabel: "ntfy docs",
+  },
+  telegram: {
+    needsLogin: true,
+    docUrl: "https://t.me/BotFather",
+    linkLabel: "Open BotFather",
+  },
+  github: {
+    needsLogin: true,
+    docUrl: "https://github.com/settings/tokens",
+    linkLabel: "Get token",
+  },
+  notion: {
+    needsLogin: true,
+    docUrl: "https://www.notion.so/my-integrations",
+    linkLabel: "Get secret",
+  },
+  airtable: {
+    needsLogin: true,
+    docUrl: "https://airtable.com/create/tokens",
+    linkLabel: "Get token",
+  },
+  hubspot: {
+    needsLogin: true,
+    docUrl: "https://app.hubspot.com/private-apps",
+    linkLabel: "Get token",
+  },
+  trello: {
+    needsLogin: true,
+    docUrl: "https://trello.com/power-ups/admin",
+    linkLabel: "Get key & token",
+  },
+  asana: {
+    needsLogin: true,
+    docUrl: "https://app.asana.com/0/my-apps",
+    linkLabel: "Get token",
+  },
+  clickup: {
+    needsLogin: true,
+    docUrl: "https://app.clickup.com/settings/apps",
+    linkLabel: "Get token",
+  },
+  jira: {
+    needsLogin: true,
+    docUrl: "https://id.atlassian.com/manage-profile/security/api-tokens",
+    linkLabel: "Get token",
+  },
+  mailchimp: {
+    needsLogin: true,
+    docUrl: "https://admin.mailchimp.com/account/api/",
+    linkLabel: "Get key",
+  },
+  linear: {
+    needsLogin: true,
+    docUrl: "https://linear.app/settings/api",
+    linkLabel: "Get key",
+  },
+  todoist: {
+    needsLogin: true,
+    docUrl: "https://todoist.com/app/settings/integrations/developer",
+    linkLabel: "Get token",
+  },
+  gitlab: {
+    needsLogin: true,
+    docUrl: "https://gitlab.com/-/user_settings/personal_access_tokens",
+    linkLabel: "Get token",
+  },
+  sentry: {
+    needsLogin: true,
+    docUrl:
+      "https://docs.sentry.io/product/sentry-basics/concepts/dsn-explainer/",
+    linkLabel: "Find your DSN",
+  },
+  supabase: {
+    needsLogin: true,
+    docUrl: "https://supabase.com/dashboard/project/_/settings/api",
+    linkLabel: "Get service key",
+  },
+  woocommerce: {
+    needsLogin: true,
+    docUrl: "https://woocommerce.com/document/woocommerce-rest-api/",
+    linkLabel: "Get API keys",
+  },
+  elevenlabs: {
+    needsLogin: true,
+    docUrl: "https://elevenlabs.io/app/settings/api-keys",
+    linkLabel: "Get key",
+  },
+};
+
+// Small "where to get the credential" deep-link. Underline-free per the design
+// system -- links read via --accent color, not decoration.
+function AuthDocLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        alignSelf: "flex-start",
+        padding: "4px 0",
+        fontFamily: "var(--font-sans)",
+        fontSize: 11,
+        fontWeight: 600,
+        color: "var(--accent)",
+        textDecoration: "none",
+        transition: "color 0.12s var(--ease)",
+      }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLElement).style.color = "var(--accent-strong)";
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLElement).style.color = "var(--accent)";
+      }}
+    >
+      {label}
+      <svg
+        width="11"
+        height="11"
+        viewBox="0 0 12 12"
+        fill="none"
+        aria-hidden="true"
+      >
+        <path
+          d="M3.5 8.5l5-5M4.5 3.5h4v4"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </a>
+  );
+}
+
 function ConnectorConfigSection({
   node,
   workflowId,
@@ -1710,8 +2323,34 @@ function ConnectorConfigSection({
 }) {
   const spec = CONNECTOR_CONFIG_FIELDS[node.template ?? ""];
   if (!spec) return null;
+  const auth = CONNECTOR_AUTH[node.template ?? ""];
+  const secretFields = spec.fields.filter((f) => f.kind === "secret");
+  const configFields = spec.fields.filter((f) => f.kind === "config");
+
+  // A connector counts as "connected" only when every secret it needs is set.
+  const secretSet = (key: string) => {
+    const v = node.secrets?.[key];
+    return v !== undefined && v !== "";
+  };
+  const connected =
+    secretFields.length > 0 && secretFields.every((f) => secretSet(f.key));
+  const needsLogin = auth?.needsLogin ?? true;
+
+  const statusTone: "ok" | "warn" | "default" = connected
+    ? "ok"
+    : needsLogin
+      ? "warn"
+      : "default";
+  const statusText = connected
+    ? needsLogin
+      ? "Connected"
+      : "Token set"
+    : needsLogin
+      ? "Not connected"
+      : "No login required";
+
   return (
-    <Section label={spec.label}>
+    <>
       {spec.oauthProvider && (
         <ConnectorOAuthButton
           provider={spec.oauthProvider}
@@ -1719,30 +2358,50 @@ function ConnectorConfigSection({
           node={node}
         />
       )}
-      {spec.fields.map((f) =>
-        f.kind === "secret" ? (
-          <SecretField
-            key={f.key}
-            node={node}
-            onUpdate={onUpdate}
-            secretKey={f.key}
-            label={f.label}
-            hint={f.hint}
-            placeholder={f.placeholder}
-          />
-        ) : (
-          <ConfigField
-            key={f.key}
-            node={node}
-            onUpdate={onUpdate}
-            configKey={f.key}
-            label={f.label}
-            hint={f.hint}
-            placeholder={f.placeholder}
-          />
-        ),
+      {secretFields.length > 0 && (
+        <Section label="Authentication">
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              fontSize: 11,
+              color: "var(--fg-muted)",
+            }}
+          >
+            <StatusDot tone={statusTone} />
+            {statusText}
+          </div>
+          {secretFields.map((f) => (
+            <SecretField
+              key={f.key}
+              node={node}
+              onUpdate={onUpdate}
+              secretKey={f.key}
+              label={f.label}
+              hint={f.hint}
+              placeholder={f.placeholder}
+            />
+          ))}
+          {auth && <AuthDocLink href={auth.docUrl} label={auth.linkLabel} />}
+        </Section>
       )}
-    </Section>
+      {configFields.length > 0 && (
+        <Section label={secretFields.length > 0 ? "Setup" : spec.label}>
+          {configFields.map((f) => (
+            <ConfigField
+              key={f.key}
+              node={node}
+              onUpdate={onUpdate}
+              configKey={f.key}
+              label={f.label}
+              hint={f.hint}
+              placeholder={f.placeholder}
+            />
+          ))}
+        </Section>
+      )}
+    </>
   );
 }
 
@@ -1793,7 +2452,7 @@ function ActionInspector({
               }
               placeholder={
                 node.emailApiKey === "__enc__"
-                  ? "Key set — enter to replace"
+                  ? "Key set, enter to replace"
                   : node.emailProvider === "postmark"
                     ? "your-postmark-server-token"
                     : "re_xxxxxxxxxxxx"
@@ -1846,7 +2505,7 @@ function ActionInspector({
               rows={5}
               value={node.emailBody ?? ""}
               placeholder={
-                "Hi,\n\nHere is your result:\n\n{{ result }}\n\n— AgentMesh"
+                "Hi,\n\nHere is your result:\n\n{{ result }}\n\nAgentMesh"
               }
               onChange={(e) => onUpdate({ ...node, emailBody: e.target.value })}
             />
@@ -1859,6 +2518,168 @@ function ActionInspector({
         workflowId={workflowId}
         onUpdate={onUpdate}
       />
+    </>
+  );
+}
+
+// ── Tendril Inspector ──────────────────────────────────────────────────────
+function TendrilInspector({
+  node,
+  onUpdate,
+}: {
+  node: WorkflowNode;
+  onUpdate: (n: WorkflowNode) => void;
+}) {
+  const [credit, setCredit] = useState<number | null>(null);
+  const [machines, setMachines] = useState<TendrilMachine[]>([]);
+  const action = node.tendrilAction ?? "rent";
+
+  useEffect(() => {
+    tendrilApi.credit().then(setCredit).catch(() => setCredit(null));
+  }, []);
+
+  useEffect(() => {
+    if (action !== "rent") return;
+    tendrilApi.machines().then(setMachines).catch(() => setMachines([]));
+  }, [action]);
+
+  const selectedMachine =
+    machines.find((m) => m.id === node.tendrilNodeId) ?? machines[0];
+  const hours = parseFloat(node.tendrilHours || "1") || 1;
+  // Tendril-credit-only (hours, no gate fee) -- matches the "of Tendril
+  // credit" label below exactly. The gate fee is a separate real charge
+  // billed in AgentMesh credit, not drawn from this balance.
+  const cost = selectedMachine
+    ? estimateLeaseHoursCostUSD(selectedMachine.pricePerHourUsd, hours)
+    : null;
+  const creditVal = credit ?? 0;
+  const topupAmount = parseFloat(node.tendrilAmount || "0") || 0;
+
+  const custom = node.customParams ?? [];
+  const payloadValue = custom.find((p) => p.name === "payload")?.value ?? "";
+  const setPayload = (value: string) => {
+    const next = custom.some((p) => p.name === "payload")
+      ? custom.map((p) => (p.name === "payload" ? { ...p, value } : p))
+      : [...custom, { name: "payload", kind: "text" as const, value }];
+    onUpdate({ ...node, customParams: next });
+  };
+
+  return (
+    <>
+      <div style={{ fontSize: 12, opacity: 0.85 }}>
+        Tendril credit: <strong>${creditVal.toFixed(2)}</strong>
+        {selectedMachine && (
+          <>
+            {" "}
+            — about {(creditVal / selectedMachine.pricePerHourUsd).toFixed(1)}{" "}
+            h on {selectedMachine.label || selectedMachine.id}
+          </>
+        )}
+        <div style={{ opacity: 0.6, marginTop: 2 }}>
+          Separate from your AgentMesh credits. Buy more with a Topup node.
+        </div>
+      </div>
+
+      <Section label="Action">
+        <Field label="Action">
+          <select
+            style={monoInputStyle}
+            value={action}
+            onChange={(e) =>
+              onUpdate({
+                ...node,
+                tendrilAction: e.target
+                  .value as WorkflowNode["tendrilAction"],
+              })
+            }
+          >
+            <option value="topup">Buy Tendril Credit</option>
+            <option value="rent">Rent a Machine</option>
+            <option value="run">Run a Job</option>
+            <option value="release">Release</option>
+          </select>
+        </Field>
+      </Section>
+
+      {action === "topup" && (
+        <Section label="Topup">
+          <Field label="Amount (USD)">
+            <input
+              style={monoInputStyle}
+              type="number"
+              min="0.1"
+              step="0.5"
+              value={node.tendrilAmount ?? "10"}
+              onChange={(e) =>
+                onUpdate({ ...node, tendrilAmount: e.target.value })
+              }
+            />
+          </Field>
+          <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+            Converts ${topupAmount.toFixed(2)} of your AgentMesh credits into
+            Tendril credit.
+          </div>
+        </Section>
+      )}
+
+      {action === "rent" && (
+        <Section label="Rent">
+          <Field label="Machine">
+            <select
+              style={monoInputStyle}
+              value={node.tendrilNodeId ?? ""}
+              onChange={(e) =>
+                onUpdate({ ...node, tendrilNodeId: e.target.value })
+              }
+            >
+              <option value="">Cheapest online</option>
+              {machines.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label || m.id} — {m.cpuCores} vCPU,{" "}
+                  {Math.round(m.ramMb / 1024)} GB — ${m.pricePerHourUsd}/hr
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Hours">
+            <input
+              style={monoInputStyle}
+              type="number"
+              min="0.5"
+              step="0.5"
+              max="24"
+              value={node.tendrilHours ?? "1"}
+              onChange={(e) =>
+                onUpdate({ ...node, tendrilHours: e.target.value })
+              }
+            />
+          </Field>
+          {cost != null && (
+            <div
+              style={{
+                fontSize: 11,
+                color: cost > creditVal ? "var(--danger)" : "var(--fg-dim)",
+              }}
+            >
+              Costs ${cost.toFixed(2)} of Tendril credit
+              {cost > creditVal &&
+                " — not enough Tendril credit, add a Topup node"}
+            </div>
+          )}
+        </Section>
+      )}
+
+      {action === "run" && (
+        <Section label="Run">
+          <Field label="Payload (Python)">
+            <textarea
+              style={{ ...monoInputStyle, height: 120, resize: "vertical" }}
+              value={payloadValue}
+              onChange={(e) => setPayload(e.target.value)}
+            />
+          </Field>
+        </Section>
+      )}
     </>
   );
 }

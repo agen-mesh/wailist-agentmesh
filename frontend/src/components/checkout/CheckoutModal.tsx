@@ -99,7 +99,9 @@ export function CheckoutModal({
     } else {
       document.body.style.overflow = "";
     }
-    return () => { document.body.style.overflow = ""; };
+    return () => {
+      document.body.style.overflow = "";
+    };
   }, [open]);
 
   if (!open) return null;
@@ -107,50 +109,77 @@ export function CheckoutModal({
   return (
     <>
       <style>{MODAL_CSS}</style>
-      {/* Backdrop — click outside the panel to close */}
+      {/* Backdrop -- click outside the panel to close */}
       <div
         className="checkout-backdrop"
         role="presentation"
-        onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-        aria-modal="true"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
       >
         <div
           ref={panelRef}
           role="dialog"
+          aria-modal="true"
           aria-label="Checkout"
           className="checkout-panel"
         >
-          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 24 }}>
+          <div
+            style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 24 }}
+          >
             {confirmation ? (
               <div
                 style={{
-                  display: "flex", flexDirection: "column",
-                  alignItems: "center", textAlign: "center",
-                  gap: 12, padding: "40px 16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  textAlign: "center",
+                  gap: 12,
+                  padding: "40px 16px",
                 }}
               >
                 <div
                   className="checkout-check"
                   style={{
-                    width: 52, height: 52, borderRadius: 999,
-                    background: "var(--accent-soft)", border: "1px solid var(--accent-line)",
-                    color: "var(--accent)", display: "flex",
-                    alignItems: "center", justifyContent: "center", fontSize: 24,
+                    width: 52,
+                    height: 52,
+                    borderRadius: 999,
+                    background: "var(--accent-soft)",
+                    border: "1px solid var(--accent-line)",
+                    color: "var(--accent)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 24,
                   }}
                 >
                   ✓
                 </div>
-                <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--fg)", margin: 0 }}>
+                <h2
+                  style={{
+                    fontSize: 18,
+                    fontWeight: 700,
+                    color: "var(--fg)",
+                    margin: 0,
+                  }}
+                >
                   Payment successful
                 </h2>
-                <p style={{ fontSize: 13, color: "var(--fg-muted)", margin: 0 }}>
-                  ${confirmation.creditsUSD.toFixed(2)} credits added to your wallet.
+                <p
+                  style={{ fontSize: 13, color: "var(--fg-muted)", margin: 0 }}
+                >
+                  ${confirmation.creditsUSD.toFixed(2)} credits added to your
+                  wallet.
                 </p>
                 <div
                   style={{
-                    fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--fg)",
-                    background: "var(--bg-elev-2)", border: "1px solid var(--border)",
-                    borderRadius: "var(--r-2)", padding: "8px 14px",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 13,
+                    color: "var(--fg)",
+                    background: "var(--bg-elev-2)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--r-2)",
+                    padding: "8px 14px",
                   }}
                 >
                   New balance: ${balanceUSD.toFixed(2)}
@@ -160,9 +189,15 @@ export function CheckoutModal({
                     type="button"
                     onClick={() => router.push("/usage")}
                     style={{
-                      height: 38, padding: "0 18px", borderRadius: "var(--r-2)",
-                      border: "1px solid var(--accent-line)", background: "var(--accent)",
-                      color: "var(--accent-fg)", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                      height: 38,
+                      padding: "0 18px",
+                      borderRadius: "var(--r-2)",
+                      border: "1px solid var(--accent-line)",
+                      background: "var(--accent)",
+                      color: "var(--accent-fg)",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: "pointer",
                     }}
                   >
                     Go to Usage
@@ -171,9 +206,15 @@ export function CheckoutModal({
                     type="button"
                     onClick={onClose}
                     style={{
-                      height: 38, padding: "0 18px", borderRadius: "var(--r-2)",
-                      border: "1px solid var(--border-strong)", background: "transparent",
-                      color: "var(--fg-muted)", fontSize: 13, fontWeight: 500, cursor: "pointer",
+                      height: 38,
+                      padding: "0 18px",
+                      borderRadius: "var(--r-2)",
+                      border: "1px solid var(--border-strong)",
+                      background: "transparent",
+                      color: "var(--fg-muted)",
+                      fontSize: 13,
+                      fontWeight: 500,
+                      cursor: "pointer",
                     }}
                   >
                     Close
@@ -183,12 +224,33 @@ export function CheckoutModal({
             ) : (
               <>
                 {/* Header */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 20,
+                  }}
+                >
                   <div>
-                    <h2 style={{ fontSize: 19, fontWeight: 700, color: "var(--fg)", margin: 0, letterSpacing: "-0.01em" }}>
+                    <h2
+                      style={{
+                        fontSize: 19,
+                        fontWeight: 700,
+                        color: "var(--fg)",
+                        margin: 0,
+                        letterSpacing: "-0.01em",
+                      }}
+                    >
                       Checkout
                     </h2>
-                    <p style={{ margin: "3px 0 0", fontSize: 12.5, color: "var(--fg-muted)" }}>
+                    <p
+                      style={{
+                        margin: "3px 0 0",
+                        fontSize: 12.5,
+                        color: "var(--fg-muted)",
+                      }}
+                    >
                       Complete your credit top-up
                     </p>
                   </div>
@@ -197,10 +259,16 @@ export function CheckoutModal({
                     aria-label="Close checkout"
                     onClick={onClose}
                     style={{
-                      display: "inline-flex", alignItems: "center", justifyContent: "center",
-                      width: 32, height: 32, background: "transparent",
-                      border: "1px solid var(--border)", borderRadius: "var(--r-2)",
-                      color: "var(--fg-muted)", cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 32,
+                      height: 32,
+                      background: "transparent",
+                      border: "1px solid var(--border)",
+                      borderRadius: "var(--r-2)",
+                      color: "var(--fg-muted)",
+                      cursor: "pointer",
                     }}
                   >
                     <IconClose size={14} />
@@ -211,11 +279,20 @@ export function CheckoutModal({
                   {/* Cart card */}
                   <div
                     style={{
-                      background: "var(--bg-elev-2)", border: "1px solid var(--border)",
-                      borderRadius: "var(--r-3)", padding: 20,
+                      background: "var(--bg-elev-2)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "var(--r-3)",
+                      padding: 20,
                     }}
                   >
-                    <div style={{ paddingBottom: 4, fontSize: 12, fontWeight: 600, color: "var(--fg-muted)" }}>
+                    <div
+                      style={{
+                        paddingBottom: 4,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "var(--fg-muted)",
+                      }}
+                    >
                       Order summary
                     </div>
                     {items.map((item) => (
@@ -229,11 +306,20 @@ export function CheckoutModal({
                   {/* Payment card */}
                   <div
                     style={{
-                      background: "var(--bg-elev-2)", border: "1px solid var(--border)",
-                      borderRadius: "var(--r-3)", padding: 20, display: "flex",
+                      background: "var(--bg-elev-2)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "var(--r-3)",
+                      padding: 20,
+                      display: "flex",
                     }}
                   >
-                    <div style={{ width: "100%", display: "flex", flexDirection: "column" }}>
+                    <div
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        flexDirection: "column",
+                      }}
+                    >
                       <PaymentInfoPanel
                         method={method}
                         onMethodChange={setMethod}

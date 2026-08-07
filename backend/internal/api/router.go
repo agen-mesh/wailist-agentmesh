@@ -37,12 +37,19 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	r.Handle("/x402/relay", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		d.X402Relay(w, r)
 	}))
+	// Static, informational resource for FundRunReserve's PaymentRequirements.Resource —
+	// a real, reachable route on our own domain rather than an opaque identifier string,
+	// matching what a real Bazaar-catalog crawler would expect to find there.
+	r.Get("/x402/relay/run-funding", d.X402RunFundingInfo)
+	// Same rationale, for nodes.SettlePlatformFee's PaymentRequirements.Resource.
+	r.Get("/x402/relay/platform-fee", d.X402PlatformFeeInfo)
 
 	// Protected routes — JWT required
 	r.Group(func(r chi.Router) {
 		r.Use(NewAuthMiddleware(d.JWTSecret))
 
 		r.Get("/auth/me", d.Me)
+		r.Patch("/auth/me", d.UpdateProfile)
 
 		r.Get("/workflows", d.ListWorkflows)
 		r.Post("/workflows", d.CreateWorkflow)
@@ -65,6 +72,28 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Post("/payments/cashfree/verify", d.VerifyCashfreePayment)
 		r.Post("/payments/nowpayments/invoice", d.CreateCryptoInvoice)
 		r.Get("/credits/balance", d.GetCreditBalance)
+		r.Post("/credits/redeem-coupon", d.RedeemCoupon)
+
+		// Real spend reporting, read from debit_ledger (the rows the engine
+		// writes when it actually charges) — the usage page fell back to
+		// generated fixtures while these did not exist.
+		r.Get("/usage/summary", d.UsageSummary)
+		r.Get("/usage/timeseries", d.UsageTimeseries)
+		r.Get("/usage/by-workflow", d.UsageByWorkflow)
+		r.Get("/usage/by-endpoint", d.UsageByEndpoint)
+		r.Get("/usage/settlements", d.UsageSettlements)
+
+		r.Get("/tendril/machines", d.TendrilMachines)
+		r.Get("/tendril/credits", d.TendrilCredits)
+		r.Get("/tendril/console", d.TendrilConsoleWorkflow)
+		r.Get("/tendril/console/exists", d.TendrilConsoleWorkflowExists)
+		r.Post("/tendril/topup", d.TendrilConsoleTopup)
+		r.Post("/tendril/rent", d.TendrilConsoleRent)
+		r.Post("/tendril/run", d.TendrilConsoleRun)
+		r.Get("/leases", d.ListLeases)
+		r.Post("/leases/{id}/release", d.ReleaseLease)
+		r.Get("/leases/{id}/key", d.DownloadLeaseKey)
+		r.Get("/leases/{id}/terminal", d.LeaseTerminal)
 
 		r.Get("/connectors/oauth/{provider}/start", d.ConnectorOAuthStart)
 		r.Get("/connectors/oauth/{provider}/callback", d.ConnectorOAuthCallback)

@@ -3,21 +3,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCredits } from "@/lib/credits/store";
 import { LowBalanceBanner } from "@/components/billing/LowBalanceBanner";
-import {
-  Logo,
-  Pill,
-  Hairline,
-  IconSearch,
-  Card,
-  ghostBtnSm,
-} from "@/components/ui";
-import { useAuth } from "@/hooks/useAuth";
-import { usage as usageApi } from "@/lib/api";
+import { IconSearch, Card, ghostBtnSm } from "@/components/ui";
+import { Topbar } from "@/components/Topbar";
+import { usage as usageApi, auth as authApi } from "@/lib/api";
+import { listSettlements } from "@/lib/settlements";
 import {
   UsageRange,
   UsagePayload,
   EndpointUsage,
   UsageCategory,
+  Settlement,
 } from "@/lib/types";
 import { AreaChart } from "./AreaChart";
 import { Donut, DonutSegment } from "./Donut";
@@ -44,7 +39,6 @@ const CAT_LABEL: Record<UsageCategory, string> = {
 
 export function UsagePage() {
   const router = useRouter();
-  const { signOut } = useAuth();
 
   const [range, setRange] = useState<UsageRange>("30d");
   const [data, setData] = useState<UsagePayload | null>(null);
@@ -62,7 +56,7 @@ export function UsagePage() {
     if (wf) setScopedWf(wf);
   }, []);
 
-  // The fetch effect only fetches — loading/error resets live in the event
+  // The fetch effect only fetches -- loading/error resets live in the event
   // handlers (changeRange/retry) that trigger it, and the initial state
   // already starts as loading. Sync setState in effects cascades renders.
   useEffect(() => {
@@ -80,7 +74,7 @@ export function UsagePage() {
       })
       .catch((e) => {
         if (cancelled) return;
-        // Surface the failure but keep the last good payload — a transient error
+        // Surface the failure but keep the last good payload -- a transient error
         // on a range switch shouldn't blank a page that was already working.
         console.error("usage load failed", e);
         setLoadError(e instanceof Error ? e : new Error(String(e)));
@@ -92,11 +86,6 @@ export function UsagePage() {
       cancelled = true;
     };
   }, [range, reloadNonce]);
-
-  const handleSignOut = async () => {
-    await signOut();
-    router.push("/");
-  };
 
   const changeRange = (r: UsageRange) => {
     setLoading(true);
@@ -133,73 +122,7 @@ export function UsagePage() {
         background: "var(--bg)",
       }}
     >
-      {/* Topbar */}
-      <div
-        style={{
-          height: 56,
-          flexShrink: 0,
-          background: "var(--bg-elev-1)",
-          borderBottom: "1px solid var(--border)",
-          padding: "0 24px",
-          display: "flex",
-          alignItems: "center",
-          gap: 14,
-        }}
-      >
-        <button
-          onClick={() => router.push("/")}
-          style={{
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            padding: 0,
-          }}
-        >
-          <Logo size={18} />
-        </button>
-        <Hairline vertical length={22} />
-        <button style={ghostBtnSm} onClick={() => router.push("/workflows")}>
-          ← Workflows
-        </button>
-        <Pill mono dot tone="ok">
-          testnet
-        </Pill>
-        <div style={{ flex: 1 }} />
-        <button style={ghostBtnSm} onClick={() => router.push("/billing")}>
-          Credits
-        </button>
-        <button
-          style={{
-            ...ghostBtnSm,
-            borderColor: "var(--accent-line)",
-            color: "var(--accent)",
-          }}
-        >
-          Usage
-        </button>
-        <button style={ghostBtnSm}>Credentials</button>
-        <button style={ghostBtnSm}>Settings</button>
-        <Hairline vertical length={22} />
-        <button style={ghostBtnSm} onClick={handleSignOut}>
-          Sign out
-        </button>
-        <div
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: 999,
-            background: "var(--accent)",
-            color: "var(--accent-fg)",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 11,
-            fontWeight: 700,
-          }}
-        >
-          AC
-        </div>
-      </div>
+      <Topbar />
 
       {/* Main */}
       <div style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>
@@ -261,7 +184,7 @@ export function UsagePage() {
                 color: "var(--danger)",
               }}
             >
-              couldn&apos;t refresh — showing the last loaded data
+              couldn&apos;t refresh, showing the last loaded data
               <button
                 onClick={retry}
                 style={{
@@ -307,7 +230,7 @@ export function UsagePage() {
                 couldn&apos;t load usage
               </div>
               <div style={{ color: "var(--fg-dim)", marginBottom: 16 }}>
-                the usage service didn&apos;t respond — this is different from
+                the usage service didn&apos;t respond; this is different from
                 having no usage yet
               </div>
               <button onClick={retry} style={ghostBtnSm}>
@@ -326,7 +249,7 @@ export function UsagePage() {
                 fontSize: 12,
               }}
             >
-              no usage yet — run a workflow to see spend here
+              no usage yet, run a workflow to see spend here
             </div>
           ) : (
             <UsageBody
@@ -362,8 +285,61 @@ function UsageBody({
   onTopUp: () => void;
   loading: boolean;
 }) {
-  const { timeseries, byWorkflow, byEndpoint, settlements } = data;
-  const { balanceUSD } = useCredits();
+  const { timeseries, byWorkflow, byEndpoint } = data;
+  const { balanceUSD, refreshBalance } = useCredits();
+  const [localSettlements, setLocalSettlements] = useState<Settlement[]>([]);
+  const [tendrilSettlements, setTendrilSettlements] = useState<Settlement[]>(
+    [],
+  );
+  // Two sources, merged: workflow-run x402 payments come from the local
+  // per-user record (the server still can't scope x402_relay_settlements to
+  // a user — no user_id column on that table). Tendril top-ups aren't a
+  // workflow run at all (they're the console's direct-action button), but
+  // they DO land in a ledger that's scoped to a user from the moment it's
+  // written (tendril_credit_ledger), so /usage/settlements can report those
+  // honestly — see usage.go's UsageSettlements doc comment.
+  const settlements = useMemo(
+    () =>
+      [...tendrilSettlements, ...localSettlements].sort(
+        (a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime(),
+      ),
+    [tendrilSettlements, localSettlements],
+  );
+  // Read after mount and only for the signed-in user, so another account's
+  // history in the same browser is never shown.
+  useEffect(() => {
+    let stale = false;
+    authApi
+      .me()
+      .then((u) => {
+        if (!stale) setLocalSettlements(listSettlements(u.id));
+      })
+      .catch(() => {
+        /* signed out: leave the panel empty */
+      });
+    return () => {
+      stale = true;
+    };
+  }, []);
+  useEffect(() => {
+    let stale = false;
+    usageApi
+      .settlements(18)
+      .then((rows) => {
+        if (!stale) setTendrilSettlements(rows);
+      })
+      .catch(() => {
+        /* transient failure: leave whatever loaded last */
+      });
+    return () => {
+      stale = true;
+    };
+  }, []);
+  // The balance is server state, not local state — fetch it when this page
+  // mounts so it reflects spend from runs made elsewhere in the app.
+  useEffect(() => {
+    void refreshBalance();
+  }, [refreshBalance]);
 
   const workflows = scopedWf
     ? byWorkflow.filter((w) => w.workflowId === scopedWf)
@@ -390,7 +366,7 @@ function UsageBody({
     <div style={{ opacity: loading ? 0.6 : 1, transition: "opacity .15s" }}>
       <LowBalanceBanner onTopUp={onTopUp} />
       {/* Header row above the Endpoints table: credits left (left) mirrors the range selector (right).
-          Keep the empty headspace above it — content starts low on the page. */}
+          Keep the empty headspace above it -- content starts low on the page. */}
       <div
         className="reveal reveal-delay-1"
         style={{
@@ -413,12 +389,12 @@ function UsageBody({
         >
           {(() => {
             const b = data.summary.budget;
-            // "Credits left" is the prepaid wallet — the same single source the
-            // billing page shows — so the two pages always agree. The box works
-            // in ALGO and converts to USD at display (compactUsd × rate), so
-            // convert the USD wallet balance back to ALGO here. The mock plan
-            // allowance (b.limit) is used only as the progress-bar reference; it
-            // is never added to the figure.
+            // "Credits left" is the prepaid wallet — now the backend balance
+            // (GET /credits/balance), the same row the engine debits, so this
+            // page, the billing page and the canvas topbar cannot disagree.
+            // Everything here is USD end to end (ALGO_USD is 1). The plan
+            // allowance (b.limit) is only the progress-bar reference; it is
+            // never added to the figure.
             const walletAlgo = balanceUSD / ALGO_USD;
             const left = balanceUSD > 0 || b ? walletAlgo : null;
             const limit = b ? b.limit : 0;
@@ -555,14 +531,14 @@ function UsageBody({
         </div>
       </div>
 
-      {/* ④ Endpoints table — first */}
+      {/* ④ Endpoints table -- first */}
       <EndpointTable
         rows={byEndpoint}
         className="reveal reveal-delay-1"
         style={{ marginBottom: 16 }}
       />
 
-      {/* ② Usage + Spend merged — two distinct-coloured lines, combined tooltip */}
+      {/* ② Usage + Spend merged -- two distinct-coloured lines, combined tooltip */}
       <Card className="reveal reveal-delay-2" style={{ marginBottom: 16 }}>
         <CardHead
           title="Usage & Spend over time"
@@ -724,7 +700,7 @@ function UsageBody({
         </Card>
       </div>
 
-      {/* ⑤ Recent settlements — on-chain, kept in ALGO */}
+      {/* ⑤ Recent settlements -- on-chain, kept in ALGO */}
       <Card style={{ marginBottom: 16 }}>
         <CardHead
           title="Recent settlements"
@@ -808,7 +784,7 @@ function UsageBody({
                   whiteSpace: "nowrap",
                 }}
               >
-                {s.workflowId}
+                {s.workflowId || "—"}
               </span>
               <span style={{ color: "var(--fg)", textAlign: "right" }}>
                 {s.amountAlgo.toFixed(6)}{" "}
@@ -840,7 +816,7 @@ function UsageBody({
 }
 
 // ── Endpoints table ─────────────────────────────────────────────────────────
-// "type" sorts by the rank below, not alphabetically — a-l-x (action, llm,
+// "type" sorts by the rank below, not alphabetically -- a-l-x (action, llm,
 // x402) reads as noise. x402 first matches the filter pills and the spend
 // order the rest of the page is built around.
 type SortKey =
@@ -894,7 +870,7 @@ function EndpointTable({
       const av = a[sort.key],
         bv = b[sort.key];
       let cmp: number;
-      // Type only has 3 values, so it leaves big ties — order those by spend
+      // Type only has 3 values, so it leaves big ties -- order those by spend
       // (desc) rather than leaving each group in arbitrary fixture order.
       if (sort.key === "type")
         cmp =
@@ -1091,16 +1067,16 @@ function EndpointTable({
                 </span>
                 <TypeTag type={r.type} />
                 <span style={numCell}>{r.calls.toLocaleString()}</span>
-                {/* Both money columns are USD like every other figure on the page —
+                {/* Both money columns are USD like every other figure on the page --
                   a bare "6.110" reads as dollars but is ALGO (~6× off). The exact
                   on-chain ALGO amount stays available on hover for anyone
                   cross-checking settlements. LLM unit prices are estimates
-                  (see footer) — the * marks the price, not the total. */}
+                  (see footer) -- the * marks the price, not the total. */}
                 <span
                   className={r.unitPrice != null ? "cell-tip" : undefined}
                   data-tip={
                     r.unitPrice != null
-                      ? `${trim(r.unitPrice)} ALGO/${r.unit}`
+                      ? `$${trim(r.unitPrice)}/${r.unit}`
                       : undefined
                   }
                   style={{
@@ -1116,12 +1092,12 @@ function EndpointTable({
                       <span style={{ color: "var(--fg-dim)" }}>/{r.unit}</span>
                     </>
                   ) : (
-                    "—"
+                    "-"
                   )}
                 </span>
                 <span
                   className="cell-tip"
-                  data-tip={`${trim(r.totalAlgo)} ALGO`}
+                  data-tip={`$${trim(r.totalAlgo)}`}
                   style={{ ...numCell, color: "var(--accent)" }}
                 >
                   ${usd(r.totalAlgo)}
@@ -1154,7 +1130,7 @@ function EndpointTable({
                       }}
                     />
                   </span>
-                  {/* Fixed-width value box so the bars line up in a column — with the
+                  {/* Fixed-width value box so the bars line up in a column -- with the
                     text free-width, wider values pushed each row's bar to a different x. */}
                   <span style={{ minWidth: 40, textAlign: "right" }}>
                     {r.pctOfSpend}%
@@ -1173,7 +1149,7 @@ function EndpointTable({
                             : "var(--fg-muted)",
                   }}
                 >
-                  {r.successRate == null ? "—" : `${r.successRate}%`}
+                  {r.successRate == null ? "-" : `${r.successRate}%`}
                 </span>
                 <span style={{ ...numCell, color: "var(--fg-muted)" }}>
                   {relTime(r.lastUsedAt)}
@@ -1187,7 +1163,7 @@ function EndpointTable({
   );
 }
 
-// Sortable column header — declared at module scope (not inside EndpointTable's
+// Sortable column header -- declared at module scope (not inside EndpointTable's
 // render) so it isn't recreated every render. Sort state + toggle come via props.
 function Th({
   k,
@@ -1358,16 +1334,19 @@ function Empty({ text }: { text: string }) {
 }
 
 // ── formatting helpers ──────────────────────────────────────────────────────
-// On-chain amounts are ALGO; user-facing credit/spend is shown in USD.
-// Single display rate — swap for a live oracle when available.
-const ALGO_USD = 0.17;
+// Spend figures arrive from /usage/* already denominated in USD — they come
+// from debit_ledger.amount_usd_micros, the same units credits are sold and
+// billed in. The multiplier is retained (as 1) rather than deleted so the call
+// sites stay honest about doing no conversion; applying the old 0.17 ALGO rate
+// to USD figures would under-report every number on this page by ~6x.
+const ALGO_USD = 1;
 function usd(algoAmount: number, dp = 2) {
   return (algoAmount * ALGO_USD).toLocaleString("en", {
     minimumFractionDigits: dp,
     maximumFractionDigits: dp,
   });
 }
-// Compact USD for the credit balance — keeps large figures small (100K, 50, 2.3M).
+// Compact USD for the credit balance -- keeps large figures small (100K, 50, 2.3M).
 function compactUsd(algoAmount: number) {
   return Intl.NumberFormat("en", {
     notation: "compact",

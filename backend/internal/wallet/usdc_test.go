@@ -38,17 +38,31 @@ func TestSignUSDCPaymentGroupProducesTwoTxnsWithCorrectIndex(t *testing.T) {
 	if len(group) != 2 {
 		t.Fatalf("want 2-txn group, got %d", len(group))
 	}
-	if idx != 0 {
-		t.Fatalf("want paymentIndex 0, got %d", idx)
+	if idx != 1 {
+		t.Fatalf("want paymentIndex 1, got %d", idx)
 	}
 
-	// txn0 must decode as a signed asset-transfer with the right amount.
-	raw, err := base64.StdEncoding.DecodeString(group[0])
+	// txn0 (fee-payer stub) must decode as unsigned (empty signature) —
+	// GoPlausible's documented convention puts the fee payer first.
+	raw0, err := base64.StdEncoding.DecodeString(group[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unsignedTxn types.Transaction
+	if err := msgpack.Decode(raw0, &unsignedTxn); err != nil {
+		t.Fatal(err)
+	}
+	if unsignedTxn.Type != types.PaymentTx {
+		t.Fatalf("want fee-payer stub as PaymentTx, got %s", unsignedTxn.Type)
+	}
+
+	// txn1 must decode as a signed asset-transfer with the right amount.
+	raw1, err := base64.StdEncoding.DecodeString(group[1])
 	if err != nil {
 		t.Fatal(err)
 	}
 	var stx types.SignedTxn
-	if err := msgpack.Decode(raw, &stx); err != nil {
+	if err := msgpack.Decode(raw1, &stx); err != nil {
 		t.Fatal(err)
 	}
 	if stx.Txn.Type != types.AssetTransferTx {
@@ -59,18 +73,5 @@ func TestSignUSDCPaymentGroupProducesTwoTxnsWithCorrectIndex(t *testing.T) {
 	}
 	if stx.Txn.XferAsset != 10458941 {
 		t.Fatalf("want asset 10458941, got %d", stx.Txn.XferAsset)
-	}
-
-	// txn1 (fee-payer stub) must decode as unsigned (empty signature).
-	raw1, err := base64.StdEncoding.DecodeString(group[1])
-	if err != nil {
-		t.Fatal(err)
-	}
-	var unsignedTxn types.Transaction
-	if err := msgpack.Decode(raw1, &unsignedTxn); err != nil {
-		t.Fatal(err)
-	}
-	if unsignedTxn.Type != types.PaymentTx {
-		t.Fatalf("want fee-payer stub as PaymentTx, got %s", unsignedTxn.Type)
 	}
 }

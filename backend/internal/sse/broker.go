@@ -14,9 +14,24 @@ type Broker struct {
 type hub struct {
 	mu      sync.RWMutex
 	clients map[chan models.LogEvent]struct{}
+	// history is every event published for this run so far, replayed to each
+	// new subscriber. Without it, Publish's non-blocking send reaches only
+	// whoever is already attached, and an event published before the browser
+	// finishes opening its EventSource is lost with no way to recover it.
+	// That is a guaranteed race, not a rare one: the first node's event is
+	// typically published a few hundred ms after the run starts, while the
+	// client only learns the run id from the POST response and connects
+	// after that (confirmed live 2026-08-02 — a 35s stream that carried a
+	// keepalive and not one event).
+	history []models.LogEvent
 	done    chan struct{}
 	closed  bool
 }
+
+// maxHistory bounds per-run replay memory. Runs are short-lived and a step
+// emits one event, so this is far above any real workflow while still
+// refusing to grow without limit on a pathological run.
+const maxHistory = 500
 
 func NewBroker() *Broker {
 	return &Broker{hubs: make(map[string]*hub)}
@@ -39,8 +54,13 @@ func (b *Broker) Subscribe(runID string) (chan models.LogEvent, func()) {
 		ch := make(chan models.LogEvent)
 		return ch, func() { close(ch) }
 	}
-	ch := make(chan models.LogEvent, 32)
 	h.mu.Lock()
+	// Size the buffer to fit the replay plus headroom, so seeding it below
+	// cannot block and cannot drop the very events it exists to recover.
+	ch := make(chan models.LogEvent, len(h.history)+32)
+	for _, ev := range h.history {
+		ch <- ev
+	}
 	h.clients[ch] = struct{}{}
 	h.mu.Unlock()
 	return ch, func() {
@@ -58,8 +78,11 @@ func (b *Broker) Publish(runID string, ev models.LogEvent) {
 	if !ok {
 		return
 	}
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.history) < maxHistory {
+		h.history = append(h.history, ev)
+	}
 	for ch := range h.clients {
 		select {
 		case ch <- ev:

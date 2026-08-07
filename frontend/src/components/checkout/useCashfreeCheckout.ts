@@ -32,14 +32,14 @@ export function useCashfreeCheckout({
       .catch(() => cbs.current.onError("payment SDK failed to load"));
   }, []);
 
-  const pay = useCallback(async (amountINRPaise: number) => {
+  const pay = useCallback(async (amountINRPaise: number, phone: string) => {
     if (!ready || !cashfreeRef.current) {
       cbs.current.onError("payment is still loading, try again in a moment");
       return;
     }
     setLoading(true);
     try {
-      const order = await payments.createCashfreeOrder(amountINRPaise);
+      const order = await payments.createCashfreeOrder(amountINRPaise, phone);
 
       const result = await cashfreeRef.current.checkout({
         paymentSessionId: order.payment_session_id,
@@ -56,7 +56,7 @@ export function useCashfreeCheckout({
         return;
       }
 
-      // Payment may be complete — verify server-side to get the credited amount.
+      // Payment may be complete -- verify server-side to get the credited amount.
       const verification = await payments.verifyCashfreePayment(order.order_id);
       cbs.current.onSuccess(verification.credited_usd_micros);
     } catch (err) {
