@@ -66,6 +66,14 @@ func NewAuthMiddleware(secret string) func(http.Handler) http.Handler {
 				respond.Error(w, http.StatusUnauthorized, "invalid token")
 				return
 			}
+			// Reject anything minted for a narrower purpose than a session —
+			// e.g. the connector-OAuth state JWT, which is signed with this
+			// same secret but travels on a front channel (provider redirects,
+			// logs) and must never work as a bearer credential here.
+			if claims.Issuer != "" {
+				respond.Error(w, http.StatusUnauthorized, "invalid token")
+				return
+			}
 			ctx := context.WithValue(r.Context(), handlers.CtxUserID, claims.UserID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

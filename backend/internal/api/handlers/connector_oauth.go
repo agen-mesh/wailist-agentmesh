@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -400,11 +401,18 @@ func connectorExpiresConfigKey(provider string) string {
 // The PKCE code_verifier deliberately does NOT live here. This state JWT is
 // also sent as the `state` query parameter on the redirect to the
 // third-party's /authorize endpoint — a front-channel value that can end up
-// in the provider's server logs, browser history, or a leaked referrer.
-// HS256 signing gives integrity, not confidentiality, so anything placed in
-// these claims should be treated as readable by whoever observes that URL.
-// The verifier instead travels in its own separate HttpOnly cookie (see
-// connectorVerifierCookieName) that's never echoed back to the provider.
+// in the provider's server logs, browser history, or a leaked referrer (and,
+// via chi's request logger, our own server logs). HS256 signing gives
+// integrity, not confidentiality, so anything placed in these claims should
+// be treated as readable by whoever observes that URL. The verifier instead
+// travels in its own separate HttpOnly cookie (see connectorVerifierCookieName)
+// that's never echoed back to the provider.
+//
+// Because this JWT is signed with the same secret as session tokens and
+// shares the session claims' `sub` shape, it is minted with
+// Issuer: ConnectorLinkIssuer and the auth middleware rejects any bearer
+// token carrying that issuer — otherwise a leaked state value would work as
+// a full session bearer token for connectorLinkTTL.
 type connectorLinkClaims struct {
 	UserID     string `json:"sub"`
 	WorkflowID string `json:"wf"`
@@ -414,6 +422,14 @@ type connectorLinkClaims struct {
 }
 
 const connectorLinkTTL = 10 * time.Minute
+
+// ConnectorLinkIssuer marks state JWTs as scoped to the OAuth link flow, not
+// a session. It's signed with the same secret as session tokens (this JWT
+// travels on the front channel to the provider and can't carry a secret of
+// its own), so the auth middleware must reject any token carrying this
+// issuer — otherwise a leaked state value (provider logs, Referer, or our
+// own access logs) would work as a full session bearer token.
+const ConnectorLinkIssuer = "connector-link"
 
 func connectorStateCookieName(provider string) string {
 	return "connector_oauth_state_" + provider
@@ -478,6 +494,7 @@ func (d *Deps) ConnectorOAuthStart(w http.ResponseWriter, r *http.Request) {
 	claims := connectorLinkClaims{
 		UserID: userID, WorkflowID: workflowID, NodeID: nodeID, Provider: provider,
 		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    ConnectorLinkIssuer,
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(connectorLinkTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
@@ -548,6 +565,11 @@ func (d *Deps) ConnectorOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return []byte(d.JWTSecret), nil
 	})
 	if err != nil || claims.Provider != provider {
+		if err != nil {
+			log.Printf("connector oauth %s: state token: %v", provider, err)
+		} else {
+			log.Printf("connector oauth %s: state provider mismatch (claims=%s)", provider, claims.Provider)
+		}
 		d.connectorRedirectFail(w, r, "", "invalid_state")
 		return
 	}
@@ -581,11 +603,13 @@ func (d *Deps) ConnectorOAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	accessToken, refreshToken, expiresIn, err := exchangeConnectorCode(cfg, code, d.connectorRedirectURI(provider), verifier)
 	if err != nil {
+		log.Printf("connector oauth %s: token exchange: %v", provider, err)
 		d.connectorRedirectFail(w, r, claims.WorkflowID, "token_exchange")
 		return
 	}
 
 	if err := d.linkConnectorToken(r.Context(), claims.WorkflowID, claims.NodeID, cfg, provider, accessToken, refreshToken, expiresIn); err != nil {
+		log.Printf("connector oauth %s: link token: %v", provider, err)
 		d.connectorRedirectFail(w, r, claims.WorkflowID, "link_failed")
 		return
 	}
@@ -713,17 +737,23 @@ func exchangeConnectorCode(cfg ConnectorOAuthConfig, code, redirectURI, verifier
 	}
 	defer res.Body.Close()
 
-	body, _ := io.ReadAll(res.Body)
+	body, rErr := io.ReadAll(res.Body)
+	if rErr != nil {
+		return "", "", 0, fmt.Errorf("reading token response: %w", rErr)
+	}
+	if res.StatusCode >= 400 {
+		return "", "", 0, fmt.Errorf("token endpoint returned %d: %s", res.StatusCode, body)
+	}
 	var tok struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
 		ExpiresIn    int    `json:"expires_in"`
 	}
 	if err := json.Unmarshal(body, &tok); err != nil {
-		return "", "", 0, err
+		return "", "", 0, fmt.Errorf("decoding token response: %w", err)
 	}
 	if tok.AccessToken == "" {
-		return "", "", 0, fmt.Errorf("no access token in response")
+		return "", "", 0, fmt.Errorf("no access token in response: %s", body)
 	}
 	return tok.AccessToken, tok.RefreshToken, tok.ExpiresIn, nil
 }
