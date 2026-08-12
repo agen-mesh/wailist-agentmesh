@@ -153,6 +153,16 @@ body {
   animation-delay: 0.4s;
 }
 
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
 .in-view {
   opacity: 0;
   transform: translateY(24px);

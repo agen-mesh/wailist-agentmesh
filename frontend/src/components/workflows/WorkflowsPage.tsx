@@ -16,6 +16,12 @@ import { workflows as workflowsApi } from "@/lib/api";
 import { useCredits } from "@/lib/credits/store";
 import { tendril } from "@/lib/tendril";
 
+const reveal = (delay: string): React.CSSProperties => ({
+  opacity: 0,
+  animation: "fade-up 0.8s var(--ease) both",
+  animationDelay: delay,
+});
+
 export function WorkflowsPage() {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -52,6 +58,12 @@ export function WorkflowsPage() {
       return matchesQ && matchesS;
     });
   }, [wfList, q, status]);
+
+  const reveal = (delay: string): React.CSSProperties => ({
+    opacity: 0,
+    animation: "fade-up 0.8s var(--ease) both",
+    animationDelay: delay,
+  });
 
   const handleNewWorkflow = useCallback(async () => {
     if (creating) return;
@@ -109,7 +121,15 @@ export function WorkflowsPage() {
       <Topbar />
 
       {/* Main */}
-      <div style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>
+      <div
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          overflowX: "hidden",
+          scrollbarGutter: "stable",
+          background: "var(--bg)",
+        }}
+      >
         <div
           style={{
             maxWidth: 1280,
@@ -120,6 +140,7 @@ export function WorkflowsPage() {
           {/* Header */}
           <div
             style={{
+              ...reveal("0.02s"),
               display: "flex",
               alignItems: "flex-end",
               justifyContent: "space-between",
@@ -186,6 +207,7 @@ export function WorkflowsPage() {
               unwired placeholders. */}
           <Card
             style={{
+              ...reveal("0.05s"),
               marginBottom: 24,
               display: "flex",
               alignItems: "center",
@@ -253,6 +275,7 @@ export function WorkflowsPage() {
           {/* Controls */}
           <div
             style={{
+              ...reveal("0.08s"),
               display: "flex",
               alignItems: "center",
               gap: 10,
@@ -377,12 +400,14 @@ export function WorkflowsPage() {
             </div>
           ) : view === "rows" ? (
             <WorkflowRows
+              key={`${view}-${status}`}
               items={filtered}
               onOpen={(id) => router.push(`/workflows/${id}`)}
               onDelete={handleDelete}
             />
           ) : (
             <WorkflowGrid
+              key={`${view}-${status}`}
               items={filtered}
               onOpen={(id) => router.push(`/workflows/${id}`)}
             />
@@ -648,7 +673,15 @@ function WorkflowRows({
   onDelete: (id: string) => void;
 }) {
   return (
-    <Card style={{ padding: 0, overflowX: "auto" }}>
+    <Card
+      className="hide-scrollbar"
+      style={{
+        ...reveal("0.11s"),
+        padding: 0,
+        overflow: "hidden",
+        height: "auto",
+      }}
+    >
       <div
         style={{
           display: "grid",
@@ -676,8 +709,8 @@ function WorkflowRows({
       {items.map((wf, i) => (
         <div
           key={wf.id}
-          onClick={() => onOpen(wf.id)}
           style={{
+            ...reveal(`${0.12 + i * 0.02}s`),
             display: "grid",
             gridTemplateColumns:
               "minmax(180px, 240px) minmax(96px, 1fr) minmax(80px, 1fr) minmax(96px, 1fr) minmax(110px, 1fr) minmax(120px, 1fr) 80px",
@@ -802,11 +835,11 @@ function WorkflowGrid({
         gap: 16,
       }}
     >
-      {items.map((wf) => (
+      {items.map((wf, idx) => (
         <Card
           key={wf.id}
-          onClick={() => onOpen(wf.id)}
           style={{
+            ...reveal(`${0.12 + idx * 0.03}s`),
             cursor: "pointer",
             transition: "border-color .15s, transform .15s",
           }}
