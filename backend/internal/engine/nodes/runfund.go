@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -89,11 +90,46 @@ func SettlePlatformFee(ctx context.Context, cfg RunPreFundConfig, amountUSDMicro
 // identity (see runFundingPublicPath's doc comment for why that has to be a
 // real path under our own branded origin, not an opaque identifier).
 // amountUSDMicros <= 0 is a no-op.
+//
+// Retries up to selfSettleMaxAttempts times on any failure EXCEPT
+// ErrSettlementIndeterminate: a signing error, a verify rejection, or a
+// definitive (received) settle failure all mean nothing was broadcast or
+// confirmed, so a retry -- with a fresh SignUSDCPaymentGroup call, and
+// therefore a fresh uniqueNote nonce and SuggestedParams -- is safe and
+// cannot double-pay. An indeterminate settle response (the request may
+// have already been broadcast and confirmed, we just never heard back)
+// stops retrying immediately instead, exactly as before this change --
+// resubmitting there risks paying twice. This is what actually closes the
+// gap: before wallet/algorand.go's uniqueNote fix, a same-round retry of
+// the flat-amount platform fee would have produced the exact same
+// collision it was retrying to escape; now every attempt is guaranteed
+// distinct regardless of amount or timing.
 func selfSettleWallet1ToWallet2(ctx context.Context, cfg RunPreFundConfig, publicPath, description, errPrefix string, amountUSDMicros int64) (string, error) {
 	if amountUSDMicros <= 0 {
 		return "", nil
 	}
 
+	var lastErr error
+	for attempt := 1; attempt <= selfSettleMaxAttempts; attempt++ {
+		txID, err := attemptSelfSettle(ctx, cfg, publicPath, description, errPrefix, amountUSDMicros)
+		if err == nil {
+			return txID, nil
+		}
+		if errors.Is(err, ErrSettlementIndeterminate) {
+			return "", err
+		}
+		lastErr = err
+	}
+	return "", lastErr
+}
+
+// selfSettleMaxAttempts bounds selfSettleWallet1ToWallet2's retry loop. Not
+// unbounded: a real, persistent misconfiguration (bad mnemonic, algod down,
+// facilitator down) should fail loudly and quickly, not loop for minutes
+// eating into executeTool402V2Relay's own 60s budget for this call.
+const selfSettleMaxAttempts = 3
+
+func attemptSelfSettle(ctx context.Context, cfg RunPreFundConfig, publicPath, description, errPrefix string, amountUSDMicros int64) (string, error) {
 	resourceURL := cfg.FrontendURL + publicPath
 	reqs := x402.PaymentRequirements{
 		Scheme:            "exact",

@@ -250,3 +250,90 @@ func TestFundRunReserveSettleTransportErrorIsIndeterminate(t *testing.T) {
 		t.Fatalf("want error to wrap ErrSettlementIndeterminate (fate of the payment unknown), got %v", err)
 	}
 }
+
+// TestFundRunReserveRetriesDefinitiveSettleFailure guards the fix for the
+// elevated platform-fee settle-failure rate: a definitive (received, not
+// lost) settle rejection means nothing was broadcast, so it's safe to
+// retry with a freshly-signed group -- and the retry must actually happen,
+// not just be theoretically safe.
+func TestFundRunReserveRetriesDefinitiveSettleFailure(t *testing.T) {
+	const wantTxID = "RETRY-SUCCESS-TX"
+	var settleAttempts int
+
+	facilitator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/verify":
+			json.NewEncoder(w).Encode(map[string]any{"isValid": true})
+		case "/settle":
+			settleAttempts++
+			if settleAttempts < 2 {
+				json.NewEncoder(w).Encode(map[string]any{"success": false, "errorReason": "transient rejection"})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"success": true, "transaction": wantTxID})
+		}
+	}))
+	defer facilitator.Close()
+
+	signer := &fakeRunFundUSDCSigner{group: []string{"g0", "g1"}, idx: 0}
+	cfg := nodes.RunPreFundConfig{
+		USDCSigner:               signer,
+		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
+		Facilitator:              x402.NewFacilitatorClient(facilitator.URL),
+		PlatformWalletAddress:    "PLATFORMADDR",
+		RelayNetwork:             "algorand:testnet",
+		RelayFeePayer:            "FEEPAYERADDR",
+		ExpectedAssetID:          10458941,
+		FrontendURL:              "https://example.test",
+	}
+
+	txID, err := nodes.FundRunReserve(context.Background(), cfg, "run-1", 500000)
+	if err != nil {
+		t.Fatalf("want the retry to succeed on the second attempt, got error: %v", err)
+	}
+	if txID != wantTxID {
+		t.Fatalf("want txID %q, got %q", wantTxID, txID)
+	}
+	if settleAttempts != 2 {
+		t.Fatalf("want exactly 2 settle attempts (1 failure + 1 success), got %d", settleAttempts)
+	}
+}
+
+// TestFundRunReserveNeverRetriesIndeterminateSettle guards the other half
+// of the same fix: retrying an indeterminate settle (response lost, fate
+// unknown) risks double-paying, so it must stop after exactly one attempt
+// regardless of the retry budget.
+func TestFundRunReserveNeverRetriesIndeterminateSettle(t *testing.T) {
+	var settleAttempts int
+
+	facilitator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/verify":
+			json.NewEncoder(w).Encode(map[string]any{"isValid": true})
+		case "/settle":
+			settleAttempts++
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer facilitator.Close()
+
+	signer := &fakeRunFundUSDCSigner{group: []string{"g0", "g1"}, idx: 0}
+	cfg := nodes.RunPreFundConfig{
+		USDCSigner:               signer,
+		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
+		Facilitator:              x402.NewFacilitatorClient(facilitator.URL),
+		PlatformWalletAddress:    "PLATFORMADDR",
+		RelayNetwork:             "algorand:testnet",
+		RelayFeePayer:            "FEEPAYERADDR",
+		ExpectedAssetID:          10458941,
+		FrontendURL:              "https://example.test",
+	}
+
+	_, err := nodes.FundRunReserve(context.Background(), cfg, "run-1", 500000)
+	if !errors.Is(err, nodes.ErrSettlementIndeterminate) {
+		t.Fatalf("want ErrSettlementIndeterminate, got %v", err)
+	}
+	if settleAttempts != 1 {
+		t.Fatalf("want exactly 1 settle attempt (must not retry an indeterminate outcome -- could double-pay), got %d", settleAttempts)
+	}
+}
