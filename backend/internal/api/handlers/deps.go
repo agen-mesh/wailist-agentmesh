@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine"
@@ -126,4 +128,14 @@ type Deps struct {
 	GitLabClientSecret          string
 	TodoistClientID             string
 	TodoistClientSecret         string
+
+	// runCooldownMu/lastRunAt back startRun's per-workflow cooldown (see
+	// runs.go) -- a blunt deterrent against a leaked webhook URL or a bot
+	// hammering PublicTrigger/TriggerRun to burn through a user's credits.
+	// Zero-value-ready (nil map, unlocked mutex), so a Deps built directly
+	// in a test with a bare struct literal still enforces the cooldown
+	// correctly instead of silently skipping it -- no explicit wiring
+	// required in main.go or any test helper.
+	runCooldownMu sync.Mutex
+	lastRunAt     map[string]time.Time
 }

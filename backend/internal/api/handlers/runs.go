@@ -12,6 +12,17 @@ import (
 	"github.com/agentmesh/backend/internal/respond"
 )
 
+// runTriggerCooldown is the minimum gap between two run starts for the same
+// workflow, across BOTH TriggerRun (authenticated) and PublicTrigger
+// (unauthenticated webhook) -- the latter is the real target, since it's
+// reachable by anyone who has the URL with no rate limiting of its own
+// otherwise, but it's enforced on the shared startRun path so a bot hitting
+// either endpoint (or both, alternating) is caught the same way. A flat
+// constant rather than a per-workflow setting: this is a blunt deterrent
+// against naive burst-triggering, not a real per-customer rate limit --
+// legitimate rapid re-runs are rare enough that 5s costs nothing.
+const runTriggerCooldown = 5 * time.Second
+
 func (d *Deps) TriggerRun(w http.ResponseWriter, r *http.Request) {
 	workflowID := chi.URLParam(r, "id")
 	d.startRun(w, r, workflowID, "manual", true)
@@ -57,6 +68,19 @@ func (d *Deps) startRun(w http.ResponseWriter, r *http.Request, workflowID, trig
 		}
 	}
 
+	// Checked only after the existence/ownership/deploy checks above, never
+	// before: doing it earlier would let an unauthenticated caller on the
+	// PublicTrigger path distinguish "workflow doesn't exist" (404) from
+	// "workflow exists but is on cooldown" (429) for an ID they have no
+	// business confirming -- the exact leak the deploy/trigger checks above
+	// already go out of their way to avoid.
+	if retryAfter, blocked := d.checkRunCooldown(workflowID, time.Now()); blocked {
+		w.Header().Set("Retry-After", fmt.Sprintf("%.0f", retryAfter.Seconds()))
+		respond.Error(w, http.StatusTooManyRequests,
+			fmt.Sprintf("this workflow was triggered too recently — wait %.0fs and try again", retryAfter.Seconds()))
+		return
+	}
+
 	var inputBody any
 	json.NewDecoder(r.Body).Decode(&inputBody)
 	inputJSON, _ := json.Marshal(inputBody)
@@ -72,6 +96,27 @@ func (d *Deps) startRun(w http.ResponseWriter, r *http.Request, workflowID, trig
 	d.Engine.Start(wf, run)
 
 	respond.JSON(w, http.StatusAccepted, map[string]string{"runId": run.ID})
+}
+
+// checkRunCooldown atomically checks and records this workflow's
+// last-triggered time, all under one lock, so a burst of concurrent
+// requests can't all read "no recent run" before any of them writes their
+// own attempt -- a check-then-write split across two calls would let
+// exactly that race slip a whole burst through on the very first window.
+func (d *Deps) checkRunCooldown(workflowID string, now time.Time) (retryAfter time.Duration, blocked bool) {
+	d.runCooldownMu.Lock()
+	defer d.runCooldownMu.Unlock()
+
+	if last, ok := d.lastRunAt[workflowID]; ok {
+		if elapsed := now.Sub(last); elapsed < runTriggerCooldown {
+			return runTriggerCooldown - elapsed, true
+		}
+	}
+	if d.lastRunAt == nil {
+		d.lastRunAt = make(map[string]time.Time)
+	}
+	d.lastRunAt[workflowID] = now
+	return 0, false
 }
 
 func (d *Deps) StopWorkflow(w http.ResponseWriter, r *http.Request) {
