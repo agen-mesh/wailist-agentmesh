@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/agentmesh/backend/internal/x402"
 )
@@ -104,6 +105,21 @@ func SettlePlatformFee(ctx context.Context, cfg RunPreFundConfig, amountUSDMicro
 // the flat-amount platform fee would have produced the exact same
 // collision it was retrying to escape; now every attempt is guaranteed
 // distinct regardless of amount or timing.
+//
+// ctx.Err() is checked before every attempt, including the first: without
+// this, a caller whose context is already canceled/expired when this is
+// entered would still burn up to selfSettleMaxAttempts real sign+verify
+// round trips before giving up, and each of those failures would (before
+// this check existed) get folded into lastErr and returned looking like a
+// genuine payment failure rather than "the caller gave up before we ever
+// really tried." Callers using SelfSettleRetryBudget for their own
+// context.WithTimeout (SettlePlatformFee's and FundRunReserve's call
+// sites both do) size it for selfSettleMaxAttempts full attempts, so a
+// slow-but-definitive failure on an early attempt doesn't starve a later
+// retry of its own fair shot -- this check is what makes that budget
+// actually save a caller work once it's genuinely exhausted, rather than
+// racing to fit one more doomed attempt in and misclassifying its
+// resulting deadline-exceeded error as ErrSettlementIndeterminate.
 func selfSettleWallet1ToWallet2(ctx context.Context, cfg RunPreFundConfig, publicPath, description, errPrefix string, amountUSDMicros int64) (string, error) {
 	if amountUSDMicros <= 0 {
 		return "", nil
@@ -111,6 +127,12 @@ func selfSettleWallet1ToWallet2(ctx context.Context, cfg RunPreFundConfig, publi
 
 	var lastErr error
 	for attempt := 1; attempt <= selfSettleMaxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			if lastErr != nil {
+				return "", fmt.Errorf("%s: giving up after %d attempt(s), context done: %w (last attempt's error: %v)", errPrefix, attempt-1, err, lastErr)
+			}
+			return "", fmt.Errorf("%s: context done before any attempt: %w", errPrefix, err)
+		}
 		txID, err := attemptSelfSettle(ctx, cfg, publicPath, description, errPrefix, amountUSDMicros)
 		if err == nil {
 			return txID, nil
@@ -125,9 +147,30 @@ func selfSettleWallet1ToWallet2(ctx context.Context, cfg RunPreFundConfig, publi
 
 // selfSettleMaxAttempts bounds selfSettleWallet1ToWallet2's retry loop. Not
 // unbounded: a real, persistent misconfiguration (bad mnemonic, algod down,
-// facilitator down) should fail loudly and quickly, not loop for minutes
-// eating into executeTool402V2Relay's own 60s budget for this call.
+// facilitator down) should fail loudly and quickly, not loop for minutes.
 const selfSettleMaxAttempts = 3
+
+// SelfSettleAttemptBudget is the worst-case time ONE attemptSelfSettle call
+// (sign + verify + settle) can take: up to 20s each for the facilitator's
+// Verify and Settle calls (x402.FacilitatorClient's own http.Client
+// timeout), plus the signing call's own algod SuggestedParams round trip
+// (no timeout of its own), plus headroom.
+const SelfSettleAttemptBudget = 60 * time.Second
+
+// SelfSettleRetryBudget is what a caller wrapping SettlePlatformFee or
+// FundRunReserve in its own context.WithTimeout should use. Both call
+// sites (tool402.go, runner.go) reference this constant rather than their
+// own hardcoded duration, specifically so the budget can never silently
+// drift out of sync with selfSettleMaxAttempts again the way it did before
+// this constant existed: SettlePlatformFee's call site used to hardcode a
+// flat 60s sized for exactly one attempt, sized before this file's retry
+// loop existed at all -- once retries landed, that budget could starve a
+// legitimate 2nd or 3rd attempt mid-flight, and a context deadline hit
+// mid-Settle is indistinguishable from a genuinely lost response, so a
+// starved retry would get misclassified as ErrSettlementIndeterminate
+// (money's fate unknown) purely because the caller's own clock, not the
+// facilitator's, ran out.
+const SelfSettleRetryBudget = selfSettleMaxAttempts * SelfSettleAttemptBudget
 
 func attemptSelfSettle(ctx context.Context, cfg RunPreFundConfig, publicPath, description, errPrefix string, amountUSDMicros int64) (string, error) {
 	resourceURL := cfg.FrontendURL + publicPath

@@ -236,6 +236,85 @@ func (s *Store) CreateRun(ctx context.Context, workflowID, triggeredBy string, i
 	return r, nil
 }
 
+// ErrRunOnCooldown is returned by CreateRunWithCooldown when workflowID
+// started a run within the last cooldown window passed to it. RetryAfter
+// is how much longer the caller must wait.
+type ErrRunOnCooldown struct {
+	RetryAfter time.Duration
+}
+
+func (e *ErrRunOnCooldown) Error() string {
+	return fmt.Sprintf("workflow run cooldown active, retry after %s", e.RetryAfter.Round(time.Second))
+}
+
+// CreateRunWithCooldown is CreateRun plus an atomic, DB-backed minimum gap
+// between two run starts for the same workflow -- a blunt deterrent
+// against a leaked webhook URL or a bot hammering the public trigger
+// endpoint with no rate limit otherwise (handlers.TriggerRun/PublicTrigger
+// are the only callers).
+//
+// Deliberately DB-backed rather than an in-process map: (1) the check and
+// the insert happen in the same transaction, so a CreateRun failure below
+// this point rolls the whole thing back -- a caller that reasonably
+// retries right after a transient DB error never sees a phantom cooldown
+// for a run that never actually started; (2) it piggybacks on the
+// existing runs table instead of a separate unbounded map, so there is no
+// new storage to leak over a long-running process's lifetime; (3) since
+// Postgres is the one shared source of truth, this is correct regardless
+// of how many backend replicas are running, unlike an in-process lock
+// that only ever sees its own replica's traffic.
+//
+// pg_advisory_xact_lock, not a plain "SELECT ... FOR UPDATE" against runs,
+// because a workflow's very first run has no existing row to lock against
+// -- the advisory lock is keyed on workflowID's hash and held regardless
+// of whether any row exists yet, and is automatically released at this
+// transaction's COMMIT or ROLLBACK either way.
+func (s *Store) CreateRunWithCooldown(ctx context.Context, workflowID, triggeredBy string, inputContext []byte, cooldown time.Duration) (models.Run, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return models.Run{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, workflowID); err != nil {
+		return models.Run{}, fmt.Errorf("run cooldown: acquire advisory lock: %w", err)
+	}
+
+	var lastStarted time.Time
+	err = tx.QueryRow(ctx, `
+		SELECT started_at FROM runs WHERE workflow_id = $1 ORDER BY started_at DESC LIMIT 1
+	`, workflowID).Scan(&lastStarted)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return models.Run{}, fmt.Errorf("run cooldown: check last run: %w", err)
+	}
+	if err == nil {
+		if elapsed := time.Since(lastStarted); elapsed < cooldown {
+			return models.Run{}, &ErrRunOnCooldown{RetryAfter: cooldown - elapsed}
+		}
+	}
+
+	var r models.Run
+	var ic []byte
+	err = tx.QueryRow(ctx, `
+		INSERT INTO runs (workflow_id, triggered_by, status, input_context)
+		VALUES ($1, $2, 'running', $3::jsonb)
+		RETURNING id, workflow_id, triggered_by, status, started_at, finished_at, input_context
+	`, workflowID, triggeredBy, string(inputContext)).Scan(
+		&r.ID, &r.WorkflowID, &r.TriggeredBy, &r.Status,
+		&r.StartedAt, &r.FinishedAt, &ic,
+	)
+	if err != nil {
+		return models.Run{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return models.Run{}, err
+	}
+	if ic != nil {
+		json.Unmarshal(ic, &r.InputContext)
+	}
+	return r, nil
+}
+
 func (s *Store) GetRun(ctx context.Context, runID string) (models.Run, error) {
 	var r models.Run
 	var ic []byte

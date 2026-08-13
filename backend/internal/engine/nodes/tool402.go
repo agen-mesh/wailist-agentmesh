@@ -1481,14 +1481,15 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 		// exact instant) must not abort the one thing that would actually
 		// back that charge with real USDC -- same reasoning as every other
 		// post-settlement compensating action in this codebase (see
-		// runner.go's ledgerCompensationTimeout uses). 60s budget: up to 20s
-		// each for the facilitator's Verify and Settle calls
-		// (FacilitatorClient's own http.Client timeout), plus the signing
-		// call ahead of them making its own algod SuggestedParams round
-		// trip on this same context with no timeout of its own, plus
-		// headroom.
+		// runner.go's ledgerCompensationTimeout uses). SelfSettleRetryBudget,
+		// not a hardcoded duration: SettlePlatformFee retries internally now
+		// (selfSettleWallet1ToWallet2), so this budget has to cover up to
+		// selfSettleMaxAttempts full sign+verify+settle cycles, not just one
+		// -- see SelfSettleRetryBudget's own doc comment for what a
+		// too-small budget here does to a starved retry's error
+		// classification.
 		if cfg.Facilitator != nil {
-			fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
+			fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), SelfSettleRetryBudget)
 			feeTxID, feeErr := SettlePlatformFee(fctx, RunPreFundConfig{
 				USDCSigner:               usdcSigner,
 				PlatformSpendEncMnemonic: platformSpendEncMnemonic,

@@ -389,7 +389,19 @@ func (r *Runner) reserveAndFundRun(ctx context.Context, wf models.Workflow, run 
 		ExpectedAssetID:          r.x402.USDCAssetID,
 		FrontendURL:              r.x402.FrontendURL,
 	}
-	txID, err := nodes.FundRunReserve(ctx, fundCfg, run.ID, creditReserve)
+	// Detached from ctx (WithoutCancel, own timeout) once the call starts --
+	// FundRunReserve now retries internally (selfSettleWallet1ToWallet2),
+	// so a StopWorkflow racing an in-flight attempt has a wider window than
+	// before this PR's retry landed to interrupt mid-Settle, which
+	// (identically to SettlePlatformFee's own call site) gets treated as
+	// ErrSettlementIndeterminate below -- reservation held, needs manual
+	// reconciliation, purely because our own cancellation raced the
+	// network call rather than because anything actually went wrong.
+	// SelfSettleRetryBudget sizes this for the full retry sequence, not
+	// just one attempt -- see its own doc comment.
+	fctx, fcancel := context.WithTimeout(context.WithoutCancel(ctx), nodes.SelfSettleRetryBudget)
+	txID, err := nodes.FundRunReserve(fctx, fundCfg, run.ID, creditReserve)
+	fcancel()
 	if err != nil {
 		if errors.Is(err, nodes.ErrSettlementIndeterminate) {
 			// The settle response was lost -- we don't know whether the
