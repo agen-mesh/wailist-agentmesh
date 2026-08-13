@@ -62,7 +62,7 @@ export default function OpengraphImage() {
             display: "flex",
           }}
         >
-          agent-mesh.app
+          www.agent-mesh.app
         </div>
       </div>
     ),
