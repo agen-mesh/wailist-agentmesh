@@ -13,8 +13,21 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://www.agent-mesh.app"),
   title: "AgentMesh",
   description: "Design, deploy, and monitor AI agent workflows.",
+  openGraph: {
+    title: "AgentMesh",
+    description: "Design, deploy, and monitor AI agent workflows.",
+    url: "/",
+    siteName: "AgentMesh",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "AgentMesh",
+    description: "Design, deploy, and monitor AI agent workflows.",
+  },
 };
 
 export default function RootLayout({
