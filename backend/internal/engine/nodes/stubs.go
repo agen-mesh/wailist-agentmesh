@@ -8,8 +8,10 @@ type RunContexter interface {
 	ToolOutputs() map[string]any
 	Set(string, any)
 	Get(string) (any, bool)
-	// OutputOrder returns node IDs oldest-first. Used by resolveTemplate to
-	// resolve {{ node.<id> }} references deterministically.
+	// OutputOrder returns node IDs oldest-first. {{ node.<id> }} references
+	// resolve via Get(id), a direct keyed lookup that needs no ordering —
+	// this exists for callers that need the insertion sequence itself (e.g.
+	// engine.RunContext.Message(), which reads the tail of this same order).
 	OutputOrder() []string
 }
 
