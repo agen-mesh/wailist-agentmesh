@@ -14,6 +14,7 @@ import (
 	"hash"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/agentmesh/backend/internal/models"
 )
@@ -117,4 +118,43 @@ func executeCrypto(node models.WorkflowNode, rc RunContexter) (any, error) {
 	}
 	h.Write([]byte(in))
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// executeDateTime renders the current time. With no config it returns
+// UTC RFC3339 — byte-identical to the previous hardcoded behaviour, so
+// existing workflows using the datetime tool are unaffected.
+func executeDateTime(node models.WorkflowNode) (any, error) {
+	now := time.Now()
+
+	if off := configVal(node, "dtOffset", ""); off != "" {
+		d, err := time.ParseDuration(off)
+		if err != nil {
+			return nil, fmt.Errorf("datetime: `dtOffset` %q is not a duration (try -24h, 30m): %w", off, err)
+		}
+		now = now.Add(d)
+	}
+
+	loc := time.UTC
+	if zone := configVal(node, "dtZone", ""); zone != "" {
+		l, err := time.LoadLocation(zone)
+		if err != nil {
+			return nil, fmt.Errorf("datetime: unknown timezone %q (want an IANA name like Asia/Kolkata): %w", zone, err)
+		}
+		loc = l
+	}
+	now = now.In(loc)
+
+	switch f := configVal(node, "dtFormat", "rfc3339"); f {
+	case "rfc3339":
+		return now.Format(time.RFC3339), nil
+	case "unix":
+		return strconv.FormatInt(now.Unix(), 10), nil
+	case "date":
+		return now.Format("2006-01-02"), nil
+	case "time":
+		return now.Format("15:04:05"), nil
+	default:
+		// Anything else is treated as a literal Go layout string.
+		return now.Format(f), nil
+	}
 }

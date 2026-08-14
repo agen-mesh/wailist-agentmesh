@@ -119,7 +119,7 @@ func ExecuteTool(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	case "calc":
 		return evalMath(node.URL)
 	case "datetime":
-		return time.Now().UTC().Format(time.RFC3339), nil
+		return executeDateTime(node)
 	case "http":
 		return callHTTP(ctx, node, rc)
 	case "set":

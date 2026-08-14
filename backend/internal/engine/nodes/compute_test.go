@@ -2,7 +2,10 @@ package nodes_test
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/agentmesh/backend/internal/engine"
 	"github.com/agentmesh/backend/internal/engine/nodes"
@@ -175,4 +178,80 @@ func TestCryptoHMACRequiresSecret(t *testing.T) {
 	if _, err := nodes.ExecuteTool(context.Background(), node, rc); err == nil {
 		t.Error("want an error when hmac has no secret, got nil")
 	}
+}
+
+func TestDateTimeDefaultIsUnchangedRFC3339(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	node := models.WorkflowNode{ID: "d1", Type: models.NodeTypeTool, Template: "datetime"}
+	got, err := nodes.ExecuteTool(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, ok := got.(string)
+	if !ok {
+		t.Fatalf("want a string, got %T", got)
+	}
+	if _, err := time.Parse(time.RFC3339, s); err != nil {
+		t.Errorf("default output must stay RFC3339 (existing workflows depend on it): %q", s)
+	}
+	if !strings.HasSuffix(s, "Z") {
+		t.Errorf("default output must stay UTC, got %q", s)
+	}
+}
+
+func TestDateTimeAppliesOffsetZoneAndFormat(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	node := models.WorkflowNode{
+		ID: "d1", Type: models.NodeTypeTool, Template: "datetime",
+		Config: map[string]string{"dtFormat": "date", "dtZone": "Asia/Kolkata", "dtOffset": "-24h"},
+	}
+	got, err := nodes.ExecuteTool(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Now().Add(-24 * time.Hour).In(mustZone(t, "Asia/Kolkata")).Format("2006-01-02")
+	if got != want {
+		t.Errorf("want %q, got %q", want, got)
+	}
+}
+
+func TestDateTimeUnixFormat(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	node := models.WorkflowNode{
+		ID: "d1", Type: models.NodeTypeTool, Template: "datetime",
+		Config: map[string]string{"dtFormat": "unix"},
+	}
+	got, err := nodes.ExecuteTool(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := strconv.ParseInt(got.(string), 10, 64)
+	if err != nil {
+		t.Fatalf("want a unix timestamp, got %v", got)
+	}
+	if delta := time.Since(time.Unix(n, 0)); delta > time.Minute || delta < -time.Minute {
+		t.Errorf("timestamp is not close to now: %v", delta)
+	}
+}
+
+func TestDateTimeRejectsBadConfig(t *testing.T) {
+	for _, cfg := range []map[string]string{
+		{"dtZone": "Mars/Olympus"},
+		{"dtOffset": "tomorrow"},
+	} {
+		rc := engine.NewRunContext("r1", nil)
+		node := models.WorkflowNode{ID: "d1", Type: models.NodeTypeTool, Template: "datetime", Config: cfg}
+		if _, err := nodes.ExecuteTool(context.Background(), node, rc); err == nil {
+			t.Errorf("want an error for config %v, got nil", cfg)
+		}
+	}
+}
+
+func mustZone(t *testing.T, name string) *time.Location {
+	t.Helper()
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		t.Skipf("tzdata unavailable for %s: %v", name, err)
+	}
+	return loc
 }

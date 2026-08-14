@@ -129,6 +129,7 @@ export const TOOL_TEMPLATES = [
   { id: "set", name: "Edit Fields", desc: "Build an object from refs", icon: "≔" },
   { id: "json_extract", name: "JSON Extract", desc: "Pick a value by path", icon: "⌗" },
   { id: "crypto", name: "Crypto", desc: "Hash / HMAC / base64", icon: "⚿" },
+  { id: "datetime", name: "Date & Time", desc: "Now, offset, timezone", icon: "◔" },
 ];
 
 export const TOOL402_TEMPLATES = [
