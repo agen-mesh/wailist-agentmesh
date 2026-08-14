@@ -255,3 +255,40 @@ func mustZone(t *testing.T, name string) *time.Location {
 	}
 	return loc
 }
+
+func TestXMLToJSONConvertsNestedElements(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", `<order id="7"><item>widget</item><item>gizmo</item><total>19.99</total></order>`)
+	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool, Template: "xml"}
+
+	out, err := nodes.ExecuteTool(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("want a map, got %T", out)
+	}
+	if got["@id"] != "7" {
+		t.Errorf("attributes should be prefixed with @: got %#v", got)
+	}
+	items, ok := got["item"].([]any)
+	if !ok || len(items) != 2 {
+		t.Fatalf("repeated elements should collapse to a slice: got %#v", got["item"])
+	}
+	if items[0] != "widget" || items[1] != "gizmo" {
+		t.Errorf("items: got %#v", items)
+	}
+	if got["total"] != "19.99" {
+		t.Errorf("total: got %#v", got["total"])
+	}
+}
+
+func TestXMLToJSONErrorsOnMalformedInput(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", `<order><item>unclosed`)
+	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool, Template: "xml"}
+	if _, err := nodes.ExecuteTool(context.Background(), node, rc); err == nil {
+		t.Error("want an error for malformed XML, got nil")
+	}
+}

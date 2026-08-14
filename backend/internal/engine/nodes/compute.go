@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"hash"
@@ -156,5 +157,72 @@ func executeDateTime(node models.WorkflowNode) (any, error) {
 	default:
 		// Anything else is treated as a literal Go layout string.
 		return now.Format(f), nil
+	}
+}
+
+// executeXMLToJSON converts the upstream output from XML into a JSON-shaped
+// map. Attributes become "@name" keys; repeated child elements collapse into a
+// slice; leaf elements become their trimmed character data.
+func executeXMLToJSON(rc RunContexter) (any, error) {
+	dec := xml.NewDecoder(strings.NewReader(rc.Message()))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, fmt.Errorf("xml: could not parse input: %w", err)
+		}
+		start, ok := tok.(xml.StartElement)
+		if !ok {
+			continue // skip prolog, comments, leading whitespace
+		}
+		val, err := decodeXMLNode(dec, start)
+		if err != nil {
+			return nil, fmt.Errorf("xml: could not parse input: %w", err)
+		}
+		return val, nil
+	}
+}
+
+// decodeXMLNode reads one element's subtree. Shared with the RSS connector —
+// keep it package-level rather than inlining into executeXMLToJSON.
+func decodeXMLNode(d *xml.Decoder, start xml.StartElement) (any, error) {
+	node := map[string]any{}
+	for _, a := range start.Attr {
+		node["@"+a.Name.Local] = a.Value
+	}
+	var text strings.Builder
+
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return nil, err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			child, err := decodeXMLNode(d, t)
+			if err != nil {
+				return nil, err
+			}
+			key := t.Name.Local
+			switch existing := node[key].(type) {
+			case nil:
+				node[key] = child
+			case []any:
+				node[key] = append(existing, child)
+			default:
+				node[key] = []any{existing, child}
+			}
+		case xml.CharData:
+			text.Write(t)
+		case xml.EndElement:
+			trimmed := strings.TrimSpace(text.String())
+			// A leaf with no attributes and no children is just its text.
+			if len(node) == 0 {
+				return trimmed, nil
+			}
+			if trimmed != "" {
+				node["#text"] = trimmed
+			}
+			return node, nil
+		}
 	}
 }
