@@ -131,7 +131,11 @@ export function Inspector({
           <ProviderInspector node={selected} onUpdate={onUpdate} />
         )}
         {selected.type === "tool" && (
-          <ToolInspector node={selected} onUpdate={onUpdate} />
+          <ToolInspector
+            node={selected}
+            workflowId={workflowId}
+            onUpdate={onUpdate}
+          />
         )}
         {selected.type === "tool402" && (
           <Tool402Inspector node={selected} onUpdate={onUpdate} />
@@ -735,14 +739,30 @@ function ProviderInspector({
 }
 
 // ── Tool Inspector ─────────────────────────────────────────────────────────
+// COMPUTE_TOOL_TEMPLATES take their settings entirely from
+// CONNECTOR_CONFIG_FIELDS (via ConnectorConfigSection) — they read Config/
+// Secrets keys, not node.url/node.method, so the generic Method/URL panel
+// below is irrelevant for them and would just confuse the editor.
+const COMPUTE_TOOL_TEMPLATES = new Set([
+  "set",
+  "json_extract",
+  "crypto",
+  "datetime",
+  "xml",
+  "template",
+]);
+
 function ToolInspector({
   node,
+  workflowId,
   onUpdate,
 }: {
   node: WorkflowNode;
+  workflowId: string;
   onUpdate: (n: WorkflowNode) => void;
 }) {
   const tpl = TOOL_TEMPLATES.find((t) => t.id === node.template);
+  const isComputeTool = COMPUTE_TOOL_TEMPLATES.has(node.template ?? "");
   return (
     <>
       <Section label="Tool">
@@ -766,28 +786,35 @@ function ToolInspector({
           </>
         )}
       </Section>
-      <Section label="Config">
-        <Field label="Method">
-          <select
-            style={monoInputStyle}
-            value={node.method ?? "GET"}
-            onChange={(e) => onUpdate({ ...node, method: e.target.value })}
-          >
-            <option>GET</option>
-            <option>POST</option>
-            <option>PUT</option>
-            <option>DELETE</option>
-          </select>
-        </Field>
-        <Field label="URL">
-          <input
-            style={monoInputStyle}
-            value={node.url ?? ""}
-            placeholder="https://api.example.com/v1/"
-            onChange={(e) => onUpdate({ ...node, url: e.target.value })}
-          />
-        </Field>
-      </Section>
+      {!isComputeTool && (
+        <Section label="Config">
+          <Field label="Method">
+            <select
+              style={monoInputStyle}
+              value={node.method ?? "GET"}
+              onChange={(e) => onUpdate({ ...node, method: e.target.value })}
+            >
+              <option>GET</option>
+              <option>POST</option>
+              <option>PUT</option>
+              <option>DELETE</option>
+            </select>
+          </Field>
+          <Field label="URL">
+            <input
+              style={monoInputStyle}
+              value={node.url ?? ""}
+              placeholder="https://api.example.com/v1/"
+              onChange={(e) => onUpdate({ ...node, url: e.target.value })}
+            />
+          </Field>
+        </Section>
+      )}
+      <ConnectorConfigSection
+        node={node}
+        workflowId={workflowId}
+        onUpdate={onUpdate}
+      />
     </>
   );
 }
@@ -2138,6 +2165,87 @@ const CONNECTOR_CONFIG_FIELDS: Record<
         key: "elevenlabsVoiceID",
         label: "Voice ID",
         placeholder: "21m00Tcm4TlvDq8ikWAM (Rachel, default)",
+      },
+    ],
+  },
+  set: {
+    label: "Edit Fields config",
+    fields: [
+      {
+        kind: "config",
+        key: "setFields",
+        label: "Fields (JSON)",
+        placeholder: '{"city":"{{ node.n1.city }}","asked":"{{ input }}"}',
+        hint: "String values may use {{ result }}, {{ input }}, {{ node.<id>.<field> }}",
+      },
+    ],
+  },
+  json_extract: {
+    label: "JSON Extract config",
+    fields: [
+      {
+        kind: "config",
+        key: "jsonPath",
+        label: "Path",
+        placeholder: "data.items.0.name",
+        hint: "Dot path; numeric segments index arrays",
+      },
+    ],
+  },
+  crypto: {
+    label: "Crypto config",
+    fields: [
+      {
+        kind: "config",
+        key: "cryptoAction",
+        label: "Action",
+        placeholder: "sha256",
+        hint: "sha256 · sha512 · sha1 · md5 · hmac-sha256 · base64 · base64decode",
+      },
+      {
+        kind: "secret",
+        key: "cryptoSecret",
+        label: "HMAC secret",
+        hint: "only for hmac-sha256",
+        placeholder: "shared secret",
+      },
+    ],
+  },
+  datetime: {
+    label: "Date & Time config",
+    fields: [
+      {
+        kind: "config",
+        key: "dtFormat",
+        label: "Format",
+        placeholder: "rfc3339",
+        hint: "rfc3339 · unix · date · time · or a Go layout",
+      },
+      {
+        kind: "config",
+        key: "dtOffset",
+        label: "Offset",
+        hint: "optional",
+        placeholder: "-24h",
+      },
+      {
+        kind: "config",
+        key: "dtZone",
+        label: "Timezone",
+        hint: "optional, IANA name",
+        placeholder: "Asia/Kolkata",
+      },
+    ],
+  },
+  template: {
+    label: "Text Template config",
+    fields: [
+      {
+        kind: "config",
+        key: "templateText",
+        label: "Template",
+        placeholder: "Result: {{ result }}",
+        hint: "Supports {{ result }}, {{ input }}, {{ node.<id>.<field> }}",
       },
     ],
   },
