@@ -78,6 +78,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendShopify(ctx, node, rc)
 	case "pipedrive":
 		return sendPipedrive(ctx, node, rc)
+	case "db":
+		return sendPostgres(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

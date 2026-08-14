@@ -2446,6 +2446,37 @@ const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
+  db: {
+    label: "Postgres config",
+    fields: [
+      {
+        kind: "secret",
+        key: "pgConnString",
+        label: "Connection string",
+        placeholder: "postgres://user:pass@host:5432/dbname",
+      },
+      {
+        kind: "config",
+        key: "pgTable",
+        label: "Table",
+        placeholder: "events",
+      },
+      {
+        kind: "config",
+        key: "pgColumn",
+        label: "Output column",
+        placeholder: "payload",
+        hint: "receives the run output",
+      },
+      {
+        kind: "config",
+        key: "pgExtraColumns",
+        label: "Extra columns (JSON)",
+        hint: "optional",
+        placeholder: '{"source":"agentmesh","city":"{{ node.n1.city }}"}',
+      },
+    ],
+  },
 };
 
 // ── Per-connector auth metadata ─────────────────────────────────────────────
