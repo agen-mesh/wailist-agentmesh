@@ -6,10 +6,28 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/jackc/pgx/v5"
 )
+
+// pgConnectTimeout bounds how long sendPostgres waits to establish a
+// connection. Without it, a misconfigured or firewalled host that silently
+// drops SYN packets (rather than refusing the connection) hangs this node —
+// and the whole run, since node execution is sequential per topological
+// level — until the caller cancels it by hand.
+var pgConnectTimeout = 10 * time.Second
+
+// SetPostgresConnectTimeoutForTest overrides pgConnectTimeout. Call only from
+// tests. Pass 0 to reset to the real 10s timeout.
+func SetPostgresConnectTimeoutForTest(d time.Duration) {
+	if d <= 0 {
+		pgConnectTimeout = 10 * time.Second
+	} else {
+		pgConnectTimeout = d
+	}
+}
 
 // pgIdentifier matches a safe unquoted SQL identifier. Table and column names
 // cannot be sent as bind parameters — they are part of the statement text — so
@@ -75,7 +93,9 @@ func sendPostgres(ctx context.Context, node models.WorkflowNode, rc RunContexter
 	stmt := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
 		quotePGIdentifier(table), strings.Join(cols, ", "), strings.Join(placeholders, ", "))
 
-	conn, err := pgx.Connect(ctx, connString)
+	connCtx, cancel := context.WithTimeout(ctx, pgConnectTimeout)
+	defer cancel()
+	conn, err := pgx.Connect(connCtx, connString)
 	if err != nil {
 		return nil, fmt.Errorf("db: could not connect: %w", err)
 	}

@@ -2,8 +2,11 @@ package nodes_test
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/agentmesh/backend/internal/engine"
 	"github.com/agentmesh/backend/internal/engine/nodes"
@@ -54,6 +57,57 @@ func TestPostgresAction_RejectsUnsafeIdentifiers(t *testing.T) {
 		if err == nil && got != "db_skipped_missing_config" {
 			t.Errorf("table %q should be rejected, got %v (err %v)", bad, got, err)
 		}
+	}
+}
+
+// A host that accepts the TCP connection but never speaks the Postgres wire
+// protocol back (a silent black hole, not a refusal) must not hang the node
+// forever — pgConnectTimeout should cut it off.
+func TestPostgresAction_ConnectTimesOutInsteadOfHangingForever(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			// Accept but never respond — deliberately never Close either,
+			// so the client blocks reading the startup response until its
+			// own context deadline fires.
+			_ = conn
+		}
+	}()
+
+	nodes.SetPostgresConnectTimeoutForTest(50 * time.Millisecond)
+	defer nodes.SetPostgresConnectTimeoutForTest(0)
+
+	node := models.WorkflowNode{
+		ID: "db1", Type: models.NodeTypeAction, Template: "db",
+		Secrets: map[string]string{
+			"pgConnString": fmt.Sprintf("postgres://user:pass@%s/db?sslmode=disable", ln.Addr().String()),
+		},
+		Config: map[string]string{"pgTable": "events", "pgColumn": "payload"},
+	}
+	rc := engine.NewRunContext("r1", nil)
+
+	done := make(chan struct{})
+	var gotErr error
+	go func() {
+		_, gotErr = nodes.ExecuteAction(context.Background(), node, rc)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		if gotErr == nil {
+			t.Error("want a connect-timeout error, got nil")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("sendPostgres hung well past pgConnectTimeout — the connect timeout is not being applied")
 	}
 }
 
