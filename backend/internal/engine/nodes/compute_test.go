@@ -119,3 +119,60 @@ func TestJSONExtractErrorsOnNonJSONInput(t *testing.T) {
 		t.Error("want an error for non-JSON input, got nil")
 	}
 }
+
+func TestCryptoActions(t *testing.T) {
+	cases := []struct{ action, in, secret, want string }{
+		// echo -n "hello" | shasum -a 256
+		{"sha256", "hello", "", "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"},
+		// echo -n "hello" | md5
+		{"md5", "hello", "", "5d41402abc4b2a76b9719d911017c592"},
+		// echo -n "hello" | shasum -a 1
+		{"sha1", "hello", "", "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"},
+		// echo -n "hello" | openssl dgst -sha256 -hmac "key"
+		{"hmac-sha256", "hello", "key", "9307b3b915efb5171ff14d8cb55fbcc798c6c0ef1456d66ded1a6aa723a58b7b"},
+		{"base64", "hello", "", "aGVsbG8="},
+		{"base64decode", "aGVsbG8=", "", "hello"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.action, func(t *testing.T) {
+			rc := engine.NewRunContext("r1", nil)
+			rc.Set("n1", tc.in)
+			node := models.WorkflowNode{
+				ID: "c1", Type: models.NodeTypeTool, Template: "crypto",
+				Config:  map[string]string{"cryptoAction": tc.action},
+				Secrets: map[string]string{"cryptoSecret": tc.secret},
+			}
+			got, err := nodes.ExecuteTool(context.Background(), node, rc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Errorf("%s: want %q, got %q", tc.action, tc.want, got)
+			}
+		})
+	}
+}
+
+func TestCryptoRejectsUnknownAction(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", "hello")
+	node := models.WorkflowNode{
+		ID: "c1", Type: models.NodeTypeTool, Template: "crypto",
+		Config: map[string]string{"cryptoAction": "rot13"},
+	}
+	if _, err := nodes.ExecuteTool(context.Background(), node, rc); err == nil {
+		t.Error("want an error for an unsupported action, got nil")
+	}
+}
+
+func TestCryptoHMACRequiresSecret(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", "hello")
+	node := models.WorkflowNode{
+		ID: "c1", Type: models.NodeTypeTool, Template: "crypto",
+		Config: map[string]string{"cryptoAction": "hmac-sha256"},
+	}
+	if _, err := nodes.ExecuteTool(context.Background(), node, rc); err == nil {
+		t.Error("want an error when hmac has no secret, got nil")
+	}
+}

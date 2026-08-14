@@ -126,6 +126,8 @@ func ExecuteTool(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 		return executeSet(node, rc)
 	case "json_extract":
 		return executeJSONExtract(node, rc)
+	case "crypto":
+		return executeCrypto(node, rc)
 	default:
 		return rc.Message(), nil
 	}
