@@ -70,6 +70,10 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendMattermost(ctx, node, rc)
 	case "pagerduty":
 		return sendPagerDuty(ctx, node, rc)
+	case "zendesk":
+		return sendZendesk(ctx, node, rc)
+	case "monday":
+		return sendMonday(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

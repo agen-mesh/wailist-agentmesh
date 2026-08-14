@@ -239,6 +239,8 @@ export const ACTION_TEMPLATES = [
   { id: "twilio", name: "Twilio SMS", desc: "Send an SMS", icon: "tw" },
   { id: "mattermost", name: "Mattermost Message", desc: "Webhook post", icon: "mm" },
   { id: "pagerduty", name: "PagerDuty Alert", desc: "Trigger an incident", icon: "pd" },
+  { id: "zendesk", name: "Zendesk Ticket", desc: "Open a ticket", icon: "zd" },
+  { id: "monday", name: "Monday.com Item", desc: "Create a board item", icon: "mo" },
 ];
 
 export const END_TEMPLATES = [

@@ -2352,6 +2352,46 @@ const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
+  zendesk: {
+    label: "Zendesk config",
+    fields: [
+      {
+        kind: "secret",
+        key: "zendeskAPIToken",
+        label: "API Token",
+        placeholder: "your Zendesk API token",
+      },
+      {
+        kind: "config",
+        key: "zendeskSubdomain",
+        label: "Subdomain",
+        placeholder: "acme (from acme.zendesk.com)",
+      },
+      {
+        kind: "config",
+        key: "zendeskEmail",
+        label: "Agent email",
+        placeholder: "agent@acme.com",
+      },
+    ],
+  },
+  monday: {
+    label: "Monday.com config",
+    fields: [
+      {
+        kind: "secret",
+        key: "mondayAPIKey",
+        label: "API Token",
+        placeholder: "your Monday.com v2 token",
+      },
+      {
+        kind: "config",
+        key: "mondayBoardID",
+        label: "Board ID",
+        placeholder: "123456789",
+      },
+    ],
+  },
 };
 
 // ── Per-connector auth metadata ─────────────────────────────────────────────

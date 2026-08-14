@@ -106,3 +106,85 @@ func sendPagerDuty(ctx context.Context, node models.WorkflowNode, rc RunContexte
 	return postJSON(ctx, pagerdutyAPIBase+"/v2/enqueue", nil, payload,
 		"pagerduty_event_triggered", "PagerDuty")
 }
+
+// zendeskAPIBase is overridden in tests via SetZendeskAPIBaseForTest.
+// Normally "https://{subdomain}.zendesk.com" is built per-node, so the test
+// override replaces the whole scheme+host and sendZendesk skips that
+// construction when it is set. Same shape as mailchimpAPIBase.
+var zendeskAPIBase = ""
+
+// SetZendeskAPIBaseForTest overrides the Zendesk API base URL entirely.
+// Call only from tests. Pass "" to reset to the real per-subdomain host.
+func SetZendeskAPIBaseForTest(base string) { zendeskAPIBase = base }
+
+// sendZendesk opens a support ticket with the run output as the first comment.
+// Zendesk authenticates with Basic auth where the username is
+// "{email}/token" and the password is the API token.
+func sendZendesk(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	token := secretVal(node, "zendeskAPIToken")
+	if token == "" {
+		return "zendesk_skipped_no_api_token", ErrActionSkipped
+	}
+	subdomain := configVal(node, "zendeskSubdomain", "")
+	email := configVal(node, "zendeskEmail", "")
+	if subdomain == "" || email == "" {
+		return "zendesk_skipped_missing_config", ErrActionSkipped
+	}
+	base := zendeskAPIBase
+	if base == "" {
+		base = "https://" + url.PathEscape(subdomain) + ".zendesk.com"
+	}
+	msg := rc.Message()
+	payload := map[string]any{"ticket": map[string]any{
+		"subject": issueTitle(msg),
+		"comment": map[string]any{"body": msg},
+	}}
+	req, err := newJSONRequest(ctx, http.MethodPost, base+"/api/v2/tickets.json", nil, payload)
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(email+"/token", token)
+	return doAndCheck(req, "zendesk_ticket_created", "Zendesk")
+}
+
+// mondayAPIBase is overridden in tests via SetMondayAPIBaseForTest.
+var mondayAPIBase = "https://api.monday.com"
+
+// SetMondayAPIBaseForTest overrides the Monday.com API base URL. Call only
+// from tests. Pass "" to reset to the real API.
+func SetMondayAPIBaseForTest(base string) {
+	if base == "" {
+		mondayAPIBase = "https://api.monday.com"
+	} else {
+		mondayAPIBase = base
+	}
+}
+
+// mondayCreateItem is the GraphQL mutation Monday.com's v2 API takes. Board
+// IDs are ID! and item names String! — passed as variables rather than
+// interpolated, so a message containing quotes cannot break the query.
+const mondayCreateItem = `mutation ($boardId: ID!, $itemName: String!) {
+  create_item(board_id: $boardId, item_name: $itemName) { id }
+}`
+
+// sendMonday creates a Monday.com board item named after the run output.
+func sendMonday(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	apiKey := secretVal(node, "mondayAPIKey")
+	if apiKey == "" {
+		return "monday_skipped_no_api_key", ErrActionSkipped
+	}
+	boardID := configVal(node, "mondayBoardID", "")
+	if boardID == "" {
+		return "monday_skipped_no_board_id", ErrActionSkipped
+	}
+	payload := map[string]any{
+		"query": mondayCreateItem,
+		"variables": map[string]any{
+			"boardId":  boardID,
+			"itemName": rc.Message(),
+		},
+	}
+	// Monday.com expects the bare token, with no "Bearer " prefix.
+	headers := map[string]string{"Authorization": apiKey, "API-Version": "2023-10"}
+	return postJSON(ctx, mondayAPIBase+"/v2", headers, payload, "monday_item_created", "Monday.com")
+}

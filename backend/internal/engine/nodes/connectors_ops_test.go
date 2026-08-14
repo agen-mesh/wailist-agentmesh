@@ -217,3 +217,135 @@ func TestPagerDutyAction_SkipsWithoutRoutingKey(t *testing.T) {
 func jsonDecode(r io.Reader, v any) error {
 	return json.NewDecoder(r).Decode(v)
 }
+
+func TestZendeskAction_CreatesTicket(t *testing.T) {
+	var gotUser, gotPass string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUser, gotPass, _ = r.BasicAuth()
+		_ = jsonDecode(r.Body, &gotBody)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	nodes.SetZendeskAPIBaseForTest(srv.URL)
+	defer nodes.SetZendeskAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "zd1", Type: models.NodeTypeAction, Template: "zendesk",
+		Secrets: map[string]string{"zendeskAPIToken": "zdtok"},
+		Config: map[string]string{
+			"zendeskSubdomain": "acme",
+			"zendeskEmail":     "agent@acme.com",
+		},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"customer cannot log in"`))
+
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "zendesk_ticket_created" {
+		t.Errorf("want 'zendesk_ticket_created', got %v", result)
+	}
+	if gotUser != "agent@acme.com/token" || gotPass != "zdtok" {
+		t.Errorf("want Zendesk's email/token basic auth, got %q/%q", gotUser, gotPass)
+	}
+	ticket, ok := gotBody["ticket"].(map[string]any)
+	if !ok {
+		t.Fatalf("want a ticket envelope, got %#v", gotBody)
+	}
+	comment := ticket["comment"].(map[string]any)
+	if comment["body"] != "customer cannot log in" {
+		t.Errorf("comment body: got %v", comment["body"])
+	}
+	if ticket["subject"] == "" || ticket["subject"] == nil {
+		t.Error("want a non-empty subject derived from the message")
+	}
+}
+
+func TestZendeskAction_SkipsWhenUnconfigured(t *testing.T) {
+	cases := []struct {
+		name string
+		node models.WorkflowNode
+		want string
+	}{
+		{"no token", models.WorkflowNode{Template: "zendesk",
+			Config: map[string]string{"zendeskSubdomain": "acme", "zendeskEmail": "a@b.com"}},
+			"zendesk_skipped_no_api_token"},
+		{"no subdomain", models.WorkflowNode{Template: "zendesk",
+			Secrets: map[string]string{"zendeskAPIToken": "t"},
+			Config:  map[string]string{"zendeskEmail": "a@b.com"}},
+			"zendesk_skipped_missing_config"},
+		{"no email", models.WorkflowNode{Template: "zendesk",
+			Secrets: map[string]string{"zendeskAPIToken": "t"},
+			Config:  map[string]string{"zendeskSubdomain": "acme"}},
+			"zendesk_skipped_missing_config"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.node.Type = models.NodeTypeAction
+			rc := engine.NewRunContext("r1", nil)
+			got, _ := nodes.ExecuteAction(context.Background(), tc.node, rc)
+			if got != tc.want {
+				t.Errorf("want %q, got %v", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestMondayAction_CreatesItem(t *testing.T) {
+	var gotAuth string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		_ = jsonDecode(r.Body, &gotBody)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":{"create_item":{"id":"1"}}}`))
+	}))
+	defer srv.Close()
+	nodes.SetMondayAPIBaseForTest(srv.URL)
+	defer nodes.SetMondayAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "mo1", Type: models.NodeTypeAction, Template: "monday",
+		Secrets: map[string]string{"mondayAPIKey": "mtok"},
+		Config:  map[string]string{"mondayBoardID": "12345"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"follow up with the lead"`))
+
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "monday_item_created" {
+		t.Errorf("want 'monday_item_created', got %v", result)
+	}
+	if gotAuth != "mtok" {
+		t.Errorf("Monday sends the raw token, not a Bearer prefix; got %q", gotAuth)
+	}
+	if _, ok := gotBody["query"].(string); !ok {
+		t.Errorf("want a GraphQL query field, got %#v", gotBody)
+	}
+	vars, ok := gotBody["variables"].(map[string]any)
+	if !ok {
+		t.Fatalf("want GraphQL variables, got %#v", gotBody["variables"])
+	}
+	if vars["boardId"] != "12345" {
+		t.Errorf("boardId: got %v", vars["boardId"])
+	}
+	if vars["itemName"] != "follow up with the lead" {
+		t.Errorf("itemName: got %v", vars["itemName"])
+	}
+}
+
+func TestMondayAction_SkipsWithoutBoardID(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "mo1", Type: models.NodeTypeAction, Template: "monday",
+		Secrets: map[string]string{"mondayAPIKey": "mtok"},
+	}
+	rc := engine.NewRunContext("r1", nil)
+	got, _ := nodes.ExecuteAction(context.Background(), node, rc)
+	if got != "monday_skipped_no_board_id" {
+		t.Errorf("want skip sentinel, got %v", got)
+	}
+}
