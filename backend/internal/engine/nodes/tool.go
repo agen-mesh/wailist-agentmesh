@@ -122,6 +122,8 @@ func ExecuteTool(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 		return time.Now().UTC().Format(time.RFC3339), nil
 	case "http":
 		return callHTTP(ctx, node, rc)
+	case "set":
+		return executeSet(node, rc)
 	default:
 		return rc.Message(), nil
 	}

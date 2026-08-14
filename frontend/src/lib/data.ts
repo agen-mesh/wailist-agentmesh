@@ -126,6 +126,7 @@ export const TOOL_TEMPLATES = [
     desc: "Recent turns",
     icon: "◐",
   },
+  { id: "set", name: "Edit Fields", desc: "Build an object from refs", icon: "≔" },
 ];
 
 export const TOOL402_TEMPLATES = [
