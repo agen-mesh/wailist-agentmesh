@@ -26,17 +26,28 @@ func resolveTemplate(s string, rc RunContexter) string {
 	if s == "" || !strings.Contains(s, "{{") {
 		return s
 	}
-	return templateRef.ReplaceAllStringFunc(s, func(match string) string {
-		m := templateRef.FindStringSubmatch(match)
-		if len(m) != 2 {
-			return match
+	// FindAllStringSubmatchIndex captures both the full match and the ref
+	// group's byte offsets in one pass, so each reference is matched exactly
+	// once — ReplaceAllStringFunc's callback would otherwise re-run the same
+	// regex against text the outer call already matched.
+	matches := templateRef.FindAllStringSubmatchIndex(s, -1)
+	if matches == nil {
+		return s
+	}
+	var b strings.Builder
+	last := 0
+	for _, m := range matches {
+		start, end, refStart, refEnd := m[0], m[1], m[2], m[3]
+		b.WriteString(s[last:start])
+		if val, ok := lookupRef(s[refStart:refEnd], rc); ok {
+			b.WriteString(val)
+		} else {
+			b.WriteString(s[start:end])
 		}
-		val, ok := lookupRef(m[1], rc)
-		if !ok {
-			return match
-		}
-		return val
-	})
+		last = end
+	}
+	b.WriteString(s[last:])
+	return b.String()
 }
 
 func lookupRef(ref string, rc RunContexter) (string, bool) {
