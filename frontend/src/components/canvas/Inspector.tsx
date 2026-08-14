@@ -2477,6 +2477,24 @@ const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
+  rss: {
+    label: "RSS config",
+    fields: [
+      {
+        kind: "config",
+        key: "rssURL",
+        label: "Feed URL",
+        placeholder: "https://example.com/feed.xml",
+      },
+      {
+        kind: "config",
+        key: "rssLimit",
+        label: "Max items",
+        hint: "optional, default 10",
+        placeholder: "10",
+      },
+    ],
+  },
 };
 
 // ── Per-connector auth metadata ─────────────────────────────────────────────

@@ -80,6 +80,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendPipedrive(ctx, node, rc)
 	case "db":
 		return sendPostgres(ctx, node, rc)
+	case "rss":
+		return fetchRSS(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

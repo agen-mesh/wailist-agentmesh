@@ -243,6 +243,7 @@ export const ACTION_TEMPLATES = [
   { id: "monday", name: "Monday.com Item", desc: "Create a board item", icon: "mo" },
   { id: "shopify", name: "Shopify Customer", desc: "Create a customer", icon: "sp" },
   { id: "pipedrive", name: "Pipedrive Note", desc: "Log a CRM note", icon: "pi" },
+  { id: "rss", name: "RSS Feed", desc: "Read a feed (no key)", icon: "rs" },
 ];
 
 export const END_TEMPLATES = [
