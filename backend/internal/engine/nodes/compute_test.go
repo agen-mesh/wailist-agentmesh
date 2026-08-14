@@ -292,3 +292,27 @@ func TestXMLToJSONErrorsOnMalformedInput(t *testing.T) {
 		t.Error("want an error for malformed XML, got nil")
 	}
 }
+
+func TestTemplateNodeComposesText(t *testing.T) {
+	rc := engine.NewRunContext("r1", []byte(`"the question"`))
+	rc.Set("n1", map[string]any{"city": "Kolkata"})
+	node := models.WorkflowNode{
+		ID: "t1", Type: models.NodeTypeTool, Template: "template",
+		Config: map[string]string{"templateText": "Asked {{ input }} about {{ node.n1.city }}."},
+	}
+	got, err := nodes.ExecuteTool(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "Asked the question about Kolkata." {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestTemplateNodeErrorsWhenUnconfigured(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	node := models.WorkflowNode{ID: "t1", Type: models.NodeTypeTool, Template: "template"}
+	if _, err := nodes.ExecuteTool(context.Background(), node, rc); err == nil {
+		t.Error("want an error when templateText is unset, got nil")
+	}
+}

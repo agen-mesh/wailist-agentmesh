@@ -226,3 +226,12 @@ func decodeXMLNode(d *xml.Decoder, start xml.StartElement) (any, error) {
 		}
 	}
 }
+
+// executeTemplate renders free text with {{ }} references expanded.
+func executeTemplate(node models.WorkflowNode, rc RunContexter) (any, error) {
+	tpl := configVal(node, "templateText", "")
+	if tpl == "" {
+		return nil, errors.New("template: no `templateText` configured")
+	}
+	return resolveTemplate(tpl, rc), nil
+}

@@ -131,6 +131,7 @@ export const TOOL_TEMPLATES = [
   { id: "crypto", name: "Crypto", desc: "Hash / HMAC / base64", icon: "⚿" },
   { id: "datetime", name: "Date & Time", desc: "Now, offset, timezone", icon: "◔" },
   { id: "xml", name: "XML → JSON", desc: "Parse XML payloads", icon: "⋔" },
+  { id: "template", name: "Text Template", desc: "Compose with {{ refs }}", icon: "¶" },
 ];
 
 export const TOOL402_TEMPLATES = [
