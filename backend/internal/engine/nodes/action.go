@@ -82,6 +82,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendPostgres(ctx, node, rc)
 	case "rss":
 		return fetchRSS(ctx, node, rc)
+	case "graphql":
+		return sendGraphQL(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

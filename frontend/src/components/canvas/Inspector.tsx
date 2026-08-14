@@ -2534,6 +2534,37 @@ const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
+  graphql: {
+    label: "GraphQL config",
+    fields: [
+      {
+        kind: "config",
+        key: "graphqlEndpoint",
+        label: "Endpoint",
+        placeholder: "https://api.github.com/graphql",
+      },
+      {
+        kind: "config",
+        key: "graphqlQuery",
+        label: "Query",
+        placeholder: "query { viewer { login } }",
+      },
+      {
+        kind: "config",
+        key: "graphqlVariables",
+        label: "Variables (JSON)",
+        hint: "optional",
+        placeholder: '{"first":10,"search":"{{ result }}"}',
+      },
+      {
+        kind: "secret",
+        key: "graphqlAuthHeader",
+        label: "Authorization header",
+        hint: "sent verbatim — include Bearer if the API wants it",
+        placeholder: "Bearer ghp_xxxxxxxx",
+      },
+    ],
+  },
 };
 
 // ── Per-connector auth metadata ─────────────────────────────────────────────

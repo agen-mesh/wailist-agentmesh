@@ -246,6 +246,7 @@ export const ACTION_TEMPLATES = [
   { id: "shopify", name: "Shopify Customer", desc: "Create a customer", icon: "sp" },
   { id: "pipedrive", name: "Pipedrive Note", desc: "Log a CRM note", icon: "pi" },
   { id: "rss", name: "RSS Feed", desc: "Read a feed (no key)", icon: "rs" },
+  { id: "graphql", name: "GraphQL Query", desc: "Any GraphQL endpoint", icon: "gq" },
 ];
 
 export const END_TEMPLATES = [
