@@ -237,6 +237,8 @@ export const ACTION_TEMPLATES = [
   },
   { id: "stripe", name: "Stripe Customer", desc: "Create a customer", icon: "st" },
   { id: "twilio", name: "Twilio SMS", desc: "Send an SMS", icon: "tw" },
+  { id: "mattermost", name: "Mattermost Message", desc: "Webhook post", icon: "mm" },
+  { id: "pagerduty", name: "PagerDuty Alert", desc: "Trigger an incident", icon: "pd" },
 ];
 
 export const END_TEMPLATES = [

@@ -66,6 +66,10 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendStripe(ctx, node, rc)
 	case "twilio":
 		return sendTwilio(ctx, node, rc)
+	case "mattermost":
+		return sendMattermost(ctx, node, rc)
+	case "pagerduty":
+		return sendPagerDuty(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

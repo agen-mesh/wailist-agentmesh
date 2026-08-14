@@ -2302,6 +2302,56 @@ const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
+  mattermost: {
+    label: "Mattermost config",
+    fields: [
+      {
+        kind: "secret",
+        key: "mattermostWebhookURL",
+        label: "Incoming Webhook URL",
+        placeholder: "https://mattermost.example.com/hooks/xxx",
+      },
+      {
+        kind: "config",
+        key: "mattermostChannel",
+        label: "Channel",
+        hint: "optional",
+        placeholder: "town-square",
+      },
+      {
+        kind: "config",
+        key: "mattermostUsername",
+        label: "Post as",
+        hint: "optional",
+        placeholder: "AgentMesh",
+      },
+    ],
+  },
+  pagerduty: {
+    label: "PagerDuty config",
+    fields: [
+      {
+        kind: "secret",
+        key: "pagerdutyRoutingKey",
+        label: "Integration Routing Key",
+        placeholder: "Events API v2 routing key",
+      },
+      {
+        kind: "config",
+        key: "pagerdutySeverity",
+        label: "Severity",
+        placeholder: "error",
+        hint: "critical · error · warning · info",
+      },
+      {
+        kind: "config",
+        key: "pagerdutySource",
+        label: "Source",
+        hint: "optional",
+        placeholder: "agentmesh",
+      },
+    ],
+  },
 };
 
 // ── Per-connector auth metadata ─────────────────────────────────────────────

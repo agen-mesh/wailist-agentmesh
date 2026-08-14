@@ -2,6 +2,7 @@ package nodes_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -92,4 +93,127 @@ func TestTwilioAction_SkipsWhenUnconfigured(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMattermostAction_PostsToWebhook(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = jsonDecode(r.Body, &gotBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{
+		ID: "mm1", Type: models.NodeTypeAction, Template: "mattermost",
+		Secrets: map[string]string{"mattermostWebhookURL": srv.URL},
+		Config:  map[string]string{"mattermostChannel": "town-square"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"build passed"`))
+
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "mattermost_sent" {
+		t.Errorf("want 'mattermost_sent', got %v", result)
+	}
+	if gotBody["text"] != "build passed" {
+		t.Errorf("text: got %v", gotBody["text"])
+	}
+	if gotBody["channel"] != "town-square" {
+		t.Errorf("channel: got %v", gotBody["channel"])
+	}
+}
+
+func TestMattermostAction_SkipsWithoutWebhookURL(t *testing.T) {
+	node := models.WorkflowNode{ID: "mm1", Type: models.NodeTypeAction, Template: "mattermost"}
+	rc := engine.NewRunContext("r1", nil)
+	got, _ := nodes.ExecuteAction(context.Background(), node, rc)
+	if got != "mattermost_skipped_no_webhook_url" {
+		t.Errorf("want skip sentinel, got %v", got)
+	}
+}
+
+func TestPagerDutyAction_TriggersIncident(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = jsonDecode(r.Body, &gotBody)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+	nodes.SetPagerDutyAPIBaseForTest(srv.URL)
+	defer nodes.SetPagerDutyAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "pd1", Type: models.NodeTypeAction, Template: "pagerduty",
+		Secrets: map[string]string{"pagerdutyRoutingKey": "routing_xxx"},
+		Config:  map[string]string{"pagerdutySeverity": "warning"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"disk usage above 90%"`))
+
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "pagerduty_event_triggered" {
+		t.Errorf("want 'pagerduty_event_triggered', got %v", result)
+	}
+	if gotBody["routing_key"] != "routing_xxx" {
+		t.Errorf("routing_key: got %v", gotBody["routing_key"])
+	}
+	if gotBody["event_action"] != "trigger" {
+		t.Errorf("event_action: got %v", gotBody["event_action"])
+	}
+	payload, ok := gotBody["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("want a payload object, got %#v", gotBody["payload"])
+	}
+	if payload["summary"] != "disk usage above 90%" {
+		t.Errorf("summary: got %v", payload["summary"])
+	}
+	if payload["severity"] != "warning" {
+		t.Errorf("severity: got %v", payload["severity"])
+	}
+	if payload["source"] != "agentmesh" {
+		t.Errorf("source: got %v", payload["source"])
+	}
+}
+
+func TestPagerDutyAction_DefaultsSeverityToError(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = jsonDecode(r.Body, &gotBody)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+	nodes.SetPagerDutyAPIBaseForTest(srv.URL)
+	defer nodes.SetPagerDutyAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "pd1", Type: models.NodeTypeAction, Template: "pagerduty",
+		Secrets: map[string]string{"pagerdutyRoutingKey": "routing_xxx"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"boom"`))
+	if _, err := nodes.ExecuteAction(context.Background(), node, rc); err != nil {
+		t.Fatal(err)
+	}
+	payload := gotBody["payload"].(map[string]any)
+	if payload["severity"] != "error" {
+		t.Errorf("want default severity 'error', got %v", payload["severity"])
+	}
+}
+
+func TestPagerDutyAction_SkipsWithoutRoutingKey(t *testing.T) {
+	node := models.WorkflowNode{ID: "pd1", Type: models.NodeTypeAction, Template: "pagerduty"}
+	rc := engine.NewRunContext("r1", nil)
+	got, _ := nodes.ExecuteAction(context.Background(), node, rc)
+	if got != "pagerduty_skipped_no_routing_key" {
+		t.Errorf("want skip sentinel, got %v", got)
+	}
+}
+
+// jsonDecode is a tiny helper so these tests read the same way as the
+// existing connector tests without repeating the decoder boilerplate.
+func jsonDecode(r io.Reader, v any) error {
+	return json.NewDecoder(r).Decode(v)
 }
