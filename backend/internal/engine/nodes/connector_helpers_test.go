@@ -94,3 +94,45 @@ func TestReadBoundedForTest_ErrorsOverLimit(t *testing.T) {
 		t.Fatal("want error when reader exceeds limit")
 	}
 }
+
+func TestGetAndDecodeReturnsBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer tok" {
+			t.Errorf("want auth header forwarded, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"items":[{"id":1}]}`))
+	}))
+	defer srv.Close()
+
+	got, err := nodes.GetAndDecodeForTest(context.Background(), srv.URL,
+		map[string]string{"Authorization": "Bearer tok"}, "Test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("want a decoded map, got %T", got)
+	}
+	if _, ok := m["items"]; !ok {
+		t.Errorf("want the decoded body, got %#v", m)
+	}
+}
+
+func TestGetAndDecodeSurfacesHTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"error":"nope"}`))
+	}))
+	defer srv.Close()
+
+	if _, err := nodes.GetAndDecodeForTest(context.Background(), srv.URL, nil, "Test"); err == nil {
+		t.Error("want an error for a 403, got nil")
+	}
+}
+
+func TestGetAndDecodeRejectsSSRFTarget(t *testing.T) {
+	if _, err := nodes.GetAndDecodeForTest(context.Background(), "http://169.254.169.254/latest/meta-data/", nil, "Test"); err == nil {
+		t.Error("want the SSRF guard to reject link-local metadata, got nil")
+	}
+}

@@ -195,3 +195,61 @@ func IssueTitleForTest(message string) string {
 func ReadBoundedForTest(r io.Reader, limit int) ([]byte, error) {
 	return readBounded(r, limit)
 }
+
+// doAndDecode runs req through the SSRF guard, then decodes a JSON response
+// body instead of discarding it. This is the read-capable counterpart to
+// doAndCheck — use it for connectors that fetch rather than post.
+func doAndDecode(req *http.Request, serviceName string) (any, error) {
+	resp, err := doValidatedRequest(req, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("%s API %d: %s", serviceName, resp.StatusCode, readErrorBody(resp))
+	}
+	var out any
+	if err := json.NewDecoder(io.LimitReader(resp.Body, httpResponseLimit)).Decode(&out); err != nil {
+		return nil, fmt.Errorf("%s: response was not valid JSON: %w", serviceName, err)
+	}
+	return out, nil
+}
+
+// getAndDecode GETs target and returns the decoded JSON body.
+func getAndDecode(ctx context.Context, target string, extraHeaders map[string]string, serviceName string) (any, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", serviceName, err)
+	}
+	req.Header.Set("Accept", "application/json")
+	for k, v := range extraHeaders {
+		req.Header.Set(k, v)
+	}
+	return doAndDecode(req, serviceName)
+}
+
+// getRaw GETs target and returns the raw body, bounded by httpResponseLimit.
+// Used by connectors whose payload is not JSON (RSS/Atom feeds).
+func getRaw(ctx context.Context, target string, extraHeaders map[string]string, serviceName string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", serviceName, err)
+	}
+	for k, v := range extraHeaders {
+		req.Header.Set(k, v)
+	}
+	resp, err := doValidatedRequest(req, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("%s API %d: %s", serviceName, resp.StatusCode, readErrorBody(resp))
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
+}
+
+// GetAndDecodeForTest exposes getAndDecode to the external nodes_test package.
+func GetAndDecodeForTest(ctx context.Context, target string, h map[string]string, svc string) (any, error) {
+	return getAndDecode(ctx, target, h, svc)
+}
