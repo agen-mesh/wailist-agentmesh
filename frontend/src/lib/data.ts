@@ -241,6 +241,8 @@ export const ACTION_TEMPLATES = [
   { id: "pagerduty", name: "PagerDuty Alert", desc: "Trigger an incident", icon: "pd" },
   { id: "zendesk", name: "Zendesk Ticket", desc: "Open a ticket", icon: "zd" },
   { id: "monday", name: "Monday.com Item", desc: "Create a board item", icon: "mo" },
+  { id: "shopify", name: "Shopify Customer", desc: "Create a customer", icon: "sp" },
+  { id: "pipedrive", name: "Pipedrive Note", desc: "Log a CRM note", icon: "pi" },
 ];
 
 export const END_TEMPLATES = [

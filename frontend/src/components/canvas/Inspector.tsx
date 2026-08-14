@@ -2392,6 +2392,60 @@ const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
+  shopify: {
+    label: "Shopify config",
+    fields: [
+      {
+        kind: "secret",
+        key: "shopifyAccessToken",
+        label: "Admin API Access Token",
+        placeholder: "shpat_xxxxxxxxxxxx",
+      },
+      {
+        kind: "config",
+        key: "shopifyStore",
+        label: "Store handle",
+        placeholder: "acme-store (from acme-store.myshopify.com)",
+      },
+      {
+        kind: "config",
+        key: "shopifyEmail",
+        label: "Customer email",
+        placeholder: "buyer@example.com",
+      },
+    ],
+  },
+  pipedrive: {
+    label: "Pipedrive config",
+    fields: [
+      {
+        kind: "secret",
+        key: "pipedriveAPIToken",
+        label: "API Token",
+        placeholder: "your Pipedrive API token",
+      },
+      {
+        kind: "config",
+        key: "pipedriveCompanyDomain",
+        label: "Company domain",
+        placeholder: "acme (from acme.pipedrive.com)",
+      },
+      {
+        kind: "config",
+        key: "pipedriveDealID",
+        label: "Deal ID",
+        hint: "optional",
+        placeholder: "attach the note to a deal",
+      },
+      {
+        kind: "config",
+        key: "pipedrivePersonID",
+        label: "Person ID",
+        hint: "optional",
+        placeholder: "attach the note to a person",
+      },
+    ],
+  },
 };
 
 // ── Per-connector auth metadata ─────────────────────────────────────────────

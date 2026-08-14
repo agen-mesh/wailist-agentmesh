@@ -49,3 +49,74 @@ func sendStripe(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	return doAndCheck(req, "stripe_customer_created", "Stripe")
 }
+
+// shopifyAPIBase is overridden in tests via SetShopifyAPIBaseForTest.
+// Normally "https://{store}.myshopify.com" is built per-node, so the test
+// override replaces the whole scheme+host.
+var shopifyAPIBase = ""
+
+// SetShopifyAPIBaseForTest overrides the Shopify API base URL entirely.
+// Call only from tests. Pass "" to reset to the real per-store host.
+func SetShopifyAPIBaseForTest(base string) { shopifyAPIBase = base }
+
+// shopifyAPIVersion pins the Admin API version. Shopify dates its API and
+// removes versions after ~12 months — bumping this is a deliberate, tested
+// change, not something to leave floating.
+const shopifyAPIVersion = "2024-10"
+
+// sendShopify creates a Shopify customer with the run output as the note.
+func sendShopify(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	token := secretVal(node, "shopifyAccessToken")
+	if token == "" {
+		return "shopify_skipped_no_access_token", ErrActionSkipped
+	}
+	store := configVal(node, "shopifyStore", "")
+	email := resolveTemplate(configVal(node, "shopifyEmail", ""), rc)
+	if store == "" || email == "" {
+		return "shopify_skipped_missing_config", ErrActionSkipped
+	}
+	base := shopifyAPIBase
+	if base == "" {
+		base = "https://" + url.PathEscape(store) + ".myshopify.com"
+	}
+	payload := map[string]any{"customer": map[string]any{
+		"email": email,
+		"note":  rc.Message(),
+	}}
+	headers := map[string]string{"X-Shopify-Access-Token": token}
+	return postJSON(ctx, base+"/admin/api/"+shopifyAPIVersion+"/customers.json",
+		headers, payload, "shopify_customer_created", "Shopify")
+}
+
+// pipedriveAPIBase is overridden in tests via SetPipedriveAPIBaseForTest.
+var pipedriveAPIBase = ""
+
+// SetPipedriveAPIBaseForTest overrides the Pipedrive API base URL entirely.
+// Call only from tests. Pass "" to reset to the real per-company host.
+func SetPipedriveAPIBaseForTest(base string) { pipedriveAPIBase = base }
+
+// sendPipedrive logs a CRM note with the run output. Pipedrive takes its API
+// token as a query parameter rather than a header.
+func sendPipedrive(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	token := secretVal(node, "pipedriveAPIToken")
+	if token == "" {
+		return "pipedrive_skipped_no_api_token", ErrActionSkipped
+	}
+	base := pipedriveAPIBase
+	if base == "" {
+		domain := configVal(node, "pipedriveCompanyDomain", "")
+		if domain == "" {
+			return "pipedrive_skipped_missing_config", ErrActionSkipped
+		}
+		base = "https://" + url.PathEscape(domain) + ".pipedrive.com"
+	}
+	payload := map[string]any{"content": rc.Message()}
+	if dealID := configVal(node, "pipedriveDealID", ""); dealID != "" {
+		payload["deal_id"] = dealID
+	}
+	if personID := configVal(node, "pipedrivePersonID", ""); personID != "" {
+		payload["person_id"] = personID
+	}
+	target := base + "/api/v1/notes?api_token=" + url.QueryEscape(token)
+	return postJSON(ctx, target, nil, payload, "pipedrive_note_created", "Pipedrive")
+}

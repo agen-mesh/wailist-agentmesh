@@ -74,6 +74,10 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendZendesk(ctx, node, rc)
 	case "monday":
 		return sendMonday(ctx, node, rc)
+	case "shopify":
+		return sendShopify(ctx, node, rc)
+	case "pipedrive":
+		return sendPipedrive(ctx, node, rc)
 	default:
 		return "logged", nil
 	}
