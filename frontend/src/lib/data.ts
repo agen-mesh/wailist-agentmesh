@@ -236,6 +236,7 @@ export const ACTION_TEMPLATES = [
     icon: "11",
   },
   { id: "stripe", name: "Stripe Customer", desc: "Create a customer", icon: "st" },
+  { id: "twilio", name: "Twilio SMS", desc: "Send an SMS", icon: "tw" },
 ];
 
 export const END_TEMPLATES = [

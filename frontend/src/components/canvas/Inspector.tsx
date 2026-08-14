@@ -2273,6 +2273,35 @@ const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
+  twilio: {
+    label: "Twilio config",
+    fields: [
+      {
+        kind: "secret",
+        key: "twilioAuthToken",
+        label: "Auth Token",
+        placeholder: "your Twilio auth token",
+      },
+      {
+        kind: "config",
+        key: "twilioAccountSID",
+        label: "Account SID",
+        placeholder: "ACxxxxxxxxxxxxxxxx",
+      },
+      {
+        kind: "config",
+        key: "twilioFrom",
+        label: "From number",
+        placeholder: "+15550001111",
+      },
+      {
+        kind: "config",
+        key: "twilioTo",
+        label: "To number",
+        placeholder: "+15550002222",
+      },
+    ],
+  },
 };
 
 // ── Per-connector auth metadata ─────────────────────────────────────────────

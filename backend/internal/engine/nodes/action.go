@@ -64,6 +64,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendElevenLabs(ctx, node, rc)
 	case "stripe":
 		return sendStripe(ctx, node, rc)
+	case "twilio":
+		return sendTwilio(ctx, node, rc)
 	default:
 		return "logged", nil
 	}
