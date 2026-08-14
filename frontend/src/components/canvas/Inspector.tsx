@@ -2249,6 +2249,30 @@ const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
+  stripe: {
+    label: "Stripe config",
+    fields: [
+      {
+        kind: "secret",
+        key: "stripeAPIKey",
+        label: "Secret Key",
+        placeholder: "sk_live_xxxxxxxxxxxx",
+      },
+      {
+        kind: "config",
+        key: "stripeEmail",
+        label: "Customer email",
+        placeholder: "buyer@example.com",
+      },
+      {
+        kind: "config",
+        key: "stripeName",
+        label: "Customer name",
+        hint: "optional",
+        placeholder: "leave blank to omit",
+      },
+    ],
+  },
 };
 
 // ── Per-connector auth metadata ─────────────────────────────────────────────

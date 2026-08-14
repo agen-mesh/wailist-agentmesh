@@ -62,6 +62,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendWooCommerce(ctx, node, rc)
 	case "elevenlabs":
 		return sendElevenLabs(ctx, node, rc)
+	case "stripe":
+		return sendStripe(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

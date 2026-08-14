@@ -235,6 +235,7 @@ export const ACTION_TEMPLATES = [
     desc: "Text to speech",
     icon: "11",
   },
+  { id: "stripe", name: "Stripe Customer", desc: "Create a customer", icon: "st" },
 ];
 
 export const END_TEMPLATES = [
