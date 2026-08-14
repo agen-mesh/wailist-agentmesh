@@ -176,6 +176,41 @@ func TestPipedriveAction_CreatesNote(t *testing.T) {
 	}
 }
 
+// dealID/personID must resolve {{ }} references — a deal ID commonly comes
+// from an upstream CRM lookup node rather than being hardcoded.
+func TestPipedriveAction_ResolvesTemplatesInDealAndPersonID(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	nodes.SetPipedriveAPIBaseForTest(srv.URL)
+	defer nodes.SetPipedriveAPIBaseForTest("")
+
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("lookup", map[string]any{"dealId": "77", "personId": "42"})
+
+	node := models.WorkflowNode{
+		ID: "pi1", Type: models.NodeTypeAction, Template: "pipedrive",
+		Secrets: map[string]string{"pipedriveAPIToken": "pdtok"},
+		Config: map[string]string{
+			"pipedriveCompanyDomain": "acme",
+			"pipedriveDealID":        "{{ node.lookup.dealId }}",
+			"pipedrivePersonID":      "{{ node.lookup.personId }}",
+		},
+	}
+	if _, err := nodes.ExecuteAction(context.Background(), node, rc); err != nil {
+		t.Fatal(err)
+	}
+	if gotBody["deal_id"] != "77" {
+		t.Errorf("deal_id should resolve the template, got %v", gotBody["deal_id"])
+	}
+	if gotBody["person_id"] != "42" {
+		t.Errorf("person_id should resolve the template, got %v", gotBody["person_id"])
+	}
+}
+
 func TestPipedriveAction_SkipsWithoutToken(t *testing.T) {
 	node := models.WorkflowNode{Type: models.NodeTypeAction, Template: "pipedrive"}
 	rc := engine.NewRunContext("r1", nil)

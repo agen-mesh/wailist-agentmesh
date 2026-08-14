@@ -70,7 +70,7 @@ func sendShopify(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	if token == "" {
 		return "shopify_skipped_no_access_token", ErrActionSkipped
 	}
-	store := configVal(node, "shopifyStore", "")
+	store := resolveTemplate(configVal(node, "shopifyStore", ""), rc)
 	email := resolveTemplate(configVal(node, "shopifyEmail", ""), rc)
 	if store == "" || email == "" {
 		return "shopify_skipped_missing_config", ErrActionSkipped
@@ -111,10 +111,10 @@ func sendPipedrive(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		base = "https://" + url.PathEscape(domain) + ".pipedrive.com"
 	}
 	payload := map[string]any{"content": rc.Message()}
-	if dealID := configVal(node, "pipedriveDealID", ""); dealID != "" {
+	if dealID := resolveTemplate(configVal(node, "pipedriveDealID", ""), rc); dealID != "" {
 		payload["deal_id"] = dealID
 	}
-	if personID := configVal(node, "pipedrivePersonID", ""); personID != "" {
+	if personID := resolveTemplate(configVal(node, "pipedrivePersonID", ""), rc); personID != "" {
 		payload["person_id"] = personID
 	}
 	target := base + "/api/v1/notes?api_token=" + url.QueryEscape(token)

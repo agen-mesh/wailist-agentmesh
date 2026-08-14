@@ -65,10 +65,10 @@ func sendMattermost(ctx context.Context, node models.WorkflowNode, rc RunContext
 		return "mattermost_skipped_no_webhook_url", ErrActionSkipped
 	}
 	payload := map[string]any{"text": rc.Message()}
-	if ch := configVal(node, "mattermostChannel", ""); ch != "" {
+	if ch := resolveTemplate(configVal(node, "mattermostChannel", ""), rc); ch != "" {
 		payload["channel"] = ch
 	}
-	if user := configVal(node, "mattermostUsername", ""); user != "" {
+	if user := resolveTemplate(configVal(node, "mattermostUsername", ""), rc); user != "" {
 		payload["username"] = user
 	}
 	return postJSON(ctx, hookURL, nil, payload, "mattermost_sent", "Mattermost")
@@ -99,8 +99,8 @@ func sendPagerDuty(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		"event_action": "trigger",
 		"payload": map[string]any{
 			"summary":  rc.Message(),
-			"severity": configVal(node, "pagerdutySeverity", "error"),
-			"source":   configVal(node, "pagerdutySource", "agentmesh"),
+			"severity": resolveTemplate(configVal(node, "pagerdutySeverity", "error"), rc),
+			"source":   resolveTemplate(configVal(node, "pagerdutySource", "agentmesh"), rc),
 		},
 	}
 	return postJSON(ctx, pagerdutyAPIBase+"/v2/enqueue", nil, payload,
@@ -125,8 +125,8 @@ func sendZendesk(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	if token == "" {
 		return "zendesk_skipped_no_api_token", ErrActionSkipped
 	}
-	subdomain := configVal(node, "zendeskSubdomain", "")
-	email := configVal(node, "zendeskEmail", "")
+	subdomain := resolveTemplate(configVal(node, "zendeskSubdomain", ""), rc)
+	email := resolveTemplate(configVal(node, "zendeskEmail", ""), rc)
 	if subdomain == "" || email == "" {
 		return "zendesk_skipped_missing_config", ErrActionSkipped
 	}
@@ -173,7 +173,7 @@ func sendMonday(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	if apiKey == "" {
 		return "monday_skipped_no_api_key", ErrActionSkipped
 	}
-	boardID := configVal(node, "mondayBoardID", "")
+	boardID := resolveTemplate(configVal(node, "mondayBoardID", ""), rc)
 	if boardID == "" {
 		return "monday_skipped_no_board_id", ErrActionSkipped
 	}
