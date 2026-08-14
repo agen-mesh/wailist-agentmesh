@@ -305,8 +305,12 @@ export function BazaarPage() {
         supported: false,
       });
       // A reset that happened while this request was in flight bumped the
-      // generation counter — this response's total no longer describes the
-      // current query, so skip it. items below has its own independent guard.
+      // generation counter — this response no longer describes the current
+      // query, so skip it entirely. Gating setItems on this too (not just
+      // total/noMore) matters: right after a reset, items is [] and offset
+      // was captured as 0, so the offset-based guard below is trivially true
+      // and would otherwise let a stale first page slip into the new query's
+      // state instead of being rejected.
       if (requestGeneration.current === myGeneration) {
         setTotal(page.total);
         // A short page (fewer items than asked for) means there is nothing
@@ -315,10 +319,10 @@ export function BazaarPage() {
         // cases (e.g. a concurrent catalog refresh), but a short page from
         // the backend is authoritative on its own.
         if (page.items.length < PAGE_SIZE) setNoMore(true);
+        // Guard against a concurrent reset landing between the request and
+        // its response, which would otherwise append a stale page.
+        setItems((cur) => (cur.length === offset ? [...cur, ...page.items] : cur));
       }
-      // Guard against a concurrent reset landing between the request and its
-      // response, which would otherwise append a stale page.
-      setItems((cur) => (cur.length === offset ? [...cur, ...page.items] : cur));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "could not load the catalog");
     } finally {

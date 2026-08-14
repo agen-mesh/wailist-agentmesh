@@ -44,18 +44,18 @@ export function ProviderGroupCard({
         >
           ▸
         </span>
-        <div style={{ minWidth: 0, flex: 1 }}>
+        <span style={{ minWidth: 0, flex: 1, display: "block" }}>
           <span className="bz-row__name">{label}</span>
-        </div>
-        <div className="bz-row__meta">
+        </span>
+        <span className="bz-row__meta">
           <span className="bz-row__stat">
             {resources.length} endpoint{resources.length === 1 ? "" : "s"}
           </span>
           <span className="bz-row__stat">from ${formatPrice(cheapest)}</span>
-        </div>
+        </span>
       </button>
 
-      <div className="bz-group-body" data-open={expanded}>
+      <div className="bz-group-body" data-open={expanded} inert={!expanded}>
         <div className="bz-group-body__inner">
           {resources.map((r) => (
             <EndpointRow key={r.id} resource={r} onAdd={onAdd} indent />

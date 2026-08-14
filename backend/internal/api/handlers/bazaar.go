@@ -22,6 +22,12 @@ const defaultBazaarBaseURL = "https://facilitator.goplausible.xyz"
 // settles), so a short TTL would spend a full ~8-page crawl to learn nothing.
 const bazaarCacheTTL = 15 * time.Minute
 
+// bazaarRetryBackoff bounds how often a failed refresh is retried once the
+// cache has expired. Without this, every request during an upstream outage
+// re-attempts the full ~8-page crawl (each bounded by its own 30s timeout,
+// serialized behind bazaarCache.mu) instead of getting a fast stale-cache hit.
+const bazaarRetryBackoff = 30 * time.Second
+
 // bazaarPageDefault/Max bound one page of results. The frontend's infinite
 // scroll asks for 30 at a time.
 const (
@@ -33,9 +39,10 @@ const (
 // small enough to hold entirely and slice per request — which is also why
 // search runs here rather than upstream, where there is no search parameter.
 type bazaarCache struct {
-	mu        sync.Mutex
-	items     []bazaar.Resource
-	fetchedAt time.Time
+	mu              sync.Mutex
+	items           []bazaar.Resource
+	fetchedAt       time.Time
+	lastAttemptedAt time.Time
 }
 
 // bazaarHTTPClient has its own timeout because a full crawl is several
@@ -62,6 +69,12 @@ func (d *Deps) catalog() ([]bazaar.Resource, error) {
 	if d.bazaarCache.items != nil && time.Since(d.bazaarCache.fetchedAt) < bazaarCacheTTL {
 		return d.bazaarCache.items, nil
 	}
+	// A prior refresh attempt failed recently — serve the stale cache instead
+	// of re-running the full crawl on every request until the backoff clears.
+	if d.bazaarCache.items != nil && time.Since(d.bazaarCache.lastAttemptedAt) < bazaarRetryBackoff {
+		return d.bazaarCache.items, nil
+	}
+	d.bazaarCache.lastAttemptedAt = time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	fetched, err := bazaar.FetchAll(ctx, bazaarHTTPClient, d.bazaarBaseURL())
