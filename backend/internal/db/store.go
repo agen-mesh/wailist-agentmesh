@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"strconv"
 	"strings"
@@ -216,10 +217,33 @@ func unmarshalGraph(data []byte, w *models.Workflow) {
 
 // --- Run methods ---
 
-func (s *Store) CreateRun(ctx context.Context, workflowID, triggeredBy string, inputContext []byte) (models.Run, error) {
+// rowQuerier is the subset of *pgxpool.Pool and pgx.Tx that insertRun
+// needs, so it can run either as its own implicit single-statement
+// transaction (CreateRun, via s.pool) or as part of a caller-managed one
+// (CreateRunWithCooldown, via its tx).
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// insertRun does the actual runs INSERT+RETURNING+decode shared by
+// CreateRun and CreateRunWithCooldown -- pulled out so the two can't drift
+// (they used to duplicate this block verbatim) and so a fix here, like the
+// one below, only has to happen once.
+//
+// A failure decoding the returned input_context back into r.InputContext
+// is logged, not returned as a hard error: InputContext is typed `any`,
+// so this can't actually fail for the syntactically-valid JSON Postgres
+// already required to accept the row via `$3::jsonb` at INSERT time (a
+// real syntax error fails there, before this ever runs) -- but staying
+// silent about it would still violate this codebase's own "never swallow
+// an error silently" convention if that ever stops being true (e.g.
+// InputContext becoming a concrete struct type later), and the row itself
+// is already durably inserted at this point regardless, so there's
+// nothing to roll back over a decode issue.
+func insertRun(ctx context.Context, q rowQuerier, workflowID, triggeredBy string, inputContext []byte) (models.Run, error) {
 	var r models.Run
 	var ic []byte
-	err := s.pool.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		INSERT INTO runs (workflow_id, triggered_by, status, input_context)
 		VALUES ($1, $2, 'running', $3::jsonb)
 		RETURNING id, workflow_id, triggered_by, status, started_at, finished_at, input_context
@@ -228,12 +252,18 @@ func (s *Store) CreateRun(ctx context.Context, workflowID, triggeredBy string, i
 		&r.StartedAt, &r.FinishedAt, &ic,
 	)
 	if err != nil {
-		return r, err
+		return models.Run{}, err
 	}
 	if ic != nil {
-		json.Unmarshal(ic, &r.InputContext)
+		if err := json.Unmarshal(ic, &r.InputContext); err != nil {
+			log.Printf("db: run %s: failed to decode stored input_context (%d bytes): %v", r.ID, len(ic), err)
+		}
 	}
 	return r, nil
+}
+
+func (s *Store) CreateRun(ctx context.Context, workflowID, triggeredBy string, inputContext []byte) (models.Run, error) {
+	return insertRun(ctx, s.pool, workflowID, triggeredBy, inputContext)
 }
 
 // ErrRunOnCooldown is returned by CreateRunWithCooldown when workflowID
@@ -293,24 +323,12 @@ func (s *Store) CreateRunWithCooldown(ctx context.Context, workflowID, triggered
 		}
 	}
 
-	var r models.Run
-	var ic []byte
-	err = tx.QueryRow(ctx, `
-		INSERT INTO runs (workflow_id, triggered_by, status, input_context)
-		VALUES ($1, $2, 'running', $3::jsonb)
-		RETURNING id, workflow_id, triggered_by, status, started_at, finished_at, input_context
-	`, workflowID, triggeredBy, string(inputContext)).Scan(
-		&r.ID, &r.WorkflowID, &r.TriggeredBy, &r.Status,
-		&r.StartedAt, &r.FinishedAt, &ic,
-	)
+	r, err := insertRun(ctx, tx, workflowID, triggeredBy, inputContext)
 	if err != nil {
 		return models.Run{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return models.Run{}, err
-	}
-	if ic != nil {
-		json.Unmarshal(ic, &r.InputContext)
 	}
 	return r, nil
 }
