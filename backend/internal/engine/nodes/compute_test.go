@@ -426,3 +426,65 @@ func TestHTMLExtractRejectsBadSelector(t *testing.T) {
 		}
 	}
 }
+
+func TestMarkdownRendersHTML(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", "# Heading\n\nSome **bold** text and a [link](https://example.com).")
+	node := models.WorkflowNode{ID: "m1", Type: models.NodeTypeTool, Template: "markdown"}
+
+	out, err := nodes.ExecuteTool(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := out.(string)
+	if !ok {
+		t.Fatalf("want a string, got %T", out)
+	}
+	for _, want := range []string{"<h1>Heading</h1>", "<strong>bold</strong>", `href="https://example.com"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestMarkdownGFMTablesOnByDefault(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", "| A | B |\n|---|---|\n| 1 | 2 |")
+	node := models.WorkflowNode{ID: "m1", Type: models.NodeTypeTool, Template: "markdown"}
+	out, err := nodes.ExecuteTool(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.(string), "<table>") {
+		t.Errorf("GFM tables should render by default, got:\n%s", out)
+	}
+}
+
+func TestMarkdownGFMCanBeDisabled(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", "| A | B |\n|---|---|\n| 1 | 2 |")
+	node := models.WorkflowNode{
+		ID: "m1", Type: models.NodeTypeTool, Template: "markdown",
+		Config: map[string]string{"mdGFM": "false"},
+	}
+	out, err := nodes.ExecuteTool(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.(string), "<table>") {
+		t.Errorf("tables should not render with mdGFM=false, got:\n%s", out)
+	}
+}
+
+func TestMarkdownEmptyInputIsEmptyOutput(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", "")
+	node := models.WorkflowNode{ID: "m1", Type: models.NodeTypeTool, Template: "markdown"}
+	out, err := nodes.ExecuteTool(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out.(string)) != "" {
+		t.Errorf("want empty output, got %q", out)
+	}
+}

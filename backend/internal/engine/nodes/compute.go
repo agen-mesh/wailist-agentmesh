@@ -1,6 +1,7 @@
 package nodes
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/md5"
 	"crypto/sha1"
@@ -20,6 +21,8 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/andybalholm/cascadia"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
 )
 
 // executeSet builds an object from the node's `setFields` JSON, expanding
@@ -282,4 +285,26 @@ func executeHTMLExtract(node models.WorkflowNode, rc RunContexter) (any, error) 
 		return "", nil
 	}
 	return read(matches.First()), nil
+}
+
+// executeMarkdown renders the upstream output from Markdown into HTML.
+// GitHub Flavored Markdown (tables, strikethrough, autolinks) is on by default
+// because that is what LLM output actually looks like.
+//
+// Raw HTML embedded in the source is NOT passed through — goldmark escapes it
+// unless WithUnsafe is set, and it is deliberately not set here: this node's
+// input is frequently model output or third-party text, which is exactly the
+// content you do not want emitting live HTML into an email.
+func executeMarkdown(node models.WorkflowNode, rc RunContexter) (any, error) {
+	opts := []goldmark.Option{}
+	if configVal(node, "mdGFM", "true") != "false" {
+		opts = append(opts, goldmark.WithExtensions(extension.GFM))
+	}
+	md := goldmark.New(opts...)
+
+	var buf bytes.Buffer
+	if err := md.Convert([]byte(rc.Message()), &buf); err != nil {
+		return nil, fmt.Errorf("markdown: render failed: %w", err)
+	}
+	return buf.String(), nil
 }

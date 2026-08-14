@@ -133,6 +133,7 @@ export const TOOL_TEMPLATES = [
   { id: "xml", name: "XML → JSON", desc: "Parse XML payloads", icon: "⋔" },
   { id: "template", name: "Text Template", desc: "Compose with {{ refs }}", icon: "¶" },
   { id: "html_extract", name: "HTML Extract", desc: "CSS selector → text", icon: "⌸" },
+  { id: "markdown", name: "Markdown → HTML", desc: "Render agent output", icon: "⌘" },
 ];
 
 export const TOOL402_TEMPLATES = [

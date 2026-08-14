@@ -751,6 +751,7 @@ const COMPUTE_TOOL_TEMPLATES = new Set([
   "xml",
   "template",
   "html_extract",
+  "markdown",
 ]);
 
 function ToolInspector({
@@ -2500,6 +2501,18 @@ const CONNECTOR_CONFIG_FIELDS: Record<
         label: "Mode",
         placeholder: "first",
         hint: "first · all",
+      },
+    ],
+  },
+  markdown: {
+    label: "Markdown config",
+    fields: [
+      {
+        kind: "config",
+        key: "mdGFM",
+        label: "GitHub Flavored",
+        placeholder: "true",
+        hint: "true · false — tables, strikethrough, autolinks",
       },
     ],
   },
