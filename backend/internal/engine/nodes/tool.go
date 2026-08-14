@@ -124,6 +124,8 @@ func ExecuteTool(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 		return callHTTP(ctx, node, rc)
 	case "set":
 		return executeSet(node, rc)
+	case "json_extract":
+		return executeJSONExtract(node, rc)
 	default:
 		return rc.Message(), nil
 	}
