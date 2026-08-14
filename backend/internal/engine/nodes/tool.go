@@ -132,6 +132,8 @@ func ExecuteTool(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 		return executeXMLToJSON(rc)
 	case "template":
 		return executeTemplate(node, rc)
+	case "html_extract":
+		return executeHTMLExtract(node, rc)
 	default:
 		return rc.Message(), nil
 	}

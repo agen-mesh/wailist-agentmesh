@@ -132,6 +132,7 @@ export const TOOL_TEMPLATES = [
   { id: "datetime", name: "Date & Time", desc: "Now, offset, timezone", icon: "◔" },
   { id: "xml", name: "XML → JSON", desc: "Parse XML payloads", icon: "⋔" },
   { id: "template", name: "Text Template", desc: "Compose with {{ refs }}", icon: "¶" },
+  { id: "html_extract", name: "HTML Extract", desc: "CSS selector → text", icon: "⌸" },
 ];
 
 export const TOOL402_TEMPLATES = [

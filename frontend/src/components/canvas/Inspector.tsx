@@ -750,6 +750,7 @@ const COMPUTE_TOOL_TEMPLATES = new Set([
   "datetime",
   "xml",
   "template",
+  "html_extract",
 ]);
 
 function ToolInspector({
@@ -2474,6 +2475,31 @@ const CONNECTOR_CONFIG_FIELDS: Record<
         label: "Extra columns (JSON)",
         hint: "optional",
         placeholder: '{"source":"agentmesh","city":"{{ node.n1.city }}"}',
+      },
+    ],
+  },
+  html_extract: {
+    label: "HTML Extract config",
+    fields: [
+      {
+        kind: "config",
+        key: "htmlSelector",
+        label: "CSS selector",
+        placeholder: "h1.title",
+      },
+      {
+        kind: "config",
+        key: "htmlAttr",
+        label: "Attribute",
+        hint: "optional, blank = text",
+        placeholder: "href",
+      },
+      {
+        kind: "config",
+        key: "htmlMode",
+        label: "Mode",
+        placeholder: "first",
+        hint: "first · all",
       },
     ],
   },

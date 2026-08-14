@@ -316,3 +316,113 @@ func TestTemplateNodeErrorsWhenUnconfigured(t *testing.T) {
 		t.Error("want an error when templateText is unset, got nil")
 	}
 }
+
+const sampleHTML = `<html><body>
+  <h1 class="title">Main Heading</h1>
+  <ul id="links">
+    <li><a href="https://example.com/1">First</a></li>
+    <li><a href="https://example.com/2">Second</a></li>
+  </ul>
+  <p class="empty"></p>
+</body></html>`
+
+func TestHTMLExtractFirstText(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", sampleHTML)
+	node := models.WorkflowNode{
+		ID: "h1", Type: models.NodeTypeTool, Template: "html_extract",
+		Config: map[string]string{"htmlSelector": "h1.title"},
+	}
+	got, err := nodes.ExecuteTool(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "Main Heading" {
+		t.Errorf("want %q, got %q", "Main Heading", got)
+	}
+}
+
+func TestHTMLExtractAllMode(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", sampleHTML)
+	node := models.WorkflowNode{
+		ID: "h1", Type: models.NodeTypeTool, Template: "html_extract",
+		Config: map[string]string{"htmlSelector": "#links a", "htmlMode": "all"},
+	}
+	out, err := nodes.ExecuteTool(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := out.([]string)
+	if !ok {
+		t.Fatalf("want a []string in all mode, got %T", out)
+	}
+	if len(got) != 2 || got[0] != "First" || got[1] != "Second" {
+		t.Errorf("got %#v", got)
+	}
+}
+
+func TestHTMLExtractAttribute(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", sampleHTML)
+	node := models.WorkflowNode{
+		ID: "h1", Type: models.NodeTypeTool, Template: "html_extract",
+		Config: map[string]string{"htmlSelector": "#links a", "htmlAttr": "href", "htmlMode": "all"},
+	}
+	out, err := nodes.ExecuteTool(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := out.([]string)
+	if got[0] != "https://example.com/1" || got[1] != "https://example.com/2" {
+		t.Errorf("got %#v", got)
+	}
+}
+
+func TestHTMLExtractNoMatchIsEmptyNotError(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", sampleHTML)
+	// first mode: no match -> empty string, not an error. A missing element on
+	// a page is normal, not a failure worth halting the run for.
+	first := models.WorkflowNode{
+		ID: "h1", Type: models.NodeTypeTool, Template: "html_extract",
+		Config: map[string]string{"htmlSelector": ".nope"},
+	}
+	got, err := nodes.ExecuteTool(context.Background(), first, rc)
+	if err != nil {
+		t.Fatalf("no match should not error: %v", err)
+	}
+	if got != "" {
+		t.Errorf("want empty string, got %q", got)
+	}
+	// all mode: no match -> empty slice, never nil, so range works downstream.
+	all := models.WorkflowNode{
+		ID: "h1", Type: models.NodeTypeTool, Template: "html_extract",
+		Config: map[string]string{"htmlSelector": ".nope", "htmlMode": "all"},
+	}
+	out, err := nodes.ExecuteTool(context.Background(), all, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, ok := out.([]string)
+	if !ok || s == nil {
+		t.Errorf("want a non-nil empty slice, got %#v", out)
+	}
+	if len(s) != 0 {
+		t.Errorf("want length 0, got %d", len(s))
+	}
+}
+
+func TestHTMLExtractRejectsBadSelector(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", sampleHTML)
+	for _, sel := range []string{"", "a[["} {
+		node := models.WorkflowNode{
+			ID: "h1", Type: models.NodeTypeTool, Template: "html_extract",
+			Config: map[string]string{"htmlSelector": sel},
+		}
+		if _, err := nodes.ExecuteTool(context.Background(), node, rc); err == nil {
+			t.Errorf("selector %q should error, got nil", sel)
+		}
+	}
+}

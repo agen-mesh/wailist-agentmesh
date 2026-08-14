@@ -17,7 +17,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/agentmesh/backend/internal/models"
+	"github.com/andybalholm/cascadia"
 )
 
 // executeSet builds an object from the node's `setFields` JSON, expanding
@@ -234,4 +236,50 @@ func executeTemplate(node models.WorkflowNode, rc RunContexter) (any, error) {
 		return nil, errors.New("template: no `templateText` configured")
 	}
 	return resolveTemplate(tpl, rc), nil
+}
+
+// executeHTMLExtract runs a CSS selector over the upstream output. This parses
+// HTML that is already in the run context — it does not fetch a URL. Chain it
+// after the `http` tool to scrape a page.
+//
+// goquery panics on a malformed selector rather than returning an error, so the
+// selector is compiled up front with cascadia (goquery's own selector engine)
+// where failure is an ordinary error.
+func executeHTMLExtract(node models.WorkflowNode, rc RunContexter) (any, error) {
+	selector := configVal(node, "htmlSelector", "")
+	if selector == "" {
+		return nil, errors.New("html_extract: no `htmlSelector` configured")
+	}
+	sel, err := cascadia.Compile(selector)
+	if err != nil {
+		return nil, fmt.Errorf("html_extract: %q is not a valid CSS selector: %w", selector, err)
+	}
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rc.Message()))
+	if err != nil {
+		return nil, fmt.Errorf("html_extract: could not parse the HTML: %w", err)
+	}
+	attr := configVal(node, "htmlAttr", "")
+
+	read := func(s *goquery.Selection) string {
+		if attr == "" {
+			return strings.TrimSpace(s.Text())
+		}
+		v, _ := s.Attr(attr)
+		return v
+	}
+
+	matches := doc.FindMatcher(sel)
+	if configVal(node, "htmlMode", "first") == "all" {
+		// Non-nil even when empty, so downstream range/len never hit a nil.
+		out := make([]string, 0, matches.Length())
+		matches.Each(func(_ int, s *goquery.Selection) {
+			out = append(out, read(s))
+		})
+		return out, nil
+	}
+	if matches.Length() == 0 {
+		// A missing element is normal on a real page, not a run-halting error.
+		return "", nil
+	}
+	return read(matches.First()), nil
 }
