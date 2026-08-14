@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -254,7 +255,7 @@ func executeHTMLExtract(node models.WorkflowNode, rc RunContexter) (any, error) 
 	if selector == "" {
 		return nil, errors.New("html_extract: no `htmlSelector` configured")
 	}
-	sel, err := cascadia.Compile(selector)
+	sel, err := compileHTMLSelector(selector)
 	if err != nil {
 		return nil, fmt.Errorf("html_extract: %q is not a valid CSS selector: %w", selector, err)
 	}
@@ -288,6 +289,52 @@ func executeHTMLExtract(node models.WorkflowNode, rc RunContexter) (any, error) 
 	return read(matches.First()), nil
 }
 
+// htmlSelectorCacheLimit caps how many distinct compiled selectors are kept.
+// A workflow builder trying many ad-hoc selectors shouldn't grow this
+// unboundedly — past the cap, selectors are simply compiled fresh each call,
+// same as before caching existed.
+const htmlSelectorCacheLimit = 256
+
+var (
+	htmlSelectorCacheMu sync.Mutex
+	htmlSelectorCache   = map[string]cascadia.Selector{}
+)
+
+// compileHTMLSelector compiles and caches a CSS selector. cascadia.Compile
+// does real parsing work on every call; html_extract nodes reuse the same
+// handful of selectors across every run of a workflow, so caching by the
+// selector string avoids repeating that work each execution.
+func compileHTMLSelector(selector string) (cascadia.Selector, error) {
+	htmlSelectorCacheMu.Lock()
+	sel, ok := htmlSelectorCache[selector]
+	htmlSelectorCacheMu.Unlock()
+	if ok {
+		return sel, nil
+	}
+
+	sel, err := cascadia.Compile(selector)
+	if err != nil {
+		return nil, err
+	}
+
+	htmlSelectorCacheMu.Lock()
+	if len(htmlSelectorCache) < htmlSelectorCacheLimit {
+		htmlSelectorCache[selector] = sel
+	}
+	htmlSelectorCacheMu.Unlock()
+	return sel, nil
+}
+
+// mdRendererGFM and mdRendererPlain are shared goldmark instances — goldmark
+// is designed to be constructed once and reused across concurrent Convert
+// calls, and its own construction (parser/renderer wiring) is not free
+// enough to redo on every node execution. Two fixed instances cover the only
+// two configurations mdGFM selects between.
+var (
+	mdRendererGFM   = goldmark.New(goldmark.WithExtensions(extension.GFM))
+	mdRendererPlain = goldmark.New()
+)
+
 // executeMarkdown renders the upstream output from Markdown into HTML.
 // GitHub Flavored Markdown (tables, strikethrough, autolinks) is on by default
 // because that is what LLM output actually looks like.
@@ -297,11 +344,10 @@ func executeHTMLExtract(node models.WorkflowNode, rc RunContexter) (any, error) 
 // input is frequently model output or third-party text, which is exactly the
 // content you do not want emitting live HTML into an email.
 func executeMarkdown(node models.WorkflowNode, rc RunContexter) (any, error) {
-	opts := []goldmark.Option{}
+	md := mdRendererPlain
 	if configVal(node, "mdGFM", "true") != "false" {
-		opts = append(opts, goldmark.WithExtensions(extension.GFM))
+		md = mdRendererGFM
 	}
-	md := goldmark.New(opts...)
 
 	var buf bytes.Buffer
 	if err := md.Convert([]byte(rc.Message()), &buf); err != nil {
