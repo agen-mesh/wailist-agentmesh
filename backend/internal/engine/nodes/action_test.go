@@ -174,3 +174,26 @@ func TestEmailAction_ResendProvider(t *testing.T) {
 		t.Errorf("want from field passed through, got %v", gotBody["from"])
 	}
 }
+
+// Every template offered in the palette must reach a real implementation.
+// A template that falls through to ExecuteAction's `default:` returns
+// "logged" and renders a green, successful node that did nothing — exactly
+// the bug the db template shipped with.
+func TestEveryNewActionTemplateIsDispatched(t *testing.T) {
+	templates := []string{
+		"stripe", "twilio", "mattermost", "pagerduty",
+		"zendesk", "monday", "shopify", "pipedrive", "db", "rss",
+		"graphql", "hackernews", "coingecko",
+	}
+	for _, tpl := range templates {
+		t.Run(tpl, func(t *testing.T) {
+			node := models.WorkflowNode{ID: "n1", Type: models.NodeTypeAction, Template: tpl}
+			rc := engine.NewRunContext("r1", nil)
+			got, _ := nodes.ExecuteAction(context.Background(), node, rc)
+			if got == "logged" {
+				t.Errorf("template %q fell through to ExecuteAction's default branch — "+
+					"it renders as a successful node but does nothing", tpl)
+			}
+		})
+	}
+}
