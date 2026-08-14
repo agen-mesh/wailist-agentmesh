@@ -124,7 +124,7 @@ func sendEmail(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 	if bodyText == "" {
 		bodyText = "Hi,\n\nHere is your result:\n\n" + agentOutput + "\n\n— AgentMesh"
 	} else {
-		bodyText = replaceVar(bodyText, "result", agentOutput)
+		bodyText = resolveTemplate(bodyText, rc)
 	}
 
 	switch provider {
@@ -139,10 +139,6 @@ func sendEmail(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 	default:
 		return sendViaResend(ctx, apiKey, from, to, subject, bodyText)
 	}
-}
-
-func replaceVar(s, key, val string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(s, "{{ "+key+" }}", val), "{{"+key+"}}", val)
 }
 
 // resendAPIBase is overridden in tests via SetResendAPIBaseForTest.
