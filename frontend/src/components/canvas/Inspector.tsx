@@ -752,6 +752,7 @@ const COMPUTE_TOOL_TEMPLATES = new Set([
   "template",
   "html_extract",
   "markdown",
+  "quickchart",
 ]);
 
 function ToolInspector({
@@ -2562,6 +2563,74 @@ const CONNECTOR_CONFIG_FIELDS: Record<
         label: "Authorization header",
         hint: "sent verbatim — include Bearer if the API wants it",
         placeholder: "Bearer ghp_xxxxxxxx",
+      },
+    ],
+  },
+  hackernews: {
+    label: "Hacker News config",
+    fields: [
+      {
+        kind: "config",
+        key: "hnQuery",
+        label: "Search query",
+        placeholder: "{{ result }}",
+      },
+      {
+        kind: "config",
+        key: "hnTags",
+        label: "Tags",
+        hint: "optional",
+        placeholder: "story · comment · show_hn · ask_hn",
+      },
+      {
+        kind: "config",
+        key: "hnLimit",
+        label: "Max items",
+        hint: "optional, default 10",
+        placeholder: "10",
+      },
+    ],
+  },
+  coingecko: {
+    label: "CoinGecko config",
+    fields: [
+      {
+        kind: "config",
+        key: "cgIDs",
+        label: "Coin IDs",
+        placeholder: "bitcoin,ethereum",
+      },
+      {
+        kind: "config",
+        key: "cgCurrencies",
+        label: "Currencies",
+        hint: "optional, default usd",
+        placeholder: "usd,eur",
+      },
+    ],
+  },
+  quickchart: {
+    label: "QuickChart config",
+    fields: [
+      {
+        kind: "config",
+        key: "qcConfig",
+        label: "Chart.js config (JSON)",
+        placeholder: '{"type":"bar","data":{"labels":["a","b"],"datasets":[{"data":[1,2]}]}}',
+      },
+      {
+        kind: "config",
+        key: "qcWidth",
+        label: "Width",
+        hint: "optional",
+        placeholder: "600",
+      },
+      {
+        kind: "config",
+        key: "qcHeight",
+        label: "Height",
+        hint: "optional",
+        placeholder: "400",
       },
     ],
   },

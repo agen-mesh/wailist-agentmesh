@@ -136,6 +136,8 @@ func ExecuteTool(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 		return executeHTMLExtract(node, rc)
 	case "markdown":
 		return executeMarkdown(node, rc)
+	case "quickchart":
+		return executeQuickChart(node, rc)
 	default:
 		return rc.Message(), nil
 	}

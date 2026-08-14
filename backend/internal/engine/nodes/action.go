@@ -84,6 +84,10 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return fetchRSS(ctx, node, rc)
 	case "graphql":
 		return sendGraphQL(ctx, node, rc)
+	case "hackernews":
+		return fetchHackerNews(ctx, node, rc)
+	case "coingecko":
+		return fetchCoinGecko(ctx, node, rc)
 	default:
 		return "logged", nil
 	}

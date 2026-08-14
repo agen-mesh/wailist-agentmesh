@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -307,4 +308,32 @@ func executeMarkdown(node models.WorkflowNode, rc RunContexter) (any, error) {
 		return nil, fmt.Errorf("markdown: render failed: %w", err)
 	}
 	return buf.String(), nil
+}
+
+// quickChartBase is the public QuickChart renderer. This node builds a URL and
+// makes NO request — the image is fetched by whoever renders the URL (Slack,
+// an email client, a browser). That is why it is a NodeTypeTool (free under
+// BillableFlatFee) rather than an action.
+const quickChartBase = "https://quickchart.io/chart"
+
+// executeQuickChart returns a QuickChart image URL for a Chart.js config.
+func executeQuickChart(node models.WorkflowNode, rc RunContexter) (any, error) {
+	cfg := resolveTemplate(configVal(node, "qcConfig", ""), rc)
+	if cfg == "" {
+		return nil, errors.New("quickchart: no `qcConfig` configured — set a Chart.js config object")
+	}
+	// Validate before handing the user a URL that renders an error image.
+	var probe any
+	if err := json.Unmarshal([]byte(cfg), &probe); err != nil {
+		return nil, fmt.Errorf("quickchart: `qcConfig` is not valid JSON: %w", err)
+	}
+	q := url.Values{}
+	q.Set("c", cfg)
+	if w := configVal(node, "qcWidth", ""); w != "" {
+		q.Set("w", w)
+	}
+	if h := configVal(node, "qcHeight", ""); h != "" {
+		q.Set("h", h)
+	}
+	return quickChartBase + "?" + q.Encode(), nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -77,4 +78,97 @@ func fetchRSS(ctx context.Context, node models.WorkflowNode, rc RunContexter) (a
 		"count": len(items),
 		"items": items,
 	}, nil
+}
+
+// hackerNewsAPIBase is overridden in tests via SetHackerNewsAPIBaseForTest.
+// This is Algolia's HN search API — one request returns matching stories,
+// unlike the Firebase API which needs an N+1 fetch per item id. No auth.
+var hackerNewsAPIBase = "https://hn.algolia.com/api/v1"
+
+// SetHackerNewsAPIBaseForTest overrides the HN search API base URL. Call only
+// from tests. Pass "" to reset to the real API.
+func SetHackerNewsAPIBaseForTest(base string) {
+	if base == "" {
+		hackerNewsAPIBase = "https://hn.algolia.com/api/v1"
+	} else {
+		hackerNewsAPIBase = base
+	}
+}
+
+// fetchHackerNews searches Hacker News. No credential of any kind.
+func fetchHackerNews(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	query := resolveTemplate(configVal(node, "hnQuery", ""), rc)
+	if query == "" {
+		return "hackernews_skipped_no_query", ErrActionSkipped
+	}
+	q := url.Values{}
+	q.Set("query", query)
+	q.Set("tags", configVal(node, "hnTags", "story"))
+	target := hackerNewsAPIBase + "/search?" + q.Encode()
+
+	raw, err := getAndDecode(ctx, target, nil, "HackerNews")
+	if err != nil {
+		return nil, err
+	}
+	body, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("hackernews: unexpected response shape %T", raw)
+	}
+	hits, _ := body["hits"].([]any)
+
+	limit := rssDefaultLimit
+	if s := configVal(node, "hnLimit", ""); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n <= 0 {
+			return nil, fmt.Errorf("hackernews: `hnLimit` %q is not a positive number", s)
+		}
+		limit = n
+	}
+
+	items := make([]map[string]any, 0, limit)
+	for i, h := range hits {
+		if i >= limit {
+			break
+		}
+		hit, ok := h.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, _ := hit["objectID"].(string)
+		items = append(items, map[string]any{
+			"title":   hit["title"],
+			"url":     hit["url"],
+			"points":  hit["points"],
+			"author":  hit["author"],
+			"hnURL":   "https://news.ycombinator.com/item?id=" + id,
+			"created": hit["created_at"],
+		})
+	}
+	return map[string]any{"count": len(items), "items": items}, nil
+}
+
+// coinGeckoAPIBase is overridden in tests via SetCoinGeckoAPIBaseForTest.
+// CoinGecko's /simple/price endpoint is usable without an API key.
+var coinGeckoAPIBase = "https://api.coingecko.com/api/v3"
+
+// SetCoinGeckoAPIBaseForTest overrides the CoinGecko API base URL. Call only
+// from tests. Pass "" to reset to the real API.
+func SetCoinGeckoAPIBaseForTest(base string) {
+	if base == "" {
+		coinGeckoAPIBase = "https://api.coingecko.com/api/v3"
+	} else {
+		coinGeckoAPIBase = base
+	}
+}
+
+// fetchCoinGecko returns spot prices for the configured coin ids. No key.
+func fetchCoinGecko(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	ids := resolveTemplate(configVal(node, "cgIDs", ""), rc)
+	if ids == "" {
+		return "coingecko_skipped_no_ids", ErrActionSkipped
+	}
+	q := url.Values{}
+	q.Set("ids", ids)
+	q.Set("vs_currencies", configVal(node, "cgCurrencies", "usd"))
+	return getAndDecode(ctx, coinGeckoAPIBase+"/simple/price?"+q.Encode(), nil, "CoinGecko")
 }

@@ -134,6 +134,7 @@ export const TOOL_TEMPLATES = [
   { id: "template", name: "Text Template", desc: "Compose with {{ refs }}", icon: "¶" },
   { id: "html_extract", name: "HTML Extract", desc: "CSS selector → text", icon: "⌸" },
   { id: "markdown", name: "Markdown → HTML", desc: "Render agent output", icon: "⌘" },
+  { id: "quickchart", name: "QuickChart", desc: "Chart image URL", icon: "▦" },
 ];
 
 export const TOOL402_TEMPLATES = [
@@ -247,6 +248,8 @@ export const ACTION_TEMPLATES = [
   { id: "pipedrive", name: "Pipedrive Note", desc: "Log a CRM note", icon: "pi" },
   { id: "rss", name: "RSS Feed", desc: "Read a feed (no key)", icon: "rs" },
   { id: "graphql", name: "GraphQL Query", desc: "Any GraphQL endpoint", icon: "gq" },
+  { id: "hackernews", name: "Hacker News", desc: "Search stories (no key)", icon: "hn" },
+  { id: "coingecko", name: "CoinGecko Price", desc: "Spot prices (no key)", icon: "cg" },
 ];
 
 export const END_TEMPLATES = [
