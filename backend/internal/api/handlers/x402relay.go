@@ -537,17 +537,13 @@ func resourceInfo(url, description string) map[string]any {
 	}
 }
 
-// bazaarDiscoveryExtension builds a schema-valid `extensions.bazaar`
-// declaration ({info, schema} both required, info.input.type set) — also
-// decompiled from @x402/extensions v2.20 (declareDiscoveryExtension /
-// validateDiscoveryExtensionSpec). The facilitator runs this exact shape
-// through an ajv validator (extractDiscoveryInfo -> validateDiscoveryExtension)
-// before ever building a catalog entry; the extension this handler emitted
-// before this fix had no `schema` sibling and no `info.input.type` at all,
-// which fails that validation unconditionally — so even a payment that
-// correctly echoed back a top-level `resource` (see resourceInfo above)
-// would still never catalog, because the extension itself was being silently
-// rejected before discoveryInfo was ever set.
+// bazaarDiscoveryExtension fills in the relay's own route-specific half of a
+// Bazaar discovery declaration and hands the rest to
+// nodes.BazaarDiscoveryExtension, which owns the schema skeleton and the
+// validator's hard requirements ({info, schema} both present, info.input.type
+// set, the method enum agreeing with the declared method). See that function
+// for why each of those matters — both are failures the facilitator reports
+// as success while silently declining to catalog anything.
 //
 // Describes the relay's own pass-through shape (any downstream target URL
 // in, that target's own response out) since this endpoint has no fixed
@@ -558,75 +554,34 @@ func resourceInfo(url, description string) map[string]any {
 // facilitator only catalogs a route once it sees this on a real settlement,
 // not from the informational challenge alone.
 func bazaarDiscoveryExtension(target string) map[string]any {
-	input := map[string]any{"type": "http", "method": "GET"}
-	inputSchemaProps := map[string]any{
-		"type":   map[string]any{"type": "string", "const": "http"},
-		"method": map[string]any{"type": "string", "enum": []string{"GET", "HEAD", "DELETE"}},
+	// queryParams and outputExample are the only two things that vary
+	// between the self-listing and a ?target= relay; the method, the schema
+	// skeleton, and the enum that has to agree with the method all come from
+	// nodes.BazaarDiscoveryExtension. outputExample itself is optional per
+	// the real spec (only `input` is in the schema's own `required` list) --
+	// sent anyway because every live, genuinely-cataloged entry pulled from
+	// the real facilitator (facilitator.goplausible.xyz/discovery/resources)
+	// has one, so this closes the one structural gap left between our
+	// declaration and a real working example.
+	decl := nodes.BazaarDeclaration{
+		// MUST stay the public path (relayPublicPath), not this backend's
+		// own internal route. routeTemplate exists so the facilitator can
+		// canonicalize the resource as origin+routeTemplate instead of
+		// origin+request-pathname -- so a stale value here doesn't just
+		// mislabel, it names a URL that does not exist. Hardcoding
+		// "/x402/relay" while resource.url moved to the /api proxy
+		// produced exactly that: origin+routeTemplate resolved to
+		// https://www.agent-mesh.app/x402/relay, a confirmed 404, since
+		// Vercel only rewrites /api/*. Derived from the same constant as
+		// the URL itself so the two cannot drift again.
+		RouteTemplate: relayPublicPath,
+		OutputExample: map[string]any{"service": "AgentMesh x402 relay", "docs": true, "txId": "..."},
 	}
-	required := []string{"type", "method"}
-	// outputExample is optional per the real spec (only `input` is in the
-	// schema's own `required` list) -- added anyway because every live,
-	// genuinely-cataloged entry pulled from the real facilitator
-	// (facilitator.goplausible.xyz/discovery/resources) has one, so this
-	// closes the one structural gap left between our declaration and a
-	// real working example, even though it isn't a hard requirement.
-	var outputExample map[string]any
 	if target != "" {
-		input["queryParams"] = map[string]any{"target": target}
-		inputSchemaProps["queryParams"] = map[string]any{"type": "object"}
-		outputExample = map[string]any{"ok": true, "note": "the target endpoint's own paid response, forwarded unmodified"}
-	} else {
-		outputExample = map[string]any{"service": "AgentMesh x402 relay", "docs": true, "txId": "..."}
+		decl.QueryParams = map[string]any{"target": target}
+		decl.OutputExample = map[string]any{"ok": true, "note": "the target endpoint's own paid response, forwarded unmodified"}
 	}
-	return map[string]any{
-		"bazaar": map[string]any{
-			// routeTemplate (sibling of info/schema, same convention as
-			// GoPlausible's own Tendril reference implementation) tells the
-			// facilitator to canonicalize this resource as origin+routeTemplate
-			// instead of origin+actual-request-pathname. Every call this
-			// route ever handles -- self-listing or any ?target= value --
-			// is physically the same path, /x402/relay, so without this the
-			// facilitator has no reason to merge them and nothing changes
-			// today; this only starts mattering if a future route here ever
-			// grows a path param instead of a query param.
-			// MUST stay the public path (relayPublicPath), not this backend's
-			// own internal route. routeTemplate exists so the facilitator can
-			// canonicalize the resource as origin+routeTemplate instead of
-			// origin+request-pathname -- so a stale value here doesn't just
-			// mislabel, it names a URL that does not exist. Hardcoding
-			// "/x402/relay" while resource.url moved to the /api proxy
-			// produced exactly that: origin+routeTemplate resolved to
-			// https://www.agent-mesh.app/x402/relay, a confirmed 404, since
-			// Vercel only rewrites /api/*. Derived from the same constant as
-			// the URL itself so the two cannot drift again.
-			"routeTemplate": relayPublicPath,
-			"info": map[string]any{
-				"input":  input,
-				"output": map[string]any{"type": "json", "example": outputExample},
-			},
-			"schema": map[string]any{
-				"$schema": "https://json-schema.org/draft/2020-12/schema",
-				"type":    "object",
-				"properties": map[string]any{
-					"input": map[string]any{
-						"type":                 "object",
-						"properties":           inputSchemaProps,
-						"required":             required,
-						"additionalProperties": false,
-					},
-					"output": map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"type":    map[string]any{"type": "string"},
-							"example": map[string]any{"type": "object"},
-						},
-						"required": []string{"type"},
-					},
-				},
-				"required": []string{"input"},
-			},
-		},
-	}
+	return nodes.BazaarDiscoveryExtension(decl)
 }
 
 // relayInboundChallenge fetches the target's real 402 price and mirrors it

@@ -53,6 +53,8 @@ type Runner struct {
 	platformKeys             map[string]string
 	tendrilClient            *tendril.Client
 	tendrilSession           *tendril.Session
+	googleClientID           string
+	googleClientSecret       string
 }
 
 func NewRunner(
@@ -91,6 +93,18 @@ func (r *Runner) SetPlatformKeys(keys map[string]string) {
 func (r *Runner) SetTendril(client *tendril.Client, session *tendril.Session) {
 	r.tendrilClient = client
 	r.tendrilSession = session
+}
+
+// SetGoogleOAuth supplies the same GOOGLE_CLIENT_ID/SECRET already used for
+// the sign-in-with-Google login flow (handlers/oauth.go) -- reused
+// deliberately, not a separate app registration, so a deployment that
+// already has Google login configured gets Gmail/Sheets/Calendar/Drive
+// nodes "for free" once those APIs and scopes are enabled on that same
+// Google Cloud project. Left unset ("", ""), Google connector nodes fail
+// closed with a clear error, the same pattern as SetTendril above.
+func (r *Runner) SetGoogleOAuth(clientID, clientSecret string) {
+	r.googleClientID = clientID
+	r.googleClientSecret = clientSecret
 }
 
 // preflightCheck fails a node before it runs if wf.UserID can't cover
@@ -477,6 +491,12 @@ func (r *Runner) reserveAndFundRun(ctx context.Context, wf models.Workflow, run 
 // (their only inbound leg) with just their own slice of that amount — so a
 // consumer de-duplicating by tx id keeps the accurate one by keeping the
 // first.
+//
+// isFundingReceipt marks this row as bookkeeping, not a tool invocation: a
+// single funding transaction can cover many real per-call receipts that
+// follow, so a consumer counting "how many tools ran" must skip this row
+// specifically rather than deduplicating by tx id (that would collapse the
+// real, distinct calls that share its tx id down to one).
 func prependRunFundingReceipt(result map[string]any, rf runFundResult, node models.WorkflowNode, usdcAssetID uint64) {
 	if rf.FundingTxID == "" {
 		return
@@ -489,6 +509,7 @@ func prependRunFundingReceipt(result map[string]any, rf runFundResult, node mode
 		"txId":             rf.FundingTxID,
 		"amount":           fmt.Sprintf("%.6f", float64(rf.FundedUSDMicros)/1e6),
 		"explorerURL":      nodes.ExplorerURLForAsset(usdcAssetID, rf.FundingTxID),
+		"isFundingReceipt": true,
 	}
 	// []map[string]any is the concrete type Run()'s publish loop asserts on;
 	// anything else there would silently drop every payment row.
@@ -953,6 +974,40 @@ func (r *Runner) executeNode(
 			}
 		}
 		result, err := nodes.ExecuteAction(ctx, node, rc)
+		if err != nil {
+			if errors.Is(err, nodes.ErrActionSkipped) {
+				return result, nil
+			}
+			return nil, err
+		}
+		if billable {
+			r.debitOrLog(ctx, wf, run, node.ID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+		}
+		return result, nil
+	case models.NodeTypeGoogle:
+		if r.googleClientID == "" || r.googleClientSecret == "" {
+			return nil, fmt.Errorf("google: GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET are not configured on this server")
+		}
+		// Routed through BillableFlatFee, same as NodeTypeAction above,
+		// instead of hardcoding "always billable" here -- BillableFlatFee is
+		// the single source of truth for which template/nodeType pairs are
+		// billable (NodeTypeTool already varies by template: template ==
+		// "http"), so calling it here means a future template-conditional
+		// change there (e.g. a free Google read-only op) takes effect
+		// automatically instead of silently being ignored by this branch.
+		billable := nodes.BillableFlatFee(node.Type, node.Template)
+		if billable {
+			if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
+				return nil, err
+			}
+		}
+		result, err := nodes.ExecuteGoogle(ctx, node, rc, nodes.GoogleConfig{
+			Store:        r.store,
+			EncryptKey:   r.encryptionKey,
+			ClientID:     r.googleClientID,
+			ClientSecret: r.googleClientSecret,
+			UserID:       wf.UserID,
+		})
 		if err != nil {
 			if errors.Is(err, nodes.ErrActionSkipped) {
 				return result, nil

@@ -220,9 +220,13 @@ function HeroSection({ openStudio, signedIn, scrollToId }: {
 }
 
 function LogoMarquee() {
+  // Real, working integrations only -- Tavily/Firecrawl/Neon never had a
+  // functioning connector behind them (invented x402 hostnames / no case
+  // in ExecuteAction). Tendril is a genuine live x402 compute-rental
+  // integration; Slack and GitHub are real connectors in the Actions tab.
   const logos = [
-    { letter: "T", name: "Tavily" }, { letter: "F", name: "Firecrawl" },
-    { letter: "N", name: "Neon" },
+    { letter: "T", name: "Tendril" }, { letter: "S", name: "Slack" },
+    { letter: "G", name: "GitHub" },
   ];
   const doubled = [...logos, ...logos];
 

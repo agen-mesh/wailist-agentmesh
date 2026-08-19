@@ -1217,3 +1217,147 @@ func (s *Store) LatestActiveLeaseForUser(ctx context.Context, userID string) (mo
 		 WHERE user_id = $1 AND status = 'active'
 		 ORDER BY started_at DESC LIMIT 1`, userID))
 }
+
+const oauthCredentialCols = `id, user_id, provider, account_label, access_token_enc,
+	refresh_token_enc, scopes, expires_at, created_at, updated_at`
+
+func scanOAuthCredential(row pgx.Row) (models.OAuthCredential, error) {
+	var c models.OAuthCredential
+	err := row.Scan(&c.ID, &c.UserID, &c.Provider, &c.AccountLabel, &c.AccessTokenEnc,
+		&c.RefreshTokenEnc, &c.Scopes, &c.ExpiresAt, &c.CreatedAt, &c.UpdatedAt)
+	return c, err
+}
+
+// InsertOAuthCredential persists a newly-connected account, or replaces the
+// existing one in place (same id) if this user already has a credential for
+// the same provider+account_label -- reconnecting the same account must not
+// pile up duplicate rows with stale, still-valid refresh tokens, and must
+// not change the row's id, since workflow nodes reference credentials by id.
+// accessTokenEnc/refreshTokenEnc must already be encrypted -- this layer
+// never sees a raw token, mirroring how encryptNodes/decryptNodes keep node
+// secrets out of the store package (here it's the caller's job instead,
+// since the caller is the one holding the encryption key during the OAuth
+// callback).
+func (s *Store) InsertOAuthCredential(ctx context.Context, c models.OAuthCredential) (models.OAuthCredential, error) {
+	return scanOAuthCredential(s.pool.QueryRow(ctx, `
+		INSERT INTO oauth_credentials (user_id, provider, account_label, access_token_enc,
+			refresh_token_enc, scopes, expires_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		ON CONFLICT (user_id, provider, account_label) DO UPDATE
+		   SET access_token_enc = EXCLUDED.access_token_enc,
+		       refresh_token_enc = EXCLUDED.refresh_token_enc,
+		       scopes = EXCLUDED.scopes,
+		       expires_at = EXCLUDED.expires_at,
+		       updated_at = now()
+		RETURNING `+oauthCredentialCols,
+		c.UserID, c.Provider, c.AccountLabel, c.AccessTokenEnc,
+		c.RefreshTokenEnc, c.Scopes, c.ExpiresAt))
+}
+
+func (s *Store) GetOAuthCredential(ctx context.Context, id string) (models.OAuthCredential, error) {
+	return scanOAuthCredential(s.pool.QueryRow(ctx,
+		`SELECT `+oauthCredentialCols+` FROM oauth_credentials WHERE id = $1`, id))
+}
+
+// ListOAuthCredentials backs the Inspector's "connect account" picker --
+// never returns the encrypted tokens themselves (the struct's json tags
+// already omit them, but this is also the query boundary: no caller of this
+// method needs the ciphertext, only GetOAuthCredential's node-execution path
+// does).
+func (s *Store) ListOAuthCredentials(ctx context.Context, userID, provider string) ([]models.OAuthCredential, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+oauthCredentialCols+` FROM oauth_credentials
+		 WHERE user_id = $1 AND provider = $2 ORDER BY created_at DESC`, userID, provider)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []models.OAuthCredential
+	for rows.Next() {
+		c, err := scanOAuthCredential(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// UpdateOAuthCredentialTokens persists a refreshed access token (and,
+// usually, a rotated refresh token) after RefreshToken exchanges an expired
+// one. refreshTokenEnc may be "" -- a provider re-issuing an access token
+// doesn't always send a new refresh token, and "" here means "leave the
+// existing one alone" (COALESCE against NULLIF), never "erase it": erasing
+// a still-valid refresh token would permanently strand this credential the
+// next time its access token expires.
+func (s *Store) UpdateOAuthCredentialTokens(ctx context.Context, id, accessTokenEnc, refreshTokenEnc string, expiresAt time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE oauth_credentials
+		   SET access_token_enc = $2,
+		       refresh_token_enc = COALESCE(NULLIF($3, ''), refresh_token_enc),
+		       expires_at = $4,
+		       updated_at = now()
+		 WHERE id = $1`, id, accessTokenEnc, refreshTokenEnc, expiresAt)
+	return err
+}
+
+// DeleteOAuthCredential is owner-checked by the caller (handlers layer)
+// before this runs, same pattern as DeleteWorkflow.
+func (s *Store) DeleteOAuthCredential(ctx context.Context, id string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM oauth_credentials WHERE id = $1`, id)
+	return err
+}
+
+// LockOAuthCredentialForRefresh serializes concurrent token refreshes of the
+// same credential ACROSS PROCESSES, not just within one -- oauthcred's
+// refreshLocks (an in-memory sync.Mutex keyed by credential ID) only
+// protects against a race between goroutines in a single backend replica.
+// On a multi-replica deployment (Railway runs several), two replicas can
+// each independently observe the same expired credential, both hit the
+// provider's refresh endpoint, and both write tokens back with no
+// coordination between them.
+//
+// Uses pg_advisory_XACT_lock (transaction-scoped), not the session-scoped
+// pg_advisory_lock/unlock pair a first version of this used -- this project
+// connects through Supabase's transaction-mode pooler in production
+// (CLAUDE.md mandates port 6543; db.go's DefaultQueryExecMode workaround
+// exists for the same PgBouncer transaction-mode reality). Under
+// transaction-mode pooling, a client is only guaranteed the SAME real
+// Postgres backend for the duration of one explicit transaction -- two bare
+// Exec calls with no transaction between them (the session-scoped version's
+// lock and unlock) can silently land on two different backends. The unlock
+// would then no-op against the wrong backend and the lock would never
+// actually release, hanging every future refresh of that credential (or
+// anything hashing to the same key) forever. A transaction-scoped advisory
+// lock sidesteps this entirely: it's automatically released when the
+// transaction ends (commit OR rollback), with no separate unlock statement
+// that could be misrouted.
+//
+// This does mean the transaction stays open for the whole check-refresh-
+// persist sequence, including the outbound HTTP call to the provider's
+// refresh endpoint -- normally worth avoiding, but oauthcred's httpClient
+// caps that call at a 10s timeout, well inside any reasonable
+// idle-in-transaction timeout, so the tradeoff is acceptable here in
+// exchange for correctness under the pooler this project actually runs
+// behind.
+//
+// hashtext's 64-bit collision space makes two different credential UUIDs
+// hashing to the same lock key astronomically unlikely; a false-positive
+// collision would only ever cause two unrelated refreshes to serialize
+// behind each other, never a correctness issue.
+//
+// release must be called (via defer) once the caller is done -- it commits
+// the underlying transaction, which is what actually releases the lock.
+func (s *Store) LockOAuthCredentialForRefresh(ctx context.Context, id string) (release func(context.Context), err error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, id); err != nil {
+		tx.Rollback(ctx)
+		return nil, err
+	}
+	return func(releaseCtx context.Context) {
+		tx.Commit(releaseCtx)
+	}, nil
+}

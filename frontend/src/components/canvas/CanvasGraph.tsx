@@ -8,6 +8,7 @@ import {
   portForTo,
   isValidConnection,
 } from "@/lib/portUtils";
+import { IconBackspace } from "@/components/ui";
 import { CanvasNode } from "./nodes";
 
 interface CanvasGraphProps {
@@ -406,34 +407,49 @@ export function CanvasGraph({
       <div
         style={{
           position: "absolute",
-          bottom: 44,
+          top: 14,
           left: 16,
           zIndex: 4,
+          // Load-bearing at top-left: the row sits over the default view
+          // origin, so without this it would eat the first node's mousedown
+          // on nearly every workflow. The keycaps have no click behavior.
+          pointerEvents: "none",
           display: "flex",
           flexWrap: "wrap",
           columnGap: 12,
           rowGap: 6,
           alignItems: "center",
-          maxWidth: "calc(100% - 96px)",
+          // Nothing sits top-right, unlike the zoom controls the old
+          // bottom-left placement had to wrap away from.
+          maxWidth: "calc(100% - 32px)",
           fontFamily: "var(--font-mono)",
           fontSize: 10,
           color: "var(--fg-dim)",
         }}
       >
-        {[
-          ["drag bg", "pan"],
-          ["scroll", "zoom"],
-          ["drag port", "connect"],
-          ["⌫", "delete node"],
-        ].map(([k, v]) => (
+        {(
+          [
+            ["drag bg", "pan"],
+            ["scroll", "zoom"],
+            ["drag port", "connect"],
+            [<IconBackspace key="bksp" size={12} />, "delete node"],
+          ] as [React.ReactNode, string][]
+        ).map(([k, v]) => (
           <span
-            key={k}
+            key={v}
+            // The visible text no longer spells the key, so name it for
+            // screen readers and anyone who doesn't recognise the glyph.
+            title={v === "delete node" ? "Backspace" : undefined}
             style={{
               display: "inline-flex",
               alignItems: "center",
               gap: 5,
               whiteSpace: "nowrap",
               flexShrink: 0,
+              // The row disables pointer events so it doesn't steal the
+              // first node's mousedown; re-enable them just here so the
+              // title tooltip is actually reachable by hover.
+              pointerEvents: "auto",
             }}
           >
             <span

@@ -21,14 +21,29 @@ import (
 // the failure message, paste the new digest below, and get explicit sign-off in
 // the PR description explaining why the payment path moved. If you did NOT
 // intend it, revert the file.
+// Updated 2026-08-19 reconciling PR #65 ("tiered node expansion") against
+// master: billing.go/runfund.go/tendril.go/x402relay.go moved on master
+// while this branch was open, for reasons unrelated to anything in the PR
+// itself --
+//   - billing.go: BillableFlatFee gained models.NodeTypeGoogle as a billable
+//     node type, for master's new Google connector nodes.
+//   - runfund.go / x402relay.go: both now build their Bazaar discovery
+//     extension through the shared nodes.BazaarDiscoveryExtension instead of
+//     two hand-maintained, independently-drifting copies (the drift itself
+//     was a real prior cataloging bug on master, already fixed there).
+//   - tendril.go: emptyRunContext gained LastOutput() any, for the
+//     RunContexter interface's own determinism fix (see engine/context.go).
+// Every one of these is a clean merge from master, not a local edit; the
+// payment amounts/addresses/signing logic (the thing this test actually
+// guards) is unchanged. Digests below reflect the merged state.
 var frozenX402Files = map[string]string{
 	"nodes/tool402.go":             "cf7b39ecf298b2cc427d3c4d40430bc2b7bcb460af73efb1246fd6583bc40055",
-	"nodes/runfund.go":             "ca3b55214902a37c37f66813901fc6fccf293b52a5597570546d0067473b6cbb",
+	"nodes/runfund.go":             "30b2225ecc33bd2ae4f6d764773e40cb5c906b8bfb1a64678829f5a3978d9a12",
 	"nodes/walletpay.go":           "98bb3f7d0cb167f8a50d050e04720738c63c68b9fd570758fa5b9604338a4e37",
-	"nodes/tendril.go":             "6ce9a70c053c6b625f1e87ba4fea5b6d011eedafd89cc474e528a462d3e105fe",
-	"nodes/billing.go":             "4e98138e4e067a11385596f27006ead5a4977e4d26f497c9bb08055a0540145c",
+	"nodes/tendril.go":             "b787a18f17bc80f593159e46a0c7fd7e543a9db44f55a451ed8f47102fb9132a",
+	"nodes/billing.go":             "30ce9c818adf65b739807bcd9fff983fd9f060e579174c43140ab96116ee8a5d",
 	"nodes/tier.go":                "5718a3538e042c9d7f90b37f38b47d893644d6093f560d103ea9036c90ddc90b",
-	"../api/handlers/x402relay.go": "4186adfe17affb2a5e008b5ab56c88f264e84f4e7ba9f1ee5fe6090eb21548c1",
+	"../api/handlers/x402relay.go": "44edc414c1cb8433ba8bd0d66bab0f4620da396b14133136a5c478c296aea6a8",
 	"../x402/facilitator.go":       "976d118ae200994728f96733dceca79bc90fcc2cc99e859c47d710477f9480ca",
 }
 

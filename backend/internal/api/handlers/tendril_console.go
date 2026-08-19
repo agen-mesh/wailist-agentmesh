@@ -106,6 +106,7 @@ func (d *Deps) TendrilConsoleWorkflowExists(w http.ResponseWriter, r *http.Reque
 type consoleRunContext struct{ message string }
 
 func (c consoleRunContext) Message() string             { return c.message }
+func (c consoleRunContext) LastOutput() any             { return c.message }
 func (c consoleRunContext) UserInput() string           { return c.message }
 func (c consoleRunContext) ToolOutputs() map[string]any { return nil }
 func (c consoleRunContext) Set(string, any)             {}

@@ -22,11 +22,23 @@ export const metadata: Metadata = {
     url: "/",
     siteName: "AgentMesh",
     type: "website",
+    // No `images` here on purpose: opengraph-image.tsx (the file convention)
+    // already supplies og:image, and it takes precedence over anything set
+    // here -- setting both leaves og:image pointing at the generated route
+    // while twitter:image points somewhere else, which is how this file
+    // briefly ended up advertising two different preview images.
   },
   twitter: {
     card: "summary_large_image",
     title: "AgentMesh",
     description: "Design, deploy, and monitor AI agent workflows.",
+  },
+  // The square mark, as distinct from the 1200x630 preview banner above.
+  // A listing that renders an avatar wants this shape, not the banner, and
+  // until now the only thing on the domain was favicon.ico.
+  icons: {
+    icon: [{ url: "/logo.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/logo.png" }],
   },
 };
 

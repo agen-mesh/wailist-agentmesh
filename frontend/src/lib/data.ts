@@ -14,18 +14,27 @@ export const NODE_TYPES: Record<string, NodeTypeMeta> = {
   trigger: { w: 200, h: 60, ports: ["out"] },
   agent: { w: 260, h: 124, ports: ["in", "out", "model", "tools"] },
   provider: { w: 220, h: 76, ports: ["top"] },
-  tool: { w: 200, h: 64, ports: ["top"] },
-  tool402: { w: 220, h: 84, ports: ["top"] },
+  tool: { w: 200, h: 64, ports: ["top", "in", "out"] },
+  tool402: { w: 220, h: 84, ports: ["top", "in", "out"] },
   action: { w: 200, h: 64, ports: ["in", "out"] },
   end: { w: 200, h: 60, ports: ["in"] },
   tendril: { w: 240, h: 96, ports: ["in", "out", "top"] },
+  // Flow-only (no "top" attach port) -- unlike tool/tool402, a Google node
+  // was never made agent-attachable on the backend (isValidConnection's
+  // attach list below doesn't include "google"), so there's no second port
+  // set to offer here.
+  google: { w: 220, h: 76, ports: ["in", "out"] },
 };
 
+// "cron" (Schedule) intentionally omitted: there is no scheduler in the
+// backend (grep -ri "cron|schedul" backend/internal turns up nothing
+// non-test), so a workflow whose only trigger is Schedule would never fire
+// on its own. Re-add once a real scheduler exists -- see the node-cleanup
+// plan's Part B5.
 export const TRIGGER_TEMPLATES = [
   { id: "manual", name: "Manual Trigger", desc: "Click to test", icon: "▶" },
   { id: "chat", name: "On Chat Message", desc: "Inbound chat", icon: "◴" },
   { id: "webhook", name: "Webhook", desc: "HTTP POST endpoint", icon: "◷" },
-  { id: "cron", name: "Schedule", desc: "Cron / interval", icon: "◵" },
 ];
 
 export const AGENT_TEMPLATES = [
@@ -45,6 +54,33 @@ export const PROVIDER_TEMPLATES = [
   { id: "anthropic", name: "Anthropic", model: "claude-sonnet-4-6", icon: "A" },
   { id: "mistral", name: "Mistral", model: "mistral-large-latest", icon: "M" },
   { id: "groq", name: "Groq", model: "llama-3.3-70b-versatile", icon: "q" },
+];
+
+// One shared OAuth connection (Config.oauthCredentialID) covers all four
+// products -- see backend/internal/api/handlers/oauth2creds.go's
+// googleConnectorScopes, requested together in one consent screen.
+// "product" groups the palette's Google tab into sections the way
+// ACTION_CATEGORIES groups the Actions tab.
+export const GOOGLE_PRODUCTS = ["Gmail", "Sheets", "Calendar", "Drive"] as const;
+
+// usesMessage marks the operations that actually send/write something and
+// so benefit from a {{ }} message template (see resolveMessage/
+// expandTemplate in connector_helpers.go) -- mirrors the write-op cases in
+// backend/internal/engine/nodes/google.go (gmail_send/gmail_reply/
+// sheets_append/calendar_create) so the Inspector's Message section can
+// derive from this table instead of keeping its own separate id list.
+export const GOOGLE_TEMPLATES = [
+  { id: "gmail_list", name: "Gmail: List Messages", desc: "Search/list inbox messages", icon: "✉", product: "Gmail" },
+  { id: "gmail_get", name: "Gmail: Get Message", desc: "Read one message's content", icon: "✉", product: "Gmail" },
+  { id: "gmail_send", name: "Gmail: Send Message", desc: "Send a new email", icon: "✉", product: "Gmail", usesMessage: true },
+  { id: "gmail_reply", name: "Gmail: Reply", desc: "Reply within a thread", icon: "✉", product: "Gmail", usesMessage: true },
+  { id: "sheets_read", name: "Sheets: Read Range", desc: "Read cell values", icon: "▦", product: "Sheets" },
+  { id: "sheets_append", name: "Sheets: Append Row", desc: "Add a row of data", icon: "▦", product: "Sheets", usesMessage: true },
+  { id: "calendar_list", name: "Calendar: List Events", desc: "List upcoming events", icon: "◔", product: "Calendar" },
+  { id: "calendar_create", name: "Calendar: Create Event", desc: "Schedule a new event", icon: "◔", product: "Calendar", usesMessage: true },
+  { id: "drive_list", name: "Drive: List Files", desc: "Search/list files", icon: "▤", product: "Drive" },
+  { id: "drive_get", name: "Drive: Get File Info", desc: "Read file metadata", icon: "▤", product: "Drive" },
+  { id: "drive_download", name: "Drive: Download File", desc: "Fetch file contents", icon: "▤", product: "Drive" },
 ];
 
 // Display-only mirror of backend/internal/engine/nodes/tier.go's modelTiers
@@ -110,22 +146,17 @@ export function modelTier(
   return MODEL_TIERS[template]?.[model] ?? "standard";
 }
 
+// "code" (Pinecone/pgvector-style vector store, JS/Python inline) and "memory"
+// removed: ExecuteTool (backend/internal/engine/nodes/tool.go) only handles
+// calc/datetime/http -- every other template fell through to a default case
+// that echoed the input back and reported success, rendering a green node
+// that did nothing. Real inline code execution exists today via the Tendril
+// tab's "Run a Job" node (metered Python over x402); route there instead of
+// reintroducing a stub. "datetime" is fully implemented backend-side but had
+// no palette entry -- added below.
 export const TOOL_TEMPLATES = [
   { id: "http", name: "HTTP Request", desc: "GET/POST any URL", icon: "⟶" },
-  { id: "code", name: "Code", desc: "Run JS/Python inline", icon: "{}" },
   { id: "calc", name: "Calculator", desc: "Math expressions", icon: "Σ" },
-  {
-    id: "vector",
-    name: "Vector Store",
-    desc: "Pinecone / pgvector",
-    icon: "⊕",
-  },
-  {
-    id: "memory",
-    name: "Conversation Memory",
-    desc: "Recent turns",
-    icon: "◐",
-  },
   { id: "set", name: "Edit Fields", desc: "Build an object from refs", icon: "≔" },
   { id: "json_extract", name: "JSON Extract", desc: "Pick a value by path", icon: "⌗" },
   { id: "crypto", name: "Crypto", desc: "Hash / HMAC / base64", icon: "⚿" },
@@ -137,119 +168,323 @@ export const TOOL_TEMPLATES = [
   { id: "quickchart", name: "QuickChart", desc: "Chart image URL", icon: "▦" },
 ];
 
-export const TOOL402_TEMPLATES = [
-  {
-    id: "tavily",
-    name: "Tavily Search",
-    provider: "tavily.x402",
-    price: "0.002",
-    unit: "call",
-    icon: "⌕",
-  },
-  {
-    id: "firecrawl",
-    name: "Firecrawl Scrape",
-    provider: "firecrawl.x402",
-    price: "0.005",
-    unit: "page",
-    icon: "◐",
-  },
-  {
-    id: "alpaca",
-    name: "AlpacaQuote",
-    provider: "alpaca.x402",
-    price: "0.001",
-    unit: "quote",
-    icon: "$",
-  },
-  {
-    id: "ocr",
-    name: "OCR.space",
-    provider: "ocr.x402",
-    price: "0.003",
-    unit: "page",
-    icon: "⊟",
-  },
-  {
-    id: "flux",
-    name: "FluxImage",
-    provider: "flux.x402",
-    price: "0.020",
-    unit: "image",
-    icon: "✦",
-  },
-  {
-    id: "weather",
-    name: "WeatherKit",
-    provider: "weatherkit.x402",
-    price: "0.0008",
-    unit: "call",
-    icon: "◌",
-  },
-];
+// TOOL402_TEMPLATES removed: the x402 tab's palette `map` never set an
+// `endpoint` (PalettePanel.tsx), and the providers advertised here
+// (tavily.x402, firecrawl.x402, etc.) were invented hostnames -- nothing
+// real is reachable at any of them. The working path is the "New x402
+// Endpoint" custom creator (paste a real URL, Discover probes the live 402
+// challenge for method/price), which stays untouched by this removal.
+
+// ACTION_CATEGORIES mirrors the backend's own connector grouping
+// (connectors_{messaging,productivity,devtools,data,media}.go) so the palette's
+// grouping can't silently drift from how the connectors are actually organized
+// server-side. "Email" is its own bucket rather than folded into Messaging --
+// it lives directly in action.go, not a connectors_*.go file, and has a
+// materially different shape (provider dropdown, from/subject/body) than a
+// webhook-post connector.
+export const ACTION_CATEGORIES = [
+  "Messaging",
+  "Email",
+  "Productivity",
+  "Developer Tools",
+  "Data & CRM",
+  "Commerce",
+  "Support",
+  "Media",
+  "Utilities",
+] as const;
 
 export const ACTION_TEMPLATES = [
-  { id: "email", name: "Send Email", desc: "Postmark / Resend", icon: "✉" },
-  { id: "slack", name: "Slack Message", desc: "Post to channel", icon: "#" },
-  { id: "db", name: "Database Insert", desc: "Postgres / Neon", icon: "▤" },
-  { id: "discord", name: "Discord Message", desc: "Webhook post", icon: "d" },
-  { id: "teams", name: "Teams Message", desc: "Webhook post", icon: "T" },
+  {
+    id: "email",
+    name: "Send Email",
+    desc: "Postmark / Resend",
+    icon: "✉",
+    category: "Email",
+  },
+  {
+    id: "slack",
+    name: "Slack Message",
+    desc: "Post to channel",
+    icon: "#",
+    category: "Messaging",
+  },
+  // "db" (Database Insert) removed: no `case "db"` in ExecuteAction
+  // (backend/internal/engine/nodes/action.go) -- it fell through to
+  // `default: return "logged", nil`, a green node that wrote nothing.
+  {
+    id: "discord",
+    name: "Discord Message",
+    desc: "Webhook post",
+    icon: "d",
+    category: "Messaging",
+  },
+  {
+    id: "teams",
+    name: "Teams Message",
+    desc: "Webhook post",
+    icon: "T",
+    category: "Messaging",
+  },
   {
     id: "google_chat",
     name: "Google Chat Message",
     desc: "Webhook post",
     icon: "G",
+    category: "Messaging",
   },
-  { id: "ntfy", name: "Ntfy Push", desc: "Topic notification", icon: "n" },
-  { id: "telegram", name: "Telegram Message", desc: "Bot API send", icon: "t" },
-  { id: "github", name: "GitHub Issue", desc: "Create an issue", icon: "gh" },
-  { id: "notion", name: "Notion Block", desc: "Append to a page", icon: "N" },
+  {
+    id: "ntfy",
+    name: "Ntfy Push",
+    desc: "Topic notification",
+    icon: "n",
+    category: "Messaging",
+  },
+  {
+    id: "telegram",
+    name: "Telegram Message",
+    desc: "Bot API send",
+    icon: "t",
+    category: "Messaging",
+  },
+  {
+    id: "telegram_get_updates",
+    name: "Telegram Get Updates",
+    desc: "Read new bot messages",
+    icon: "t",
+    category: "Messaging",
+  },
+  {
+    id: "github",
+    name: "GitHub Issue",
+    desc: "Create an issue",
+    icon: "gh",
+    category: "Developer Tools",
+  },
+  {
+    id: "notion",
+    name: "Notion Block",
+    desc: "Append to a page",
+    icon: "N",
+    category: "Productivity",
+  },
   {
     id: "airtable",
     name: "Airtable Record",
     desc: "Create a record",
     icon: "A",
+    category: "Productivity",
   },
-  { id: "hubspot", name: "HubSpot Note", desc: "Log a CRM note", icon: "hs" },
-  { id: "trello", name: "Trello Card", desc: "Create a card", icon: "tr" },
-  { id: "asana", name: "Asana Task", desc: "Create a task", icon: "as" },
-  { id: "clickup", name: "ClickUp Task", desc: "Create a task", icon: "cu" },
-  { id: "jira", name: "Jira Issue", desc: "Create an issue", icon: "J" },
+  {
+    id: "hubspot",
+    name: "HubSpot Note",
+    desc: "Log a CRM note",
+    icon: "hs",
+    category: "Data & CRM",
+  },
+  {
+    id: "trello",
+    name: "Trello Card",
+    desc: "Create a card",
+    icon: "tr",
+    category: "Productivity",
+  },
+  {
+    id: "asana",
+    name: "Asana Task",
+    desc: "Create a task",
+    icon: "as",
+    category: "Productivity",
+  },
+  {
+    id: "clickup",
+    name: "ClickUp Task",
+    desc: "Create a task",
+    icon: "cu",
+    category: "Productivity",
+  },
+  {
+    id: "jira",
+    name: "Jira Issue",
+    desc: "Create an issue",
+    icon: "J",
+    category: "Developer Tools",
+  },
   {
     id: "mailchimp",
     name: "Mailchimp Subscriber",
     desc: "Add to a list",
     icon: "mc",
+    category: "Data & CRM",
   },
-  { id: "linear", name: "Linear Issue", desc: "Create an issue", icon: "L" },
-  { id: "todoist", name: "Todoist Task", desc: "Create a task", icon: "td" },
-  { id: "gitlab", name: "GitLab Issue", desc: "Create an issue", icon: "gl" },
-  { id: "sentry", name: "Sentry Event", desc: "Capture a message", icon: "S" },
-  { id: "supabase", name: "Supabase Insert", desc: "Insert a row", icon: "sb" },
+  {
+    id: "linear",
+    name: "Linear Issue",
+    desc: "Create an issue",
+    icon: "L",
+    category: "Developer Tools",
+  },
+  {
+    id: "todoist",
+    name: "Todoist Task",
+    desc: "Create a task",
+    icon: "td",
+    category: "Productivity",
+  },
+  {
+    id: "gitlab",
+    name: "GitLab Issue",
+    desc: "Create an issue",
+    icon: "gl",
+    category: "Developer Tools",
+  },
+  {
+    id: "sentry",
+    name: "Sentry Event",
+    desc: "Capture a message",
+    icon: "S",
+    category: "Developer Tools",
+  },
+  {
+    id: "supabase",
+    name: "Supabase Insert",
+    desc: "Insert a row",
+    icon: "sb",
+    category: "Data & CRM",
+  },
   {
     id: "woocommerce",
     name: "WooCommerce Note",
     desc: "Add an order note",
     icon: "wc",
+    category: "Data & CRM",
   },
   {
     id: "elevenlabs",
     name: "ElevenLabs Speech",
     desc: "Text to speech",
     icon: "11",
+    category: "Media",
   },
-  { id: "stripe", name: "Stripe Customer", desc: "Create a customer", icon: "st" },
-  { id: "twilio", name: "Twilio SMS", desc: "Send an SMS", icon: "tw" },
-  { id: "mattermost", name: "Mattermost Message", desc: "Webhook post", icon: "mm" },
-  { id: "pagerduty", name: "PagerDuty Alert", desc: "Trigger an incident", icon: "pd" },
-  { id: "zendesk", name: "Zendesk Ticket", desc: "Open a ticket", icon: "zd" },
-  { id: "monday", name: "Monday.com Item", desc: "Create a board item", icon: "mo" },
-  { id: "shopify", name: "Shopify Customer", desc: "Create a customer", icon: "sp" },
-  { id: "pipedrive", name: "Pipedrive Note", desc: "Log a CRM note", icon: "pi" },
-  { id: "rss", name: "RSS Feed", desc: "Read a feed (no key)", icon: "rs" },
-  { id: "graphql", name: "GraphQL Query", desc: "Any GraphQL endpoint", icon: "gq" },
-  { id: "hackernews", name: "Hacker News", desc: "Search stories (no key)", icon: "hn" },
-  { id: "coingecko", name: "CoinGecko Price", desc: "Spot prices (no key)", icon: "cg" },
+  {
+    id: "twilio",
+    name: "Twilio SMS",
+    desc: "Send a text message",
+    icon: "tw",
+    category: "Messaging",
+  },
+  {
+    id: "stripe",
+    name: "Stripe Customer",
+    desc: "Create a customer",
+    icon: "$",
+    category: "Commerce",
+  },
+  {
+    id: "shopify",
+    name: "Shopify Customer",
+    desc: "Create a customer",
+    icon: "sp",
+    category: "Commerce",
+  },
+  {
+    id: "shopify_order_note",
+    name: "Shopify Order Note",
+    desc: "Add a note to an order",
+    icon: "sp",
+    category: "Commerce",
+  },
+  {
+    id: "zendesk",
+    name: "Zendesk Ticket",
+    desc: "Create a support ticket",
+    icon: "zd",
+    category: "Support",
+  },
+  {
+    id: "intercom",
+    name: "Intercom Lead",
+    desc: "Create a lead contact",
+    icon: "ic",
+    category: "Support",
+  },
+  {
+    id: "pagerduty",
+    name: "PagerDuty Incident",
+    desc: "Trigger an incident",
+    icon: "pd",
+    category: "Developer Tools",
+  },
+  {
+    id: "calendly",
+    name: "Calendly Events",
+    desc: "List scheduled events",
+    icon: "cy",
+    category: "Productivity",
+  },
+  {
+    id: "baserow",
+    name: "Baserow Row",
+    desc: "Create a row",
+    icon: "br",
+    category: "Productivity",
+  },
+  {
+    id: "openweathermap",
+    name: "OpenWeatherMap",
+    desc: "Get current weather",
+    icon: "wx",
+    category: "Utilities",
+  },
+  {
+    id: "mattermost",
+    name: "Mattermost Message",
+    desc: "Webhook post",
+    icon: "mm",
+    category: "Messaging",
+  },
+  {
+    id: "monday",
+    name: "Monday.com Item",
+    desc: "Create a board item",
+    icon: "mo",
+    category: "Productivity",
+  },
+  {
+    id: "pipedrive",
+    name: "Pipedrive Note",
+    desc: "Log a CRM note",
+    icon: "pi",
+    category: "Data & CRM",
+  },
+  {
+    id: "rss",
+    name: "RSS Feed",
+    desc: "Read a feed (no key)",
+    icon: "rs",
+    category: "Utilities",
+  },
+  {
+    id: "graphql",
+    name: "GraphQL Query",
+    desc: "Any GraphQL endpoint",
+    icon: "gq",
+    category: "Developer Tools",
+  },
+  {
+    id: "hackernews",
+    name: "Hacker News",
+    desc: "Search stories (no key)",
+    icon: "hn",
+    category: "Utilities",
+  },
+  {
+    id: "coingecko",
+    name: "CoinGecko Price",
+    desc: "Spot prices (no key)",
+    icon: "cg",
+    category: "Utilities",
+  },
 ];
 
 export const END_TEMPLATES = [
@@ -498,26 +733,30 @@ const EP_SEEDS: EPSeed[] = [
     lastUsedMin: 2,
   },
   {
-    endpoint: "Tavily Search",
-    host: "api.tavily.x402/search",
-    provider: "tavily.x402",
+    // Real, live x402 endpoint (confirmed via GET tendrilregister.007575.xyz/platform
+    // -- Algorand mainnet USDC, same facilitator this platform's own relay
+    // uses). Replaces the former Tavily/Firecrawl rows, which pointed at
+    // invented hostnames nothing ever answered.
+    endpoint: "Tendril Run",
+    host: "tendrilregister.007575.xyz/x402/run",
+    provider: "tendril.x402",
     type: "x402",
-    unitPrice: 0.002,
+    unitPrice: 0.01,
     unit: "call",
-    calls30: 3820,
-    success: 99.8,
-    lastUsedMin: 8,
+    calls30: 2140,
+    success: 98.6,
+    lastUsedMin: 4,
   },
   {
-    endpoint: "Firecrawl Scrape",
-    host: "api.firecrawl.x402/scrape",
-    provider: "firecrawl.x402",
+    endpoint: "Tendril Rent",
+    host: "tendrilregister.007575.xyz/x402/rent",
+    provider: "tendril.x402",
     type: "x402",
-    unitPrice: 0.005,
-    unit: "page",
-    calls30: 940,
-    success: 97.4,
-    lastUsedMin: 26,
+    unitPrice: 0.01,
+    unit: "hour",
+    calls30: 318,
+    success: 99.1,
+    lastUsedMin: 19,
   },
   {
     endpoint: "AlpacaQuote",

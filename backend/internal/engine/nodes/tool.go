@@ -143,30 +143,94 @@ func ExecuteTool(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	}
 }
 
+// httpMethodsWithBody are the methods callHTTP attaches rc.Message() to as a
+// request body -- GET/HEAD/OPTIONS never carry one, matching real HTTP
+// semantics rather than the old POST-only special case.
+var httpMethodsWithBody = map[string]bool{
+	http.MethodPost:   true,
+	http.MethodPut:    true,
+	http.MethodPatch:  true,
+	http.MethodDelete: true,
+}
+
 func callHTTP(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	if err := urlValidator(node.URL); err != nil {
 		return nil, err
 	}
-	method := node.Method
+	// rawMethod (trimmed, NOT case-normalized) drives the legacy "does this
+	// node default to sending rc.Message() as its body" decision below --
+	// keeping that comparison case-sensitive against the exact "POST"
+	// constant preserves the exact pre-existing behavior for any
+	// already-saved node with a non-canonical-case Method (e.g. "post"),
+	// which previously never matched the old literal method == "POST"
+	// check and so never got a body. method (normalized) is still what's
+	// actually sent on the wire and used for template-gated body support on
+	// PUT/PATCH/DELETE, since that's new behavior with no legacy nodes to
+	// preserve compatibility for.
+	rawMethod := strings.TrimSpace(node.Method)
+	method := strings.ToUpper(rawMethod)
 	if method == "" {
 		method = http.MethodGet
 	}
 	var bodyReader io.Reader
-	if method == http.MethodPost {
-		bodyReader = bytes.NewReader([]byte(rc.Message()))
+	if httpMethodsWithBody[method] {
+		// httpBodyTemplate is this node's own template key, distinct from
+		// messageTemplate -- a different node type/Inspector, and "body" is
+		// the accurate term for what a request carries, vs. a connector's
+		// "message". Same {{ result }} / {{ result.field }} / {{ node.<id> }}
+		// syntax either way (resolveTemplate).
+		//
+		// Only POST defaults to rc.Message() verbatim with no template set --
+		// that's the pre-existing behavior and changing it would silently
+		// alter every already-saved POST node. PUT/PATCH/DELETE are new
+		// body-carrying methods as far as already-saved nodes are concerned
+		// (previously they never got a body at all), so they only attach one
+		// when the node explicitly opts in via httpBodyTemplate -- never
+		// defaulted, to avoid silently changing behavior for nodes saved
+		// before this method-aware body logic existed.
+		tmpl := configVal(node, "httpBodyTemplate", "")
+		switch {
+		case tmpl != "":
+			bodyReader = bytes.NewReader([]byte(resolveTemplate(tmpl, rc)))
+		case rawMethod == http.MethodPost:
+			bodyReader = bytes.NewReader([]byte(rc.Message()))
+		}
 	}
 	req, err := http.NewRequestWithContext(ctx, method, node.URL, bodyReader)
 	if err != nil {
 		return nil, err
 	}
-	if method == http.MethodPost {
+	if bodyReader != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	// Custom headers: a JSON object of header name -> value, e.g.
+	// {"X-Api-Key": "...", "Authorization": "Bearer ..."}. Kept in Secrets
+	// rather than Config -- headers commonly carry credentials and there's
+	// no way to tell which ones from the shape alone, so the whole blob
+	// gets the encrypted-at-rest treatment. Applied AFTER the Content-Type
+	// default above so an explicit Content-Type here (e.g. for an
+	// XML/form-urlencoded httpBodyTemplate) overrides the application/json
+	// default instead of being clobbered by it.
+	if raw := secretVal(node, "httpHeadersJSON"); raw != "" {
+		var headers map[string]string
+		if err := json.Unmarshal([]byte(raw), &headers); err != nil {
+			return nil, fmt.Errorf("http: invalid headers JSON: %w", err)
+		}
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+	}
+	if user := secretVal(node, "httpBasicUser"); user != "" {
+		req.SetBasicAuth(user, secretVal(node, "httpBasicPass"))
 	}
 	resp, err := toolHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("http: %s %d: %s", method, resp.StatusCode, readErrorBody(resp))
+	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
 	if err != nil {
 		return nil, err

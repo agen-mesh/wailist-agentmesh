@@ -364,7 +364,11 @@ const quickChartBase = "https://quickchart.io/chart"
 
 // executeQuickChart returns a QuickChart image URL for a Chart.js config.
 func executeQuickChart(node models.WorkflowNode, rc RunContexter) (any, error) {
-	cfg := resolveTemplate(configVal(node, "qcConfig", ""), rc)
+	// resolveTemplateJSON, not resolveTemplate: qcConfig is raw JSON *text*
+	// substituted before parsing, so an unescaped quote in a resolved value
+	// (e.g. an LLM reply containing `"`) would otherwise break the JSON --
+	// see resolveTemplateJSON's doc comment.
+	cfg := resolveTemplateJSON(configVal(node, "qcConfig", ""), rc)
 	if cfg == "" {
 		return nil, errors.New("quickchart: no `qcConfig` configured — set a Chart.js config object")
 	}

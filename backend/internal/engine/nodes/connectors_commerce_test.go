@@ -171,8 +171,11 @@ func TestPipedriveAction_CreatesNote(t *testing.T) {
 	if gotBody["content"] != "call scheduled for Tuesday" {
 		t.Errorf("content: got %v", gotBody["content"])
 	}
-	if gotBody["deal_id"] != "77" {
-		t.Errorf("deal_id: got %v", gotBody["deal_id"])
+	// Pipedrive's Notes API documents deal_id as an integer -- decoded back
+	// through encoding/json, a real JSON number lands as float64(77), not
+	// the string "77" a naive resolveTemplate pass-through would have sent.
+	if gotBody["deal_id"] != float64(77) {
+		t.Errorf("deal_id: want real JSON number 77, got %v (%T)", gotBody["deal_id"], gotBody["deal_id"])
 	}
 }
 
@@ -203,11 +206,11 @@ func TestPipedriveAction_ResolvesTemplatesInDealAndPersonID(t *testing.T) {
 	if _, err := nodes.ExecuteAction(context.Background(), node, rc); err != nil {
 		t.Fatal(err)
 	}
-	if gotBody["deal_id"] != "77" {
-		t.Errorf("deal_id should resolve the template, got %v", gotBody["deal_id"])
+	if gotBody["deal_id"] != float64(77) {
+		t.Errorf("deal_id should resolve the template as a real number, got %v (%T)", gotBody["deal_id"], gotBody["deal_id"])
 	}
-	if gotBody["person_id"] != "42" {
-		t.Errorf("person_id should resolve the template, got %v", gotBody["person_id"])
+	if gotBody["person_id"] != float64(42) {
+		t.Errorf("person_id should resolve the template as a real number, got %v (%T)", gotBody["person_id"], gotBody["person_id"])
 	}
 }
 

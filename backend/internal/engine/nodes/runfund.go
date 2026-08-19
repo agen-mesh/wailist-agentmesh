@@ -115,39 +115,17 @@ func selfSettleWallet1ToWallet2(ctx context.Context, cfg RunPreFundConfig, publi
 		// Bazaar discovery declaration on the struct actually POSTed to
 		// /verify — extra.tag alone only attributes an already-discovered
 		// route's activity to the challenge, it doesn't register the route.
-		// Schema-valid shape (info.input.type/method + a schema sibling) --
-		// see x402relay.go's bazaarDiscoveryExtension doc comment for why
-		// the {info:{output:{...}}} shape this had before this fix failed
-		// the facilitator's ajv validation unconditionally (no schema at
-		// all, no info.input.type) and so never once cataloged, even though
-		// verify/settle both succeeded and real money moved every time.
-		Extensions: map[string]any{
-			"bazaar": map[string]any{
-				// Public /api proxy path, matching resourceURL above --
-				// origin+routeTemplate has to resolve to a real URL, see
-				// x402relay.go's routeTemplate comment.
-				"routeTemplate": publicPath,
-				"info": map[string]any{
-					"input": map[string]any{"type": "http", "method": "GET"},
-				},
-				"schema": map[string]any{
-					"$schema": "https://json-schema.org/draft/2020-12/schema",
-					"type":    "object",
-					"properties": map[string]any{
-						"input": map[string]any{
-							"type": "object",
-							"properties": map[string]any{
-								"type":   map[string]any{"type": "string", "const": "http"},
-								"method": map[string]any{"type": "string", "enum": []string{"GET", "HEAD", "DELETE"}},
-							},
-							"required":             []string{"type", "method"},
-							"additionalProperties": false,
-						},
-					},
-					"required": []string{"input"},
-				},
-			},
-		},
+		// Built by the shared BazaarDiscoveryExtension rather than spelled
+		// out here: this block used to be a hand-maintained second copy of
+		// the one in x402relay.go, which is exactly how the two drifted into
+		// declaring method "GET" against an enum of ["GET","HEAD","DELETE"]
+		// and silently failed the facilitator's catalog validator on every
+		// settlement. RouteTemplate is the public /api proxy path, matching
+		// resourceURL above -- origin+routeTemplate has to resolve to a real
+		// URL. No queryParams (both self-settle routes take none) and no
+		// output example (neither route returns a payable body; they answer
+		// a static informational document).
+		Extensions: BazaarDiscoveryExtension(BazaarDeclaration{RouteTemplate: publicPath}),
 	}
 
 	group, idx, err := cfg.USDCSigner.SignUSDCPaymentGroup(ctx, cfg.PlatformSpendEncMnemonic, cfg.PlatformWalletAddress, cfg.ExpectedAssetID, uint64(amountUSDMicros), cfg.RelayFeePayer)

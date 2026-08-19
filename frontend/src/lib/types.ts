@@ -6,7 +6,8 @@ export type NodeType =
   | "tool402"
   | "action"
   | "end"
-  | "tendril";
+  | "tendril"
+  | "google";
 export type EdgeKind = "flow" | "attach";
 export type PortName = "in" | "out" | "model" | "tools" | "top";
 

@@ -37,7 +37,7 @@ func sendTwilio(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	if to == "" {
 		return "twilio_skipped_no_recipient", ErrActionSkipped
 	}
-	from := configVal(node, "twilioFrom", "")
+	from := resolveTemplate(configVal(node, "twilioFrom", ""), rc)
 	if from == "" {
 		return "twilio_skipped_no_sender", ErrActionSkipped
 	}
@@ -129,6 +129,14 @@ func sendZendesk(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	email := resolveTemplate(configVal(node, "zendeskEmail", ""), rc)
 	if subdomain == "" || email == "" {
 		return "zendesk_skipped_missing_config", ErrActionSkipped
+	}
+	// subdomain is user-supplied config interpolated directly into the
+	// request host below -- validate it first (mirrors jiraDomainPattern's
+	// own reasoning in connectors_devtools.go), otherwise a crafted value on
+	// a copied/imported workflow could redirect the request, and the API
+	// token with it, to an attacker-controlled host.
+	if !jiraDomainPattern.MatchString(subdomain) {
+		return "zendesk_skipped_invalid_subdomain", ErrActionSkipped
 	}
 	base := zendeskAPIBase
 	if base == "" {

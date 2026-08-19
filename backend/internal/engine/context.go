@@ -11,7 +11,9 @@ type RunContext struct {
 	// order records node IDs in the sequence they were Set. Message() reads
 	// the tail of this rather than ranging over `outputs` — Go randomizes map
 	// iteration order, so the old "most recent" was actually "an arbitrary
-	// one", non-deterministic across runs of the same workflow.
+	// one", non-deterministic across runs of the same workflow. A re-Set
+	// moves the node to the tail (see Set below), so "most recent" stays
+	// accurate even for a node that runs more than once.
 	order []string
 	input any
 	runID string
@@ -85,6 +87,21 @@ func (rc *RunContext) ToolOutputs() map[string]any {
 // endpoints (nodes/tool402.go) and the Python source sent to Tendril's metered
 // /x402/run (nodes/tendril.go). Changing which output it selects changes what
 // real money is spent on. Do not alter the selection rule.
+//
+// KNOWN ISSUE: "most recent" means last call to Set(), and runner.go runs
+// every node in the same topological level concurrently in its own
+// goroutine (see the wg.Add/go func loop in Run) -- so when two sibling
+// nodes in the same level both call Set(), which one's output Message()/
+// LastOutput() returns is decided by goroutine scheduling, not by the
+// workflow graph. A downstream node fed by two parallel upstream branches
+// can see either branch's output on any given run of the identical
+// workflow. Fixing this properly means Message()/LastOutput() resolving
+// the CALLING node's actual flow-edge predecessor rather than "whatever was
+// set last" -- which needs the predecessor's node ID threaded through
+// RunContexter into every one of the connector call sites that read
+// Message()/LastOutput() (20+ across nodes/connectors_*.go), not a change
+// local to this file. Left undone here; only genuinely single-predecessor
+// chains (the common case in practice) are unaffected.
 func (rc *RunContext) Message() string {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
@@ -92,6 +109,20 @@ func (rc *RunContext) Message() string {
 		return anyToString(rc.input)
 	}
 	return anyToString(rc.outputs[rc.order[len(rc.order)-1]])
+}
+
+// LastOutput returns the most recent output's raw value, unlike Message()
+// which always flattens it to a string. A connector's message template
+// (see nodes.expandTemplate) needs the real structure to pick one field out
+// of it -- e.g. {{ result.extract }} against a JSON API response -- which a
+// pre-stringified value can't offer.
+func (rc *RunContext) LastOutput() any {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if len(rc.order) == 0 {
+		return rc.input
+	}
+	return rc.outputs[rc.order[len(rc.order)-1]]
 }
 
 func anyToString(v any) string {

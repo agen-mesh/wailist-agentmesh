@@ -39,7 +39,7 @@ func sendHubSpot(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	}
 	payload := map[string]any{
 		"properties": map[string]any{
-			"hs_note_body": rc.Message(),
+			"hs_note_body": resolveMessage(node, rc),
 			"hs_timestamp": time.Now().UnixMilli(),
 		},
 	}
@@ -66,7 +66,7 @@ func sendMailchimp(ctx context.Context, node models.WorkflowNode, rc RunContexte
 	}
 	email := configVal(node, "mailchimpEmail", "")
 	if email == "" {
-		email = rc.Message()
+		email = resolveMessage(node, rc)
 	}
 	email = strings.TrimSpace(email)
 	if email == "" {
@@ -175,7 +175,7 @@ func sendSupabase(ctx context.Context, node models.WorkflowNode, rc RunContexter
 	}
 	column := configVal(node, "supabaseColumn", "content")
 	target := strings.TrimRight(projectURL, "/") + "/rest/v1/" + url.PathEscape(table)
-	payload := map[string]any{column: rc.Message()}
+	payload := map[string]any{column: resolveMessage(node, rc)}
 	headers := map[string]string{
 		"apikey":        apiKey,
 		"Authorization": "Bearer " + apiKey,
@@ -196,7 +196,7 @@ func sendWooCommerce(ctx context.Context, node models.WorkflowNode, rc RunContex
 		return "woocommerce_skipped_missing_config", ErrActionSkipped
 	}
 	target := strings.TrimRight(storeURL, "/") + "/wp-json/wc/v3/orders/" + url.PathEscape(orderID) + "/notes"
-	payload := map[string]any{"note": rc.Message(), "customer_note": false}
+	payload := map[string]any{"note": resolveMessage(node, rc), "customer_note": false}
 	headers := basicAuthHeader(consumerKey, consumerSecret)
 	return postJSON(ctx, target, headers, payload, "woocommerce_note_added", "WooCommerce")
 }

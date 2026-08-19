@@ -33,6 +33,30 @@ func configVal(node models.WorkflowNode, key, def string) string {
 	return node.Config[key]
 }
 
+// messageTemplateKey is the Config key a message-sending connector (Slack,
+// Discord, Telegram, GitHub, Notion, ...) reads an optional template from.
+// Empty (the default) preserves every such connector's original behavior
+// exactly: send rc.Message() verbatim.
+const messageTemplateKey = "messageTemplate"
+
+// resolveMessage is what a connector should call instead of rc.Message()
+// directly, so every one of them picks up template support for free. See
+// resolveTemplate (resolve.go) for the placeholder syntax.
+func resolveMessage(node models.WorkflowNode, rc RunContexter) string {
+	tmpl := configVal(node, messageTemplateKey, "")
+	if tmpl == "" {
+		return rc.Message()
+	}
+	return resolveTemplate(tmpl, rc)
+}
+
+// ResolveMessageForTest is a test-only exported wrapper, used by
+// connector_helpers_test.go (package nodes_test) to test resolveMessage
+// without exporting it from the package's real API.
+func ResolveMessageForTest(node models.WorkflowNode, rc RunContexter) string {
+	return resolveMessage(node, rc)
+}
+
 // newJSONRequest builds a JSON request with the given method, target, and headers.
 // Content-Type is always application/json; extraHeaders may add Authorization etc.
 func newJSONRequest(ctx context.Context, method, target string, extraHeaders map[string]string, payload any) (*http.Request, error) {
@@ -99,6 +123,38 @@ func doAndCheck(req *http.Request, sentinel, serviceName string) (any, error) {
 	}
 	io.Copy(io.Discard, resp.Body)
 	return sentinel, nil
+}
+
+// getJSON executes req on the shared toolHTTPClient and decodes a successful
+// JSON response body into `any`, returning it to the caller. Unlike
+// doAndCheck -- which discards the body and hands back a fixed sentinel --
+// this is for connector operations that read data (list/get) rather than
+// just report success, so the result can flow to the next node.
+func getJSON(req *http.Request, serviceName string) (any, error) {
+	resp, err := doValidatedRequest(req, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("%s API %d: %s", serviceName, resp.StatusCode, readErrorBody(resp))
+	}
+	b, err := readBounded(resp.Body, httpResponseLimit)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", serviceName, err)
+	}
+	var result any
+	if err := json.Unmarshal(b, &result); err != nil {
+		return nil, fmt.Errorf("%s: decode response: %w", serviceName, err)
+	}
+	return result, nil
+}
+
+// GetJSONForTest is a test-only exported wrapper for getJSON, used by
+// connector_helpers_test.go (package nodes_test) to test the unexported
+// helper without exporting it from the package's real API.
+func GetJSONForTest(req *http.Request, serviceName string) (any, error) {
+	return getJSON(req, serviceName)
 }
 
 // mediaResponseLimit bounds binary media payloads (e.g. generated audio),

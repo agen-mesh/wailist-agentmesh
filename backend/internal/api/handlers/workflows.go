@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/respond"
 )
@@ -111,4 +112,56 @@ func (d *Deps) DeleteWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// BuildWorkflow edits the workflow graph via chat: a platform-key Gemini
+// meta-agent calls add_node/update_node/remove_node/add_edge/remove_edge
+// tools against the current graph, then the result is persisted through the
+// same encrypt path UpdateWorkflow uses. The graph handed to the model is
+// redacted first (redactNodesForBuildAgent) so neither an untouched node's
+// real API key/secret value nor an uploaded file's raw bytes are ever sent
+// to Gemini -- only the "__enc__" sentinel encryptField already knows how to
+// preserve on save, and file metadata with the content stripped.
+func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	userID, _ := r.Context().Value(CtxUserID).(string)
+	existing, err := d.Store.GetWorkflow(r.Context(), id)
+	if err != nil || existing.UserID != userID {
+		respond.Error(w, http.StatusNotFound, "workflow not found")
+		return
+	}
+	var body struct {
+		Message string `json:"message"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if strings.TrimSpace(body.Message) == "" {
+		respond.Error(w, http.StatusBadRequest, "message required")
+		return
+	}
+	if d.PlatformGeminiAPIKey == "" {
+		respond.Error(w, http.StatusServiceUnavailable, "workflow builder is not configured")
+		return
+	}
+
+	maskedGraph := models.WorkflowGraph{Nodes: redactNodesForBuildAgent(existing.Nodes), Edges: existing.Edges}
+	result, err := nodes.BuildGraph(r.Context(), d.PlatformGeminiAPIKey, body.Message, maskedGraph)
+	if err != nil {
+		// The upstream text (a raw Gemini error body, keys and all) lands
+		// straight in the user's chat bubble if forwarded -- same anti-pattern
+		// DeleteWorkflow was already fixed for. Log it, say something plain.
+		log.Printf("build workflow %s: %v", id, err)
+		respond.Error(w, http.StatusBadGateway, "the workflow builder could not complete this request")
+		return
+	}
+
+	encryptedNodes := encryptNodes(result.Graph.Nodes, d.EncryptionKey, existing.Nodes)
+	graph := models.WorkflowGraph{Nodes: encryptedNodes, Edges: result.Graph.Edges}
+	wf, err := d.Store.UpdateWorkflow(r.Context(), id, existing.Name, graph)
+	if err != nil {
+		log.Printf("build workflow %s: save: %v", id, err)
+		respond.Error(w, http.StatusInternalServerError, "could not save the updated workflow")
+		return
+	}
+	wf.Nodes = maskNodes(wf.Nodes)
+	respond.JSON(w, http.StatusOK, map[string]any{"reply": result.Reply, "workflow": wf})
 }

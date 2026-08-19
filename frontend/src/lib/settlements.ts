@@ -55,8 +55,13 @@ export function recordSettlements(
     const existing = listSettlements(userId);
     const seen = new Set(existing.map((s) => s.txId).filter(Boolean));
     const fresh = incoming.filter((s) => {
-      if (!s.txId || seen.has(s.txId)) return false;
-      seen.add(s.txId);
+      // A settlement with no tx id (a v2/relay settlement that returned
+      // none) has nothing to dedupe against -- treating "" as "already
+      // seen" silently dropped every one of these rows, undercounting real
+      // spend on the usage page. Only an actual, previously-seen id is a
+      // duplicate.
+      if (s.txId && seen.has(s.txId)) return false;
+      if (s.txId) seen.add(s.txId);
       return true;
     });
     if (fresh.length === 0) return;

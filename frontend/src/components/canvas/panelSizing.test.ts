@@ -14,6 +14,14 @@ describe("clampWidth", () => {
     );
   });
 
+  // Pins the rail's upper bound: it is a terminal column budget now, not just
+  // a layout preference (see the comment on INSPECTOR).
+  it("clamps the inspector above its maximum down to max", () => {
+    expect(clampWidth(9999, INSPECTOR, WIDE, PALETTE.default)).toBe(
+      INSPECTOR.max,
+    );
+  });
+
   it("passes a valid width through unchanged in a wide container", () => {
     expect(clampWidth(320, PALETTE, WIDE, INSPECTOR.default)).toBe(320);
   });

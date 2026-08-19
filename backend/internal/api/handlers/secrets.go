@@ -13,6 +13,14 @@ const encPrefix = "enc:"
 // The frontend sends it back unchanged when the user hasn't touched the field.
 const EncSentinel = "__enc__"
 
+// ClearSentinel is what the frontend sends to explicitly blank out a secret
+// field -- distinct from "", which encryptField (below) treats as "no
+// change, keep whatever's already saved." Without a distinct sentinel,
+// removing every entry from a multi-value secret (e.g. the HTTP tool
+// node's custom-headers editor) serializes to "" and silently fails to
+// revoke the previously-saved value server-side.
+const ClearSentinel = "__clear__"
+
 // encryptNodes returns a copy of nodes with apiKey/emailApiKey encrypted.
 // existing is the prior DB state — used to preserve the encrypted blob when
 // the frontend sends back the sentinel (meaning "don't change this key").
@@ -53,7 +61,11 @@ func encryptSecretsMap(newVals, existingVals map[string]string, key string) map[
 
 // encryptField encrypts a single secret field.
 // If newVal is the sentinel or empty, the existing encrypted blob is preserved.
+// If newVal is ClearSentinel, the field is explicitly wiped instead.
 func encryptField(newVal, existingEnc, key string) string {
+	if newVal == ClearSentinel {
+		return ""
+	}
 	if newVal == EncSentinel || newVal == "" {
 		return existingEnc // keep whatever was already there
 	}
@@ -95,6 +107,35 @@ func maskSecretsMap(vals map[string]string) map[string]string {
 		} else {
 			out[k] = v
 		}
+	}
+	return out
+}
+
+// redactNodesForBuildAgent returns nodes safe to hand to a third-party LLM
+// (the chat workflow builder's Gemini calls): maskNodes's usual sentinel
+// redaction, plus stripping CustomParam file bytes. maskNodes alone only
+// covers APIKey/EmailAPIKey/Secrets -- a CustomParam with Kind "file" carries
+// its content base64-encoded in Value, up to maxParamFileBytes (2 MiB, see
+// tool402.go), which maskNodes leaves untouched. That's a real file the user
+// uploaded to THIS app, not Google -- sending it on every build-mode chat
+// message both risks the request blowing past size limits and ships file
+// content to a third party with no user-visible consent. File metadata
+// (name, MIME type) is kept so the agent can still reason about "there's an
+// uploaded file here" without ever seeing its bytes.
+func redactNodesForBuildAgent(nodes []models.WorkflowNode) []models.WorkflowNode {
+	out := maskNodes(nodes)
+	for i, n := range out {
+		if len(n.CustomParams) == 0 {
+			continue
+		}
+		params := make([]models.CustomParam, len(n.CustomParams))
+		copy(params, n.CustomParams)
+		for j, p := range params {
+			if p.Kind == "file" {
+				params[j].Value = ""
+			}
+		}
+		out[i].CustomParams = params
 	}
 	return out
 }

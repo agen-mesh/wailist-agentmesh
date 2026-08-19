@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -75,6 +76,15 @@ func sendShopify(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	if store == "" || email == "" {
 		return "shopify_skipped_missing_config", ErrActionSkipped
 	}
+	// store is user-supplied config interpolated directly into the request
+	// host below -- validate it first (mirrors jiraDomainPattern's own
+	// reasoning in connectors_devtools.go), otherwise a crafted value on a
+	// copied/imported workflow could redirect the request, and the access
+	// token with it, to an attacker-controlled host. url.PathEscape alone
+	// only makes the result a well-formed URL, not a safe one.
+	if !jiraDomainPattern.MatchString(store) {
+		return "shopify_skipped_invalid_store", ErrActionSkipped
+	}
 	base := shopifyAPIBase
 	if base == "" {
 		base = "https://" + url.PathEscape(store) + ".myshopify.com"
@@ -108,14 +118,31 @@ func sendPipedrive(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		if domain == "" {
 			return "pipedrive_skipped_missing_config", ErrActionSkipped
 		}
-		base = "https://" + url.PathEscape(domain) + ".pipedrive.com"
+		// domain is user-supplied config interpolated directly into the
+		// request host below -- validate it first, same reasoning as
+		// jiraDomainPattern (connectors_devtools.go): a crafted value on a
+		// copied/imported workflow could otherwise redirect the request,
+		// and the API token with it, to an attacker-controlled host.
+		if !jiraDomainPattern.MatchString(domain) {
+			return "pipedrive_skipped_invalid_domain", ErrActionSkipped
+		}
+		base = "https://" + domain + ".pipedrive.com"
 	}
 	payload := map[string]any{"content": rc.Message()}
+	// Pipedrive's Notes API documents deal_id/person_id as integers --
+	// resolveTemplate always returns a string, so send them as real JSON
+	// numbers (via strconv.Atoi) rather than quoted strings, which a strict
+	// server-side type check would otherwise reject with a 400. A ref that
+	// doesn't resolve to a number is dropped rather than sent malformed.
 	if dealID := resolveTemplate(configVal(node, "pipedriveDealID", ""), rc); dealID != "" {
-		payload["deal_id"] = dealID
+		if n, err := strconv.Atoi(dealID); err == nil {
+			payload["deal_id"] = n
+		}
 	}
 	if personID := resolveTemplate(configVal(node, "pipedrivePersonID", ""), rc); personID != "" {
-		payload["person_id"] = personID
+		if n, err := strconv.Atoi(personID); err == nil {
+			payload["person_id"] = n
+		}
 	}
 	target := base + "/api/v1/notes?api_token=" + url.QueryEscape(token)
 	return postJSON(ctx, target, nil, payload, "pipedrive_note_created", "Pipedrive")
