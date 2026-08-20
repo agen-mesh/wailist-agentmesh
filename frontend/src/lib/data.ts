@@ -209,9 +209,13 @@ export const ACTION_TEMPLATES = [
     icon: "#",
     category: "Messaging",
   },
-  // "db" (Database Insert) removed: no `case "db"` in ExecuteAction
-  // (backend/internal/engine/nodes/action.go) -- it fell through to
-  // `default: return "logged", nil`, a green node that wrote nothing.
+  {
+    id: "db",
+    name: "Database Insert",
+    desc: "Write to Postgres",
+    icon: "⛁",
+    category: "Data & CRM",
+  },
   {
     id: "discord",
     name: "Discord Message",

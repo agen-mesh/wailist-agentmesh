@@ -29,7 +29,14 @@ func sendTwilio(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	if token == "" {
 		return "twilio_skipped_no_auth_token", ErrActionSkipped
 	}
+	// Config is where the Inspector saves this field today, but a node saved
+	// before this PR has it under Secrets (master's prior schema) -- fall
+	// back there so already-configured Twilio nodes don't silently break on
+	// deploy.
 	sid := configVal(node, "twilioAccountSID", "")
+	if sid == "" {
+		sid = secretVal(node, "twilioAccountSID")
+	}
 	if sid == "" {
 		return "twilio_skipped_no_account_sid", ErrActionSkipped
 	}

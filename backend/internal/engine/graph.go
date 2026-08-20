@@ -9,14 +9,19 @@ import (
 	"github.com/agentmesh/backend/internal/models"
 )
 
-// nodeRefPattern matches "node.<id>" inside a {{ }} placeholder written into
-// any template-eligible field on a node -- kept in sync by hand with
+// nodeRefPattern matches a complete "{{ node.<id> }}" or
+// "{{ node.<id>.field.path }}" placeholder -- kept in sync by hand with
 // nodes.templateRef/lookupRef's "node.<id>" / "node.<id>.field" forms
 // (package nodes can't be imported from here: engine -> nodes -> engine
 // would cycle, same constraint stubs.go documents for RunContexter). Scoped
 // to extracting an ID, not resolving a value, so staying in sync just means
 // matching the same {{ node.<id> ... }} shape, not duplicating the resolver.
-var nodeRefPattern = regexp.MustCompile(`\{\{\s*node\.([A-Za-z0-9_\-]+)`)
+// Requires the closing "}}", same as templateRef -- an unterminated
+// "{{ node.n5" (a typo, or stray example text in a SystemPrompt/Description)
+// would otherwise add a real implicit dependency edge for text templateRef
+// itself would never treat as a reference at runtime, risking a spurious
+// "cycle detected" failure over functionally inert text.
+var nodeRefPattern = regexp.MustCompile(`\{\{\s*node\.([A-Za-z0-9_\-]+)(?:\.[A-Za-z0-9_.\-]+)?\s*\}\}`)
 
 // templateEligibleStrings returns every string on n a connector might run
 // through resolveTemplate -- see that function's doc comment (nodes/

@@ -264,8 +264,12 @@ func doAndDecode(req *http.Request, serviceName string) (any, error) {
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("%s API %d: %s", serviceName, resp.StatusCode, readErrorBody(resp))
 	}
+	b, err := readBounded(resp.Body, httpResponseLimit)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", serviceName, err)
+	}
 	var out any
-	if err := json.NewDecoder(io.LimitReader(resp.Body, httpResponseLimit)).Decode(&out); err != nil {
+	if err := json.Unmarshal(b, &out); err != nil {
 		return nil, fmt.Errorf("%s: response was not valid JSON: %w", serviceName, err)
 	}
 	return out, nil

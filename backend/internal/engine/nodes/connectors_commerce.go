@@ -27,11 +27,23 @@ func SetStripeAPIBaseForTest(base string) {
 // description. Stripe's API takes form encoding, not JSON, so this builds the
 // request directly rather than going through postJSON.
 func sendStripe(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	// stripeAPIKey is the current field name; a node saved before this PR has
+	// its key under the old stripeSecretKey name -- fall back there so
+	// already-configured Stripe nodes don't silently break on deploy.
 	apiKey := secretVal(node, "stripeAPIKey")
+	if apiKey == "" {
+		apiKey = secretVal(node, "stripeSecretKey")
+	}
 	if apiKey == "" {
 		return "stripe_skipped_no_api_key", ErrActionSkipped
 	}
 	email := resolveTemplate(configVal(node, "stripeEmail", ""), rc)
+	if email == "" {
+		// Documented default: fall back to the upstream node's own message
+		// when no explicit stripeEmail is configured.
+		email = rc.Message()
+	}
+	email = strings.TrimSpace(email)
 	if email == "" {
 		return "stripe_skipped_no_email", ErrActionSkipped
 	}
@@ -114,7 +126,7 @@ func sendPipedrive(ctx context.Context, node models.WorkflowNode, rc RunContexte
 	}
 	base := pipedriveAPIBase
 	if base == "" {
-		domain := configVal(node, "pipedriveCompanyDomain", "")
+		domain := resolveTemplate(configVal(node, "pipedriveCompanyDomain", ""), rc)
 		if domain == "" {
 			return "pipedrive_skipped_missing_config", ErrActionSkipped
 		}

@@ -36,6 +36,30 @@ func TestTopologicalSort(t *testing.T) {
 	}
 }
 
+// An unterminated "{{ node.b" (a typo, or stray example text) must not add
+// an implicit dependency edge -- nodeRefPattern requires the closing "}}",
+// same as the resolver that actually treats these as live references.
+// Node "a" has a real flow edge into "b"; if the broken text in "a"'s own
+// Description were still matched, it would add a spurious b -> a edge and
+// turn this into a cycle.
+func TestTopologicalSort_UnterminatedNodeRefAddsNoImplicitEdge(t *testing.T) {
+	nodes := []models.WorkflowNode{
+		{ID: "a", Type: models.NodeTypeAction, Description: "see {{ node.b for details"},
+		{ID: "b", Type: models.NodeTypeAction},
+	}
+	edges := []models.WorkflowEdge{
+		{ID: "e1", From: "a", To: "b", Kind: models.EdgeKindFlow},
+	}
+
+	levels, err := engine.TopologicalSort(nodes, edges)
+	if err != nil {
+		t.Fatalf("unterminated ref should not create a cycle: %v", err)
+	}
+	if len(levels) != 2 || levels[0][0].ID != "a" || levels[1][0].ID != "b" {
+		t.Fatalf("want [a] [b], got %v", levels)
+	}
+}
+
 func TestCycleDetected(t *testing.T) {
 	nodes := []models.WorkflowNode{{ID: "a"}, {ID: "b"}}
 	edges := []models.WorkflowEdge{

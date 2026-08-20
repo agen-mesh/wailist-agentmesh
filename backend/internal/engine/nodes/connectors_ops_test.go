@@ -62,6 +62,41 @@ func TestTwilioAction_SendsSMS(t *testing.T) {
 	}
 }
 
+// A node saved before this repo's Twilio Inspector field moved
+// twilioAccountSID from a secret to a config value has its SID under
+// Secrets, not Config -- must still resolve, or every pre-existing Twilio
+// node silently breaks on deploy.
+func TestTwilioAction_AccountSIDFallsBackToLegacySecret(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"sid":"SM123"}`))
+	}))
+	defer srv.Close()
+	nodes.SetTwilioAPIBaseForTest(srv.URL)
+	defer nodes.SetTwilioAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "tw2", Type: models.NodeTypeAction, Template: "twilio",
+		Secrets: map[string]string{
+			"twilioAuthToken":  "authtok",
+			"twilioAccountSID": "AC999",
+		},
+		Config: map[string]string{
+			"twilioFrom": "+15550001111",
+			"twilioTo":   "+15550002222",
+		},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"deploy finished"`))
+
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "twilio_sms_sent" {
+		t.Errorf("want 'twilio_sms_sent', got %v", result)
+	}
+}
+
 func TestTwilioAction_SkipsWhenUnconfigured(t *testing.T) {
 	cases := []struct {
 		name string

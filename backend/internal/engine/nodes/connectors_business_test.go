@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/engine"
@@ -195,6 +196,49 @@ func TestShopifyAction_AddsOrderNoteWithAccessTokenHeader(t *testing.T) {
 	order, ok := gotBody["order"].(map[string]any)
 	if !ok || order["note"] != "refunded per customer request" {
 		t.Errorf("want note from message, got %v", gotBody["order"])
+	}
+}
+
+// shopifyShopDomain/shopifyOrderID must resolve {{ }} references, matching
+// the sibling create-customer connector -- a templated order ID (e.g. from
+// an upstream order-lookup node) previously got spliced in literally instead
+// of resolved.
+func TestShopifyAction_ResolvesTemplatesInDomainAndOrderID(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	nodes.SetShopifyOrderNoteAPIBaseForTest(srv.URL)
+	defer nodes.SetShopifyOrderNoteAPIBaseForTest("")
+
+	rc := engine.NewRunContext("r1", []byte(`"refunded per customer request"`))
+	rc.Set("lookup", map[string]any{"domain": "mystore.myshopify.com", "orderID": "9002"})
+
+	node := models.WorkflowNode{
+		ID: "sh5", Type: models.NodeTypeAction, Template: "shopify_order_note",
+		Secrets: map[string]string{"shopifyAccessToken": "shpat_123"},
+		Config: map[string]string{
+			"shopifyShopDomain": "{{ node.lookup.domain }}",
+			"shopifyOrderID":    "{{ node.lookup.orderID }}",
+		},
+	}
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "shopify_order_note_added" {
+		t.Errorf("want 'shopify_order_note_added' (templates resolved), got %v", result)
+	}
+	if !strings.Contains(gotPath, "/orders/9002.json") {
+		t.Errorf("orderID should resolve into the request path, got %q", gotPath)
+	}
+	order, ok := gotBody["order"].(map[string]any)
+	if !ok || order["id"] != "9002" {
+		t.Errorf("orderID should resolve in the request body too, got %v", gotBody["order"])
 	}
 }
 

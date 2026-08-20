@@ -158,20 +158,30 @@ func resolveTemplateJSON(s string, rc RunContexter) string {
 	return b.String()
 }
 
-// walkPath descends a dotted field path ("a.b.c") into v, which must be a
-// chain of map[string]any (as produced by json.Unmarshal). Returns
-// (nil, false) if any segment is missing or v isn't a JSON object at that
-// point -- callers decide separately whether that means "blank" or "leave
-// the reference verbatim".
+// walkPath descends a dotted field path ("a.b.c", or "a.0.c" to index into an
+// array) into v, as produced by json.Unmarshal -- matching the JSON Extract
+// node's own path walker (compute.go's executeJSONExtract) so both resolvers
+// accept the same path syntax. Returns (nil, false) if any segment is
+// missing, an array index is out of range or non-numeric, or v isn't a
+// JSON object/array at that point -- callers decide separately whether that
+// means "blank" or "leave the reference verbatim".
 func walkPath(v any, path string) (any, bool) {
 	cur := v
 	for _, key := range strings.Split(path, ".") {
-		m, ok := cur.(map[string]any)
-		if !ok {
-			return nil, false
-		}
-		cur, ok = m[key]
-		if !ok {
+		switch node := cur.(type) {
+		case map[string]any:
+			next, ok := node[key]
+			if !ok {
+				return nil, false
+			}
+			cur = next
+		case []any:
+			i, err := strconv.Atoi(key)
+			if err != nil || i < 0 || i >= len(node) {
+				return nil, false
+			}
+			cur = node[i]
+		default:
 			return nil, false
 		}
 	}

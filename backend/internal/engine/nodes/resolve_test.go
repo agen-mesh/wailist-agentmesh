@@ -11,6 +11,11 @@ import (
 func TestResolveTemplate(t *testing.T) {
 	rc := engine.NewRunContext("r1", []byte(`"original question"`))
 	rc.Set("n1", "agent answer")
+	rc.Set("n3", map[string]any{"items": []any{
+		map[string]any{"title": "first"},
+		map[string]any{"title": "second"},
+	}})
+	// n2 last: {{ result }} below must keep resolving to n2's output, not n3's.
 	rc.Set("n2", map[string]any{"city": "Kolkata", "temp": 31.5})
 
 	cases := []struct{ name, in, want string }{
@@ -20,6 +25,9 @@ func TestResolveTemplate(t *testing.T) {
 		{"node by id", "got {{ node.n1 }}", "got agent answer"},
 		{"node field", "in {{ node.n2.city }}", "in Kolkata"},
 		{"numeric field", "temp {{ node.n2.temp }}", "temp 31.5"},
+		{"array index field", "t: {{ node.n3.items.0.title }}", "t: first"},
+		{"second array index", "t: {{ node.n3.items.1.title }}", "t: second"},
+		{"array index out of range left verbatim", "x {{ node.n3.items.5.title }} y", "x {{ node.n3.items.5.title }} y"},
 		{"two refs", "{{ node.n1 }} / {{ input }}", "agent answer / original question"},
 		{"unknown node left verbatim", "x {{ node.nope }} y", "x {{ node.nope }} y"},
 		{"unknown field left verbatim", "x {{ node.n2.nope }} y", "x {{ node.n2.nope }} y"},

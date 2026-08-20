@@ -169,8 +169,8 @@ func sendShopifyOrderNote(ctx context.Context, node models.WorkflowNode, rc RunC
 	if accessToken == "" {
 		return "shopify_skipped_no_access_token", ErrActionSkipped
 	}
-	shop := configVal(node, "shopifyShopDomain", "")
-	orderID := configVal(node, "shopifyOrderID", "")
+	shop := resolveTemplate(configVal(node, "shopifyShopDomain", ""), rc)
+	orderID := resolveTemplate(configVal(node, "shopifyOrderID", ""), rc)
 	if shop == "" || orderID == "" {
 		return "shopify_skipped_missing_config", ErrActionSkipped
 	}

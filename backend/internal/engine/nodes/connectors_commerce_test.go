@@ -61,6 +61,67 @@ func TestStripeAction_CreatesCustomer(t *testing.T) {
 	}
 }
 
+// A node saved under the old stripeSecretKey field name (before it was
+// renamed to stripeAPIKey) must still resolve its key, or every
+// pre-existing Stripe node silently breaks on deploy.
+func TestStripeAction_APIKeyFallsBackToLegacySecretName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"cus_123"}`))
+	}))
+	defer srv.Close()
+	nodes.SetStripeAPIBaseForTest(srv.URL)
+	defer nodes.SetStripeAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "st2", Type: models.NodeTypeAction, Template: "stripe",
+		Secrets: map[string]string{"stripeSecretKey": "sk_test_legacy"},
+		Config:  map[string]string{"stripeEmail": "buyer@example.com"},
+	}
+	rc := engine.NewRunContext("r1", nil)
+
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "stripe_customer_created" {
+		t.Errorf("want 'stripe_customer_created', got %v", result)
+	}
+}
+
+// When stripeEmail isn't configured, Stripe falls back to the upstream
+// node's own message as the customer email -- the documented default this
+// PR previously dropped.
+func TestStripeAction_EmailFallsBackToMessage(t *testing.T) {
+	var gotForm url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotForm, _ = url.ParseQuery(string(body))
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"cus_123"}`))
+	}))
+	defer srv.Close()
+	nodes.SetStripeAPIBaseForTest(srv.URL)
+	defer nodes.SetStripeAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "st3", Type: models.NodeTypeAction, Template: "stripe",
+		Secrets: map[string]string{"stripeAPIKey": "sk_test_xxx"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"buyer@example.com"`))
+
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "stripe_customer_created" {
+		t.Errorf("want 'stripe_customer_created', got %v", result)
+	}
+	if gotForm.Get("email") != "buyer@example.com" {
+		t.Errorf("email should fall back to the upstream message, got %q", gotForm.Get("email"))
+	}
+}
+
 func TestStripeAction_SkipsWithoutAPIKey(t *testing.T) {
 	node := models.WorkflowNode{ID: "st1", Type: models.NodeTypeAction, Template: "stripe"}
 	rc := engine.NewRunContext("r1", nil)
