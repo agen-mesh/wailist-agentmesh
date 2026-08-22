@@ -419,7 +419,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     return (
       <div
         style={{
-          height: "100vh",
+          height: "100dvh",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -437,13 +437,28 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   return (
     <div
       style={{
-        height: "100vh",
+        height: "100dvh",
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
         background: "var(--bg)",
       }}
     >
+      {/* The editor is a drag-and-drop canvas with two mouse-resizable panels.
+          Making it genuinely touch-usable is a separate piece of work, so below
+          the breakpoint it says so plainly instead of rendering a layout that
+          cannot be operated. Purely CSS-gated — no JS media query, so there is
+          no hydration mismatch or post-load flash. */}
+      <div className="canvas-narrow show-md">
+        <p className="canvas-narrow__title">The editor needs a wider screen.</p>
+        <p className="canvas-narrow__body">
+          Building a workflow means dragging nodes across a canvas and resizing
+          side panels. That does not work on a phone yet.
+        </p>
+        <button onClick={() => router.push("/workflows")}>
+          ← Back to workflows
+        </button>
+      </div>
       <CanvasTopbar
         workflow={workflow}
         setWorkflow={setWorkflowNN}
@@ -838,6 +853,8 @@ const ghostBtnSm: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 4,
+  whiteSpace: "nowrap",
+  flexShrink: 0,
 };
 const btnStyle: React.CSSProperties = {
   height: 28,
@@ -853,6 +870,8 @@ const btnStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 4,
+  whiteSpace: "nowrap",
+  flexShrink: 0,
 };
 const primaryBtnStyle: React.CSSProperties = {
   height: 28,
@@ -868,4 +887,6 @@ const primaryBtnStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 4,
+  whiteSpace: "nowrap",
+  flexShrink: 0,
 };

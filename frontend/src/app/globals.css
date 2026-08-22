@@ -50,7 +50,7 @@ body {
   color: var(--fg);
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 ::selection {
@@ -405,6 +405,542 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .cell-tip::after {
     transition: none;
+  }
+}
+
+/* ══ Responsive layer ═════════════════════════════════════════════════════
+   The app is styled with inline styles, which cannot hold media queries — so
+   anything that must change with viewport width lives here as a class, and the
+   corresponding property is removed from the element's inline style. Inline
+   styles beat external CSS regardless of specificity, so leaving the property
+   in both places would silently win over the breakpoint.
+
+   Breakpoints (use these three, do not invent more):
+     lg  ≤ 1024px  small laptop / landscape tablet
+     md  ≤  768px  tablet portrait — navigation collapses here
+     sm  ≤  520px  phone
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Visibility helpers. `!important` is warranted: these override an inline
+   `display` on the same element, which is the whole point of the utility. */
+@media (max-width: 768px) {
+  .hide-md {
+    display: none !important;
+  }
+}
+@media (min-width: 769px) {
+  .show-md {
+    display: none !important;
+  }
+}
+
+/* The Topbar's own responsive rules (`.tb`, `.tb-nav`) and the landing bar's
+   (`.lp-bar`, `.lp-nav`, `.lp-burger`, `.lp-sheet`) are gone: both surfaces now
+   render AppNav, so their padding, collapse and overflow menu all live in the
+   AppNav block at the bottom of this file. `hide-md` / `show-md` above are
+   still what individual elements use to drop out at the breakpoint. */
+
+/* ── Landing hero + marquee ───────────────────────────────────────────────── */
+.lp-hero {
+  padding: 0 32px;
+}
+.lp-marquee-row {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 48px;
+}
+@media (max-width: 640px) {
+  .lp-marquee-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  .lp-marquee-row > * {
+    width: 100%;
+  }
+}
+@media (max-width: 520px) {
+  .lp-hero {
+    padding: 0 20px;
+  }
+  .hide-sm {
+    display: none !important;
+  }
+}
+
+/* Landing section rhythm. Driven by custom properties rather than classes
+   because the values sit inside inline styles on the section elements. */
+:root {
+  --lp-section-pad: 128px 32px;
+  --lp-pillars-cols: repeat(2, 1fr);
+  --lp-steps-cols: repeat(4, 1fr);
+}
+.lp-marquee {
+  padding: 0 32px 40px;
+}
+@media (max-width: 768px) {
+  :root {
+    --lp-steps-cols: repeat(2, 1fr);
+  }
+}
+@media (max-width: 640px) {
+  :root {
+    --lp-pillars-cols: minmax(0, 1fr);
+  }
+}
+@media (max-width: 520px) {
+  :root {
+    --lp-section-pad: 72px 20px;
+    --lp-steps-cols: minmax(0, 1fr);
+  }
+  .lp-marquee {
+    padding: 0 20px 32px;
+  }
+}
+
+/* ── Auth split ───────────────────────────────────────────────────────────
+   Two equal columns on desktop. Below 900px each column is too narrow for the
+   360px form, so the split collapses and the marketing panel — decoration —
+   drops rather than stacking, which would bury the sign-in button under a
+   screenful of copy. The old `height: 100vh; overflow: hidden` clipped the
+   overflow instead of letting it scroll, so on a phone the form's lower half
+   was simply unreachable. */
+.auth-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 100dvh;
+}
+.auth-form-col {
+  padding: 40px 56px;
+  overflow: auto;
+}
+@media (max-width: 900px) {
+  .auth-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .auth-aside {
+    display: none;
+  }
+}
+@media (max-width: 520px) {
+  .auth-form-col {
+    padding: 24px 20px;
+  }
+}
+
+/* ── Workflows page ───────────────────────────────────────────────────────
+   Row grid, KPI grid and card grid are all driven by custom properties: the
+   declarations live in inline styles, which a media query cannot reach, but a
+   custom property redefined at :root can. */
+:root {
+  --wf-page-pad: 36px 24px 80px;
+  --wf-h1: 36px;
+  --wf-kpi-cols: repeat(4, 1fr);
+  --wf-card-cols: repeat(3, 1fr);
+  --wf-cardmeta-cols: repeat(3, 1fr);
+  --wf-row-cols: minmax(180px, 240px) minmax(96px, 1fr) minmax(80px, 1fr)
+    minmax(96px, 1fr) minmax(110px, 1fr) minmax(120px, 1fr) 80px;
+}
+.wf-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+.wf-actions {
+  display: flex;
+  gap: 8px;
+}
+.wf-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wf-search {
+  flex: 1;
+  max-width: 360px;
+}
+/* Trailing cell of a workflow row. Only the alignment lives here — the cell is
+   still laid out by its inline style, but this one property has to flip at the
+   breakpoint, and an inline value would beat the media query outright. */
+.wf-row-actions {
+  justify-content: flex-end;
+}
+
+@media (max-width: 1024px) {
+  :root {
+    --wf-card-cols: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --wf-kpi-cols: repeat(2, 1fr);
+    --wf-card-cols: minmax(0, 1fr);
+    /* Two even columns: the row stops being a table and becomes a card. */
+    --wf-row-cols: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .wf-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .wf-actions {
+    flex-wrap: wrap;
+  }
+  .wf-actions > button {
+    flex: 1 1 auto;
+  }
+  .wf-controls {
+    flex-wrap: wrap;
+  }
+  .wf-search {
+    flex: 1 0 100%;
+    max-width: none;
+  }
+
+  /* Table → cards. The header row is dropped via the hide-md utility (its
+     `display: grid` is inline, which no class can override without
+     !important); each metric grows a caption from its data-label. */
+  .wf-row {
+    align-items: start;
+    row-gap: 12px;
+  }
+  .wf-row > *:first-child,
+  .wf-row > *:last-child {
+    grid-column: 1 / -1;
+  }
+  .wf-row-actions {
+    justify-content: flex-start;
+  }
+  .wf-row > [data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-dim);
+  }
+}
+
+@media (max-width: 520px) {
+  :root {
+    --wf-page-pad: 24px 16px 64px;
+    --wf-h1: 28px;
+    --wf-cardmeta-cols: repeat(2, 1fr);
+  }
+}
+
+/* ── Usage settlements ────────────────────────────────────────────────────
+   Five columns of which three are fixed-width (362px before the two flexible
+   ones), so on a phone the row cannot fit. It becomes a two-up card, with the
+   header row dropped via hide-md. The endpoints table below it keeps its own
+   horizontal scroll — it is nine columns wide and already self-contained. */
+:root {
+  --us-settle-cols: minmax(0, 1.9fr) minmax(0, 1.15fr) 140px 114px 108px;
+}
+@media (max-width: 768px) {
+  :root {
+    --us-settle-cols: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+/* ── Canvas: narrow-screen notice ─────────────────────────────────────────
+   Visibility comes from `show-md`; this rule only supplies the surface. It
+   covers the editor rather than replacing it in the tree, so the change stays
+   a pure addition to CanvasPage's render. */
+.canvas-narrow {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 14px;
+  padding: 32px 24px;
+  background: var(--bg);
+}
+.canvas-narrow__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+.canvas-narrow__body {
+  margin: 0;
+  max-width: 34ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+.canvas-narrow button {
+  margin-top: 6px;
+  height: 36px;
+  padding: 0 16px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-2);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* ══ AppNav ═══════════════════════════════════════════════════════════════
+   Navigation shell shared by the landing page and the authed pages. Below the
+   `md` breakpoint the inline links are replaced by a trigger and a sheet that
+   covers the viewport under the bar.
+
+   Timing vocabulary (one easing, layered by delay):
+     0.24s  sheet cross-fade
+     0.32s  trigger colour
+     80ms   stagger between layers
+   Opening runs at 0ms delay and closing inherits the stagger, so opening feels
+   immediate and closing feels unhurried at the same duration.
+
+   `visibility` is transitioned with step-start / step-end, never left to
+   opacity alone: opacity:0 would leave an invisible element that is still
+   clickable and still in the accessibility tree. Stepping flips it at the
+   correct end of the timeline, so the sheet is interactive for the whole fade
+   and genuinely gone afterwards.
+
+   The sheet is `position: fixed`, so its containing block is the viewport. An
+   earlier version grew the bar's own absolutely-positioned container into the
+   sheet (the seamless bar-to-sheet effect apple.com uses). That container
+   refused to exceed its 56px parent — its height was ignored even at
+   `!important` and inline, while other declarations in the same rule applied.
+   Cause unresolved; fixed positioning sidesteps the containing block entirely.
+   See NAVBAR_HAMBURGER_RESEARCH_PLAN.md §1.3 for what the ideal version does. */
+:root {
+  --ease-nav: cubic-bezier(0.4, 0, 0.6, 1);
+  --nav-rate-fade: 0.24s;
+  --nav-rate-slow: 0.32s;
+  --nav-stagger: 80ms;
+  --nav-h: 56px;
+}
+
+.appnav {
+  position: relative;
+  height: var(--nav-h);
+  flex-shrink: 0;
+  z-index: 60;
+}
+.appnav__shell {
+  position: relative;
+  z-index: 2;
+  height: var(--nav-h);
+  background: var(--bg-elev-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.appnav__bar {
+  position: relative;
+  height: var(--nav-h);
+  display: flex;
+  align-items: center;
+  /* 12px, not 20: the only gap that is ever visible is inline-links → actions,
+     and that spacing carries over from the pre-AppNav bar. The gaps either side
+     of the flex:1 spacer are absorbed by the spacer. */
+  gap: 12px;
+  padding: 0 24px;
+}
+.appnav__inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.appnav__spacer {
+  flex: 1;
+}
+.appnav__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.appnav__trigger {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-right: -10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--r-2);
+  color: var(--fg-muted);
+  cursor: pointer;
+  outline-offset: -6px;
+  flex-shrink: 0;
+  transition: color var(--nav-rate-slow) var(--ease-nav);
+}
+.appnav__trigger:hover {
+  color: var(--fg);
+}
+
+.appnav__sheet {
+  position: fixed;
+  top: var(--nav-h);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--bg-elev-1);
+  padding: 8px 16px 40px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px);
+  transition:
+    opacity var(--nav-rate-fade) var(--ease-nav),
+    transform var(--nav-rate-fade) var(--ease-nav),
+    visibility var(--nav-rate-fade) step-end;
+}
+.appnav--open .appnav__sheet {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition:
+    opacity var(--nav-rate-fade) var(--ease-nav) var(--nav-stagger),
+    transform var(--nav-rate-fade) var(--ease-nav) var(--nav-stagger),
+    visibility var(--nav-rate-fade) step-start var(--nav-stagger);
+}
+.appnav__group {
+  margin-top: 18px;
+  padding: 0 8px 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+}
+.appnav__link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 13px 8px;
+  background: transparent;
+  border: none;
+  border-radius: var(--r-2);
+  color: var(--fg-muted);
+  font-family: var(--font-sans);
+  font-size: 17px;
+  font-weight: 400;
+  cursor: pointer;
+  transition: color var(--nav-rate-fade) var(--ease-nav);
+}
+.appnav__link[aria-current="page"] {
+  color: var(--fg);
+  font-weight: 500;
+}
+.appnav__link:active {
+  background: var(--bg-elev-2);
+}
+/* Sits below the links, outside the <nav>, separated by a rule rather than a
+   heading — it is an action, not another destination. */
+.appnav__sheet-foot {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+/* There is no scrim. The sheet is fixed and opaque from the bar to the bottom
+   of the viewport, and .appnav__shell covers the bar, so a dimming layer behind
+   them would never be seen and would never receive the click-outside it exists
+   to catch — .appnav is z-index:60 and position:relative, so the sheet paints
+   inside that stacking context and above any lower-z sibling. Escape, focus
+   leaving the region, and the trigger are what close the sheet. */
+
+@media (max-width: 768px) {
+  .appnav__trigger {
+    display: inline-flex;
+  }
+  .appnav__inline {
+    display: none;
+  }
+}
+@media (min-width: 769px) {
+  .appnav__sheet {
+    display: none;
+  }
+}
+@media (max-width: 520px) {
+  .appnav__bar {
+    padding: 0 16px;
+  }
+}
+
+/* ── Landing variant ──────────────────────────────────────────────────────
+   The same bar with a different skin: taller, transparent over the hero video,
+   near-white type because it sits on moving footage rather than on --bg-elev-1.
+   Colours are the landing surface's own (--fg at 90%, white on hover), kept as
+   literals to match the rest of the marketing CSS.
+
+   The links are optically centred with `position: absolute`, which reserves no
+   width. That is what made them overprint the logo on a phone before — safe
+   now only because below the breakpoint they are `display: none` rather than
+   merely repositioned, so there is no narrow viewport where they render. */
+.appnav--landing {
+  --nav-h: 74px;
+}
+.appnav--landing .appnav__shell {
+  background: transparent;
+  border-bottom: none;
+}
+.appnav--landing .appnav__bar {
+  padding: 0 32px;
+}
+.appnav--landing .appnav__actions {
+  gap: 8px;
+}
+.appnav--landing .appnav__sheet {
+  background: rgba(12, 10, 24, 0.96);
+  backdrop-filter: saturate(1.4) blur(16px);
+}
+.appnav--landing .appnav__link,
+.appnav--landing .appnav__trigger {
+  color: rgba(242, 240, 247, 0.9);
+}
+.appnav--landing .appnav__link[aria-current="page"],
+.appnav--landing .appnav__trigger:hover {
+  color: #fff;
+}
+.appnav--landing .appnav__sheet-foot {
+  border-top-color: rgba(242, 240, 247, 0.12);
+}
+@media (min-width: 769px) {
+  .appnav--landing .appnav__inline {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+}
+@media (max-width: 520px) {
+  .appnav--landing {
+    --nav-h: 66px;
+  }
+  .appnav--landing .appnav__bar {
+    padding: 0 20px;
+  }
+}
+
+/* Applied while the viewport is being resized so crossing the breakpoint never
+   plays the open animation. */
+.appnav-block-transitions .appnav__sheet {
+  transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .appnav__sheet,
+  .appnav__trigger,
+  .appnav__link {
+    transition: none !important;
   }
 }
 
