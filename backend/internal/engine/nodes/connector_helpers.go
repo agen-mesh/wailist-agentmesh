@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -42,76 +41,18 @@ const messageTemplateKey = "messageTemplate"
 
 // resolveMessage is what a connector should call instead of rc.Message()
 // directly, so every one of them picks up template support for free. See
-// expandTemplate for the placeholder syntax.
+// resolveTemplate (resolve.go) for the placeholder syntax.
 func resolveMessage(node models.WorkflowNode, rc RunContexter) string {
 	tmpl := configVal(node, messageTemplateKey, "")
 	if tmpl == "" {
 		return rc.Message()
 	}
-	return expandTemplate(tmpl, rc)
+	return resolveTemplate(tmpl, rc)
 }
 
-// templatePlaceholder matches {{ result }} and {{ result.field.path }}.
-// Capture group 1 is "" for the bare form, or ".field.path" for a dotted one.
-var templatePlaceholder = regexp.MustCompile(`\{\{\s*result((?:\.[A-Za-z0-9_]+)*)\s*\}\}`)
-
-// expandTemplate replaces every {{ result }} / {{ result.field.path }}
-// placeholder in tmpl against the run's most recent output. This is the
-// direct answer to "the whole raw response gets forwarded, not just the
-// part I want" -- {{ result }} keeps today's behavior (the whole thing,
-// stringified), while {{ result.extract }} against e.g. a Wikipedia API
-// response picks just that one field out of it instead.
-//
-// A path that doesn't resolve (wrong field name, or the output isn't a JSON
-// object at that point) expands to "" rather than leaving the literal
-// placeholder text in whatever gets sent -- there's no good way to surface
-// an error mid-template, and a blank beats a broken-looking "{{ result.x }}"
-// showing up in a real Slack message or email.
-func expandTemplate(tmpl string, rc RunContexter) string {
-	return templatePlaceholder.ReplaceAllStringFunc(tmpl, func(match string) string {
-		groups := templatePlaceholder.FindStringSubmatch(match)
-		path := groups[1]
-		if path == "" {
-			return rc.Message()
-		}
-		var cur any = rc.LastOutput()
-		for _, key := range strings.Split(strings.TrimPrefix(path, "."), ".") {
-			m, ok := cur.(map[string]any)
-			if !ok {
-				return ""
-			}
-			cur, ok = m[key]
-			if !ok {
-				return ""
-			}
-		}
-		return templateValueToString(cur)
-	})
-}
-
-// templateValueToString renders one resolved template value. Mirrors
-// engine.anyToString's string/JSON-fallback behavior, duplicated here (not
-// imported) because nodes is a lower-level package engine itself imports --
-// importing back would be circular.
-func templateValueToString(v any) string {
-	if v == nil {
-		return ""
-	}
-	if s, ok := v.(string); ok {
-		return s
-	}
-	b, _ := json.Marshal(v)
-	return string(b)
-}
-
-// ExpandTemplateForTest and ResolveMessageForTest are test-only exported
-// wrappers, used by connector_helpers_test.go (package nodes_test) to test
-// the unexported helpers above without exporting them from the package's
-// real API.
-func ExpandTemplateForTest(tmpl string, rc RunContexter) string {
-	return expandTemplate(tmpl, rc)
-}
-
+// ResolveMessageForTest is a test-only exported wrapper, used by
+// connector_helpers_test.go (package nodes_test) to test resolveMessage
+// without exporting it from the package's real API.
 func ResolveMessageForTest(node models.WorkflowNode, rc RunContexter) string {
 	return resolveMessage(node, rc)
 }
@@ -309,4 +250,66 @@ func IssueTitleForTest(message string) string {
 
 func ReadBoundedForTest(r io.Reader, limit int) ([]byte, error) {
 	return readBounded(r, limit)
+}
+
+// doAndDecode runs req through the SSRF guard, then decodes a JSON response
+// body instead of discarding it. This is the read-capable counterpart to
+// doAndCheck — use it for connectors that fetch rather than post.
+func doAndDecode(req *http.Request, serviceName string) (any, error) {
+	resp, err := doValidatedRequest(req, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("%s API %d: %s", serviceName, resp.StatusCode, readErrorBody(resp))
+	}
+	b, err := readBounded(resp.Body, httpResponseLimit)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", serviceName, err)
+	}
+	var out any
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, fmt.Errorf("%s: response was not valid JSON: %w", serviceName, err)
+	}
+	return out, nil
+}
+
+// getAndDecode GETs target and returns the decoded JSON body.
+func getAndDecode(ctx context.Context, target string, extraHeaders map[string]string, serviceName string) (any, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", serviceName, err)
+	}
+	req.Header.Set("Accept", "application/json")
+	for k, v := range extraHeaders {
+		req.Header.Set(k, v)
+	}
+	return doAndDecode(req, serviceName)
+}
+
+// getRaw GETs target and returns the raw body, bounded by httpResponseLimit.
+// Used by connectors whose payload is not JSON (RSS/Atom feeds).
+func getRaw(ctx context.Context, target string, extraHeaders map[string]string, serviceName string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", serviceName, err)
+	}
+	for k, v := range extraHeaders {
+		req.Header.Set(k, v)
+	}
+	resp, err := doValidatedRequest(req, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("%s API %d: %s", serviceName, resp.StatusCode, readErrorBody(resp))
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, httpResponseLimit))
+}
+
+// GetAndDecodeForTest exposes getAndDecode to the external nodes_test package.
+func GetAndDecodeForTest(ctx context.Context, target string, h map[string]string, svc string) (any, error) {
+	return getAndDecode(ctx, target, h, svc)
 }

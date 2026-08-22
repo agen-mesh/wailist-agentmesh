@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/engine"
@@ -14,185 +15,12 @@ import (
 	"github.com/agentmesh/backend/internal/models"
 )
 
-func TestTwilioAction_SendsSMSWithBasicAuth(t *testing.T) {
-	var gotAuth string
-	var gotForm url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		r.ParseForm()
-		gotForm = r.Form
-		w.WriteHeader(http.StatusCreated)
-	}))
-	defer srv.Close()
-	nodes.SetTwilioAPIBaseForTest(srv.URL)
-	defer nodes.SetTwilioAPIBaseForTest("")
-
-	node := models.WorkflowNode{
-		ID: "tw1", Type: models.NodeTypeAction, Template: "twilio",
-		Secrets: map[string]string{"twilioAccountSID": "AC123", "twilioAuthToken": "tok"},
-		Config:  map[string]string{"twilioTo": "+15551234567", "twilioFrom": "+15559876543"},
-	}
-	rc := engine.NewRunContext("r1", []byte(`"build finished"`))
-	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result != "twilio_sms_sent" {
-		t.Errorf("want sentinel, got %v", result)
-	}
-	if gotAuth == "" {
-		t.Error("want basic auth header set")
-	}
-	if gotForm.Get("To") != "+15551234567" || gotForm.Get("Body") != "build finished" {
-		t.Errorf("want To/Body form fields, got %v", gotForm)
-	}
-}
-
-func TestTwilioAction_SkipsWhenNoCredentials(t *testing.T) {
-	node := models.WorkflowNode{ID: "tw2", Type: models.NodeTypeAction, Template: "twilio"}
-	rc := engine.NewRunContext("r1", nil)
-	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if !errors.Is(err, nodes.ErrActionSkipped) || result != "twilio_skipped_no_credentials" {
-		t.Errorf("want skip sentinel, got %v / %v", result, err)
-	}
-}
-
-func TestStripeAction_CreatesCustomerFromMessageEmail(t *testing.T) {
-	var gotForm url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.ParseForm()
-		gotForm = r.Form
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-	nodes.SetStripeAPIBaseForTest(srv.URL)
-	defer nodes.SetStripeAPIBaseForTest("")
-
-	node := models.WorkflowNode{
-		ID: "st1", Type: models.NodeTypeAction, Template: "stripe",
-		Secrets: map[string]string{"stripeSecretKey": "sk_test_123"},
-	}
-	rc := engine.NewRunContext("r1", []byte(`"customer@example.com"`))
-	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result != "stripe_customer_created" {
-		t.Errorf("want sentinel, got %v", result)
-	}
-	if gotForm.Get("email") != "customer@example.com" {
-		t.Errorf("want email from message, got %v", gotForm.Get("email"))
-	}
-}
-
-func TestStripeAction_SkipsWhenNoAPIKey(t *testing.T) {
-	node := models.WorkflowNode{ID: "st2", Type: models.NodeTypeAction, Template: "stripe"}
-	rc := engine.NewRunContext("r1", []byte(`"x@example.com"`))
-	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if !errors.Is(err, nodes.ErrActionSkipped) || result != "stripe_skipped_no_api_key" {
-		t.Errorf("want skip sentinel, got %v / %v", result, err)
-	}
-}
-
-func TestPagerDutyAction_TriggersIncidentWithRoutingKeyInBody(t *testing.T) {
-	var gotBody map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&gotBody)
-		w.WriteHeader(http.StatusAccepted)
-	}))
-	defer srv.Close()
-	nodes.SetPagerDutyAPIBaseForTest(srv.URL)
-	defer nodes.SetPagerDutyAPIBaseForTest("")
-
-	node := models.WorkflowNode{
-		ID: "pd1", Type: models.NodeTypeAction, Template: "pagerduty",
-		Secrets: map[string]string{"pagerdutyRoutingKey": "rk_123"},
-	}
-	rc := engine.NewRunContext("r1", []byte(`"database is down"`))
-	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result != "pagerduty_incident_triggered" {
-		t.Errorf("want sentinel, got %v", result)
-	}
-	if gotBody["routing_key"] != "rk_123" || gotBody["event_action"] != "trigger" {
-		t.Errorf("want routing_key/event_action in body, got %v", gotBody)
-	}
-	payload, ok := gotBody["payload"].(map[string]any)
-	if !ok || payload["summary"] != "database is down" {
-		t.Errorf("want summary in nested payload, got %v", gotBody["payload"])
-	}
-}
-
-func TestPagerDutyAction_SkipsWhenNoRoutingKey(t *testing.T) {
-	node := models.WorkflowNode{ID: "pd2", Type: models.NodeTypeAction, Template: "pagerduty"}
-	rc := engine.NewRunContext("r1", nil)
-	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if !errors.Is(err, nodes.ErrActionSkipped) || result != "pagerduty_skipped_no_routing_key" {
-		t.Errorf("want skip sentinel, got %v / %v", result, err)
-	}
-}
-
-func TestZendeskAction_CreatesTicketWithTokenAuth(t *testing.T) {
-	var gotAuth string
-	var gotBody map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		json.NewDecoder(r.Body).Decode(&gotBody)
-		w.WriteHeader(http.StatusCreated)
-	}))
-	defer srv.Close()
-	nodes.SetZendeskAPIBaseForTest(srv.URL)
-	defer nodes.SetZendeskAPIBaseForTest("")
-
-	node := models.WorkflowNode{
-		ID: "zd1", Type: models.NodeTypeAction, Template: "zendesk",
-		Secrets: map[string]string{"zendeskAPIToken": "tok"},
-		Config:  map[string]string{"zendeskEmail": "agent@example.com", "zendeskSubdomain": "mycompany"},
-	}
-	rc := engine.NewRunContext("r1", []byte(`"help me"`))
-	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result != "zendesk_ticket_created" {
-		t.Errorf("want sentinel, got %v", result)
-	}
-	if gotAuth == "" {
-		t.Error("want basic auth header set")
-	}
-	ticket, ok := gotBody["ticket"].(map[string]any)
-	if !ok {
-		t.Fatalf("want a ticket object, got %v", gotBody)
-	}
-	comment, ok := ticket["comment"].(map[string]any)
-	if !ok || comment["body"] != "help me" {
-		t.Errorf("want comment body from message, got %v", ticket["comment"])
-	}
-}
-
-func TestZendeskAction_SkipsOnInvalidSubdomain(t *testing.T) {
-	node := models.WorkflowNode{
-		ID: "zd3", Type: models.NodeTypeAction, Template: "zendesk",
-		Secrets: map[string]string{"zendeskAPIToken": "tok"},
-		Config:  map[string]string{"zendeskEmail": "agent@example.com", "zendeskSubdomain": "bad/subdomain!"},
-	}
-	rc := engine.NewRunContext("r1", []byte(`"help me"`))
-	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if !errors.Is(err, nodes.ErrActionSkipped) || result != "zendesk_skipped_invalid_subdomain" {
-		t.Errorf("want invalid-subdomain skip, got %v / %v", result, err)
-	}
-}
-
-func TestZendeskAction_SkipsWhenMissingConfig(t *testing.T) {
-	node := models.WorkflowNode{ID: "zd2", Type: models.NodeTypeAction, Template: "zendesk"}
-	rc := engine.NewRunContext("r1", nil)
-	result, err := nodes.ExecuteAction(context.Background(), node, rc)
-	if !errors.Is(err, nodes.ErrActionSkipped) || result != "zendesk_skipped_missing_config" {
-		t.Errorf("want skip sentinel, got %v / %v", result, err)
-	}
-}
+// Twilio, Stripe, PagerDuty, and Zendesk each had two independent
+// implementations after merging this PR with master (see
+// connectors_business.go's apiBaseDefaults comment) -- the ops.go/
+// commerce.go versions were kept as canonical, so their coverage lives in
+// connectors_ops_test.go (Twilio/PagerDuty/Zendesk) and
+// connectors_commerce_test.go (Stripe) instead of here.
 
 func TestIntercomAction_CreatesLeadFromMessageEmail(t *testing.T) {
 	var gotBody map[string]any
@@ -346,11 +174,11 @@ func TestShopifyAction_AddsOrderNoteWithAccessTokenHeader(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
-	nodes.SetShopifyAPIBaseForTest(srv.URL)
-	defer nodes.SetShopifyAPIBaseForTest("")
+	nodes.SetShopifyOrderNoteAPIBaseForTest(srv.URL)
+	defer nodes.SetShopifyOrderNoteAPIBaseForTest("")
 
 	node := models.WorkflowNode{
-		ID: "sh3", Type: models.NodeTypeAction, Template: "shopify",
+		ID: "sh3", Type: models.NodeTypeAction, Template: "shopify_order_note",
 		Secrets: map[string]string{"shopifyAccessToken": "shpat_123"},
 		Config:  map[string]string{"shopifyShopDomain": "mystore.myshopify.com", "shopifyOrderID": "9001"},
 	}
@@ -371,6 +199,49 @@ func TestShopifyAction_AddsOrderNoteWithAccessTokenHeader(t *testing.T) {
 	}
 }
 
+// shopifyShopDomain/shopifyOrderID must resolve {{ }} references, matching
+// the sibling create-customer connector -- a templated order ID (e.g. from
+// an upstream order-lookup node) previously got spliced in literally instead
+// of resolved.
+func TestShopifyAction_ResolvesTemplatesInDomainAndOrderID(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	nodes.SetShopifyOrderNoteAPIBaseForTest(srv.URL)
+	defer nodes.SetShopifyOrderNoteAPIBaseForTest("")
+
+	rc := engine.NewRunContext("r1", []byte(`"refunded per customer request"`))
+	rc.Set("lookup", map[string]any{"domain": "mystore.myshopify.com", "orderID": "9002"})
+
+	node := models.WorkflowNode{
+		ID: "sh5", Type: models.NodeTypeAction, Template: "shopify_order_note",
+		Secrets: map[string]string{"shopifyAccessToken": "shpat_123"},
+		Config: map[string]string{
+			"shopifyShopDomain": "{{ node.lookup.domain }}",
+			"shopifyOrderID":    "{{ node.lookup.orderID }}",
+		},
+	}
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "shopify_order_note_added" {
+		t.Errorf("want 'shopify_order_note_added' (templates resolved), got %v", result)
+	}
+	if !strings.Contains(gotPath, "/orders/9002.json") {
+		t.Errorf("orderID should resolve into the request path, got %q", gotPath)
+	}
+	order, ok := gotBody["order"].(map[string]any)
+	if !ok || order["id"] != "9002" {
+		t.Errorf("orderID should resolve in the request body too, got %v", gotBody["order"])
+	}
+}
+
 func TestShopifyAction_SkipsWhenDomainInvalid(t *testing.T) {
 	var requestReceived bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -378,11 +249,11 @@ func TestShopifyAction_SkipsWhenDomainInvalid(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
-	nodes.SetShopifyAPIBaseForTest(srv.URL)
-	defer nodes.SetShopifyAPIBaseForTest("")
+	nodes.SetShopifyOrderNoteAPIBaseForTest(srv.URL)
+	defer nodes.SetShopifyOrderNoteAPIBaseForTest("")
 
 	node := models.WorkflowNode{
-		ID: "sh4", Type: models.NodeTypeAction, Template: "shopify",
+		ID: "sh4", Type: models.NodeTypeAction, Template: "shopify_order_note",
 		Secrets: map[string]string{"shopifyAccessToken": "shpat_123"},
 		Config:  map[string]string{"shopifyShopDomain": "evil.com", "shopifyOrderID": "9001"},
 	}
@@ -401,7 +272,7 @@ func TestShopifyAction_SkipsWhenDomainInvalid(t *testing.T) {
 
 func TestShopifyAction_SkipsWhenMissingConfig(t *testing.T) {
 	node := models.WorkflowNode{
-		ID: "sh1", Type: models.NodeTypeAction, Template: "shopify",
+		ID: "sh1", Type: models.NodeTypeAction, Template: "shopify_order_note",
 		Secrets: map[string]string{"shopifyAccessToken": "tok"},
 	}
 	rc := engine.NewRunContext("r1", nil)
@@ -412,7 +283,7 @@ func TestShopifyAction_SkipsWhenMissingConfig(t *testing.T) {
 }
 
 func TestShopifyAction_SkipsWhenNoAccessToken(t *testing.T) {
-	node := models.WorkflowNode{ID: "sh2", Type: models.NodeTypeAction, Template: "shopify"}
+	node := models.WorkflowNode{ID: "sh2", Type: models.NodeTypeAction, Template: "shopify_order_note"}
 	rc := engine.NewRunContext("r1", nil)
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
 	if !errors.Is(err, nodes.ErrActionSkipped) || result != "shopify_skipped_no_access_token" {

@@ -97,6 +97,48 @@ func TestReadBoundedForTest_ErrorsOverLimit(t *testing.T) {
 	}
 }
 
+func TestGetAndDecodeReturnsBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer tok" {
+			t.Errorf("want auth header forwarded, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"items":[{"id":1}]}`))
+	}))
+	defer srv.Close()
+
+	got, err := nodes.GetAndDecodeForTest(context.Background(), srv.URL,
+		map[string]string{"Authorization": "Bearer tok"}, "Test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("want a decoded map, got %T", got)
+	}
+	if _, ok := m["items"]; !ok {
+		t.Errorf("want the decoded body, got %#v", m)
+	}
+}
+
+func TestGetAndDecodeSurfacesHTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"error":"nope"}`))
+	}))
+	defer srv.Close()
+
+	if _, err := nodes.GetAndDecodeForTest(context.Background(), srv.URL, nil, "Test"); err == nil {
+		t.Error("want an error for a 403, got nil")
+	}
+}
+
+func TestGetAndDecodeRejectsSSRFTarget(t *testing.T) {
+	if _, err := nodes.GetAndDecodeForTest(context.Background(), "http://169.254.169.254/latest/meta-data/", nil, "Test"); err == nil {
+		t.Error("want the SSRF guard to reject link-local metadata, got nil")
+	}
+}
+
 func TestGetJSON_DecodesSuccessResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"ok":true,"items":[1,2,3]}`))
@@ -147,60 +189,60 @@ func TestGetJSON_InvalidJSONReturnsError(t *testing.T) {
 
 // ── message templating ("{{ result }}" / "{{ result.field }}") ────────────
 
-func TestExpandTemplate_BareResultReturnsWholeMessage(t *testing.T) {
+func TestResolveTemplate_BareResultReturnsWholeMessage(t *testing.T) {
 	rc := engine.NewRunContext("r1", []byte(`"hello world"`))
-	got := nodes.ExpandTemplateForTest("{{ result }}", rc)
+	got := nodes.ResolveTemplateForTest("{{ result }}", rc)
 	if got != "hello world" {
 		t.Errorf("want whole message, got %q", got)
 	}
 }
 
-func TestExpandTemplate_DottedPathExtractsField(t *testing.T) {
+func TestResolveTemplate_DottedPathExtractsField(t *testing.T) {
 	rc := engine.NewRunContext("r1", nil)
 	rc.Set("n1", map[string]any{
 		"extract": "Algorand is a proof-of-stake blockchain.",
 		"title":   "Algorand",
 	})
-	got := nodes.ExpandTemplateForTest("{{ result.extract }}", rc)
+	got := nodes.ResolveTemplateForTest("{{ result.extract }}", rc)
 	if got != "Algorand is a proof-of-stake blockchain." {
 		t.Errorf("want extracted field, got %q", got)
 	}
 }
 
-func TestExpandTemplate_NestedDottedPath(t *testing.T) {
+func TestResolveTemplate_NestedDottedPath(t *testing.T) {
 	rc := engine.NewRunContext("r1", nil)
 	rc.Set("n1", map[string]any{
 		"content_urls": map[string]any{
 			"desktop": map[string]any{"page": "https://en.wikipedia.org/wiki/Algorand"},
 		},
 	})
-	got := nodes.ExpandTemplateForTest("{{ result.content_urls.desktop.page }}", rc)
+	got := nodes.ResolveTemplateForTest("{{ result.content_urls.desktop.page }}", rc)
 	if got != "https://en.wikipedia.org/wiki/Algorand" {
 		t.Errorf("want nested field, got %q", got)
 	}
 }
 
-func TestExpandTemplate_MissingFieldExpandsToEmpty(t *testing.T) {
+func TestResolveTemplate_MissingFieldExpandsToEmpty(t *testing.T) {
 	rc := engine.NewRunContext("r1", nil)
 	rc.Set("n1", map[string]any{"extract": "hi"})
-	got := nodes.ExpandTemplateForTest("[{{ result.nonexistent }}]", rc)
+	got := nodes.ResolveTemplateForTest("[{{ result.nonexistent }}]", rc)
 	if got != "[]" {
 		t.Errorf("want empty expansion for missing field, got %q", got)
 	}
 }
 
-func TestExpandTemplate_NonObjectOutputWithPathExpandsToEmpty(t *testing.T) {
+func TestResolveTemplate_NonObjectOutputWithPathExpandsToEmpty(t *testing.T) {
 	rc := engine.NewRunContext("r1", []byte(`"just a string"`))
-	got := nodes.ExpandTemplateForTest("[{{ result.field }}]", rc)
+	got := nodes.ResolveTemplateForTest("[{{ result.field }}]", rc)
 	if got != "[]" {
 		t.Errorf("want empty expansion when output isn't an object, got %q", got)
 	}
 }
 
-func TestExpandTemplate_LiteralTextAndMultiplePlaceholdersPreserved(t *testing.T) {
+func TestResolveTemplate_LiteralTextAndMultiplePlaceholdersPreserved(t *testing.T) {
 	rc := engine.NewRunContext("r1", nil)
 	rc.Set("n1", map[string]any{"title": "Algorand", "extract": "A blockchain."})
-	got := nodes.ExpandTemplateForTest("New article: {{ result.title }}\n\n{{ result.extract }}", rc)
+	got := nodes.ResolveTemplateForTest("New article: {{ result.title }}\n\n{{ result.extract }}", rc)
 	want := "New article: Algorand\n\nA blockchain."
 	if got != want {
 		t.Errorf("want %q, got %q", want, got)

@@ -136,7 +136,11 @@ export function Inspector({
           <ProviderInspector node={selected} onUpdate={onUpdate} />
         )}
         {selected.type === "tool" && (
-          <ToolInspector node={selected} onUpdate={onUpdate} />
+          <ToolInspector
+            node={selected}
+            workflowId={workflowId}
+            onUpdate={onUpdate}
+          />
         )}
         {selected.type === "tool402" && (
           <Tool402Inspector node={selected} onUpdate={onUpdate} />
@@ -933,14 +937,33 @@ function ProviderInspector({
 }
 
 // ── Tool Inspector ─────────────────────────────────────────────────────────
+// COMPUTE_TOOL_TEMPLATES take their settings entirely from
+// CONNECTOR_CONFIG_FIELDS (via ConnectorConfigSection) — they read Config/
+// Secrets keys, not node.url/node.method, so the generic Method/URL panel
+// below is irrelevant for them and would just confuse the editor.
+const COMPUTE_TOOL_TEMPLATES = new Set([
+  "set",
+  "json_extract",
+  "crypto",
+  "datetime",
+  "xml",
+  "template",
+  "html_extract",
+  "markdown",
+  "quickchart",
+]);
+
 function ToolInspector({
   node,
+  workflowId,
   onUpdate,
 }: {
   node: WorkflowNode;
+  workflowId: string;
   onUpdate: (n: WorkflowNode) => void;
 }) {
   const tpl = TOOL_TEMPLATES.find((t) => t.id === node.template);
+  const isComputeTool = COMPUTE_TOOL_TEMPLATES.has(node.template ?? "");
   return (
     <>
       <Section label="Tool">
@@ -964,29 +987,31 @@ function ToolInspector({
           </>
         )}
       </Section>
-      <Section label="Config">
-        <Field label="Method">
-          <select
-            style={monoInputStyle}
-            value={node.method ?? "GET"}
-            onChange={(e) => onUpdate({ ...node, method: e.target.value })}
-          >
-            <option>GET</option>
-            <option>POST</option>
-            <option>PUT</option>
-            <option>PATCH</option>
-            <option>DELETE</option>
-          </select>
-        </Field>
-        <Field label="URL">
-          <input
-            style={monoInputStyle}
-            value={node.url ?? ""}
-            placeholder="https://api.example.com/v1/"
-            onChange={(e) => onUpdate({ ...node, url: e.target.value })}
-          />
-        </Field>
-      </Section>
+      {!isComputeTool && (
+        <Section label="Config">
+          <Field label="Method">
+            <select
+              style={monoInputStyle}
+              value={node.method ?? "GET"}
+              onChange={(e) => onUpdate({ ...node, method: e.target.value })}
+            >
+              <option>GET</option>
+              <option>POST</option>
+              <option>PUT</option>
+              <option>PATCH</option>
+              <option>DELETE</option>
+            </select>
+          </Field>
+          <Field label="URL">
+            <input
+              style={monoInputStyle}
+              value={node.url ?? ""}
+              placeholder="https://api.example.com/v1/"
+              onChange={(e) => onUpdate({ ...node, url: e.target.value })}
+            />
+          </Field>
+        </Section>
+      )}
       {node.template === "http" && (
         <Section label="Body (optional)">
           <Field
@@ -1021,7 +1046,11 @@ function ToolInspector({
         // genuinely optional -- a plain public-API call needs none of
         // them -- so this deliberately skips ConnectorConfigSection's
         // connected/not-connected status pill, which assumes the secret
-        // is required for the node to function at all.
+        // is required for the node to function at all. Also,
+        // ConnectorConfigSection looks up CONNECTOR_CONFIG_FIELDS by
+        // template id and there's deliberately no "http" entry there (a
+        // plain URL call isn't a named connector), so it would silently
+        // render nothing here -- these fields have to be inline.
         <Section label="Headers & auth (optional)">
           <HttpHeadersField node={node} onUpdate={onUpdate} />
           <SecretField
@@ -1041,6 +1070,14 @@ function ToolInspector({
           />
         </Section>
       )}
+      {/* No-op for "http" (no CONNECTOR_CONFIG_FIELDS["http"] entry, see
+          above) -- kept unconditional for any compute-tool template that
+          does register a spec here. */}
+      <ConnectorConfigSection
+        node={node}
+        workflowId={workflowId}
+        onUpdate={onUpdate}
+      />
     </>
   );
 }
@@ -2353,20 +2390,125 @@ const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
+  set: {
+    label: "Edit Fields config",
+    fields: [
+      {
+        kind: "config",
+        key: "setFields",
+        label: "Fields (JSON)",
+        placeholder: '{"city":"{{ node.n1.city }}","asked":"{{ input }}"}',
+        hint: "String values may use {{ result }}, {{ input }}, {{ node.<id>.<field> }}",
+      },
+    ],
+  },
+  json_extract: {
+    label: "JSON Extract config",
+    fields: [
+      {
+        kind: "config",
+        key: "jsonPath",
+        label: "Path",
+        placeholder: "data.items.0.name",
+        hint: "Dot path; numeric segments index arrays",
+      },
+    ],
+  },
+  crypto: {
+    label: "Crypto config",
+    fields: [
+      {
+        kind: "config",
+        key: "cryptoAction",
+        label: "Action",
+        placeholder: "sha256",
+        hint: "sha256 · sha512 · sha1 · md5 · hmac-sha256 · base64 · base64decode",
+      },
+      {
+        kind: "secret",
+        key: "cryptoSecret",
+        label: "HMAC secret",
+        hint: "only for hmac-sha256",
+        placeholder: "shared secret",
+      },
+    ],
+  },
+  datetime: {
+    label: "Date & Time config",
+    fields: [
+      {
+        kind: "config",
+        key: "dtFormat",
+        label: "Format",
+        placeholder: "rfc3339",
+        hint: "rfc3339 · unix · date · time · or a Go layout",
+      },
+      {
+        kind: "config",
+        key: "dtOffset",
+        label: "Offset",
+        hint: "optional",
+        placeholder: "-24h",
+      },
+      {
+        kind: "config",
+        key: "dtZone",
+        label: "Timezone",
+        hint: "optional, IANA name",
+        placeholder: "Asia/Kolkata",
+      },
+    ],
+  },
+  template: {
+    label: "Text Template config",
+    fields: [
+      {
+        kind: "config",
+        key: "templateText",
+        label: "Template",
+        placeholder: "Result: {{ result }}",
+        hint: "Supports {{ result }}, {{ input }}, {{ node.<id>.<field> }}",
+      },
+    ],
+  },
+  stripe: {
+    label: "Stripe config",
+    fields: [
+      {
+        kind: "secret",
+        key: "stripeAPIKey",
+        label: "Secret Key",
+        placeholder: "sk_live_xxxxxxxxxxxx",
+      },
+      {
+        kind: "config",
+        key: "stripeEmail",
+        label: "Customer email",
+        placeholder: "buyer@example.com",
+      },
+      {
+        kind: "config",
+        key: "stripeName",
+        label: "Customer name",
+        hint: "optional",
+        placeholder: "leave blank to omit",
+      },
+    ],
+  },
   twilio: {
     label: "Twilio config",
     fields: [
       {
         kind: "secret",
-        key: "twilioAccountSID",
-        label: "Account SID",
-        placeholder: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      },
-      {
-        kind: "secret",
         key: "twilioAuthToken",
         label: "Auth Token",
         placeholder: "your Twilio auth token",
+      },
+      {
+        kind: "config",
+        key: "twilioAccountSID",
+        label: "Account SID",
+        placeholder: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
       },
       {
         kind: "config",
@@ -2382,26 +2524,28 @@ const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
-  stripe: {
-    label: "Stripe config",
+  mattermost: {
+    label: "Mattermost config",
     fields: [
       {
         kind: "secret",
-        key: "stripeSecretKey",
-        label: "Secret Key",
-        placeholder: "sk_live_… or sk_test_…",
+        key: "mattermostWebhookURL",
+        label: "Incoming Webhook URL",
+        placeholder: "https://mattermost.example.com/hooks/xxx",
       },
       {
         kind: "config",
-        key: "stripeEmail",
-        label: "Customer Email",
-        hint: "optional, defaults to the upstream message",
-      },
-      {
-        kind: "config",
-        key: "stripeName",
-        label: "Customer Name",
+        key: "mattermostChannel",
+        label: "Channel",
         hint: "optional",
+        placeholder: "town-square",
+      },
+      {
+        kind: "config",
+        key: "mattermostUsername",
+        label: "Post as",
+        hint: "optional",
+        placeholder: "AgentMesh",
       },
     ],
   },
@@ -2418,19 +2562,21 @@ const CONNECTOR_CONFIG_FIELDS: Record<
         kind: "config",
         key: "pagerdutySeverity",
         label: "Severity",
-        placeholder: "info (default) · warning · error · critical",
+        placeholder: "error (default)",
+        hint: "critical · error · warning · info",
+      },
+      {
+        kind: "config",
+        key: "pagerdutySource",
+        label: "Source",
+        hint: "optional",
+        placeholder: "agentmesh",
       },
     ],
   },
   zendesk: {
     label: "Zendesk config",
     fields: [
-      {
-        kind: "config",
-        key: "zendeskEmail",
-        label: "Agent Email",
-        placeholder: "agent@yourcompany.com",
-      },
       {
         kind: "secret",
         key: "zendeskAPIToken",
@@ -2443,6 +2589,29 @@ const CONNECTOR_CONFIG_FIELDS: Record<
         label: "Subdomain",
         hint: "the part before .zendesk.com",
         placeholder: "yourcompany",
+      },
+      {
+        kind: "config",
+        key: "zendeskEmail",
+        label: "Agent Email",
+        placeholder: "agent@yourcompany.com",
+      },
+    ],
+  },
+  monday: {
+    label: "Monday.com config",
+    fields: [
+      {
+        kind: "secret",
+        key: "mondayAPIKey",
+        label: "API Token",
+        placeholder: "your Monday.com v2 token",
+      },
+      {
+        kind: "config",
+        key: "mondayBoardID",
+        label: "Board ID",
+        placeholder: "123456789",
       },
     ],
   },
@@ -2512,6 +2681,250 @@ const CONNECTOR_CONFIG_FIELDS: Record<
   },
   shopify: {
     label: "Shopify config",
+    fields: [
+      {
+        kind: "secret",
+        key: "shopifyAccessToken",
+        label: "Admin API Access Token",
+        placeholder: "shpat_xxxxxxxxxxxx",
+      },
+      {
+        kind: "config",
+        key: "shopifyStore",
+        label: "Store handle",
+        placeholder: "acme-store (from acme-store.myshopify.com)",
+      },
+      {
+        kind: "config",
+        key: "shopifyEmail",
+        label: "Customer email",
+        placeholder: "buyer@example.com",
+      },
+    ],
+  },
+  pipedrive: {
+    label: "Pipedrive config",
+    fields: [
+      {
+        kind: "secret",
+        key: "pipedriveAPIToken",
+        label: "API Token",
+        placeholder: "your Pipedrive API token",
+      },
+      {
+        kind: "config",
+        key: "pipedriveCompanyDomain",
+        label: "Company domain",
+        placeholder: "acme (from acme.pipedrive.com)",
+      },
+      {
+        kind: "config",
+        key: "pipedriveDealID",
+        label: "Deal ID",
+        hint: "optional",
+        placeholder: "attach the note to a deal",
+      },
+      {
+        kind: "config",
+        key: "pipedrivePersonID",
+        label: "Person ID",
+        hint: "optional",
+        placeholder: "attach the note to a person",
+      },
+    ],
+  },
+  db: {
+    label: "Postgres config",
+    fields: [
+      {
+        kind: "secret",
+        key: "pgConnString",
+        label: "Connection string",
+        placeholder: "postgres://user:pass@host:5432/dbname",
+      },
+      {
+        kind: "config",
+        key: "pgTable",
+        label: "Table",
+        placeholder: "events",
+      },
+      {
+        kind: "config",
+        key: "pgColumn",
+        label: "Output column",
+        placeholder: "payload",
+        hint: "receives the run output",
+      },
+      {
+        kind: "config",
+        key: "pgExtraColumns",
+        label: "Extra columns (JSON)",
+        hint: "optional",
+        placeholder: '{"source":"agentmesh","city":"{{ node.n1.city }}"}',
+      },
+    ],
+  },
+  html_extract: {
+    label: "HTML Extract config",
+    fields: [
+      {
+        kind: "config",
+        key: "htmlSelector",
+        label: "CSS selector",
+        placeholder: "h1.title",
+      },
+      {
+        kind: "config",
+        key: "htmlAttr",
+        label: "Attribute",
+        hint: "optional, blank = text",
+        placeholder: "href",
+      },
+      {
+        kind: "config",
+        key: "htmlMode",
+        label: "Mode",
+        placeholder: "first",
+        hint: "first · all",
+      },
+    ],
+  },
+  markdown: {
+    label: "Markdown config",
+    fields: [
+      {
+        kind: "config",
+        key: "mdGFM",
+        label: "GitHub Flavored",
+        placeholder: "true",
+        hint: "true · false — tables, strikethrough, autolinks",
+      },
+    ],
+  },
+  rss: {
+    label: "RSS config",
+    fields: [
+      {
+        kind: "config",
+        key: "rssURL",
+        label: "Feed URL",
+        placeholder: "https://example.com/feed.xml",
+      },
+      {
+        kind: "config",
+        key: "rssLimit",
+        label: "Max items",
+        hint: "optional, default 10",
+        placeholder: "10",
+      },
+    ],
+  },
+  graphql: {
+    label: "GraphQL config",
+    fields: [
+      {
+        kind: "config",
+        key: "graphqlEndpoint",
+        label: "Endpoint",
+        placeholder: "https://api.github.com/graphql",
+      },
+      {
+        kind: "config",
+        key: "graphqlQuery",
+        label: "Query",
+        placeholder: "query { viewer { login } }",
+      },
+      {
+        kind: "config",
+        key: "graphqlVariables",
+        label: "Variables (JSON)",
+        hint: "optional",
+        placeholder: '{"first":10,"search":"{{ result }}"}',
+      },
+      {
+        kind: "secret",
+        key: "graphqlAuthHeader",
+        label: "Authorization header",
+        hint: "sent verbatim — include Bearer if the API wants it",
+        placeholder: "Bearer ghp_xxxxxxxx",
+      },
+    ],
+  },
+  hackernews: {
+    label: "Hacker News config",
+    fields: [
+      {
+        kind: "config",
+        key: "hnQuery",
+        label: "Search query",
+        placeholder: "{{ result }}",
+      },
+      {
+        kind: "config",
+        key: "hnTags",
+        label: "Tags",
+        hint: "optional",
+        placeholder: "story · comment · show_hn · ask_hn",
+      },
+      {
+        kind: "config",
+        key: "hnLimit",
+        label: "Max items",
+        hint: "optional, default 10",
+        placeholder: "10",
+      },
+    ],
+  },
+  coingecko: {
+    label: "CoinGecko config",
+    fields: [
+      {
+        kind: "config",
+        key: "cgIDs",
+        label: "Coin IDs",
+        placeholder: "bitcoin,ethereum",
+      },
+      {
+        kind: "config",
+        key: "cgCurrencies",
+        label: "Currencies",
+        hint: "optional, default usd",
+        placeholder: "usd,eur",
+      },
+    ],
+  },
+  quickchart: {
+    label: "QuickChart config",
+    fields: [
+      {
+        kind: "config",
+        key: "qcConfig",
+        label: "Chart.js config (JSON)",
+        placeholder: '{"type":"bar","data":{"labels":["a","b"],"datasets":[{"data":[1,2]}]}}',
+      },
+      {
+        kind: "config",
+        key: "qcWidth",
+        label: "Width",
+        hint: "optional",
+        placeholder: "600",
+      },
+      {
+        kind: "config",
+        key: "qcHeight",
+        label: "Height",
+        hint: "optional",
+        placeholder: "400",
+      },
+    ],
+  },
+  // Distinct from "shopify" above (which creates a customer): this adds a
+  // note to an existing order. Two independent Shopify connectors were
+  // added on either side of this merge -- see connectors_business.go's
+  // sendShopifyOrderNote doc comment -- kept as separate template ids
+  // instead of one silently overwriting the other's backend dispatch.
+  shopify_order_note: {
+    label: "Shopify: Add Order Note config",
     fields: [
       {
         kind: "secret",

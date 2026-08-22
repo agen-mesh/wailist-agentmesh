@@ -158,7 +158,15 @@ export function modelTier(
 export const TOOL_TEMPLATES = [
   { id: "http", name: "HTTP Request", desc: "GET/POST any URL", icon: "⟶" },
   { id: "calc", name: "Calculator", desc: "Math expressions", icon: "Σ" },
-  { id: "datetime", name: "Current Time", desc: "UTC timestamp", icon: "◔" },
+  { id: "set", name: "Edit Fields", desc: "Build an object from refs", icon: "≔" },
+  { id: "json_extract", name: "JSON Extract", desc: "Pick a value by path", icon: "⌗" },
+  { id: "crypto", name: "Crypto", desc: "Hash / HMAC / base64", icon: "⚿" },
+  { id: "datetime", name: "Date & Time", desc: "Now, offset, timezone", icon: "◔" },
+  { id: "xml", name: "XML → JSON", desc: "Parse XML payloads", icon: "⋔" },
+  { id: "template", name: "Text Template", desc: "Compose with {{ refs }}", icon: "¶" },
+  { id: "html_extract", name: "HTML Extract", desc: "CSS selector → text", icon: "⌸" },
+  { id: "markdown", name: "Markdown → HTML", desc: "Render agent output", icon: "⌘" },
+  { id: "quickchart", name: "QuickChart", desc: "Chart image URL", icon: "▦" },
 ];
 
 // TOOL402_TEMPLATES removed: the x402 tab's palette `map` never set an
@@ -202,9 +210,13 @@ export const ACTION_TEMPLATES = [
     icon: "#",
     category: "Messaging",
   },
-  // "db" (Database Insert) removed: no `case "db"` in ExecuteAction
-  // (backend/internal/engine/nodes/action.go) -- it fell through to
-  // `default: return "logged", nil`, a green node that wrote nothing.
+  {
+    id: "db",
+    name: "Database Insert",
+    desc: "Write to Postgres",
+    icon: "⛁",
+    category: "Data & CRM",
+  },
   {
     id: "discord",
     name: "Discord Message",
@@ -375,6 +387,13 @@ export const ACTION_TEMPLATES = [
   },
   {
     id: "shopify",
+    name: "Shopify Customer",
+    desc: "Create a customer",
+    icon: "sp",
+    category: "Commerce",
+  },
+  {
+    id: "shopify_order_note",
     name: "Shopify Order Note",
     desc: "Add a note to an order",
     icon: "sp",
@@ -420,6 +439,55 @@ export const ACTION_TEMPLATES = [
     name: "OpenWeatherMap",
     desc: "Get current weather",
     icon: "wx",
+    category: "Utilities",
+  },
+  {
+    id: "mattermost",
+    name: "Mattermost Message",
+    desc: "Webhook post",
+    icon: "mm",
+    category: "Messaging",
+  },
+  {
+    id: "monday",
+    name: "Monday.com Item",
+    desc: "Create a board item",
+    icon: "mo",
+    category: "Productivity",
+  },
+  {
+    id: "pipedrive",
+    name: "Pipedrive Note",
+    desc: "Log a CRM note",
+    icon: "pi",
+    category: "Data & CRM",
+  },
+  {
+    id: "rss",
+    name: "RSS Feed",
+    desc: "Read a feed (no key)",
+    icon: "rs",
+    category: "Utilities",
+  },
+  {
+    id: "graphql",
+    name: "GraphQL Query",
+    desc: "Any GraphQL endpoint",
+    icon: "gq",
+    category: "Developer Tools",
+  },
+  {
+    id: "hackernews",
+    name: "Hacker News",
+    desc: "Search stories (no key)",
+    icon: "hn",
+    category: "Utilities",
+  },
+  {
+    id: "coingecko",
+    name: "CoinGecko Price",
+    desc: "Spot prices (no key)",
+    icon: "cg",
     category: "Utilities",
   },
 ];

@@ -64,22 +64,40 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendWooCommerce(ctx, node, rc)
 	case "elevenlabs":
 		return sendElevenLabs(ctx, node, rc)
-	case "twilio":
-		return sendTwilio(ctx, node, rc)
 	case "stripe":
 		return sendStripe(ctx, node, rc)
+	case "twilio":
+		return sendTwilio(ctx, node, rc)
+	case "mattermost":
+		return sendMattermost(ctx, node, rc)
 	case "pagerduty":
 		return sendPagerDuty(ctx, node, rc)
 	case "zendesk":
 		return sendZendesk(ctx, node, rc)
+	case "monday":
+		return sendMonday(ctx, node, rc)
+	case "shopify":
+		return sendShopify(ctx, node, rc)
+	case "shopify_order_note":
+		return sendShopifyOrderNote(ctx, node, rc)
+	case "pipedrive":
+		return sendPipedrive(ctx, node, rc)
+	case "db":
+		return sendPostgres(ctx, node, rc)
+	case "rss":
+		return fetchRSS(ctx, node, rc)
+	case "graphql":
+		return sendGraphQL(ctx, node, rc)
+	case "hackernews":
+		return fetchHackerNews(ctx, node, rc)
+	case "coingecko":
+		return fetchCoinGecko(ctx, node, rc)
 	case "intercom":
 		return sendIntercom(ctx, node, rc)
 	case "openweathermap":
 		return getOpenWeather(ctx, node, rc)
 	case "calendly":
 		return getCalendlyEvents(ctx, node, rc)
-	case "shopify":
-		return sendShopify(ctx, node, rc)
 	case "baserow":
 		return sendBaserow(ctx, node, rc)
 	default:
@@ -144,7 +162,7 @@ func sendEmail(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 	if bodyText == "" {
 		bodyText = "Hi,\n\nHere is your result:\n\n" + rc.Message() + "\n\n— AgentMesh"
 	} else {
-		bodyText = expandTemplate(bodyText, rc)
+		bodyText = resolveTemplate(bodyText, rc)
 	}
 
 	switch provider {

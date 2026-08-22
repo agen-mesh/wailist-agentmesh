@@ -210,7 +210,7 @@ func buildRFC2822Message(to, subject, body string) string {
 // snippet plus a deeply nested payload.headers[]/payload.parts[] MIME tree)
 // into the handful of fields a workflow actually wants -- so {{ result.body
 // }} / {{ result.subject }} / {{ result.from }} (see connector_helpers.go's
-// expandTemplate) can pick them out directly instead of the next node
+// resolveTemplate) can pick them out directly instead of the next node
 // having to know Gmail's own schema.
 func decodeGmailMessage(raw any) any {
 	m, ok := raw.(map[string]any)

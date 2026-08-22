@@ -27,16 +27,22 @@ func TestRunContext_MessageReturnsMostRecentlySetInInsertionOrder(t *testing.T) 
 	}
 }
 
-func TestRunContext_MessageReflectsOverwriteNotReinsertion(t *testing.T) {
+// A re-Set moves a node to the tail of the order rather than leaving it at
+// its first-insertion position -- a node that re-emits a new value IS the
+// newest output chronologically, so Message() should reflect that value,
+// not whatever was inserted after it but never updated again. (This never
+// actually fires in the real engine today -- TopologicalSort rejects
+// cycles, so no node runs twice in one pass -- but the contract should
+// still say what "most recent" means if that ever changes.) See
+// context_order_test.go's TestReSetMovesNodeToMostRecent for the ordering
+// assertion this pairs with.
+func TestRunContext_MessageReflectsOverwriteAsReinsertion(t *testing.T) {
 	rc := engine.NewRunContext("r1", nil)
 	rc.Set("a", "first")
 	rc.Set("b", "second")
-	// Overwriting "a" should not move it to the end of insertion order --
-	// "b" is still the most recently *inserted* key, so Message() should
-	// keep reflecting "b"'s (unchanged) value, not "a"'s new one.
 	rc.Set("a", "first-updated")
-	if got := rc.Message(); got != "second" {
-		t.Fatalf("want overwrite to not reorder, got %q", got)
+	if got := rc.Message(); got != "first-updated" {
+		t.Fatalf("want overwrite to become the most recent output, got %q", got)
 	}
 }
 

@@ -119,9 +119,25 @@ func ExecuteTool(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	case "calc":
 		return evalMath(node.URL)
 	case "datetime":
-		return time.Now().UTC().Format(time.RFC3339), nil
+		return executeDateTime(node)
 	case "http":
 		return callHTTP(ctx, node, rc)
+	case "set":
+		return executeSet(node, rc)
+	case "json_extract":
+		return executeJSONExtract(node, rc)
+	case "crypto":
+		return executeCrypto(node, rc)
+	case "xml":
+		return executeXMLToJSON(rc)
+	case "template":
+		return executeTemplate(node, rc)
+	case "html_extract":
+		return executeHTMLExtract(node, rc)
+	case "markdown":
+		return executeMarkdown(node, rc)
+	case "quickchart":
+		return executeQuickChart(node, rc)
 	default:
 		return rc.Message(), nil
 	}
@@ -161,8 +177,8 @@ func callHTTP(ctx context.Context, node models.WorkflowNode, rc RunContexter) (a
 		// httpBodyTemplate is this node's own template key, distinct from
 		// messageTemplate -- a different node type/Inspector, and "body" is
 		// the accurate term for what a request carries, vs. a connector's
-		// "message". Same {{ result }} / {{ result.field }} syntax either
-		// way (expandTemplate).
+		// "message". Same {{ result }} / {{ result.field }} / {{ node.<id> }}
+		// syntax either way (resolveTemplate).
 		//
 		// Only POST defaults to rc.Message() verbatim with no template set --
 		// that's the pre-existing behavior and changing it would silently
@@ -175,7 +191,7 @@ func callHTTP(ctx context.Context, node models.WorkflowNode, rc RunContexter) (a
 		tmpl := configVal(node, "httpBodyTemplate", "")
 		switch {
 		case tmpl != "":
-			bodyReader = bytes.NewReader([]byte(expandTemplate(tmpl, rc)))
+			bodyReader = bytes.NewReader([]byte(resolveTemplate(tmpl, rc)))
 		case rawMethod == http.MethodPost:
 			bodyReader = bytes.NewReader([]byte(rc.Message()))
 		}

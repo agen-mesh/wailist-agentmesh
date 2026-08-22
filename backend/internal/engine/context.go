@@ -8,12 +8,12 @@ import (
 type RunContext struct {
 	mu      sync.RWMutex
 	outputs map[string]any
-	// order records node IDs in Set() call order. Message()'s "most recent
-	// output" used to be read straight off rc.outputs, a Go map whose
-	// iteration order is randomized -- harmless while every result was a
-	// short sentinel string, but wrong as soon as a node's output actually
-	// matters (e.g. a connector read returning real data). This makes
-	// "most recent" a real, deterministic fact.
+	// order records node IDs in the sequence they were Set. Message() reads
+	// the tail of this rather than ranging over `outputs` — Go randomizes map
+	// iteration order, so the old "most recent" was actually "an arbitrary
+	// one", non-deterministic across runs of the same workflow. A re-Set
+	// moves the node to the tail (see Set below), so "most recent" stays
+	// accurate even for a node that runs more than once.
 	order []string
 	input any
 	runID string
@@ -34,10 +34,25 @@ func NewRunContext(runID string, inputJSON []byte) *RunContext {
 func (rc *RunContext) Set(nodeID string, value any) {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
-	if _, exists := rc.outputs[nodeID]; !exists {
-		rc.order = append(rc.order, nodeID)
+	// A re-Set moves the node to the tail: it just produced the newest output.
+	for i, id := range rc.order {
+		if id == nodeID {
+			rc.order = append(rc.order[:i], rc.order[i+1:]...)
+			break
+		}
 	}
+	rc.order = append(rc.order, nodeID)
 	rc.outputs[nodeID] = value
+}
+
+// OutputOrder returns node IDs in the order their outputs were Set, oldest
+// first. The returned slice is a copy — callers may retain it safely.
+func (rc *RunContext) OutputOrder() []string {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	out := make([]string, len(rc.order))
+	copy(out, rc.order)
+	return out
 }
 
 func (rc *RunContext) Get(nodeID string) (any, bool) {
@@ -65,8 +80,13 @@ func (rc *RunContext) ToolOutputs() map[string]any {
 	return out
 }
 
-// Message returns the most recent string output for use as LLM user message.
-// Kept for backwards compatibility with non-agent nodes.
+// Message returns the most recent node output as a string, falling back to the
+// trigger input when nothing has run yet.
+//
+// LOAD-BEARING FOR PAYMENTS: this value is the request body sent to paid x402
+// endpoints (nodes/tool402.go) and the Python source sent to Tendril's metered
+// /x402/run (nodes/tendril.go). Changing which output it selects changes what
+// real money is spent on. Do not alter the selection rule.
 //
 // KNOWN ISSUE: "most recent" means last call to Set(), and runner.go runs
 // every node in the same topological level concurrently in its own
@@ -88,8 +108,7 @@ func (rc *RunContext) Message() string {
 	if len(rc.order) == 0 {
 		return anyToString(rc.input)
 	}
-	last := rc.outputs[rc.order[len(rc.order)-1]]
-	return anyToString(last)
+	return anyToString(rc.outputs[rc.order[len(rc.order)-1]])
 }
 
 // LastOutput returns the most recent output's raw value, unlike Message()

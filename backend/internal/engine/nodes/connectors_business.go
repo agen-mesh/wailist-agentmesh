@@ -11,32 +11,19 @@ import (
 	"github.com/agentmesh/backend/internal/models"
 )
 
-// postForm POSTs application/x-www-form-urlencoded, unlike postJSON --
-// Twilio and Stripe's REST APIs both use form-encoded bodies, not JSON.
-func postForm(ctx context.Context, target string, headers map[string]string, form url.Values, sentinel, serviceName string) (any, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(form.Encode()))
-	if err != nil {
-		return nil, fmt.Errorf("%s: build request: %w", serviceName, err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	return doAndCheck(req, sentinel, serviceName)
-}
-
 // apiBaseDefaults holds each connector's real API base URL, keyed by
-// service name -- "" for Zendesk/Shopify, whose base is built per-node from
-// user-supplied subdomain/shop config rather than a fixed host. apiBases
-// holds the current (possibly test-overridden) value, seeded from the
-// defaults. Together with apiBase/setAPIBaseForTest below, this replaces
-// what would otherwise be nine hand-written var + SetXAPIBaseForTest pairs,
-// one per connector.
+// service name -- "" for Shopify, whose base is built per-node from
+// user-supplied shop config rather than a fixed host. apiBases holds the
+// current (possibly test-overridden) value, seeded from the defaults.
+// Together with apiBase/setAPIBaseForTest below, this replaces what would
+// otherwise be a hand-written var + SetXAPIBaseForTest pair per connector.
+//
+// Twilio, Stripe, PagerDuty, and Zendesk are deliberately absent: this PR
+// and master's independently added connectors for all four, and the
+// versions in connectors_ops.go/connectors_commerce.go (with their own
+// local *APIBase vars) were kept as canonical on reconciliation -- see
+// those files instead.
 var apiBaseDefaults = map[string]string{
-	"twilio":      "https://api.twilio.com",
-	"stripe":      "https://api.stripe.com",
-	"pagerduty":   "https://events.pagerduty.com",
-	"zendesk":     "",
 	"intercom":    "https://api.intercom.io",
 	"openweather": "https://api.openweathermap.org",
 	"calendly":    "https://api.calendly.com",
@@ -66,124 +53,6 @@ func setAPIBaseForTest(service, base string) {
 		base = apiBaseDefaults[service]
 	}
 	apiBases[service] = base
-}
-
-// SetTwilioAPIBaseForTest overrides the Twilio API base URL. Call only
-// from tests. Pass "" to reset to the real API.
-func SetTwilioAPIBaseForTest(base string) { setAPIBaseForTest("twilio", base) }
-
-// SetStripeAPIBaseForTest overrides the Stripe API base URL. Call only
-// from tests. Pass "" to reset to the real API.
-func SetStripeAPIBaseForTest(base string) { setAPIBaseForTest("stripe", base) }
-
-// SetPagerDutyAPIBaseForTest overrides the PagerDuty Events API base URL.
-// Call only from tests. Pass "" to reset to the real API.
-func SetPagerDutyAPIBaseForTest(base string) { setAPIBaseForTest("pagerduty", base) }
-
-func sendTwilio(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
-	accountSID := secretVal(node, "twilioAccountSID")
-	authToken := secretVal(node, "twilioAuthToken")
-	if accountSID == "" || authToken == "" {
-		return "twilio_skipped_no_credentials", ErrActionSkipped
-	}
-	to := configVal(node, "twilioTo", "")
-	from := configVal(node, "twilioFrom", "")
-	if to == "" || from == "" {
-		return "twilio_skipped_missing_config", ErrActionSkipped
-	}
-	target := apiBase("twilio") + "/2010-04-01/Accounts/" + url.PathEscape(accountSID) + "/Messages.json"
-	form := url.Values{}
-	form.Set("To", to)
-	form.Set("From", from)
-	form.Set("Body", resolveMessage(node, rc))
-	return postForm(ctx, target, basicAuthHeader(accountSID, authToken), form, "twilio_sms_sent", "Twilio")
-}
-
-// sendStripe creates a Customer -- Stripe's simplest, most broadly useful
-// single-call operation, and (like sendMailchimp) treats the upstream
-// message as an email address when no explicit one is configured.
-func sendStripe(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
-	apiKey := secretVal(node, "stripeSecretKey")
-	if apiKey == "" {
-		return "stripe_skipped_no_api_key", ErrActionSkipped
-	}
-	email := configVal(node, "stripeEmail", "")
-	if email == "" {
-		email = resolveMessage(node, rc)
-	}
-	email = strings.TrimSpace(email)
-	if email == "" {
-		return "stripe_skipped_no_email", ErrActionSkipped
-	}
-	form := url.Values{}
-	form.Set("email", email)
-	if name := configVal(node, "stripeName", ""); name != "" {
-		form.Set("name", name)
-	}
-	headers := map[string]string{"Authorization": "Bearer " + apiKey}
-	return postForm(ctx, apiBase("stripe")+"/v1/customers", headers, form, "stripe_customer_created", "Stripe")
-}
-
-// sendPagerDuty triggers an incident via the Events API v2 -- auth here is
-// the integration's routing_key carried IN the JSON body, not a header,
-// which is PagerDuty's real (if unusual) design for this endpoint.
-func sendPagerDuty(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
-	routingKey := secretVal(node, "pagerdutyRoutingKey")
-	if routingKey == "" {
-		return "pagerduty_skipped_no_routing_key", ErrActionSkipped
-	}
-	msg := resolveMessage(node, rc)
-	payload := map[string]any{
-		"routing_key":  routingKey,
-		"event_action": "trigger",
-		"payload": map[string]any{
-			"summary":  issueTitle(msg),
-			"source":   "AgentMesh",
-			"severity": configVal(node, "pagerdutySeverity", "info"),
-		},
-	}
-	return postJSON(ctx, apiBase("pagerduty")+"/v2/enqueue", nil, payload, "pagerduty_incident_triggered", "PagerDuty")
-}
-
-// zendeskDomainPattern mirrors jiraDomainPattern (connectors_devtools.go) --
-// the subdomain is user-supplied config interpolated directly into the
-// request host, so it must be validated before use for the same reason.
-var zendeskDomainPattern = jiraDomainPattern
-
-// SetZendeskAPIBaseForTest overrides the Zendesk API base URL entirely
-// (including scheme+host) -- normally "https://{subdomain}.zendesk.com" is
-// built per-node, so the override replaces that whole construction and
-// sendZendesk skips it when set. Call only from tests. Pass "" to reset to
-// the real per-node construction.
-func SetZendeskAPIBaseForTest(base string) { setAPIBaseForTest("zendesk", base) }
-
-func sendZendesk(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
-	email := configVal(node, "zendeskEmail", "")
-	apiToken := secretVal(node, "zendeskAPIToken")
-	subdomain := configVal(node, "zendeskSubdomain", "")
-	if email == "" || apiToken == "" || subdomain == "" {
-		return "zendesk_skipped_missing_config", ErrActionSkipped
-	}
-	if !zendeskDomainPattern.MatchString(subdomain) {
-		return "zendesk_skipped_invalid_subdomain", ErrActionSkipped
-	}
-	msg := resolveMessage(node, rc)
-	payload := map[string]any{
-		"ticket": map[string]any{
-			"subject": issueTitle(msg),
-			"comment": map[string]any{"body": msg},
-		},
-	}
-	base := apiBase("zendesk")
-	if base == "" {
-		base = "https://" + subdomain + ".zendesk.com"
-	}
-	target := base + "/api/v2/tickets.json"
-	// Zendesk's token-auth convention: username is "email/token", password
-	// is the API token -- not the email/password pair the Basic-auth name
-	// might suggest.
-	headers := basicAuthHeader(email+"/token", apiToken)
-	return postJSON(ctx, target, headers, payload, "zendesk_ticket_created", "Zendesk")
 }
 
 // SetIntercomAPIBaseForTest overrides the Intercom API base URL. Call only
@@ -282,21 +151,26 @@ func getCalendlyEvents(ctx context.Context, node models.WorkflowNode, rc RunCont
 // shape rather than just checking character set.
 var shopifyDomainPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$`)
 
-// SetShopifyAPIBaseForTest overrides the Shopify API base URL entirely
+// SetShopifyOrderNoteAPIBaseForTest overrides the Shopify API base URL entirely
 // (including scheme+host) -- normally "https://{shop}" is built per-node
 // (shopifyShopDomain is already a full host like "mystore.myshopify.com"),
 // so the override replaces that "https://" + shop prefix entirely, letting
 // a test point at a plain http:// httptest server. Call only from tests.
 // Pass "" to reset to the real per-node construction.
-func SetShopifyAPIBaseForTest(base string) { setAPIBaseForTest("shopify", base) }
+func SetShopifyOrderNoteAPIBaseForTest(base string) { setAPIBaseForTest("shopify", base) }
 
-func sendShopify(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+// sendShopifyOrderNote adds a note to an existing order -- distinct from
+// sendShopify (connectors_commerce.go, template id "shopify"), which
+// creates a new customer. Both are real, independently-added operations;
+// this one keeps its own template id ("shopify_order_note") rather than
+// colliding on "shopify".
+func sendShopifyOrderNote(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	accessToken := secretVal(node, "shopifyAccessToken")
 	if accessToken == "" {
 		return "shopify_skipped_no_access_token", ErrActionSkipped
 	}
-	shop := configVal(node, "shopifyShopDomain", "")
-	orderID := configVal(node, "shopifyOrderID", "")
+	shop := resolveTemplate(configVal(node, "shopifyShopDomain", ""), rc)
+	orderID := resolveTemplate(configVal(node, "shopifyOrderID", ""), rc)
 	if shop == "" || orderID == "" {
 		return "shopify_skipped_missing_config", ErrActionSkipped
 	}
