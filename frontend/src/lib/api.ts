@@ -11,12 +11,18 @@ import {
   Settlement,
 } from "./types";
 import { WORKFLOWS, SAMPLE_WORKFLOW, buildUsage } from "./data";
+import type { Purchase, PurchaseStatus } from "@/lib/credits/types";
+import type { PaymentMethod } from "@/components/checkout/types";
 
 // In the browser, always route through /api so the cookie stays same-site.
 // NEXT_PUBLIC_API_URL still controls mock vs real (empty = mock data).
 const _CONFIGURED = process.env.NEXT_PUBLIC_API_URL ?? "";
 export const BASE =
   _CONFIGURED && typeof window !== "undefined" ? "/api" : _CONFIGURED;
+
+// True when a real backend is configured. Consumers (e.g. the credits store)
+// use this to read DB-backed data instead of the localStorage mock.
+export const hasBackend = !!BASE;
 
 // -- Auth ------------------------------------------------------------------
 export interface AuthUser {
@@ -338,6 +344,17 @@ export const credits = {
     await delay(120);
     throw new Error("coupons aren't available in mock mode");
   },
+
+  // Real purchase history from the credit ledger, newest first. Empty in mock mode.
+  history: async (): Promise<Purchase[]> => {
+    if (!BASE) return [];
+    const res = await fetch(`${BASE}/credits/history`, {
+      credentials: "include",
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? "history fetch failed");
+    return ((data.history ?? []) as LedgerEntry[]).map(ledgerToPurchase);
+  },
 };
 
 // -- Runs -------------------------------------------------------------------
@@ -623,6 +640,46 @@ export const payments = {
     return data;
   },
 };
+
+// -- Credits (DB-backed) --------------------------------------------------
+// One credit_ledger row as returned by GET /credits/history (camelCase JSON
+// from the Go models.CreditTransaction).
+interface LedgerEntry {
+  id: string;
+  provider: string;
+  status: string;
+  amountInrPaise?: number | null;
+  amountUsdCents?: number | null;
+  creditUsdMicros: number;
+  createdAt: string;
+}
+
+function mapLedgerStatus(s: string): PurchaseStatus {
+  switch (s) {
+    case "completed":
+      return "paid";
+    case "refunded":
+      return "refunded";
+    case "failed":
+    case "expired":
+      return "failed";
+    default:
+      return "pending"; // pending, partially_paid, anything unknown
+  }
+}
+
+function ledgerToPurchase(e: LedgerEntry): Purchase {
+  const method: PaymentMethod =
+    e.provider === "nowpayments" ? "nowpayments" : "cashfree";
+  return {
+    id: e.id,
+    createdAt: e.createdAt,
+    amountINR: e.amountInrPaise != null ? e.amountInrPaise / 100 : 0,
+    creditsUSD: (e.creditUsdMicros ?? 0) / 1_000_000,
+    method,
+    status: mapLedgerStatus(e.status),
+  };
+}
 
 // -- Usage & Credits ------------------------------------------------------
 // Real endpoints don't exist yet (see plan §5 -- needs a metering change in

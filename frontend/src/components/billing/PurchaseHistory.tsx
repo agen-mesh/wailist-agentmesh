@@ -1,9 +1,9 @@
 "use client";
 import { useState } from "react";
-import { Card, Pill } from "@/components/ui";
+import { Card, Pill, ghostBtnSm } from "@/components/ui";
 import { useCredits } from "@/lib/credits/store";
 import { Receipt } from "./Receipt";
-import type { Purchase } from "@/lib/credits/types";
+import type { Purchase, PurchaseStatus } from "@/lib/credits/types";
 import type { PaymentMethod } from "@/components/checkout/types";
 
 const METHOD_LABELS: Record<PaymentMethod, string> = {
@@ -11,6 +11,18 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
   nowpayments: "NOWPayments",
   paypal: "PayPal",
   stripe: "Stripe",
+};
+
+// Real DB-backed history can be more than just "paid", so the pill reflects the
+// actual ledger status instead of always claiming success.
+const STATUS_PILL: Record<
+  PurchaseStatus,
+  { label: string; tone: "ok" | "default" }
+> = {
+  paid: { label: "Paid", tone: "ok" },
+  pending: { label: "Pending", tone: "default" },
+  failed: { label: "Failed", tone: "default" },
+  refunded: { label: "Refunded", tone: "default" },
 };
 
 const dateFmt = new Intl.DateTimeFormat("en", {
@@ -37,7 +49,7 @@ export function PurchaseHistory({
 }: {
   onBuyAgain: (amountINR: number) => void;
 }) {
-  const { purchases, hydrated } = useCredits();
+  const { purchases, hydrated, loadError, refresh } = useCredits();
   const [receipt, setReceipt] = useState<Purchase | null>(null);
 
   // Avoid rendering store-derived rows until hydrated (SSR shows nothing).
@@ -57,7 +69,42 @@ export function PurchaseHistory({
           Billing history
         </h2>
 
-        {purchases.length === 0 ? (
+        {loadError ? (
+          // "No purchases yet" would be a lie here — the history never loaded.
+          <div
+            role="alert"
+            style={{
+              padding: 24,
+              textAlign: "center",
+              border: "1px dashed var(--danger-line)",
+              borderRadius: "var(--r-3)",
+              background: "var(--danger-soft)",
+            }}
+          >
+            <div
+              style={{
+                color: "var(--danger)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 12,
+                marginBottom: 6,
+              }}
+            >
+              couldn&apos;t load billing history
+            </div>
+            <div
+              style={{
+                color: "var(--fg-muted)",
+                fontSize: 13,
+                marginBottom: 14,
+              }}
+            >
+              This is different from having no purchases yet.
+            </div>
+            <button onClick={refresh} style={ghostBtnSm}>
+              Retry
+            </button>
+          </div>
+        ) : purchases.length === 0 ? (
           <p style={{ fontSize: 13, color: "var(--fg-dim)", margin: 0 }}>
             No purchases yet.
           </p>
@@ -112,7 +159,9 @@ export function PurchaseHistory({
                     >
                       +${p.creditsUSD.toFixed(2)}
                     </span>
-                    <Pill tone="ok">Paid</Pill>
+                    <Pill tone={STATUS_PILL[p.status].tone}>
+                      {STATUS_PILL[p.status].label}
+                    </Pill>
                   </div>
                 </div>
 

@@ -328,6 +328,101 @@ func TestRedeemCouponRejectsEveryCodeWhenCatalogEmpty(t *testing.T) {
 	}
 }
 
+// GetCreditHistory must return the caller's ledger and nobody else's. The userID
+// comes from the JWT via context, so a handler that ignored it (or read it from
+// the request) would leak another tenant's purchase history.
+func TestGetCreditHistoryReturnsOnlyCallersRows(t *testing.T) {
+	d := testDeps(t)
+	ctx := context.Background()
+
+	mine, err := d.Store.CreateUser(ctx, fmt.Sprintf("hist-mine-%d@example.com", time.Now().UnixNano()), "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := d.Store.CreateUser(ctx, fmt.Sprintf("hist-other-%d@example.com", time.Now().UnixNano()), "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	myOrder := fmt.Sprintf("order_h_mine_%d", time.Now().UnixNano())
+	if _, err := d.Store.CreateCreditTransaction(ctx, mine.ID, myOrder, 25000, 0.012); err != nil {
+		t.Fatal(err)
+	}
+	otherOrder := fmt.Sprintf("order_h_other_%d", time.Now().UnixNano())
+	if _, err := d.Store.CreateCreditTransaction(ctx, other.ID, otherOrder, 90000, 0.012); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/credits/history", nil)
+	req = req.WithContext(context.WithValue(req.Context(), handlers.CtxUserID, mine.ID))
+	w := httptest.NewRecorder()
+
+	d.GetCreditHistory(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200 got %d", w.Code)
+	}
+	var resp struct {
+		History []struct {
+			UserID          string `json:"userId"`
+			ProviderOrderID string `json:"providerOrderId"`
+			Status          string `json:"status"`
+			CreditUSDMicros int64  `json:"creditUsdMicros"`
+		} `json:"history"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(resp.History) != 1 {
+		t.Fatalf("want exactly the caller's 1 row, got %d", len(resp.History))
+	}
+	row := resp.History[0]
+	if row.ProviderOrderID != myOrder {
+		t.Fatalf("want own order %s got %s", myOrder, row.ProviderOrderID)
+	}
+	if row.UserID != mine.ID {
+		t.Fatalf("response row belongs to %s, not the caller %s", row.UserID, mine.ID)
+	}
+	if row.Status != "pending" {
+		t.Fatalf("want the freshly created row to be pending, got %s", row.Status)
+	}
+	// The JSON field names are what the frontend store destructures; a silent
+	// rename here would surface as an empty billing table, not an error.
+	if row.CreditUSDMicros == 0 {
+		t.Fatal("creditUsdMicros decoded as 0 — JSON field mapping likely broke")
+	}
+}
+
+// A caller with no purchases must get `"history": []`, not `null`. The frontend
+// calls .map() on this directly, so null would throw rather than render empty.
+func TestGetCreditHistoryReturnsEmptyArrayNotNull(t *testing.T) {
+	d := testDeps(t)
+	ctx := context.Background()
+
+	user, err := d.Store.CreateUser(ctx, fmt.Sprintf("hist-empty-%d@example.com", time.Now().UnixNano()), "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/credits/history", nil)
+	req = req.WithContext(context.WithValue(req.Context(), handlers.CtxUserID, user.ID))
+	w := httptest.NewRecorder()
+
+	d.GetCreditHistory(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200 got %d", w.Code)
+	}
+	body := strings.TrimSpace(w.Body.String())
+	if strings.Contains(body, `"history":null`) {
+		t.Fatalf("want an empty array, got null: %s", body)
+	}
+	if !strings.Contains(body, `"history":[]`) {
+		t.Fatalf("want \"history\":[] for a user with no purchases, got %s", body)
+	}
+}
+
 // --- NOWPayments tests (unchanged) ---
 
 type fakeNOWPayments struct {

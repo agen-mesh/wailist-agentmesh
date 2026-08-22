@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { creditsForTopup } from "./fx";
 
 // `store.ts` keeps its wallet state in a module-level variable (mirroring a
@@ -14,6 +16,35 @@ beforeEach(() => {
 
 async function freshStore() {
   return await import("./store");
+}
+
+// Renders a hook once and returns the value from that first render. The repo has
+// no testing-library, and vitest only collects `*.test.ts`, so this stays plain
+// `createElement` in TypeScript rather than pulling in a dependency or a .tsx
+// file for one assertion.
+async function renderOnce<T>(hook: () => T): Promise<T> {
+  (
+    globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+
+  let captured!: T;
+  function Probe() {
+    captured = hook();
+    return null;
+  }
+
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(createElement(Probe));
+  });
+  // Read before unmounting -- the mock balance request settles after this and
+  // would overwrite the value being asserted.
+  const result = captured;
+  await act(async () => {
+    root.unmount();
+  });
+  return result;
 }
 
 describe("addPurchase", () => {
@@ -48,6 +79,36 @@ describe("addPurchase", () => {
 
     const raw = JSON.parse(window.localStorage.getItem(STORAGE_KEY)!);
     expect(raw.balanceUSD).toBeUndefined();
+  });
+
+  // The write-side guard above is only half the invariant. Storage written by an
+  // older build can still carry a balanceUSD key, and the read side has to refuse
+  // it too -- otherwise that stale number is adopted on load and rendered as
+  // authoritative until the first fetch lands, which is the exact stale-cache bug
+  // the module comment says was fixed.
+  //
+  // Asserted synchronously on the first render, because in mock mode the balance
+  // request resolves ~120ms later and overwrites it with 0 -- waiting would hide
+  // the very window the bug lives in.
+  it("never restores balanceUSD from localStorage", async () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        balanceUSD: 999,
+        purchases: [],
+        autoRecharge: {
+          enabled: false,
+          thresholdUSD: 5,
+          amountINR: 1000,
+          monthlyCapINR: null,
+        },
+      }),
+    );
+
+    const { useCredits } = await freshStore();
+    const seen = await renderOnce(useCredits);
+
+    expect(seen.balanceUSD).toBe(0);
   });
 
   it("persists to localStorage under the expected key", async () => {
