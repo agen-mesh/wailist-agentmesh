@@ -397,7 +397,7 @@ function LandingFooter() {
       <div style={{ maxWidth: 1280, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-dim)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <Logo size={14} />
-          <span>© {new Date().getFullYear()} AgentMesh · SOUBHAGYA SADHUKHAN</span>
+          <span>© {new Date().getUTCFullYear()} AgentMesh · SOUBHAGYA SADHUKHAN</span>
         </div>
         <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
           <a href="/terms" style={linkStyle}>Terms &amp; Conditions</a>

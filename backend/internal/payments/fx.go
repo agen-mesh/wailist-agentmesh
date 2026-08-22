@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -81,4 +83,181 @@ func SetFetchRateForTest(fn func(context.Context) (float64, error)) {
 	} else {
 		fetchINRToUSD = fn
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Display rate table
+//
+// Deliberately separate from FetchINRToUSDRate above, and NOT a refactor of it.
+// That function locks a rate into a credit_ledger row, so it must stay uncached
+// and fail closed — a stale rate there is a real financial error. This one only
+// decides what number a user reads on screen, where a rate a few hours old is
+// fine and an outage should degrade rather than break.
+// ---------------------------------------------------------------------------
+
+const fxTableAPIURL = "https://open.er-api.com/v6/latest/USD"
+
+// rateTableTTL matches the upstream's publishing cadence: open.er-api.com
+// refreshes once a day (its own time_next_update_utc is ~24h out), so anything
+// shorter re-fetches identical bytes. Half a day keeps us close to each refresh
+// without hammering a free endpoint.
+const rateTableTTL = 12 * time.Hour
+
+// RateTable is a USD-based snapshot of the currencies the UI can render.
+type RateTable struct {
+	Base      string             `json:"base"`
+	Rates     map[string]float64 `json:"rates"`
+	FetchedAt time.Time          `json:"fetchedAt"`
+}
+
+var (
+	rateTableMu     sync.RWMutex
+	cachedRateTable *RateTable
+	// Held across the upstream call so a cold cache produces one request, not
+	// one per waiting caller. Never taken while holding rateTableMu.
+	rateFetchMu sync.Mutex
+)
+
+var fetchRateTable = liveFetchRateTable
+
+// SetFetchRateTableForTest overrides the table fetcher and clears the cache.
+// Pass nil to reset to the live implementation. Call only from tests.
+func SetFetchRateTableForTest(fn func(context.Context) (map[string]float64, error)) {
+	rateTableMu.Lock()
+	defer rateTableMu.Unlock()
+	cachedRateTable = nil
+	if fn == nil {
+		fetchRateTable = liveFetchRateTable
+	} else {
+		fetchRateTable = fn
+	}
+}
+
+// currentFetcher reads the swappable fetcher under the same lock that guards
+// writes to it, so the test seam cannot race a concurrent FetchRateTable.
+func currentFetcher() func(context.Context) (map[string]float64, error) {
+	rateTableMu.RLock()
+	defer rateTableMu.RUnlock()
+	return fetchRateTable
+}
+
+// freshTable returns the cached table when it is still within its TTL.
+func freshTable() *RateTable {
+	rateTableMu.RLock()
+	defer rateTableMu.RUnlock()
+	if cachedRateTable != nil && time.Since(cachedRateTable.FetchedAt) < rateTableTTL {
+		return cachedRateTable
+	}
+	return nil
+}
+
+func staleTable() *RateTable {
+	rateTableMu.RLock()
+	defer rateTableMu.RUnlock()
+	return cachedRateTable
+}
+
+// FetchRateTable returns rates for `wanted`, keyed by currency code, with USD as
+// the base. Cached for rateTableTTL.
+//
+// On an upstream failure it serves the last good table however old it is, and
+// only errors when there has never been one. Showing a slightly stale rate beats
+// showing nothing; showing a rate from an unknown source would be worse than
+// both, which is why there is no hardcoded fallback here.
+func FetchRateTable(ctx context.Context, wanted []string) (RateTable, error) {
+	if cached := freshTable(); cached != nil {
+		return subsetTable(*cached, wanted), nil
+	}
+
+	// One fetch per cold cache, not one per caller. Without this, N concurrent
+	// requests on an empty or expired cache each hit the upstream — measurably
+	// 20-for-20 in testing — against a free API that publishes once a day.
+	rateFetchMu.Lock()
+	defer rateFetchMu.Unlock()
+
+	// Another goroutine may have refreshed the cache while we waited for the
+	// lock, in which case there is nothing left to do.
+	if cached := freshTable(); cached != nil {
+		return subsetTable(*cached, wanted), nil
+	}
+
+	rates, err := currentFetcher()(ctx)
+	if err != nil {
+		if cached := staleTable(); cached != nil {
+			return subsetTable(*cached, wanted), nil
+		}
+		return RateTable{}, err
+	}
+
+	fresh := RateTable{Base: "USD", Rates: rates, FetchedAt: time.Now().UTC()}
+	rateTableMu.Lock()
+	cachedRateTable = &fresh
+	rateTableMu.Unlock()
+
+	return subsetTable(fresh, wanted), nil
+}
+
+// subsetTable narrows a full upstream response to the codes the UI offers, so
+// the endpoint never ships 160-odd rates a client cannot select.
+func subsetTable(full RateTable, wanted []string) RateTable {
+	out := RateTable{Base: full.Base, FetchedAt: full.FetchedAt, Rates: make(map[string]float64, len(wanted))}
+	for _, code := range wanted {
+		if r, ok := full.Rates[code]; ok {
+			out.Rates[code] = r
+		}
+	}
+	return out
+}
+
+func liveFetchRateTable(ctx context.Context) (map[string]float64, error) {
+	return fetchRateTableFromURL(ctx, fxTableAPIURL)
+}
+
+// LiveFetchRateTableForTest exercises the real parsing and validation against an
+// arbitrary URL (e.g. an httptest.Server). Call only from tests.
+func LiveFetchRateTableForTest(ctx context.Context, url string) (map[string]float64, error) {
+	return fetchRateTableFromURL(ctx, url)
+}
+
+func fetchRateTableFromURL(ctx context.Context, url string) (map[string]float64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("fx table: build request: %w", err)
+	}
+	resp, err := fxHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fx table: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fx table: unexpected status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("fx table: read response: %w", err)
+	}
+	var parsed struct {
+		Rates map[string]float64 `json:"rates"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, fmt.Errorf("fx table: parse response: %w", err)
+	}
+	// USD must be exactly 1 in a USD-based response. If it isn't, the upstream
+	// changed base or inverted its rates, and every number derived from this
+	// table would be wrong in a way no per-currency bound would catch.
+	if usd, ok := parsed.Rates["USD"]; !ok || usd != 1 {
+		return nil, fmt.Errorf("fx table: response is not USD-based (USD=%v)", parsed.Rates["USD"])
+	}
+	// Drop anything non-positive or non-finite rather than letting it reach a
+	// division and render NaN or Infinity on screen.
+	clean := make(map[string]float64, len(parsed.Rates))
+	for code, rate := range parsed.Rates {
+		if rate > 0 && !math.IsInf(rate, 0) && !math.IsNaN(rate) {
+			clean[code] = rate
+		}
+	}
+	if len(clean) == 0 {
+		return nil, fmt.Errorf("fx table: no usable rates in response")
+	}
+	return clean, nil
 }

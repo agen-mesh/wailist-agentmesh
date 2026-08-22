@@ -52,6 +52,14 @@ func NewRouter(d *handlers.Deps) http.Handler {
 
 		r.Get("/auth/me", d.Me)
 		r.Patch("/auth/me", d.UpdateProfile)
+		r.Post("/auth/password", d.ChangePassword)
+
+		r.Get("/settings", d.Settings)
+		r.Patch("/settings", d.UpdateSettings)
+
+		// Display-only exchange rates. The client skips this entirely while the
+		// user's display currency is USD.
+		r.Get("/fx/rates", d.FXRates)
 
 		r.Get("/workflows", d.ListWorkflows)
 		r.Post("/workflows", d.CreateWorkflow)

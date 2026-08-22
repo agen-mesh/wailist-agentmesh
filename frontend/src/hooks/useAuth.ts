@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { auth, AuthUser } from "@/lib/api";
 
 const UI_COOKIE = "agentmesh_ui";
@@ -13,38 +13,88 @@ function clearUICookie() {
   document.cookie = `${UI_COOKIE}=; Path=/; SameSite=Lax; Max-Age=0`;
 }
 
-export function useAuth() {
-  const [signedIn, setSignedIn] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<AuthUser | null>(null);
+// One signed-in user, shared by every component that asks for it.
+//
+// This was per-component useState, which meant each caller held its own copy:
+// saving a new display name in settings updated that page's copy while the top
+// bar kept rendering the old name until a full reload. It also fired /auth/me
+// once per consumer. The module store is the same shape lib/currency/store.ts
+// and lib/credits/store.ts already use.
 
-  useEffect(() => {
-    auth
-      .me()
-      .then((u) => {
-        setUICookie();
-        setSignedIn(true);
-        setUser(u);
-      })
-      .catch(() => {
-        clearUICookie();
-        setSignedIn(false);
-        setUser(null);
-      })
-      .finally(() => setLoading(false));
-  }, []);
+type Snapshot = {
+  signedIn: boolean;
+  loading: boolean;
+  user: AuthUser | null;
+};
+
+// One stable object per state change: useSyncExternalStore compares snapshots
+// by identity, so returning a fresh literal per call would loop forever.
+let snapshot: Snapshot = { signedIn: false, loading: true, user: null };
+// Identical to the initial client value, so the hydration render matches the
+// HTML the server sent.
+const SERVER_SNAPSHOT: Snapshot = {
+  signedIn: false,
+  loading: true,
+  user: null,
+};
+
+const listeners = new Set<() => void>();
+let started = false;
+
+function commit(next: Snapshot): void {
+  snapshot = next;
+  listeners.forEach((l) => l());
+}
+
+async function load(): Promise<void> {
+  try {
+    const u = await auth.me();
+    setUICookie();
+    commit({ signedIn: true, loading: false, user: u });
+  } catch {
+    clearUICookie();
+    commit({ signedIn: false, loading: false, user: null });
+  }
+}
+
+// Fetched from subscribe rather than during render: subscribe runs in an
+// effect, after hydration, so the first client paint still matches the server.
+function ensureLoaded(): void {
+  if (started || typeof window === "undefined") return;
+  started = true;
+  void load();
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  ensureLoaded();
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+const getSnapshot = () => snapshot;
+const getServerSnapshot = () => SERVER_SNAPSHOT;
+
+export function useAuth() {
+  const snap = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   const signIn = useCallback(async (email: string, password: string) => {
     await auth.signIn(email, password);
     setUICookie();
-    setSignedIn(true);
+    commit({ ...snapshot, signedIn: true });
+    // Re-read the account rather than waiting for a reload. With per-component
+    // state the next page's own fetch used to cover this; a shared store loads
+    // once, so signing in has to ask for the new identity explicitly.
+    await load();
   }, []);
 
   const signUp = useCallback(
     async (email: string, password: string, name: string, org: string) => {
       await auth.signUp(email, password, name, org);
       setUICookie();
-      setSignedIn(true);
+      commit({ ...snapshot, signedIn: true });
+      await load();
     },
     [],
   );
@@ -52,25 +102,31 @@ export function useAuth() {
   const signOut = useCallback(async () => {
     await auth.signOut();
     clearUICookie();
-    setSignedIn(false);
-    setUser(null);
+    commit({ signedIn: false, loading: false, user: null });
   }, []);
 
-  // Completes the post-OAuth onboarding prompt (or a later profile edit) —
-  // updates the backend then reflects it locally so callers don't need a
-  // full re-fetch just to clear needsOnboarding.
+  // Completes the post-OAuth onboarding prompt (or a later profile edit) --
+  // updates the backend then reflects it locally so callers don't need a full
+  // re-fetch just to clear needsOnboarding. Because the store is shared, the
+  // top bar picks the new name up in the same render.
   const completeOnboarding = useCallback(async (name: string, org: string) => {
     const updated = await auth.updateProfile(name, org);
-    setUser(updated);
+    commit({ ...snapshot, user: updated });
   }, []);
 
   return {
-    signedIn,
-    loading,
-    user,
+    signedIn: snap.signedIn,
+    loading: snap.loading,
+    user: snap.user,
     signIn,
     signUp,
     signOut,
     completeOnboarding,
   };
+}
+
+/** Test-only: drop the shared auth state between cases. */
+export function __resetAuthStoreForTest(): void {
+  started = false;
+  commit({ signedIn: false, loading: true, user: null });
 }

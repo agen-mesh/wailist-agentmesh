@@ -115,9 +115,35 @@ func (r *Runner) SetGoogleOAuth(clientID, clientSecret string) {
 }
 
 // preflightCheck fails a node before it runs if wf.UserID can't cover
-// amountUSDMicros. Blocks outright — no soft overage — matching the
-// prepaid-only model already used for credit top-ups.
+// amountUSDMicros, or if the charge exceeds the user's own per-call spend
+// ceiling. Blocks outright — no soft overage — matching the prepaid-only model
+// already used for credit top-ups.
+//
+// This is the single chokepoint every spend path goes through, which is why the
+// user ceiling is enforced here rather than at each call site: a limit the
+// engine only checks in some branches is worse than no limit, because the
+// settings page would still claim it applies everywhere.
 func (r *Runner) preflightCheck(ctx context.Context, wf models.Workflow, amountUSDMicros int64) error {
+	// Skipped entirely at or below the probe floor, which keeps this off the
+	// hot path: nodes.executeFunctionCall calls checkBalance with
+	// X402ProbeFloorUSDMicros before every attached tool402 call, up to 15 times
+	// in one agent run. That is sound rather than merely cheap — a stored ceiling
+	// can never sit below the floor (parseSettingsPatch rejects it, and
+	// user_settings_max_call_spend_above_probe_floor enforces it for every other
+	// writer), so an amount that small cannot breach one. Real charges above the
+	// floor are still checked in full.
+	if amountUSDMicros > models.X402ProbeFloorUSDMicros {
+		settings, err := r.store.GetUserSettings(ctx, wf.UserID)
+		if err != nil {
+			return err
+		}
+		// Tightens models.MaxSingleX402QuoteUSDMicros; it can never loosen it,
+		// since PATCH /settings refuses a ceiling above the global cap.
+		if ceiling := settings.MaxCallSpendUSDMicros; ceiling != nil && amountUSDMicros > *ceiling {
+			return fmt.Errorf("call would spend %d micros, above the %d micros per-call limit set for this account", amountUSDMicros, *ceiling)
+		}
+	}
+
 	balance, err := r.store.GetCreditBalance(ctx, wf.UserID)
 	if err != nil {
 		return err

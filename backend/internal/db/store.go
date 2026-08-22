@@ -1218,6 +1218,72 @@ func (s *Store) LatestActiveLeaseForUser(ctx context.Context, userID string) (mo
 		 ORDER BY started_at DESC LIMIT 1`, userID))
 }
 
+// UpdatePassword replaces a user's password hash. Verifying the current
+// password is the handler's job (it owns the bcrypt comparison); this only
+// writes, and reports whether the user existed so a deleted account holding a
+// still-valid JWT can't silently no-op its way to a success response.
+func (s *Store) UpdatePassword(ctx context.Context, userID, passwordHash string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE users SET password_hash = $2 WHERE id = $1`, userID, passwordHash)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// GetUserSettings returns the account's settings, or the defaults when it has
+// no user_settings row yet — which is every account until it first changes
+// something. A missing row is the normal case, not an error: returning defaults
+// here means signup never has to seed the table and no caller has to special-case
+// a 404 it would only ever answer with the same defaults anyway.
+func (s *Store) GetUserSettings(ctx context.Context, userID string) (models.UserSettings, error) {
+	settings := models.DefaultUserSettings()
+	err := s.pool.QueryRow(ctx, `
+		SELECT low_balance_usd_micros, max_call_spend_usd_micros, display_currency
+		FROM user_settings WHERE user_id = $1
+	`, userID).Scan(&settings.LowBalanceUSDMicros, &settings.MaxCallSpendUSDMicros,
+		&settings.DisplayCurrency)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.DefaultUserSettings(), nil
+	}
+	if err != nil {
+		return models.UserSettings{}, err
+	}
+	return settings, nil
+}
+
+// UpsertUserSettings applies a patch, creating the row on first save.
+//
+// Deliberately not read-modify-write. Two concurrent PATCHes — two tabs saving
+// different sections — would each write back their own stale copy of the fields
+// they never touched, and the later one would win silently. Merging per column
+// in SQL means a request only ever moves what it actually sent, and costs one
+// round trip rather than two.
+//
+// The column CHECK constraints (see migration 000020) are the real guard on
+// range validity; handler validation exists to return a useful 400 rather than
+// to be the only thing standing between a bad value and the table.
+func (s *Store) UpsertUserSettings(ctx context.Context, userID string, p models.UserSettingsPatch) (models.UserSettings, error) {
+	// The INSERT branch needs a complete row, so anything the request omitted
+	// falls back to the documented defaults instead of a Go zero value.
+	insert := models.DefaultUserSettings()
+	p.ApplyTo(&insert)
+
+	var out models.UserSettings
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO user_settings (user_id, low_balance_usd_micros, max_call_spend_usd_micros, display_currency, updated_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (user_id) DO UPDATE SET
+			low_balance_usd_micros    = CASE WHEN $5 THEN EXCLUDED.low_balance_usd_micros    ELSE user_settings.low_balance_usd_micros    END,
+			max_call_spend_usd_micros = CASE WHEN $6 THEN EXCLUDED.max_call_spend_usd_micros ELSE user_settings.max_call_spend_usd_micros END,
+			display_currency          = CASE WHEN $7 THEN EXCLUDED.display_currency          ELSE user_settings.display_currency          END,
+			updated_at                = NOW()
+		RETURNING low_balance_usd_micros, max_call_spend_usd_micros, display_currency
+	`, userID, insert.LowBalanceUSDMicros, insert.MaxCallSpendUSDMicros, insert.DisplayCurrency,
+		p.LowBalanceUSDMicros != nil, p.SetMaxCallSpend, p.DisplayCurrency != nil).
+		Scan(&out.LowBalanceUSDMicros, &out.MaxCallSpendUSDMicros, &out.DisplayCurrency)
+	return out, err
+}
+
 const oauthCredentialCols = `id, user_id, provider, account_label, access_token_enc,
 	refresh_token_enc, scopes, expires_at, created_at, updated_at`
 
@@ -1264,10 +1330,14 @@ func (s *Store) GetOAuthCredential(ctx context.Context, id string) (models.OAuth
 // already omit them, but this is also the query boundary: no caller of this
 // method needs the ciphertext, only GetOAuthCredential's node-execution path
 // does).
+// ListOAuthCredentials returns a user's connected accounts. An empty
+// provider means every provider -- the canvas asks for one provider at a
+// time, while the settings page lists them all. Kept as a single statement
+// so there is no second query path to drift out of step.
 func (s *Store) ListOAuthCredentials(ctx context.Context, userID, provider string) ([]models.OAuthCredential, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+oauthCredentialCols+` FROM oauth_credentials
-		 WHERE user_id = $1 AND provider = $2 ORDER BY created_at DESC`, userID, provider)
+		 WHERE user_id = $1 AND ($2 = '' OR provider = $2) ORDER BY created_at DESC`, userID, provider)
 	if err != nil {
 		return nil, err
 	}

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { IconClose } from "@/components/ui";
 import { useCredits } from "@/lib/credits/store";
+import { useCurrency } from "@/lib/currency/store";
 import type { Purchase } from "@/lib/credits/types";
 import type { PaymentMethod } from "./types";
 import { DEFAULT_PROVIDER } from "./paymentProviders";
@@ -71,6 +72,7 @@ export function CheckoutModal({
   const items = useMemo(() => buildCreditCart(amountINR), [amountINR]);
   const [method, setMethod] = useState<PaymentMethod>(DEFAULT_PROVIDER);
   const { addPurchase, balanceUSD } = useCredits();
+  const { formatBalance, isDefault: isDefaultCurrency } = useCurrency();
   const router = useRouter();
   const [confirmation, setConfirmation] = useState<Purchase | null>(null);
 
@@ -168,8 +170,13 @@ export function CheckoutModal({
                 <p
                   style={{ fontSize: 13, color: "var(--fg-muted)", margin: 0 }}
                 >
-                  ${confirmation.creditsUSD.toFixed(2)} credits added to your
-                  wallet.
+                  {/* USD keeps the exact original sentence. formatBalance
+                      already ends in "credits" for other currencies, so
+                      reusing it here would repeat the word. */}
+                  {isDefaultCurrency
+                    ? `$${confirmation.creditsUSD.toFixed(2)} credits`
+                    : formatBalance(confirmation.creditsUSD)}{" "}
+                  added to your wallet.
                 </p>
                 <div
                   style={{
@@ -182,7 +189,7 @@ export function CheckoutModal({
                     padding: "8px 14px",
                   }}
                 >
-                  New balance: ${balanceUSD.toFixed(2)}
+                  New balance: {formatBalance(balanceUSD)}
                 </div>
                 <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
                   <button

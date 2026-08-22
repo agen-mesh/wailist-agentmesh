@@ -14,6 +14,7 @@ import { Topbar } from "@/components/Topbar";
 import { Workflow } from "@/lib/types";
 import { workflows as workflowsApi } from "@/lib/api";
 import { useCredits } from "@/lib/credits/store";
+import { useCurrency } from "@/lib/currency/store";
 import { tendril } from "@/lib/tendril";
 import { DEMO_WORKFLOW } from "@/lib/data";
 
@@ -37,6 +38,7 @@ export function WorkflowsPage() {
     message: string;
   } | null>(null);
   const { balanceUSD, balanceKnown, refreshBalance } = useCredits();
+  const { formatBalance } = useCurrency();
 
   useEffect(() => {
     workflowsApi
@@ -284,7 +286,7 @@ export function WorkflowsPage() {
                   color: "var(--fg)",
                 }}
               >
-                {balanceKnown ? `$${balanceUSD.toFixed(2)}` : "—"}
+                {balanceKnown ? formatBalance(balanceUSD) : "—"}
               </div>
               <div
                 style={{ marginTop: 4, fontSize: 11, color: "var(--fg-muted)" }}
@@ -813,7 +815,7 @@ function WorkflowRows({
               color: "var(--fg-muted)",
             }}
           >
-            {wf.runs?.toLocaleString() ?? "-"}
+            {wf.runs?.toLocaleString("en") ?? "-"}
           </span>
           <span
             style={{
@@ -944,7 +946,7 @@ function WorkflowGrid({
                     0,
                 ),
               },
-              { label: "Runs", val: wf.runs?.toLocaleString() ?? "-" },
+              { label: "Runs", val: wf.runs?.toLocaleString("en") ?? "-" },
               { label: "Spend", val: wf.spend ?? "-", accent: true },
             ].map((s) => (
               <div key={s.label}>

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Topbar } from "@/components/Topbar";
 import { Tag, ghostBtnSm } from "@/components/ui";
 import { TerminalTab } from "@/components/canvas/TerminalTab";
+import { useCurrency } from "@/lib/currency/store";
 import {
   tendril as tendrilApi,
   estimateLeaseCostUSD,
@@ -168,6 +169,7 @@ function quietButton(danger = false): React.CSSProperties {
 // canvas workflow would use — this is a different front door onto the same
 // relay, not a different payment path.
 export function TendrilConsolePage() {
+  const { format: formatMoney } = useCurrency();
   const router = useRouter();
   const [credit, setCredit] = useState<number | null>(null);
   const [machines, setMachines] = useState<TendrilMachine[]>([]);
@@ -350,7 +352,7 @@ export function TendrilConsolePage() {
                     letterSpacing: "-0.01em",
                   }}
                 >
-                  {loading ? "…" : `$${(credit ?? 0).toFixed(2)}`}
+                  {loading ? "…" : formatMoney(credit ?? 0)}
                   <span className="pulse" style={{ color: MAGENTA }}>
                     _
                   </span>
@@ -561,7 +563,7 @@ export function TendrilConsolePage() {
                       <span style={{ opacity: 0.4 }}>│</span>
                       <span>{Math.round(m.ramMb / 1024)} GB</span>
                       <span style={{ opacity: 0.4 }}>│</span>
-                      <span style={{ color: MAGENTA }}>${m.pricePerHourUsd.toFixed(2)}/hr</span>
+                      <span style={{ color: MAGENTA }}>{formatMoney(m.pricePerHourUsd)}/hr</span>
                       {m.gpu && (
                         <>
                           <span style={{ opacity: 0.4 }}>│</span>
@@ -571,7 +573,7 @@ export function TendrilConsolePage() {
                     </div>
                   </div>
                   <div style={{ textAlign: "right", fontSize: 11, color: overBudget ? "var(--danger)" : "var(--fg-dim)", fontFamily: "var(--font-mono)" }}>
-                    ${cost.toFixed(2)}
+                    {formatMoney(cost)}
                   </div>
                   <button
                     style={nameplateButton(busy)}
@@ -608,7 +610,7 @@ export function TendrilConsolePage() {
                   {activeLease.tendrilNodeLabel || activeLease.tendrilNodeId}
                 </span>
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-dim)" }}>
-                  ${(activeLease.rateUsdMicrosPerHour / 1e6).toFixed(2)}/hr
+                  {formatMoney(activeLease.rateUsdMicrosPerHour / 1e6)}/hr
                 </span>
                 <div style={{ flex: 1 }} />
                 <button
@@ -781,11 +783,11 @@ export function TendrilConsolePage() {
                 Released after {formatDuration(releaseResult.usedSeconds)} —
                 charged{" "}
                 <strong style={{ fontFamily: "var(--font-mono)" }}>
-                  ${(releaseResult.charged / 1e6).toFixed(2)}
+                  {formatMoney(releaseResult.charged / 1e6)}
                 </strong>
                 , refunded{" "}
                 <strong style={{ fontFamily: "var(--font-mono)", color: GREEN }}>
-                  ${(releaseResult.refunded / 1e6).toFixed(2)}
+                  {formatMoney(releaseResult.refunded / 1e6)}
                 </strong>{" "}
                 back to your Tendril credit.
               </div>

@@ -566,3 +566,70 @@ body {
     transition: none;
   }
 }
+
+/* Reveal toggle inside a password field (components/ui/PasswordField).
+   The visible control matches the input height (36px), which is under the 44px
+   minimum touch target, so the hit area is expanded with a pseudo-element
+   instead of making the control look bigger than it should. */
+.pw-reveal {
+  position: relative;
+  transition: color 0.12s var(--ease);
+}
+.pw-reveal::after {
+  content: "";
+  position: absolute;
+  inset: -5px -8px;
+}
+.pw-reveal:hover {
+  color: var(--fg);
+}
+.pw-reveal:active {
+  transform: scale(0.97);
+}
+.pw-reveal:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pw-reveal {
+    transition: none;
+  }
+  .pw-reveal:active {
+    transform: none;
+  }
+}
+
+/* Strength meter segments (settings change-password). Width/colour animate so
+   the bar reads as filling rather than snapping between states. */
+.pw-seg {
+  height: 4px;
+  flex: 1;
+  border-radius: var(--r-1);
+  background: var(--border);
+  transition:
+    background-color 0.15s var(--ease),
+    opacity 0.15s var(--ease);
+}
+/* Requirements tick in as they are met; starting at 0.95 keeps the change
+   perceptible without the row jumping. */
+.pw-req {
+  transition:
+    color 0.15s var(--ease),
+    transform 0.15s var(--ease);
+}
+.pw-req[data-met="true"] {
+  transform: scale(1);
+}
+.pw-req[data-met="false"] {
+  transform: scale(0.98);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pw-seg,
+  .pw-req {
+    transition: none;
+  }
+  .pw-req[data-met="false"] {
+    transform: none;
+  }
+}
