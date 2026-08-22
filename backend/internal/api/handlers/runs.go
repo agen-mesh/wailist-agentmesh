@@ -2,15 +2,28 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/respond"
 )
+
+// runTriggerCooldown is the minimum gap between two run starts for the same
+// workflow, across BOTH TriggerRun (authenticated) and PublicTrigger
+// (unauthenticated webhook) -- the latter is the real target, since it's
+// reachable by anyone who has the URL with no rate limiting of its own
+// otherwise, but it's enforced on the shared startRun path so a bot hitting
+// either endpoint (or both, alternating) is caught the same way. A flat
+// constant rather than a per-workflow setting: this is a blunt deterrent
+// against naive burst-triggering, not a real per-customer rate limit --
+// legitimate rapid re-runs are rare enough that 5s costs nothing.
+const runTriggerCooldown = 5 * time.Second
 
 func (d *Deps) TriggerRun(w http.ResponseWriter, r *http.Request) {
 	workflowID := chi.URLParam(r, "id")
@@ -61,8 +74,29 @@ func (d *Deps) startRun(w http.ResponseWriter, r *http.Request, workflowID, trig
 	json.NewDecoder(r.Body).Decode(&inputBody)
 	inputJSON, _ := json.Marshal(inputBody)
 
-	run, err := d.Store.CreateRun(ctx, workflowID, triggeredBy, inputJSON)
+	// CreateRunWithCooldown enforces runTriggerCooldown and creates the run
+	// atomically in one DB transaction -- see its own doc comment for why
+	// that matters (a failed insert must never leave a phantom cooldown
+	// behind) and why this is DB-backed rather than an in-process
+	// check-then-write (bounded storage, correct across replicas).
+	//
+	// The cooldown check happens deep inside this call, not before it --
+	// deliberately after the existence/ownership/deploy checks above, same
+	// as before this refactor: doing it earlier would let an
+	// unauthenticated caller on the PublicTrigger path distinguish
+	// "workflow doesn't exist" (404) from "workflow exists but is on
+	// cooldown" (429) for an ID they have no business confirming -- the
+	// exact leak the deploy/trigger checks above already go out of their
+	// way to avoid.
+	run, err := d.Store.CreateRunWithCooldown(ctx, workflowID, triggeredBy, inputJSON, runTriggerCooldown)
 	if err != nil {
+		var cooldownErr *db.ErrRunOnCooldown
+		if errors.As(err, &cooldownErr) {
+			w.Header().Set("Retry-After", fmt.Sprintf("%.0f", cooldownErr.RetryAfter.Seconds()))
+			respond.Error(w, http.StatusTooManyRequests,
+				fmt.Sprintf("this workflow was triggered too recently — wait %.0fs and try again", cooldownErr.RetryAfter.Seconds()))
+			return
+		}
 		respond.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}

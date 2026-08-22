@@ -403,7 +403,17 @@ func (r *Runner) reserveAndFundRun(ctx context.Context, wf models.Workflow, run 
 		ExpectedAssetID:          r.x402.USDCAssetID,
 		FrontendURL:              r.x402.FrontendURL,
 	}
-	txID, err := nodes.FundRunReserve(ctx, fundCfg, run.ID, creditReserve)
+	// NOT detached from ctx (no WithoutCancel) -- FundRunReserve only
+	// shields the one narrow, actually-unsafe-to-interrupt moment (the
+	// Settle HTTP call itself) internally, via its own detached
+	// sub-context -- see selfSettleWallet1ToWallet2/attemptSelfSettle's doc
+	// comments. A StopWorkflow can still land promptly during signing,
+	// Verify, or between retry attempts; SelfSettleRetryBudget below is
+	// just a backstop ceiling against an unbounded hang, not what makes
+	// this call safe to cancel.
+	fctx, fcancel := context.WithTimeout(ctx, nodes.SelfSettleRetryBudget)
+	txID, err := nodes.FundRunReserve(fctx, fundCfg, run.ID, creditReserve)
+	fcancel()
 	if err != nil {
 		if errors.Is(err, nodes.ErrSettlementIndeterminate) {
 			// The settle response was lost -- we don't know whether the

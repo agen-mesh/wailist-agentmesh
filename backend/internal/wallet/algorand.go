@@ -3,7 +3,9 @@ package wallet
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,6 +17,39 @@ import (
 	"github.com/algorand/go-algorand-sdk/v2/transaction"
 	"github.com/algorand/go-algorand-sdk/v2/types"
 )
+
+// uniqueNote appends 8 random bytes to tag so repeated x402 payments with
+// identical sender/receiver/amount/asset never produce byte-identical --
+// and therefore same-txid -- transactions when two such calls land within
+// the same algod round (SuggestedParams' FirstValid/LastValid only change
+// per round, not per call). This matters most for the platform's own flat
+// per-call markup (SettlePlatformFee/runfund.go), which pays the exact
+// same amount from the exact same wallet to the exact same wallet on
+// every single call: without a distinguishing note, two such settlements
+// landing in the same ~3s round hash identically, and algod rejects the
+// second as an exact duplicate ("transaction already in ledger") even
+// though nothing about the payment itself was invalid. Confirmed as the
+// dominant cause behind that leg's elevated verify-without-settle rate
+// (facilitator.goplausible.xyz: ~27.5% for the flat-amount platform fee
+// vs ~9.5% for the main relay leg, whose amount varies per vendor quote
+// and so rarely collides).
+//
+// Propagates rand.Read's error rather than falling back to a zeroed nonce
+// -- matching this codebase's existing randHex/randURLSafe/randomHex32
+// convention (oauth.go, connector_oauth.go, connectors_devtools.go). A
+// silently-swallowed CSPRNG failure would make every note the same
+// constant string during the outage, reintroducing the exact collision
+// this function exists to eliminate with no log line or metric to say so;
+// callers below fail the payment attempt instead, which is loud and
+// matches how a signing failure is already handled everywhere else in
+// this file.
+func uniqueNote(tag string) ([]byte, error) {
+	nonce := make([]byte, 8)
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("generate unique payment note: %w", err)
+	}
+	return []byte(tag + ":" + hex.EncodeToString(nonce)), nil
+}
 
 type Service struct {
 	encKey     string
@@ -194,13 +229,21 @@ func (s *Service) SignUSDCPaymentGroup(ctx context.Context, encMnemonic, payTo s
 		return nil, 0, err
 	}
 
-	payTxn, err := transaction.MakeAssetTransferTxn(acc.Address.String(), payTo, amountMicros, []byte("x402-payment-v2"), params, "", assetID)
+	payNote, err := uniqueNote("x402-payment-v2")
+	if err != nil {
+		return nil, 0, err
+	}
+	payTxn, err := transaction.MakeAssetTransferTxn(acc.Address.String(), payTo, amountMicros, payNote, params, "", assetID)
 	if err != nil {
 		return nil, 0, err
 	}
 	payTxn.Fee = 0 // fee-pooled: the stub below covers both txns' fees
 
-	feeStub, err := transaction.MakePaymentTxn(feePayerAddr, feePayerAddr, 0, []byte("x402-fee-payer"), "", params)
+	feeStubNote, err := uniqueNote("x402-fee-payer")
+	if err != nil {
+		return nil, 0, err
+	}
+	feeStub, err := transaction.MakePaymentTxn(feePayerAddr, feePayerAddr, 0, feeStubNote, "", params)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -263,7 +306,11 @@ func (s *Service) SignUSDCPaymentSingle(ctx context.Context, encMnemonic, payTo 
 		return nil, 0, err
 	}
 
-	payTxn, err := transaction.MakeAssetTransferTxn(acc.Address.String(), payTo, amountMicros, []byte("x402-payment-v2"), params, "", assetID)
+	payNote, err := uniqueNote("x402-payment-v2")
+	if err != nil {
+		return nil, 0, err
+	}
+	payTxn, err := transaction.MakeAssetTransferTxn(acc.Address.String(), payTo, amountMicros, payNote, params, "", assetID)
 	if err != nil {
 		return nil, 0, err
 	}

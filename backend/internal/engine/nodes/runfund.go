@@ -2,8 +2,10 @@ package nodes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/agentmesh/backend/internal/x402"
 )
@@ -89,11 +91,91 @@ func SettlePlatformFee(ctx context.Context, cfg RunPreFundConfig, amountUSDMicro
 // identity (see runFundingPublicPath's doc comment for why that has to be a
 // real path under our own branded origin, not an opaque identifier).
 // amountUSDMicros <= 0 is a no-op.
+//
+// Retries up to selfSettleMaxAttempts times on any failure EXCEPT
+// ErrSettlementIndeterminate: a signing error, a verify rejection, or a
+// definitive (received) settle failure all mean nothing was broadcast or
+// confirmed, so a retry -- with a fresh SignUSDCPaymentGroup call, and
+// therefore a fresh uniqueNote nonce and SuggestedParams -- is safe and
+// cannot double-pay. An indeterminate settle response (the request may
+// have already been broadcast and confirmed, we just never heard back)
+// stops retrying immediately instead, exactly as before this change --
+// resubmitting there risks paying twice. This is what actually closes the
+// gap: before wallet/algorand.go's uniqueNote fix, a same-round retry of
+// the flat-amount platform fee would have produced the exact same
+// collision it was retrying to escape; now every attempt is guaranteed
+// distinct regardless of amount or timing.
+//
+// ctx.Err() is checked before every attempt, including the first: without
+// this, a caller whose context is already canceled/expired when this is
+// entered would still burn up to selfSettleMaxAttempts real sign+verify
+// round trips before giving up. Because only the Settle sub-call itself is
+// shielded from cancellation (see attemptSelfSettle's doc comment), ctx
+// stays the caller's real, cancelable context throughout -- a StopWorkflow
+// firing between attempts, or during signing/Verify of the current one,
+// is honored promptly; only the narrow window where a Settle call is
+// actually in flight (Wallet 1 -> Wallet 2, possibly already broadcast)
+// is protected, matching this file's existing "money in motion must not
+// be interrupted" rule everywhere else.
+//
+// All non-indeterminate attempt errors are accumulated (errors.Join), not
+// just the last one: an intermittent facilitator 5xx on attempt 1
+// followed by a persistent signing misconfiguration on attempt 2 used to
+// collapse into one final message with the first failure's cause
+// discarded -- exactly the signal needed to tell "transient, would
+// probably succeed on a true retry later" apart from "persistent,
+// retrying again won't help" when diagnosing a real elevated
+// settle-failure rate like the one this PR was written to fix.
 func selfSettleWallet1ToWallet2(ctx context.Context, cfg RunPreFundConfig, publicPath, description, errPrefix string, amountUSDMicros int64) (string, error) {
 	if amountUSDMicros <= 0 {
 		return "", nil
 	}
 
+	var errs []error
+	for attempt := 1; attempt <= selfSettleMaxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, fmt.Errorf("attempt %d: context done: %w", attempt, err))
+			break
+		}
+		txID, err := attemptSelfSettle(ctx, cfg, publicPath, description, errPrefix, amountUSDMicros)
+		if err == nil {
+			return txID, nil
+		}
+		if errors.Is(err, ErrSettlementIndeterminate) {
+			return "", err
+		}
+		errs = append(errs, fmt.Errorf("attempt %d: %w", attempt, err))
+	}
+	return "", fmt.Errorf("%s: all attempts failed: %w", errPrefix, errors.Join(errs...))
+}
+
+// selfSettleMaxAttempts bounds selfSettleWallet1ToWallet2's retry loop. Not
+// unbounded: a real, persistent misconfiguration (bad mnemonic, algod down,
+// facilitator down) should fail loudly and quickly, not loop for minutes.
+const selfSettleMaxAttempts = 3
+
+// settleCallBudget bounds the detached sub-context attemptSelfSettle gives
+// ONLY the Facilitator.Settle call (see its doc comment) -- generous
+// headroom over x402.FacilitatorClient's own 20s http.Client timeout,
+// which is what actually bounds how long that call can block; this is a
+// backstop, not the real limiter, so it never needs to be tight.
+const settleCallBudget = 60 * time.Second
+
+// SelfSettleRetryBudget is a sane ceiling a caller MAY wrap around
+// SettlePlatformFee/FundRunReserve with (context.WithTimeout(ctx,
+// SelfSettleRetryBudget) -- deliberately NOT context.WithoutCancel: unlike
+// the narrow, actually-unsafe-to-interrupt Settle call itself (shielded
+// internally, see settleCallBudget), everything else in a retry sequence
+// -- signing, Verify, the gaps between attempts -- is safe to cancel, so
+// there's no reason to make the whole call deaf to a StopWorkflow just to
+// protect the one part that needs it. This exists purely as a backstop
+// against an unbounded hang if the caller's own ctx has no deadline of
+// its own: selfSettleMaxAttempts attempts, each budgeted generously for a
+// full sign+verify+settle cycle (20s+20s facilitator calls, plus signing,
+// plus headroom).
+const SelfSettleRetryBudget = selfSettleMaxAttempts * 60 * time.Second
+
+func attemptSelfSettle(ctx context.Context, cfg RunPreFundConfig, publicPath, description, errPrefix string, amountUSDMicros int64) (string, error) {
 	resourceURL := cfg.FrontendURL + publicPath
 	reqs := x402.PaymentRequirements{
 		Scheme:            "exact",
@@ -155,6 +237,9 @@ func selfSettleWallet1ToWallet2(ctx context.Context, cfg RunPreFundConfig, publi
 		Accepted: reqs.AcceptedV2(),
 	}
 
+	// Verify runs on the caller's real, cancelable ctx: nothing has been
+	// broadcast yet, so an interruption here is always safe -- it just
+	// fails this attempt cleanly, the same as any other pre-Settle error.
 	verifyResult, err := cfg.Facilitator.Verify(ctx, payload, reqs)
 	if err != nil {
 		return "", fmt.Errorf("%s: facilitator verify failed: %w", errPrefix, err)
@@ -163,7 +248,23 @@ func selfSettleWallet1ToWallet2(ctx context.Context, cfg RunPreFundConfig, publi
 		return "", fmt.Errorf("%s: payment invalid: %s", errPrefix, verifyResult.Invalid)
 	}
 
-	settleResult, err := cfg.Facilitator.Settle(ctx, payload, reqs)
+	// Settle is the one call in this whole file where a cancellation
+	// landing mid-flight is genuinely dangerous: the facilitator may have
+	// already broadcast and confirmed the payment by the time ctx.Done()
+	// fires, and losing the response here is indistinguishable from the
+	// payment simply never having happened -- see ErrSettlementIndeterminate
+	// below. Detached (WithoutCancel) with its own bounded budget rather
+	// than inheriting ctx directly, so a StopWorkflow racing this exact
+	// instant can't turn a real, possibly-already-broadcast payment into a
+	// stuck "fate unknown" reservation purely because OUR OWN cancellation
+	// beat the facilitator's response back. Everything else in this
+	// function (signing, Verify, and the retry loop's between-attempts
+	// gaps in the caller) stays on the real ctx and remains promptly
+	// cancelable -- this is the narrowest possible window of protection,
+	// not a blanket detach of the whole retry sequence.
+	settleCtx, settleCancel := context.WithTimeout(context.WithoutCancel(ctx), settleCallBudget)
+	settleResult, err := cfg.Facilitator.Settle(settleCtx, payload, reqs)
+	settleCancel()
 	if err != nil {
 		// Response never arrived -- settlement's fate is unknown, not
 		// "failed". Wrapped so callers can tell this apart from a

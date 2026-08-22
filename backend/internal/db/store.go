@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"strconv"
 	"strings"
@@ -216,10 +217,33 @@ func unmarshalGraph(data []byte, w *models.Workflow) {
 
 // --- Run methods ---
 
-func (s *Store) CreateRun(ctx context.Context, workflowID, triggeredBy string, inputContext []byte) (models.Run, error) {
+// rowQuerier is the subset of *pgxpool.Pool and pgx.Tx that insertRun
+// needs, so it can run either as its own implicit single-statement
+// transaction (CreateRun, via s.pool) or as part of a caller-managed one
+// (CreateRunWithCooldown, via its tx).
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// insertRun does the actual runs INSERT+RETURNING+decode shared by
+// CreateRun and CreateRunWithCooldown -- pulled out so the two can't drift
+// (they used to duplicate this block verbatim) and so a fix here, like the
+// one below, only has to happen once.
+//
+// A failure decoding the returned input_context back into r.InputContext
+// is logged, not returned as a hard error: InputContext is typed `any`,
+// so this can't actually fail for the syntactically-valid JSON Postgres
+// already required to accept the row via `$3::jsonb` at INSERT time (a
+// real syntax error fails there, before this ever runs) -- but staying
+// silent about it would still violate this codebase's own "never swallow
+// an error silently" convention if that ever stops being true (e.g.
+// InputContext becoming a concrete struct type later), and the row itself
+// is already durably inserted at this point regardless, so there's
+// nothing to roll back over a decode issue.
+func insertRun(ctx context.Context, q rowQuerier, workflowID, triggeredBy string, inputContext []byte) (models.Run, error) {
 	var r models.Run
 	var ic []byte
-	err := s.pool.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		INSERT INTO runs (workflow_id, triggered_by, status, input_context)
 		VALUES ($1, $2, 'running', $3::jsonb)
 		RETURNING id, workflow_id, triggered_by, status, started_at, finished_at, input_context
@@ -228,10 +252,83 @@ func (s *Store) CreateRun(ctx context.Context, workflowID, triggeredBy string, i
 		&r.StartedAt, &r.FinishedAt, &ic,
 	)
 	if err != nil {
-		return r, err
+		return models.Run{}, err
 	}
 	if ic != nil {
-		json.Unmarshal(ic, &r.InputContext)
+		if err := json.Unmarshal(ic, &r.InputContext); err != nil {
+			log.Printf("db: run %s: failed to decode stored input_context (%d bytes): %v", r.ID, len(ic), err)
+		}
+	}
+	return r, nil
+}
+
+func (s *Store) CreateRun(ctx context.Context, workflowID, triggeredBy string, inputContext []byte) (models.Run, error) {
+	return insertRun(ctx, s.pool, workflowID, triggeredBy, inputContext)
+}
+
+// ErrRunOnCooldown is returned by CreateRunWithCooldown when workflowID
+// started a run within the last cooldown window passed to it. RetryAfter
+// is how much longer the caller must wait.
+type ErrRunOnCooldown struct {
+	RetryAfter time.Duration
+}
+
+func (e *ErrRunOnCooldown) Error() string {
+	return fmt.Sprintf("workflow run cooldown active, retry after %s", e.RetryAfter.Round(time.Second))
+}
+
+// CreateRunWithCooldown is CreateRun plus an atomic, DB-backed minimum gap
+// between two run starts for the same workflow -- a blunt deterrent
+// against a leaked webhook URL or a bot hammering the public trigger
+// endpoint with no rate limit otherwise (handlers.TriggerRun/PublicTrigger
+// are the only callers).
+//
+// Deliberately DB-backed rather than an in-process map: (1) the check and
+// the insert happen in the same transaction, so a CreateRun failure below
+// this point rolls the whole thing back -- a caller that reasonably
+// retries right after a transient DB error never sees a phantom cooldown
+// for a run that never actually started; (2) it piggybacks on the
+// existing runs table instead of a separate unbounded map, so there is no
+// new storage to leak over a long-running process's lifetime; (3) since
+// Postgres is the one shared source of truth, this is correct regardless
+// of how many backend replicas are running, unlike an in-process lock
+// that only ever sees its own replica's traffic.
+//
+// pg_advisory_xact_lock, not a plain "SELECT ... FOR UPDATE" against runs,
+// because a workflow's very first run has no existing row to lock against
+// -- the advisory lock is keyed on workflowID's hash and held regardless
+// of whether any row exists yet, and is automatically released at this
+// transaction's COMMIT or ROLLBACK either way.
+func (s *Store) CreateRunWithCooldown(ctx context.Context, workflowID, triggeredBy string, inputContext []byte, cooldown time.Duration) (models.Run, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return models.Run{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, workflowID); err != nil {
+		return models.Run{}, fmt.Errorf("run cooldown: acquire advisory lock: %w", err)
+	}
+
+	var lastStarted time.Time
+	err = tx.QueryRow(ctx, `
+		SELECT started_at FROM runs WHERE workflow_id = $1 ORDER BY started_at DESC LIMIT 1
+	`, workflowID).Scan(&lastStarted)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return models.Run{}, fmt.Errorf("run cooldown: check last run: %w", err)
+	}
+	if err == nil {
+		if elapsed := time.Since(lastStarted); elapsed < cooldown {
+			return models.Run{}, &ErrRunOnCooldown{RetryAfter: cooldown - elapsed}
+		}
+	}
+
+	r, err := insertRun(ctx, tx, workflowID, triggeredBy, inputContext)
+	if err != nil {
+		return models.Run{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return models.Run{}, err
 	}
 	return r, nil
 }

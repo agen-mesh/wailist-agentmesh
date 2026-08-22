@@ -1474,21 +1474,18 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 		// to the caller, already succeeded. cfg.Facilitator == nil (dev/test
 		// wiring that never configured one) makes this a silent no-op.
 		//
-		// Detached from ctx (WithoutCancel, own timeout) rather than run on
-		// it directly: by this point money has already moved and the user
-		// has already been billed the fee in credits, so a caller-initiated
-		// cancellation (a closed console tab, a StopWorkflow racing this
-		// exact instant) must not abort the one thing that would actually
-		// back that charge with real USDC -- same reasoning as every other
-		// post-settlement compensating action in this codebase (see
-		// runner.go's ledgerCompensationTimeout uses). 60s budget: up to 20s
-		// each for the facilitator's Verify and Settle calls
-		// (FacilitatorClient's own http.Client timeout), plus the signing
-		// call ahead of them making its own algod SuggestedParams round
-		// trip on this same context with no timeout of its own, plus
-		// headroom.
+		// NOT detached from ctx (no WithoutCancel) -- a StopWorkflow racing
+		// this call is safe to honor promptly now: SettlePlatformFee only
+		// shields the one narrow, actually-unsafe-to-interrupt moment (the
+		// Settle HTTP call itself) internally, via its own detached
+		// sub-context -- see selfSettleWallet1ToWallet2/attemptSelfSettle's
+		// doc comments. Everything else here (signing, Verify, retry gaps)
+		// stays cancelable, so a Stop click isn't blocked for the whole
+		// SelfSettleRetryBudget ceiling below -- that ceiling is just a
+		// backstop against an unbounded hang if ctx has no deadline of its
+		// own, not the thing making this call safe.
 		if cfg.Facilitator != nil {
-			fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
+			fctx, cancel := context.WithTimeout(ctx, SelfSettleRetryBudget)
 			feeTxID, feeErr := SettlePlatformFee(fctx, RunPreFundConfig{
 				USDCSigner:               usdcSigner,
 				PlatformSpendEncMnemonic: platformSpendEncMnemonic,
