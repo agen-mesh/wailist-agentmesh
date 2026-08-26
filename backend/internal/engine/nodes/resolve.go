@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -82,7 +83,7 @@ func lookupRef(ref string, rc RunContexter) (string, bool) {
 		// Always "resolved" (blanks on a miss) -- see resolveTemplate's doc
 		// comment for why this ref form keeps its pre-existing behavior.
 		v, _ := walkPath(rc.LastOutput(), path)
-		return stringifyRef(v), true
+		return stringifyRef(v), true // blanks on a miss regardless of the error
 	}
 	rest, isNode := strings.CutPrefix(ref, "node.")
 	if !isNode || rest == "" {
@@ -96,8 +97,8 @@ func lookupRef(ref string, rc RunContexter) (string, bool) {
 	if !hasField {
 		return stringifyRef(out), true
 	}
-	v, ok := walkPath(out, field)
-	if !ok {
+	v, err := walkPath(out, field)
+	if err != nil {
 		return "", false
 	}
 	return stringifyRef(v), true
@@ -159,33 +160,40 @@ func resolveTemplateJSON(s string, rc RunContexter) string {
 }
 
 // walkPath descends a dotted field path ("a.b.c", or "a.0.c" to index into an
-// array) into v, as produced by json.Unmarshal -- matching the JSON Extract
-// node's own path walker (compute.go's executeJSONExtract) so both resolvers
-// accept the same path syntax. Returns (nil, false) if any segment is
-// missing, an array index is out of range or non-numeric, or v isn't a
-// JSON object/array at that point -- callers decide separately whether that
-// means "blank" or "leave the reference verbatim".
-func walkPath(v any, path string) (any, bool) {
+// array) into v, as produced by json.Unmarshal. Shared by the {{ }} template
+// resolver here (lookupRef, which only cares whether it succeeded) and the
+// JSON Extract node (compute.go's executeJSONExtract, which surfaces the
+// specific error to the user) -- one traversal implementation for both, so
+// they can never silently diverge on what path syntax each accepts. Returns
+// a descriptive error naming exactly which segment failed and why if any
+// segment is missing, an array index is out of range or non-numeric, or v
+// isn't a JSON object/array at that point; callers decide separately what to
+// do with a failure (blank it, leave the reference verbatim, or surface the
+// error as-is).
+func walkPath(v any, path string) (any, error) {
 	cur := v
 	for _, key := range strings.Split(path, ".") {
 		switch node := cur.(type) {
 		case map[string]any:
 			next, ok := node[key]
 			if !ok {
-				return nil, false
+				return nil, fmt.Errorf("no value at path %q (missing key %q)", path, key)
 			}
 			cur = next
 		case []any:
 			i, err := strconv.Atoi(key)
-			if err != nil || i < 0 || i >= len(node) {
-				return nil, false
+			if err != nil {
+				return nil, fmt.Errorf("path %q indexes an array with non-numeric segment %q", path, key)
+			}
+			if i < 0 || i >= len(node) {
+				return nil, fmt.Errorf("index %d out of range at path %q (length %d)", i, path, len(node))
 			}
 			cur = node[i]
 		default:
-			return nil, false
+			return nil, fmt.Errorf("path %q descends past a scalar at %q", path, key)
 		}
 	}
-	return cur, true
+	return cur, nil
 }
 
 // stringifyRef renders a resolved value for interpolation into text. Strings

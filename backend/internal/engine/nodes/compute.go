@@ -62,29 +62,11 @@ func executeJSONExtract(node models.WorkflowNode, rc RunContexter) (any, error) 
 	if err := json.Unmarshal([]byte(rc.Message()), &doc); err != nil {
 		return nil, fmt.Errorf("json_extract: upstream output is not valid JSON: %w", err)
 	}
-	cur := doc
-	for _, seg := range strings.Split(path, ".") {
-		switch node := cur.(type) {
-		case map[string]any:
-			v, ok := node[seg]
-			if !ok {
-				return nil, fmt.Errorf("json_extract: no value at path %q (missing key %q)", path, seg)
-			}
-			cur = v
-		case []any:
-			i, err := strconv.Atoi(seg)
-			if err != nil {
-				return nil, fmt.Errorf("json_extract: path %q indexes an array with non-numeric segment %q", path, seg)
-			}
-			if i < 0 || i >= len(node) {
-				return nil, fmt.Errorf("json_extract: index %d out of range at path %q (length %d)", i, path, len(node))
-			}
-			cur = node[i]
-		default:
-			return nil, fmt.Errorf("json_extract: path %q descends past a scalar at %q", path, seg)
-		}
+	v, err := walkPath(doc, path)
+	if err != nil {
+		return nil, fmt.Errorf("json_extract: %w", err)
 	}
-	return cur, nil
+	return v, nil
 }
 
 // executeCrypto hashes / encodes the upstream output. Pure stdlib; no network.

@@ -15,14 +15,23 @@ import (
 	"github.com/agentmesh/backend/internal/models"
 )
 
-// jiraDomainPattern matches Atlassian's site-naming rules: letters, digits,
-// and hyphens only, starting with a letter or digit. jiraDomain is
-// user-supplied config that gets interpolated directly into the request
-// host (unlike other connectors, where user config only ever becomes a path
-// segment), so it must be validated before being used to build a URL —
-// otherwise a crafted value could redirect the request (and the Basic-auth
-// header carrying the real API token) to an attacker-controlled host.
-var jiraDomainPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*$`)
+// dnsLabelPattern is one DNS label's character class: letters, digits, and
+// hyphens only, starting with a letter or digit (Atlassian's Jira/Zendesk
+// site-naming rules, and also the shape a Shopify store subdomain takes).
+// Shared, unanchored, so every subdomain-validating pattern in this package
+// derives from one definition instead of hand-duplicating the character
+// class — see jiraDomainPattern below and shopifyDomainPattern in
+// connectors_business.go, which anchors this same label to the literal
+// ".myshopify.com" suffix rather than redefining the label itself.
+const dnsLabelPattern = `[a-zA-Z0-9][a-zA-Z0-9-]*`
+
+// jiraDomainPattern is user-supplied config that gets interpolated directly
+// into the request host (unlike other connectors, where user config only
+// ever becomes a path segment), so it must be validated before being used
+// to build a URL — otherwise a crafted value could redirect the request
+// (and the Basic-auth header carrying the real API token) to an
+// attacker-controlled host.
+var jiraDomainPattern = regexp.MustCompile(`^` + dnsLabelPattern + `$`)
 
 // githubAPIBase is overridden in tests via SetGitHubAPIBaseForTest.
 var githubAPIBase = "https://api.github.com"

@@ -147,9 +147,14 @@ func getCalendlyEvents(ctx context.Context, node models.WorkflowNode, rc RunCont
 // otherwise a crafted value on a copied/imported workflow could redirect
 // the request, and the token with it, to an attacker-controlled host.
 // Unlike Jira/Zendesk's bare subdomain, shopifyShopDomain is already a full
-// host, so this anchors the whole string to the real "*.myshopify.com"
-// shape rather than just checking character set.
-var shopifyDomainPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$`)
+// host, so this anchors dnsLabelPattern (the same subdomain character class
+// jiraDomainPattern validates) to the real "*.myshopify.com" shape rather
+// than just checking character set -- and rather than hand-duplicating that
+// character class into its own regex literal, which is what let this
+// pattern and sendShopify's bare-subdomain check (connectors_commerce.go,
+// which reuses jiraDomainPattern directly) drift into two independently-
+// written regexes for the same underlying label shape.
+var shopifyDomainPattern = regexp.MustCompile(`^` + dnsLabelPattern + `\.myshopify\.com$`)
 
 // SetShopifyOrderNoteAPIBaseForTest overrides the Shopify API base URL entirely
 // (including scheme+host) -- normally "https://{shop}" is built per-node
