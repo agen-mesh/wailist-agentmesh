@@ -430,6 +430,7 @@ export function BazaarPage() {
                   expanded={expandedHosts.has(host)}
                   onToggle={() => toggleHost(host)}
                   onAdd={setAdding}
+                  partial={!noMore}
                 />
               ),
             )}

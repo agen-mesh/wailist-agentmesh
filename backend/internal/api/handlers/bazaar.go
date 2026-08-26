@@ -23,10 +23,11 @@ const defaultBazaarBaseURL = "https://facilitator.goplausible.xyz"
 const bazaarCacheTTL = 15 * time.Minute
 
 // bazaarRetryBackoff bounds how often a failed refresh is retried once the
-// cache has expired. Without this, every request during an upstream outage
-// re-attempts the full ~8-page crawl (each bounded by its own 30s timeout,
-// serialized behind bazaarCache.mu) instead of getting a fast stale-cache hit.
-const bazaarRetryBackoff = 30 * time.Second
+// cache has expired (or, on a cold start, once no fetch has ever succeeded).
+// Without this, every request during an upstream outage re-attempts the full
+// ~8-page crawl instead of getting a fast stale-cache hit or a fast error.
+// A var, not a const, so tests can shrink it instead of sleeping 30s.
+var bazaarRetryBackoff = 30 * time.Second
 
 // bazaarPageDefault/Max bound one page of results. The frontend's infinite
 // scroll asks for 30 at a time.
@@ -43,6 +44,12 @@ type bazaarCache struct {
 	items           []bazaar.Resource
 	fetchedAt       time.Time
 	lastAttemptedAt time.Time
+	lastErr         error
+	// inflight is non-nil while a refresh is in progress. Callers that arrive
+	// while a refresh is already running wait on this channel (with their own
+	// request context honoured) instead of starting a second concurrent crawl
+	// or blocking the shared mutex for the crawl's full duration.
+	inflight chan struct{}
 }
 
 // bazaarHTTPClient has its own timeout because a full crawl is several
@@ -58,48 +65,109 @@ func (d *Deps) bazaarBaseURL() string {
 
 // catalog returns the merged catalog, refreshing it if the cache has expired.
 //
-// The refresh is bounded by its own timeout rather than any single caller's
-// request context: this is a shared resource guarded by a mutex, so every
-// other request waiting on the lock would otherwise be aborted right along
-// with whichever caller happened to trigger the refresh and then had its own
-// connection cancelled (browser tab closed, navigation away) mid-crawl.
-func (d *Deps) catalog() ([]bazaar.Resource, error) {
+// The refresh itself runs on a detached context with its own 30s timeout,
+// not any single caller's request context: this is a shared resource, and
+// the fetch must not abort just because the caller who happened to trigger
+// it disconnected. A caller waiting on an in-flight refresh, however, DOES
+// honour its own request context — it stops waiting (and releases its
+// handler goroutine) the moment its own connection goes away, without
+// affecting the shared refresh other callers are still waiting on.
+func (d *Deps) catalog(ctx context.Context) ([]bazaar.Resource, error) {
 	d.bazaarCache.mu.Lock()
-	defer d.bazaarCache.mu.Unlock()
 	if d.bazaarCache.items != nil && time.Since(d.bazaarCache.fetchedAt) < bazaarCacheTTL {
-		return d.bazaarCache.items, nil
+		items := d.bazaarCache.items
+		d.bazaarCache.mu.Unlock()
+		return items, nil
 	}
 	// A prior refresh attempt failed recently — serve the stale cache instead
 	// of re-running the full crawl on every request until the backoff clears.
-	if d.bazaarCache.items != nil && time.Since(d.bazaarCache.lastAttemptedAt) < bazaarRetryBackoff {
-		return d.bazaarCache.items, nil
-	}
-	d.bazaarCache.lastAttemptedAt = time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	fetched, err := bazaar.FetchAll(ctx, bazaarHTTPClient, d.bazaarBaseURL())
-	if err != nil {
-		// Serve stale rather than nothing: a transient upstream blip should
-		// not empty a page that was working a moment ago.
-		if d.bazaarCache.items != nil {
-			return d.bazaarCache.items, nil
+	// This applies even on a cold start (no successful fetch yet, items ==
+	// nil): checking lastAttemptedAt rather than requiring items != nil is
+	// what makes the backoff actually engage during a from-boot outage,
+	// instead of every single request racing to start its own crawl.
+	if !d.bazaarCache.lastAttemptedAt.IsZero() && time.Since(d.bazaarCache.lastAttemptedAt) < bazaarRetryBackoff {
+		items, err := d.bazaarCache.items, d.bazaarCache.lastErr
+		d.bazaarCache.mu.Unlock()
+		if items != nil {
+			return items, nil
 		}
 		return nil, err
 	}
-	merged := bazaar.Merge(fetched)
-	d.bazaarCache.items = merged
-	d.bazaarCache.fetchedAt = time.Now()
-	return merged, nil
+	ch := d.bazaarCache.inflight
+	if ch == nil {
+		// No refresh running — start one on a detached goroutine so it is
+		// never at the mercy of whichever caller happens to be the one that
+		// triggers it. Every caller, this one included, only ever *waits* on
+		// it below via select, so every caller (not just followers) honours
+		// its own ctx and can bail out early without affecting the shared
+		// fetch.
+		ch = make(chan struct{})
+		d.bazaarCache.inflight = ch
+		d.bazaarCache.lastAttemptedAt = time.Now()
+		go d.runCatalogFetch(ch)
+	}
+	d.bazaarCache.mu.Unlock()
+
+	select {
+	case <-ch:
+		d.bazaarCache.mu.Lock()
+		items, err := d.bazaarCache.items, d.bazaarCache.lastErr
+		d.bazaarCache.mu.Unlock()
+		if items != nil {
+			return items, nil
+		}
+		return nil, err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// runCatalogFetch performs one crawl and publishes the result into the
+// shared cache, independent of any caller's request context. It always
+// closes done, even on failure, so every caller waiting in catalog's select
+// is released.
+func (d *Deps) runCatalogFetch(done chan struct{}) {
+	fetchCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	fetched, fetchErr := bazaar.FetchAll(fetchCtx, bazaarHTTPClient, d.bazaarBaseURL())
+
+	d.bazaarCache.mu.Lock()
+	if fetchErr != nil {
+		d.bazaarCache.lastErr = fetchErr
+		// Keep whatever's already cached (possibly nil) — a transient
+		// upstream blip should not empty a page that was working a moment
+		// ago.
+	} else {
+		merged := bazaar.Merge(fetched)
+		d.bazaarCache.items = merged
+		d.bazaarCache.fetchedAt = time.Now()
+		d.bazaarCache.lastErr = nil
+	}
+	d.bazaarCache.inflight = nil
+	d.bazaarCache.mu.Unlock()
+	close(done)
 }
 
 // BazaarResources serves one page of the mirrored x402 catalog.
 func (d *Deps) BazaarResources(w http.ResponseWriter, r *http.Request) {
-	items, err := d.catalog()
+	all, err := d.catalog(r.Context())
 	if err != nil {
 		respond.Error(w, http.StatusBadGateway, "could not reach the x402 catalog")
 		return
 	}
 
+	// Computed over the full, unfiltered catalog so it reports a stable
+	// total regardless of the q/supported filters applied below — a future
+	// "N supported providers" badge should not change with every keystroke
+	// in the search box.
+	supported := 0
+	for _, it := range all {
+		if it.Supported {
+			supported++
+		}
+	}
+
+	items := all
 	if q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q"))); q != "" {
 		filtered := make([]bazaar.Resource, 0, len(items))
 		for _, it := range items {
@@ -113,32 +181,22 @@ func (d *Deps) BazaarResources(w http.ResponseWriter, r *http.Request) {
 
 	// supported=1/true keeps only endorsed entries (the pinned "Supported"
 	// section); supported=0/false excludes them (the paged grid, so a card
-	// never renders twice under contradictory copy). Any other/absent value
-	// leaves items untouched. A curated entry with zero catalog matches
-	// (e.g. Tendril) only ever gets pulled in via Merge's "not present in the
-	// catalog" append, which can land far past any page-size cutoff by settle
-	// count — so this filter must run over the full merged set, not a slice
-	// of it, for supported=1 to find it at all.
-	if supportedParam := r.URL.Query().Get("supported"); supportedParam != "" {
-		want := supportedParam == "1" || supportedParam == "true"
-		filtered := make([]bazaar.Resource, 0, len(items))
-		for _, it := range items {
-			if it.Supported == want {
-				filtered = append(filtered, it)
-			}
-		}
-		items = filtered
+	// never renders twice under contradictory copy). Any other value or an
+	// absent param leaves items untouched, matching the doc below. A curated
+	// entry with zero catalog matches (e.g. Tendril) only ever gets pulled in
+	// via Merge's "not present in the catalog" append, which can land far
+	// past any page-size cutoff by settle count — so this filter must run
+	// over the full merged set, not a slice of it, for supported=1 to find
+	// it at all.
+	switch r.URL.Query().Get("supported") {
+	case "1", "true":
+		items = filterSupported(items, true)
+	case "0", "false":
+		items = filterSupported(items, false)
 	}
 
 	offset := clampAtoi(r.URL.Query().Get("offset"), 0, 0, len(items))
 	limit := clampAtoi(r.URL.Query().Get("limit"), bazaarPageDefault, 1, bazaarPageMax)
-
-	supported := 0
-	for _, it := range items {
-		if it.Supported {
-			supported++
-		}
-	}
 
 	end := offset + limit
 	if end > len(items) {
@@ -156,6 +214,17 @@ func (d *Deps) BazaarResources(w http.ResponseWriter, r *http.Request) {
 		"limit":          limit,
 		"supportedCount": supported,
 	})
+}
+
+// filterSupported returns only entries whose Supported flag matches want.
+func filterSupported(items []bazaar.Resource, want bool) []bazaar.Resource {
+	filtered := make([]bazaar.Resource, 0, len(items))
+	for _, it := range items {
+		if it.Supported == want {
+			filtered = append(filtered, it)
+		}
+	}
+	return filtered
 }
 
 // clampAtoi parses a query integer, falling back to def and clamping to

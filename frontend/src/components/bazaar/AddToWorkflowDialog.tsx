@@ -53,6 +53,15 @@ export function AddToWorkflowDialog({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Lock body scroll while open, matching CheckoutModal — otherwise the
+  // Bazaar page behind this dialog stays scrollable.
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, []);
+
   const choose = (id: string) => {
     const encoded = encodePendingNode(resourceToNode(resource));
     router.push(`/workflows/${id}?add=${encoded}`);

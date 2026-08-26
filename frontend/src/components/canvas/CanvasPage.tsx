@@ -53,7 +53,15 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   const [saveLabel, setSaveLabel] = useState("");
   const [runId, setRunId] = useState<string | null>(null);
   const [chatPrompt, setChatPrompt] = useState<string | null>(null); // null = closed
-  const justLoaded = useRef(true);
+  // A single boolean, not a counter: it can only suppress ONE upcoming
+  // autosave cycle at a time, regardless of which of the two trusted writes
+  // below (initial load, Bazaar auto-add) set it. Both origins collapse into
+  // this one "skip next autosave" signal deliberately — there's no current
+  // need to distinguish them or to suppress more than one cycle in a row. A
+  // future feature needing genuine "was this the initial page load" or
+  // "skip N cycles" semantics needs its own mechanism, not a reuse of this
+  // one.
+  const skipNextAutosave = useRef(true);
 
   // -- Resizable side panels ------------------------------------------------
   // Widths start at defaults (so SSR and the first client render match), then a
@@ -148,7 +156,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       .get(workflowId)
       .then((wf) => {
         if (cancelled) return;
-        justLoaded.current = true;
+        skipNextAutosave.current = true;
         setWorkflow(wf);
         // Deployment state comes from the workflow's own status. It used to
         // be inferred from an agent node having a wallet address, which no
@@ -169,8 +177,8 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   // Auto-save: debounce 1.5s after any change, skip on initial load.
   useEffect(() => {
     if (!workflow) return;
-    if (justLoaded.current) {
-      justLoaded.current = false;
+    if (skipNextAutosave.current) {
+      skipNextAutosave.current = false;
       return;
     }
     setSaveLabel("saving…");
@@ -372,11 +380,11 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     // explicitly choose to save, but this auto-add DOES change `workflow`
     // state, which the auto-save effect below would otherwise persist on its
     // very next debounce cycle (~1.5s) — including onto an already-deployed
-    // workflow. Setting justLoaded here makes the auto-save effect treat this
+    // workflow. Setting skipNextAutosave here makes the auto-save effect treat this
     // change exactly like the initial load: skip once. The user's next
     // INTENTIONAL edit (drag, wire, field change) triggers a real save
     // normally.
-    justLoaded.current = true;
+    skipNextAutosave.current = true;
     // This is a one-shot sync from an external source (the URL) into React
     // state, gated by consumedAdd so it can only fire once per mount — not
     // the derived-state-cascade pattern this rule exists to catch.

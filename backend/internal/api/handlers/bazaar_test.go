@@ -1,12 +1,16 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/agentmesh/backend/internal/bazaar"
 )
@@ -163,6 +167,145 @@ func TestBazaarResourcesSupportedFalseExcludesSupportedEntries(t *testing.T) {
 		if it.Supported {
 			t.Errorf("supported=0 returned a supported entry: %s", it.URL)
 		}
+	}
+}
+
+func TestBazaarResourcesSupportedOtherValueLeavesItemsUntouched(t *testing.T) {
+	var hits int32
+	srv := fakeCatalog(5, &hits)
+	defer srv.Close()
+	d := &Deps{BazaarBaseURL: srv.URL}
+
+	rec := httptest.NewRecorder()
+	d.BazaarResources(rec, httptest.NewRequest(http.MethodGet, "/bazaar/resources?supported=yes&limit=100", nil))
+	var page struct {
+		Items []bazaar.Resource `json:"items"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &page)
+	// supported=yes is neither "1"/"true" (want=true) nor "0"/"false"
+	// (want=false); the doc comment says any other value leaves items
+	// untouched, so both supported and unsupported entries must appear.
+	var sawSupported, sawUnsupported bool
+	for _, it := range page.Items {
+		if it.Supported {
+			sawSupported = true
+		} else {
+			sawUnsupported = true
+		}
+	}
+	if !sawSupported || !sawUnsupported {
+		t.Errorf("supported=yes must leave items untouched; sawSupported=%v sawUnsupported=%v", sawSupported, sawUnsupported)
+	}
+}
+
+func TestBazaarResourcesSupportedCountReflectsFullCatalogNotFilteredResult(t *testing.T) {
+	var hits int32
+	srv := fakeCatalog(5, &hits)
+	defer srv.Close()
+	d := &Deps{BazaarBaseURL: srv.URL}
+
+	unfiltered := httptest.NewRecorder()
+	d.BazaarResources(unfiltered, httptest.NewRequest(http.MethodGet, "/bazaar/resources?limit=100", nil))
+	var unfilteredPage struct {
+		SupportedCount int `json:"supportedCount"`
+	}
+	json.Unmarshal(unfiltered.Body.Bytes(), &unfilteredPage)
+	if unfilteredPage.SupportedCount == 0 {
+		t.Fatal("want at least the curated entries counted as supported")
+	}
+
+	// A search that matches nothing must still report the same total
+	// supportedCount, not 0 — the field describes the whole catalog, not the
+	// filtered result.
+	searched := httptest.NewRecorder()
+	d.BazaarResources(searched, httptest.NewRequest(http.MethodGet, "/bazaar/resources?q=zzz-no-match&limit=100", nil))
+	var searchedPage struct {
+		SupportedCount int `json:"supportedCount"`
+	}
+	json.Unmarshal(searched.Body.Bytes(), &searchedPage)
+	if searchedPage.SupportedCount != unfilteredPage.SupportedCount {
+		t.Errorf("supportedCount = %d under a non-matching search, want %d (unfiltered total)", searchedPage.SupportedCount, unfilteredPage.SupportedCount)
+	}
+}
+
+func TestBazaarResourcesColdStartBackoffThrottlesRetries(t *testing.T) {
+	orig := bazaarRetryBackoff
+	bazaarRetryBackoff = 50 * time.Millisecond
+	defer func() { bazaarRetryBackoff = orig }()
+
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	d := &Deps{BazaarBaseURL: srv.URL}
+
+	// Two requests in immediate succession, before the very first fetch has
+	// ever succeeded (cold start): the second must be throttled by the
+	// backoff instead of starting its own crawl.
+	rec1 := httptest.NewRecorder()
+	d.BazaarResources(rec1, httptest.NewRequest(http.MethodGet, "/bazaar/resources", nil))
+	rec2 := httptest.NewRecorder()
+	d.BazaarResources(rec2, httptest.NewRequest(http.MethodGet, "/bazaar/resources", nil))
+
+	if rec1.Code != http.StatusBadGateway || rec2.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, %d, want both 502", rec1.Code, rec2.Code)
+	}
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Errorf("upstream hit %d times across 2 cold-start requests within the backoff window, want 1", got)
+	}
+}
+
+func TestCatalogConcurrentColdRequestsShareOneCrawlAndHonourCancellation(t *testing.T) {
+	var hits int32
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		<-release // block the whole crawl until the test says go
+		json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+	}))
+	defer srv.Close()
+	d := &Deps{BazaarBaseURL: srv.URL}
+
+	// A caller whose own context is cancelled must not wait for the shared
+	// crawl to finish — it should return as soon as its ctx is done, freeing
+	// its handler goroutine/connection instead of blocking for the full
+	// crawl duration alongside every other waiter.
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := d.catalog(cancelledCtx)
+		done <- err
+	}()
+	// Give the first goroutine time to actually start the crawl (acquire
+	// inflight) before a second concurrent caller arrives.
+	time.Sleep(20 * time.Millisecond)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			d.catalog(context.Background())
+		}()
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil || !errors.Is(err, context.Canceled) {
+			t.Errorf("cancelled caller returned err=%v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancelled caller did not return promptly — it's blocking on the shared crawl")
+	}
+
+	close(release)
+	wg.Wait()
+
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Errorf("upstream hit %d times across 4 concurrent cold-start callers, want exactly 1 shared crawl", got)
 	}
 }
 

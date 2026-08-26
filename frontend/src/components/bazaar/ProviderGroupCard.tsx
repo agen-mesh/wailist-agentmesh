@@ -17,12 +17,18 @@ export function ProviderGroupCard({
   expanded,
   onToggle,
   onAdd,
+  partial = false,
 }: {
   host: string;
   resources: BazaarResource[];
   expanded: boolean;
   onToggle: () => void;
   onAdd: (r: BazaarResource) => void;
+  // True while the paged feed backing `resources` hasn't finished loading —
+  // this host's entries can be spread across many pages (one host can be
+  // over 70% of the raw catalog), so the count and cheapest price below are
+  // provisional and may grow/shrink as more pages scroll in.
+  partial?: boolean;
 }) {
   const label = resources[0]?.provider ?? host;
   const cheapest = Math.min(...resources.map((r) => r.amountMicros));
@@ -47,11 +53,22 @@ export function ProviderGroupCard({
         <span style={{ minWidth: 0, flex: 1, display: "block" }}>
           <span className="bz-row__name">{label}</span>
         </span>
-        <span className="bz-row__meta">
+        <span
+          className="bz-row__meta"
+          title={
+            partial
+              ? "Based on results loaded so far — may change as you scroll"
+              : undefined
+          }
+        >
           <span className="bz-row__stat">
-            {resources.length} endpoint{resources.length === 1 ? "" : "s"}
+            {resources.length}
+            {partial ? "+" : ""} endpoint{resources.length === 1 ? "" : "s"}
           </span>
-          <span className="bz-row__stat">from ${formatPrice(cheapest)}</span>
+          <span className="bz-row__stat">
+            from ${formatPrice(cheapest)}
+            {partial ? " so far" : ""}
+          </span>
         </span>
       </button>
 

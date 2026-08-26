@@ -117,6 +117,30 @@ func TestFetchAllNormalisesFields(t *testing.T) {
 	}
 }
 
+func TestParamsFromCapsDescriptionLength(t *testing.T) {
+	raw := upstreamItem("big-example", "https://big.example/api", mainnet)
+	raw["discoveryInfo"] = map[string]any{
+		"input": map[string]any{
+			"method":      "GET",
+			"queryParams": map[string]any{"blob": strings.Repeat("x", 5000)},
+		},
+	}
+	srv := fakeUpstream(t, []map[string]any{raw})
+	defer srv.Close()
+
+	got, err := FetchAll(context.Background(), srv.Client(), srv.URL)
+	if err != nil {
+		t.Fatalf("FetchAll: %v", err)
+	}
+	if len(got[0].Params) != 1 {
+		t.Fatalf("want 1 param, got %d", len(got[0].Params))
+	}
+	desc := got[0].Params[0].Description
+	if n := len([]rune(desc)); n > paramDescriptionMax+len("example: ")+1 {
+		t.Errorf("Description is %d runes, want capped near %d", n, paramDescriptionMax)
+	}
+}
+
 func TestFetchAllPagesUntilShortPage(t *testing.T) {
 	// 250 items across 3 pages proves the loop follows offset rather than
 	// stopping after the first response.

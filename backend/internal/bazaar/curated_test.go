@@ -76,6 +76,28 @@ func TestMergeDoesNotDuplicate(t *testing.T) {
 	}
 }
 
+func TestMergeDoesNotDuplicateWhenTwoCatalogEntriesShareOneCuratedURL(t *testing.T) {
+	// Regression: if the upstream catalog (re-)registers the same real
+	// endpoint under two distinct catalog ids, both used to match the same
+	// curated URL and both got appended as separate Supported=true rows.
+	curatedURL := Curated()[0].URL
+	catalog := []Resource{
+		{ID: "cat1", URL: curatedURL, Method: "GET", SettleCount: 3},
+		{ID: "cat2-reregistered", URL: curatedURL, Method: "GET", SettleCount: 5},
+	}
+	got := Merge(catalog)
+
+	count := 0
+	for _, r := range got {
+		if r.URL == curatedURL {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("curated URL appears %d times across %d catalog entries, want exactly 1", count, len(catalog))
+	}
+}
+
 func TestMergeMatchesURLWithTrailingSlashVariant(t *testing.T) {
 	curatedURL := Curated()[0].URL
 	catalog := []Resource{

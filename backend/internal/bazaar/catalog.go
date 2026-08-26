@@ -199,6 +199,13 @@ func normalise(raw rawResource) (Resource, bool) {
 	return res, true
 }
 
+// paramDescriptionMax bounds one param's example-value description, the same
+// way OutputExample is bounded at 4096 bytes above. Without a cap, a catalog
+// entry with a large/nested example value (arrays/objects formatted via
+// fmt's %v) flows unbounded into resourceToNode's base64url-encoded `?add=`
+// query param on the frontend, risking a truncated or rejected request.
+const paramDescriptionMax = 500
+
 // paramsFrom turns a catalog entry's declared inputs into Params. Query params
 // win over body params when both are present, matching the precedence in
 // nodes.ParamsFromChallenge.
@@ -222,11 +229,15 @@ func paramsFrom(raw rawResource) []Param {
 	sort.Strings(names)
 	out := make([]Param, 0, len(names))
 	for _, n := range names {
+		desc := fmt.Sprintf("example: %v", src[n])
+		if r := []rune(desc); len(r) > paramDescriptionMax {
+			desc = string(r[:paramDescriptionMax]) + "…"
+		}
 		out = append(out, Param{
 			Name:        n,
 			Type:        "string",
 			Required:    false,
-			Description: fmt.Sprintf("example: %v", src[n]),
+			Description: desc,
 		})
 	}
 	return out

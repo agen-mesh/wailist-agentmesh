@@ -91,9 +91,20 @@ func Merge(catalog []Resource) []Resource {
 
 	out := make([]Resource, 0, len(catalog)+len(curated))
 	matched := make(map[string]bool, len(curated))
+	// Tracks curated URLs already emitted as a Supported=true row. If the
+	// upstream catalog lists two distinct entries under the same resourceUrl
+	// (re-registration under a new catalog id, for example), only the first
+	// becomes a Supported row — otherwise the same real endpoint renders
+	// twice in the pinned section.
+	emitted := make(map[string]bool, len(curated))
 	for _, r := range catalog {
-		if c, ok := byURL[normalizeURLForMatch(r.URL)]; ok {
-			matched[normalizeURLForMatch(c.URL)] = true
+		key := normalizeURLForMatch(r.URL)
+		if c, ok := byURL[key]; ok {
+			if emitted[key] {
+				continue
+			}
+			emitted[key] = true
+			matched[key] = true
 			r.Supported = true
 			r.Provider = c.Provider
 			// A hand-authored description and param set are strictly better

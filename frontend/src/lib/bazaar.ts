@@ -1,3 +1,4 @@
+import { BASE } from "./api";
 import type { WorkflowNode } from "./types";
 
 // Mirrors backend/internal/bazaar.Resource. amountMicros is integer atomic
@@ -36,12 +37,6 @@ export interface BazaarPage {
   supportedCount: number;
 }
 
-// Same convention as lib/api.ts: route through /api in the browser so the
-// auth cookie stays same-site.
-const _CONFIGURED = process.env.NEXT_PUBLIC_API_URL ?? "";
-const BASE =
-  _CONFIGURED && typeof window !== "undefined" ? "/api" : _CONFIGURED;
-
 export const bazaar = {
   list: async (opts: {
     offset: number;
@@ -66,10 +61,32 @@ export const bazaar = {
   },
 };
 
-// formatPrice renders atomic USDC (6 decimals) as a plain dollar amount, with
-// no trailing zeros — 5000 -> "0.005".
+// formatPrice renders an atomic amount (6 decimals) as a plain number, with
+// no trailing zeros — 5000 -> "0.005". The unit isn't necessarily USDC; see
+// assetSymbol.
 export function formatPrice(amountMicros: number): string {
   return String(amountMicros / 1e6);
+}
+
+// assetSymbol mirrors backend/internal/engine/nodes/tool402.go's assetSymbol:
+// a catalog entry's `asset` is an Algorand ASA id, not always USDC. Every
+// other asset-aware display in the app (Inspector.tsx, canvas node chrome)
+// falls back to "USDC" only because that's what a live Discover quote
+// resolves to by default — this must not silently relabel a non-USDC
+// endpoint's price as USDC before the node is even added.
+const MAINNET_USDC_ASSET_ID = "31566704";
+const TESTNET_USDC_ASSET_ID = "10458941";
+export function assetSymbol(assetId: string): string {
+  switch (assetId) {
+    case "":
+    case "0":
+      return "ALGO";
+    case MAINNET_USDC_ASSET_ID:
+    case TESTNET_USDC_ASSET_ID:
+      return "USDC";
+    default:
+      return `ASA-${assetId}`;
+  }
 }
 
 // resourceToNode turns a catalog entry into the node metadata the canvas drop
@@ -88,19 +105,20 @@ export function resourceToNode(r: BazaarResource): Partial<WorkflowNode> {
   const params = r.params ?? [];
   const paramDefaults: Record<string, string> = {};
   for (const p of params) paramDefaults[p.name] = "";
+  const asset = assetSymbol(r.asset);
 
   return {
     type: "tool402",
     custom: true,
     icon: "✦",
     name: r.supported && r.provider ? r.provider : r.host,
-    sub: `${formatPrice(r.amountMicros)} USDC / call`,
+    sub: `${formatPrice(r.amountMicros)} ${asset} / call`,
     endpoint: r.url,
     method: r.method,
     description: r.description,
     price: formatPrice(r.amountMicros),
     unit: "call",
-    asset: "USDC",
+    asset,
     provider: r.supported && r.provider ? r.provider : r.host,
     // Catalog data is a mirror, not a live quote. Leaving this false keeps the
     // Inspector honest: the price shown came from a cache, and Discover is
@@ -126,18 +144,69 @@ export function encodePendingNode(node: Partial<WorkflowNode>): string {
   return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-// decodePendingNode is deliberately strict: this value comes from a URL a user
-// can edit by hand, so anything that is not a tool402 node is rejected outright
-// rather than dropped onto the canvas as a malformed node.
+// decodePendingNode is deliberately strict: this value comes from a URL a
+// user (or a crafted link) can edit by hand, so it is whitelisted field by
+// field to exactly the shape resourceToNode produces — never passed through
+// as a parsed object — rather than dropped onto the canvas as a malformed or
+// maliciously-extended node. https is required on the endpoint for the same
+// reason keepResource on the backend never trusts a bare URL.
+function isDiscoveredParam(p: unknown): p is {
+  name: string;
+  type: string;
+  required: boolean;
+  description: string;
+} {
+  if (!p || typeof p !== "object") return false;
+  const o = p as Record<string, unknown>;
+  return (
+    typeof o.name === "string" &&
+    typeof o.type === "string" &&
+    typeof o.required === "boolean" &&
+    typeof o.description === "string"
+  );
+}
+
 export function decodePendingNode(raw: string): Partial<WorkflowNode> | null {
   try {
     const b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
     const parsed = JSON.parse(decodeURIComponent(atob(b64)));
     if (!parsed || typeof parsed !== "object") return null;
-    if (parsed.type !== "tool402" || typeof parsed.endpoint !== "string") {
-      return null;
+    const p = parsed as Record<string, unknown>;
+    if (p.type !== "tool402" || typeof p.endpoint !== "string") return null;
+    if (!/^https:\/\//.test(p.endpoint)) return null;
+
+    const node: Partial<WorkflowNode> = {
+      type: "tool402",
+      custom: true,
+      icon: "✦",
+      endpoint: p.endpoint,
+    };
+    if (typeof p.name === "string") node.name = p.name;
+    if (typeof p.sub === "string") node.sub = p.sub;
+    if (typeof p.method === "string") node.method = p.method;
+    if (typeof p.description === "string") node.description = p.description;
+    if (typeof p.price === "string") node.price = p.price;
+    if (typeof p.unit === "string") node.unit = p.unit;
+    if (typeof p.asset === "string") node.asset = p.asset;
+    if (typeof p.provider === "string") node.provider = p.provider;
+    if (typeof p.priceLive === "boolean") node.priceLive = p.priceLive;
+    if (Array.isArray(p.discoveredParams)) {
+      node.discoveredParams = p.discoveredParams.filter(isDiscoveredParam);
     }
-    return parsed as Partial<WorkflowNode>;
+    if (
+      p.paramDefaults &&
+      typeof p.paramDefaults === "object" &&
+      !Array.isArray(p.paramDefaults)
+    ) {
+      const defaults: Record<string, string> = {};
+      for (const [k, v] of Object.entries(
+        p.paramDefaults as Record<string, unknown>,
+      )) {
+        if (typeof v === "string") defaults[k] = v;
+      }
+      node.paramDefaults = defaults;
+    }
+    return node;
   } catch {
     return null;
   }
