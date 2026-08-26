@@ -70,3 +70,46 @@ func TestBuildAttachMap(t *testing.T) {
 		t.Fatal("tools not attached")
 	}
 }
+
+// A Google node was never made agent-attachable (the frontend blocks
+// wiring it to a "tools" port), but nothing on the backend enforced that --
+// UpdateWorkflow persists edges straight from request JSON, so a
+// hand-crafted PUT (or a future UI regression) could still produce this
+// edge. Before the fix, BuildAttachMap accepted any node.Type into
+// cfg.Tools unconditionally, and executeFunctionCall's dispatch (only
+// tool402 is special-cased; everything else falls through to ExecuteTool)
+// would then silently no-op on a Google template while still billing the
+// call as a successful tool result. This pins that such a node never
+// enters cfg.Tools in the first place, regardless of what reaches
+// executeFunctionCall downstream.
+func TestBuildAttachMap_IgnoresNonDispatchableToolType(t *testing.T) {
+	nodes := []models.WorkflowNode{
+		{ID: "google1", Type: models.NodeTypeGoogle, Template: "gmail_send"},
+		{ID: "agent1", Type: models.NodeTypeAgent},
+	}
+	edges := []models.WorkflowEdge{
+		{ID: "e1", From: "google1", To: "agent1", Kind: models.EdgeKindAttach, ToPort: "tools"},
+	}
+	m := engine.BuildAttachMap(nodes, edges)
+	cfg := m["agent1"]
+	if len(cfg.Tools) != 0 {
+		t.Fatalf("want a Google node never entering cfg.Tools, got %v", cfg.Tools)
+	}
+}
+
+// Same class of guard on the "model" port: only a real Provider node should
+// ever populate cfg.Provider.
+func TestBuildAttachMap_IgnoresNonProviderOnModelPort(t *testing.T) {
+	nodes := []models.WorkflowNode{
+		{ID: "action1", Type: models.NodeTypeAction, Template: "slack"},
+		{ID: "agent1", Type: models.NodeTypeAgent},
+	}
+	edges := []models.WorkflowEdge{
+		{ID: "e1", From: "action1", To: "agent1", Kind: models.EdgeKindAttach, ToPort: "model"},
+	}
+	m := engine.BuildAttachMap(nodes, edges)
+	cfg := m["agent1"]
+	if cfg.Provider != nil {
+		t.Fatalf("want a non-Provider node never populating cfg.Provider, got %v", cfg.Provider)
+	}
+}

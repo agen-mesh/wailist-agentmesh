@@ -14,6 +14,13 @@ const (
 	NodeTypeAction   NodeType = "action"
 	NodeTypeEnd      NodeType = "end"
 	NodeTypeTendril  NodeType = "tendril"
+	// NodeTypeGoogle covers Gmail/Sheets/Calendar/Drive -- grouped under one
+	// node type (Template selects the specific operation, e.g.
+	// "gmail_send") the same way NodeTypeTendril's TendrilAction does,
+	// rather than one node type per Google product, since they all share
+	// the identical OAuth-credential-lookup mechanics (see
+	// nodes.ExecuteGoogle) and differ only in which API they call.
+	NodeTypeGoogle NodeType = "google"
 )
 
 const (
@@ -331,6 +338,27 @@ type TendrilLease struct {
 	StartedAt            time.Time  `json:"startedAt"`
 	FundedUntil          time.Time  `json:"fundedUntil"`
 	ReleasedAt           *time.Time `json:"releasedAt,omitempty"`
+}
+
+// OAuthCredential is one persisted, refreshable connection to an external
+// OAuth2 provider (Google today; Slack/Microsoft could follow the same
+// shape) that a workflow node reads a live access token from. Distinct from
+// the sign-in OAuth flow (handlers/oauth.go): that flow authenticates a
+// person into AgentMesh and never stores a token; this is a token a node
+// calls the provider's own API with, on the user's behalf, long after the
+// browser session that connected it is gone -- so AccessToken/RefreshToken
+// are the encrypted-at-rest fields, never round-tripped to the frontend.
+type OAuthCredential struct {
+	ID              string    `json:"id"`
+	UserID          string    `json:"userId"`
+	Provider        string    `json:"provider"`
+	AccountLabel    string    `json:"accountLabel"`
+	AccessTokenEnc  string    `json:"-"`
+	RefreshTokenEnc string    `json:"-"`
+	Scopes          string    `json:"scopes"`
+	ExpiresAt       time.Time `json:"expiresAt"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 // TendrilCreditEntry is one row of the append-only tendril_credit_ledger

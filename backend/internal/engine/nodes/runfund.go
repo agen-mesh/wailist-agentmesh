@@ -23,6 +23,12 @@ const runFundingPublicPath = "/api/x402/relay/run-funding"
 // any per-resource reporting even though both share one payTo.
 const platformFeePublicPath = "/api/x402/relay/platform-fee"
 
+// runTotalPublicPath is SettleRunTotal's resource identity, same rationale
+// as runFundingPublicPath/platformFeePublicPath -- a real, non-root,
+// genuinely 402-answering path under our own branded origin, distinct from
+// the other two so this settlement kind attributes separately.
+const runTotalPublicPath = "/api/x402/relay/run-total"
+
 // RunPreFundConfig carries what's needed to settle a single lump-sum inbound
 // x402 payment (Wallet 1 -> Wallet 2) before an agent node's tool-calling
 // loop starts. Distinct from Wallet2PayConfig (Task 3), which drives the
@@ -81,6 +87,28 @@ func SettlePlatformFee(ctx context.Context, cfg RunPreFundConfig, amountUSDMicro
 	return selfSettleWallet1ToWallet2(ctx, cfg, platformFeePublicPath,
 		"AgentMesh platform fee — flat per-call markup, settled from the platform spend wallet to the platform revenue wallet",
 		"platform fee settle", amountUSDMicros)
+}
+
+// SettleRunTotal settles the whole run's non-tool402 billable total (agent
+// platform-key LLM fees, action/google/http BYOK flat fees -- everything
+// that otherwise only ever moves money inside the internal credit ledger)
+// as one more real, direct Wallet 1 -> Wallet 2 payment, same mechanism as
+// FundRunReserve/SettlePlatformFee. Tendril lease/rent cost is NOT included
+// here -- it's charged against a wholly separate Tendril-credit pool
+// (Store.ChargeTendrilCredit), never the AgentMesh credit ledger this
+// settlement mirrors; only Tendril's own small gate fee is, and that
+// already flows through the tool402 relay path (excluded here the same way
+// as any other real tool402 spend). Called once
+// per run, after all node-level billing has already been committed to the
+// DB ledger -- this is an additive on-chain receipt for that already-final
+// total, not a second charge: the user's credit balance was already
+// decremented by the normal per-node debit calls. Real tool402 spend is
+// excluded (it already gets its own real settlement via FundRunReserve /
+// the per-call relay path) to avoid double-settling the same money on-chain.
+func SettleRunTotal(ctx context.Context, cfg RunPreFundConfig, amountUSDMicros int64) (string, error) {
+	return selfSettleWallet1ToWallet2(ctx, cfg, runTotalPublicPath,
+		"AgentMesh workflow run total — lump-sum settlement of this run's platform-billed work",
+		"run total settle", amountUSDMicros)
 }
 
 // selfSettleWallet1ToWallet2 signs, verifies, and settles one real GoPlausible
@@ -197,39 +225,17 @@ func attemptSelfSettle(ctx context.Context, cfg RunPreFundConfig, publicPath, de
 		// Bazaar discovery declaration on the struct actually POSTed to
 		// /verify — extra.tag alone only attributes an already-discovered
 		// route's activity to the challenge, it doesn't register the route.
-		// Schema-valid shape (info.input.type/method + a schema sibling) --
-		// see x402relay.go's bazaarDiscoveryExtension doc comment for why
-		// the {info:{output:{...}}} shape this had before this fix failed
-		// the facilitator's ajv validation unconditionally (no schema at
-		// all, no info.input.type) and so never once cataloged, even though
-		// verify/settle both succeeded and real money moved every time.
-		Extensions: map[string]any{
-			"bazaar": map[string]any{
-				// Public /api proxy path, matching resourceURL above --
-				// origin+routeTemplate has to resolve to a real URL, see
-				// x402relay.go's routeTemplate comment.
-				"routeTemplate": publicPath,
-				"info": map[string]any{
-					"input": map[string]any{"type": "http", "method": "GET"},
-				},
-				"schema": map[string]any{
-					"$schema": "https://json-schema.org/draft/2020-12/schema",
-					"type":    "object",
-					"properties": map[string]any{
-						"input": map[string]any{
-							"type": "object",
-							"properties": map[string]any{
-								"type":   map[string]any{"type": "string", "const": "http"},
-								"method": map[string]any{"type": "string", "enum": []string{"GET", "HEAD", "DELETE"}},
-							},
-							"required":             []string{"type", "method"},
-							"additionalProperties": false,
-						},
-					},
-					"required": []string{"input"},
-				},
-			},
-		},
+		// Built by the shared BazaarDiscoveryExtension rather than spelled
+		// out here: this block used to be a hand-maintained second copy of
+		// the one in x402relay.go, which is exactly how the two drifted into
+		// declaring method "GET" against an enum of ["GET","HEAD","DELETE"]
+		// and silently failed the facilitator's catalog validator on every
+		// settlement. RouteTemplate is the public /api proxy path, matching
+		// resourceURL above -- origin+routeTemplate has to resolve to a real
+		// URL. No queryParams (both self-settle routes take none) and no
+		// output example (neither route returns a payable body; they answer
+		// a static informational document).
+		Extensions: BazaarDiscoveryExtension(BazaarDeclaration{RouteTemplate: publicPath}),
 	}
 
 	group, idx, err := cfg.USDCSigner.SignUSDCPaymentGroup(ctx, cfg.PlatformSpendEncMnemonic, cfg.PlatformWalletAddress, cfg.ExpectedAssetID, uint64(amountUSDMicros), cfg.RelayFeePayer)

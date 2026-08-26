@@ -30,6 +30,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendNtfy(ctx, node, rc)
 	case "telegram":
 		return sendTelegram(ctx, node, rc)
+	case "telegram_get_updates":
+		return getTelegramUpdates(ctx, node, rc)
 	case "github":
 		return sendGitHub(ctx, node, rc)
 	case "notion":
@@ -62,6 +64,24 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendWooCommerce(ctx, node, rc)
 	case "elevenlabs":
 		return sendElevenLabs(ctx, node, rc)
+	case "twilio":
+		return sendTwilio(ctx, node, rc)
+	case "stripe":
+		return sendStripe(ctx, node, rc)
+	case "pagerduty":
+		return sendPagerDuty(ctx, node, rc)
+	case "zendesk":
+		return sendZendesk(ctx, node, rc)
+	case "intercom":
+		return sendIntercom(ctx, node, rc)
+	case "openweathermap":
+		return getOpenWeather(ctx, node, rc)
+	case "calendly":
+		return getCalendlyEvents(ctx, node, rc)
+	case "shopify":
+		return sendShopify(ctx, node, rc)
+	case "baserow":
+		return sendBaserow(ctx, node, rc)
 	default:
 		return "logged", nil
 	}
@@ -71,7 +91,7 @@ func callWebhook(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	if err := urlValidator(node.URL); err != nil {
 		return nil, err
 	}
-	payload := map[string]any{"output": rc.Message()}
+	payload := map[string]any{"output": resolveMessage(node, rc)}
 	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, node.URL, bytes.NewReader(body))
 	if err != nil {
@@ -118,13 +138,13 @@ func sendEmail(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 	if subject == "" {
 		subject = "AgentMesh workflow result"
 	}
-	// Build body: replace {{ result }} with agent output
-	agentOutput := rc.Message()
+	// Build body: {{ result }} / {{ result.field }} placeholders expand
+	// against the most recent output -- see expandTemplate.
 	bodyText := node.EmailBody
 	if bodyText == "" {
-		bodyText = "Hi,\n\nHere is your result:\n\n" + agentOutput + "\n\n— AgentMesh"
+		bodyText = "Hi,\n\nHere is your result:\n\n" + rc.Message() + "\n\n— AgentMesh"
 	} else {
-		bodyText = replaceVar(bodyText, "result", agentOutput)
+		bodyText = expandTemplate(bodyText, rc)
 	}
 
 	switch provider {
@@ -139,10 +159,6 @@ func sendEmail(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 	default:
 		return sendViaResend(ctx, apiKey, from, to, subject, bodyText)
 	}
-}
-
-func replaceVar(s, key, val string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(s, "{{ "+key+" }}", val), "{{"+key+"}}", val)
 }
 
 // resendAPIBase is overridden in tests via SetResendAPIBaseForTest.

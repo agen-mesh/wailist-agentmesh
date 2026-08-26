@@ -229,6 +229,24 @@ func TestX402RelayBazaarExtensionIsSchemaValid(t *testing.T) {
 	if output == nil || output["type"] != "json" || output["example"] == nil {
 		t.Fatalf("want extensions.bazaar.info.output={type:\"json\",example:{...}}, got %v", output)
 	}
+
+	// The validator's other exact-match requirement, asserted here on the
+	// bytes this route really serves rather than only on the shared builder
+	// (nodes.BazaarDiscoveryExtension, covered in that package's own tests):
+	// the schema's method enum has to hold exactly the method info declares,
+	// not a superset of it. Declaring "GET" against enum
+	// ["GET","HEAD","DELETE"] is what the x402 Doctor reported as
+	// "bazaar.schema method enum must match the declared method", and it cost
+	// every settlement its catalog entry while verify and settle both
+	// reported success.
+	schemaProps, _ := body.Extensions.Bazaar.Schema["properties"].(map[string]any)
+	inputSchema, _ := schemaProps["input"].(map[string]any)
+	inputProps, _ := inputSchema["properties"].(map[string]any)
+	methodSchema, _ := inputProps["method"].(map[string]any)
+	enum, _ := methodSchema["enum"].([]any)
+	if len(enum) != 1 || enum[0] != input["method"] {
+		t.Fatalf("want the schema method enum to hold exactly the declared method %v, got %v", input["method"], methodSchema["enum"])
+	}
 }
 
 // TestX402RelayAcceptsPaymentSignatureHeader is a reproduce-then-fix

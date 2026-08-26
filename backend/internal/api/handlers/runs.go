@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,6 +44,11 @@ func (d *Deps) startRun(w http.ResponseWriter, r *http.Request, workflowID, trig
 		respond.Error(w, http.StatusNotFound, "workflow not found")
 		return
 	}
+	// Decrypted here, before the public-path branch below, so it can read
+	// the webhook node's secret -- callers of startRun with checkOwner=true
+	// still get the same decrypted nodes handed to the engine at the bottom
+	// as before, just decrypted earlier.
+	wf.Nodes = decryptNodes(wf.Nodes, d.EncryptionKey)
 	if checkOwner {
 		userID, _ := ctx.Value(CtxUserID).(string)
 		if wf.UserID != userID {
@@ -50,21 +56,36 @@ func (d *Deps) startRun(w http.ResponseWriter, r *http.Request, workflowID, trig
 			return
 		}
 	} else {
-		// Public webhook path: only deployed workflows with an explicit trigger node
-		// can be invoked without authentication. Return 404 on all failures to avoid
-		// leaking whether a workflow ID exists.
+		// Public webhook path: only a deployed workflow whose trigger node is
+		// SPECIFICALLY template "webhook" can be invoked without authentication --
+		// checking merely NodeTypeTrigger let a "manual" or "chat" trigger
+		// workflow be fired the same way, unauthenticated, contradicting its
+		// own trigger's intended access model. Return 404 on all failures
+		// (missing workflow, wrong trigger type, bad/missing secret) to avoid
+		// leaking whether a workflow ID exists or what its trigger type is.
 		if wf.Status != models.WorkflowStatusDeployed {
 			respond.Error(w, http.StatusNotFound, "workflow not found")
 			return
 		}
-		hasTrigger := false
-		for _, n := range wf.Nodes {
-			if n.Type == models.NodeTypeTrigger {
-				hasTrigger = true
+		var webhookNode *models.WorkflowNode
+		for i, n := range wf.Nodes {
+			if n.Type == models.NodeTypeTrigger && n.Template == "webhook" {
+				webhookNode = &wf.Nodes[i]
 				break
 			}
 		}
-		if !hasTrigger {
+		if webhookNode == nil {
+			respond.Error(w, http.StatusNotFound, "workflow not found")
+			return
+		}
+		// The webhook node always carries a secret once saved (UpdateWorkflow
+		// generates one for any webhook trigger node that doesn't already have
+		// one) -- an empty secret here means the workflow predates that and
+		// hasn't been re-saved since, so treat it the same as a wrong one
+		// rather than letting it through unauthenticated.
+		secret := webhookNode.Secrets["webhookSecret"]
+		given := r.Header.Get("X-Webhook-Secret")
+		if secret == "" || subtle.ConstantTimeCompare([]byte(given), []byte(secret)) != 1 {
 			respond.Error(w, http.StatusNotFound, "workflow not found")
 			return
 		}
@@ -101,7 +122,6 @@ func (d *Deps) startRun(w http.ResponseWriter, r *http.Request, workflowID, trig
 		return
 	}
 
-	wf.Nodes = decryptNodes(wf.Nodes, d.EncryptionKey)
 	d.Broker.Create(run.ID)
 	d.Engine.Start(wf, run)
 

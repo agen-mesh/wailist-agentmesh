@@ -4,18 +4,18 @@ import { WorkflowNode, CustomParam } from "@/lib/types";
 import {
   PROVIDER_TEMPLATES,
   TOOL_TEMPLATES,
-  TOOL402_TEMPLATES,
   TRIGGER_TEMPLATES,
   ACTION_TEMPLATES,
   END_TEMPLATES,
   AGENT_TEMPLATES,
   TENDRIL_TEMPLATES,
+  GOOGLE_TEMPLATES,
   modelTier,
   TIER_FEES,
 } from "@/lib/data";
 import { IconClose, StatusDot } from "@/components/ui";
 import { BrandLogo } from "./nodes/brandLogos";
-import { tools as toolsApi } from "@/lib/api";
+import { tools as toolsApi, oauth2, OAuthCredentialSummary } from "@/lib/api";
 import { ConnectorOAuthButton } from "./ConnectorOAuthButton";
 import {
   tendril as tendrilApi,
@@ -29,7 +29,11 @@ interface InspectorProps {
   onUpdate: (n: WorkflowNode) => void;
   onDelete: () => void;
   onClose: () => void;
-  width?: number;
+  width?: number | string;
+  /** Rendered inside a host that already draws the rail's left border and its
+   *  own "INSPECT" caption (the right rail's tab pane). Drops this component's
+   *  own edge chrome + caption so they aren't doubled. */
+  embedded?: boolean;
 }
 
 export function Inspector({
@@ -39,8 +43,9 @@ export function Inspector({
   onDelete,
   onClose,
   width = 320,
+  embedded = false,
 }: InspectorProps) {
-  if (!selected) return <EmptyInspector width={width} />;
+  if (!selected) return <EmptyInspector width={width} embedded={embedded} />;
 
   const meta = nodeMeta(selected);
 
@@ -49,7 +54,7 @@ export function Inspector({
       style={{
         width,
         flexShrink: 0,
-        borderLeft: "1px solid var(--border)",
+        borderLeft: embedded ? undefined : "1px solid var(--border)",
         background: "var(--bg-elev-1)",
         overflow: "auto",
         height: "100%",
@@ -137,7 +142,11 @@ export function Inspector({
           <Tool402Inspector node={selected} onUpdate={onUpdate} />
         )}
         {selected.type === "trigger" && (
-          <TriggerInspector node={selected} onUpdate={onUpdate} />
+          <TriggerInspector
+            node={selected}
+            onUpdate={onUpdate}
+            workflowId={workflowId}
+          />
         )}
         {selected.type === "action" && (
           <ActionInspector
@@ -151,6 +160,9 @@ export function Inspector({
         )}
         {selected.type === "tendril" && (
           <TendrilInspector node={selected} onUpdate={onUpdate} />
+        )}
+        {selected.type === "google" && (
+          <GoogleInspector node={selected} onUpdate={onUpdate} />
         )}
       </div>
 
@@ -203,31 +215,44 @@ export function Inspector({
   );
 }
 
-function EmptyInspector({ width = 320 }: { width?: number }) {
+function EmptyInspector({
+  width = 320,
+  embedded = false,
+}: {
+  width?: number | string;
+  embedded?: boolean;
+}) {
   return (
     <div
       style={{
         width,
         flexShrink: 0,
-        borderLeft: "1px solid var(--border)",
+        borderLeft: embedded ? undefined : "1px solid var(--border)",
         background: "var(--bg-elev-1)",
         padding: 20,
         display: "flex",
         flexDirection: "column",
+        // Without a definite height the inner flex:1 state collapses to
+        // content height and jams to the top of a tall rail.
+        height: "100%",
+        flex: 1,
+        minHeight: 0,
       }}
     >
-      <div
-        style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: 10,
-          textTransform: "uppercase",
-          letterSpacing: "0.08em",
-          color: "var(--fg-dim)",
-          marginBottom: 14,
-        }}
-      >
-        inspector
-      </div>
+      {!embedded && (
+        <div
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+            color: "var(--fg-dim)",
+            marginBottom: 14,
+          }}
+        >
+          inspector
+        </div>
+      )}
       <div
         style={{
           flex: 1,
@@ -289,8 +314,10 @@ function nodeMeta(n: WorkflowNode) {
       fg: "var(--accent)",
     },
     tool: { list: TOOL_TEMPLATES, bg: "var(--bg-elev-3)", fg: "var(--fg)" },
+    // No preset list -- every x402 node is custom (TOOL402_TEMPLATES removed,
+    // see node-cleanup plan Part A1), so tpl below just never matches for it.
     tool402: {
-      list: TOOL402_TEMPLATES,
+      list: [],
       bg: "rgba(232, 121, 249, 0.14)",
       fg: "#E879F9",
     },
@@ -397,15 +424,36 @@ function SecretField({
 }) {
   const val = node.secrets?.[secretKey];
   const isSet = val === "__enc__";
+  // "__clear__" is the backend's ClearSentinel (handlers/secrets.go) queued
+  // locally by this field's own onChange below, between the user blanking a
+  // previously-set field and the next save -- rendered the same as unset
+  // (empty box, normal placeholder) rather than leaking the sentinel string
+  // itself into the input.
+  const isCleared = val === "__clear__";
   return (
     <Field label={label} hint={hint ?? "encrypted at rest"}>
       <input
         style={monoInputStyle}
         type="password"
-        value={isSet ? "" : (val ?? "")}
+        value={isSet || isCleared ? "" : (val ?? "")}
         placeholder={isSet ? "Key set, enter to replace" : placeholder}
         onChange={(e) => {
-          const next = e.target.value || (isSet ? "__enc__" : "");
+          const typed = e.target.value;
+          // onChange only ever fires on a real user edit (an untouched
+          // field never calls this, so it's never at risk of clearing a
+          // secret the user didn't touch) -- so ending blank always means
+          // the user just deleted whatever they'd typed, and should always
+          // send the backend's "__clear__" sentinel, never "" ("no change,
+          // keep existing"). This used to branch on isSet (only clear if
+          // the field was already "__enc__"), which broke on a clear ->
+          // retype -> clear-again cycle: after the first clear, val is no
+          // longer "__enc__", so isSet goes false, and blanking a second
+          // time fell through to "" -- silently keeping the old secret
+          // while the UI showed the field as empty. Always-clear-on-blank
+          // has no such gap, and is harmless for a field with nothing to
+          // clear (ClearSentinel on an already-empty existingEnc is a
+          // no-op in encryptField).
+          const next = typed || "__clear__";
           onUpdate({
             ...node,
             secrets: { ...node.secrets, [secretKey]: next },
@@ -482,6 +530,160 @@ const monoInputStyle: React.CSSProperties = {
   fontFamily: "var(--font-mono)",
   fontSize: 11,
 };
+
+// Add/remove key-value row editor for the HTTP tool node's custom headers,
+// matching n8n's HTTP Request node ("Send Headers" -> "Using Fields Below"
+// is its default/primary mode; raw JSON is only the fallback) rather than
+// AgentMesh's original single JSON-textarea field. Still serializes to the
+// same node.secrets.httpHeadersJSON JSON-object string the backend already
+// reads (tool.go's callHTTP) -- purely a client-side editing upgrade.
+function parseHttpHeaderRows(
+  raw: string | undefined,
+): { key: string; value: string }[] {
+  // Once encrypted, the plaintext never comes back to the client -- same
+  // sentinel semantics as SecretField above -- so editing starts a fresh
+  // row set rather than attempting to decode "__enc__" as JSON.
+  if (!raw || raw === "__enc__") return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return Object.entries(parsed).map(([key, value]) => ({
+        key,
+        value: String(value),
+      }));
+    }
+  } catch {
+    // Not valid JSON -- fall through to an empty row set rather than
+    // crashing the Inspector on unexpected stored content.
+  }
+  return [];
+}
+
+function HttpHeadersField({
+  node,
+  onUpdate,
+}: {
+  node: WorkflowNode;
+  onUpdate: (n: WorkflowNode) => void;
+}) {
+  const raw = node.secrets?.httpHeadersJSON;
+  const isEncrypted = raw === "__enc__";
+
+  // Rows live in local state, not derived fresh from node.secrets on every
+  // render -- a freshly-added blank row has no key yet, so commit() (below)
+  // never serializes it into httpHeadersJSON, and re-deriving from that
+  // stripped-down JSON on the next render would make the blank row vanish
+  // before the user can type into it. Only re-synced when a different node
+  // is selected (node.id changes); the user's own edits flow through
+  // setRows directly instead of round-tripping through node.secrets.
+  const [rows, setRows] = useState(() => parseHttpHeaderRows(raw));
+  const [syncedNodeID, setSyncedNodeID] = useState(node.id);
+  if (syncedNodeID !== node.id) {
+    setSyncedNodeID(node.id);
+    setRows(parseHttpHeaderRows(raw));
+  }
+
+  const commit = (next: { key: string; value: string }[]) => {
+    setRows(next);
+    const obj: Record<string, string> = {};
+    for (const r of next) {
+      if (r.key.trim()) obj[r.key.trim()] = r.value;
+    }
+    // "" is encryptField's (backend/internal/api/handlers/secrets.go)
+    // sentinel for "no change, keep whatever's already saved" -- so an
+    // empty header set can never be sent as "", or removing every header
+    // in the UI would silently leave the old encrypted set intact
+    // server-side instead of actually clearing it. "__clear__" is the
+    // distinct sentinel that means "yes, really clear this."
+    const serialized =
+      Object.keys(obj).length > 0 ? JSON.stringify(obj) : "__clear__";
+    onUpdate({
+      ...node,
+      secrets: { ...node.secrets, httpHeadersJSON: serialized },
+    });
+  };
+
+  // addRow/removeBlankRow touch only local `rows` state, deliberately NOT
+  // calling commit -- a node with existing encrypted headers starts with
+  // `rows = []` (parseHttpHeaderRows can't decrypt "__enc__"), so wiring
+  // "+ Add header" through commit() serialized an empty object the instant
+  // it was clicked, before the user typed anything, sending "__clear__" and
+  // silently deleting the real saved headers. Only an actual key/value
+  // keystroke (the two onChange handlers below, both already wired to
+  // commit) should ever touch node.secrets -- clicking Add, or removing a
+  // row that was never given any content, is purely local bookkeeping.
+  const addRow = () => setRows([...rows, { key: "", value: "" }]);
+  const removeRow = (i: number) => {
+    const row = rows[i];
+    const next = rows.filter((_, ri) => ri !== i);
+    if (row.key.trim() === "" && row.value === "") {
+      setRows(next);
+    } else {
+      commit(next);
+    }
+  };
+
+  return (
+    <Field label="Custom headers" hint="encrypted at rest">
+      {isEncrypted && (
+        <div
+          style={{ fontSize: 11, color: "var(--fg-dim)", marginBottom: 6 }}
+        >
+          Headers set. Add a row below to replace them.
+        </div>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {rows.map((r, i) => (
+          <div
+            key={i}
+            style={{ display: "flex", gap: 6, alignItems: "center" }}
+          >
+            <input
+              style={monoInputStyle}
+              value={r.key}
+              placeholder="Header name"
+              onChange={(e) => {
+                const next = [...rows];
+                next[i] = { ...next[i], key: e.target.value };
+                commit(next);
+              }}
+            />
+            <input
+              style={monoInputStyle}
+              value={r.value}
+              placeholder="Value"
+              onChange={(e) => {
+                const next = [...rows];
+                next[i] = { ...next[i], value: e.target.value };
+                commit(next);
+              }}
+            />
+            <button
+              type="button"
+              style={iconBtnStyle}
+              onClick={() => removeRow(i)}
+              title="Remove header"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          style={{
+            ...iconBtnStyle,
+            width: "auto",
+            padding: "0 10px",
+            alignSelf: "flex-start",
+          }}
+          onClick={addRow}
+        >
+          + Add header
+        </button>
+      </div>
+    </Field>
+  );
+}
 
 // ── Agent Inspector ────────────────────────────────────────────────────────
 function AgentInspector({
@@ -776,6 +978,7 @@ function ToolInspector({
             <option>GET</option>
             <option>POST</option>
             <option>PUT</option>
+            <option>PATCH</option>
             <option>DELETE</option>
           </select>
         </Field>
@@ -788,6 +991,60 @@ function ToolInspector({
           />
         </Field>
       </Section>
+      {node.template === "http" && (
+        <Section label="Body (optional)">
+          <Field
+            label="Body template"
+            hint="only sent on POST/PUT/PATCH/DELETE -- {{ result }} or {{ result.field }}"
+          >
+            <textarea
+              style={{
+                ...inputStyle,
+                height: "auto",
+                padding: 10,
+                resize: "vertical",
+                lineHeight: 1.5,
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+              }}
+              rows={3}
+              value={node.config?.httpBodyTemplate ?? ""}
+              placeholder='Leave blank to send the raw upstream output, or write e.g. {"summary":"{{ result.extract }}"}'
+              onChange={(e) =>
+                onUpdate({
+                  ...node,
+                  config: { ...node.config, httpBodyTemplate: e.target.value },
+                })
+              }
+            />
+          </Field>
+        </Section>
+      )}
+      {node.template === "http" && (
+        // Unlike a real connector's Authentication section, these are
+        // genuinely optional -- a plain public-API call needs none of
+        // them -- so this deliberately skips ConnectorConfigSection's
+        // connected/not-connected status pill, which assumes the secret
+        // is required for the node to function at all.
+        <Section label="Headers & auth (optional)">
+          <HttpHeadersField node={node} onUpdate={onUpdate} />
+          <SecretField
+            node={node}
+            onUpdate={onUpdate}
+            secretKey="httpBasicUser"
+            label="Basic auth username"
+            hint="leave blank if not using basic auth"
+            placeholder="username"
+          />
+          <SecretField
+            node={node}
+            onUpdate={onUpdate}
+            secretKey="httpBasicPass"
+            label="Basic auth password"
+            placeholder="password"
+          />
+        </Section>
+      )}
     </>
   );
 }
@@ -889,7 +1146,6 @@ function Tool402Inspector({
   node: WorkflowNode;
   onUpdate: (n: WorkflowNode) => void;
 }) {
-  const tpl = TOOL402_TEMPLATES.find((t) => t.id === node.template);
   const [draft, setDraft] = useState(node.endpoint ?? "");
   const [probing, setProbing] = useState(false);
   const [fieldError, setFieldError] = useState<string | null>(null);
@@ -1010,75 +1266,10 @@ function Tool402Inspector({
     }
   };
 
-  if (!node.custom && tpl) {
-    return (
-      <>
-        <Section label="x402 endpoint">
-          <div
-            style={{
-              padding: 14,
-              background: "var(--bg)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--r-2)",
-              fontFamily: "var(--font-mono)",
-              fontSize: 11,
-            }}
-          >
-            <div
-              style={{ color: "var(--fg-muted)" }}
-            >{`https://${tpl?.provider}`}</div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "baseline",
-                gap: 8,
-                marginTop: 12,
-              }}
-            >
-              <span style={{ color: magenta, fontSize: 22, fontWeight: 500 }}>
-                {tpl?.price}
-              </span>
-              <span style={{ color: "var(--fg-muted)" }}>
-                USDC / {tpl?.unit}
-              </span>
-            </div>
-          </div>
-        </Section>
-        <Section label="Tool description">
-          <Field label="What this tool does" hint="shown to agent">
-            <textarea
-              style={{
-                ...inputStyle,
-                height: "auto",
-                padding: 10,
-                resize: "vertical",
-                lineHeight: 1.5,
-              }}
-              rows={3}
-              value={node.description ?? ""}
-              placeholder="Describe what this x402 endpoint provides so the agent knows when to use it…"
-              onChange={(e) =>
-                onUpdate({ ...node, description: e.target.value })
-              }
-            />
-          </Field>
-        </Section>
-        <Section label="Settlement">
-          <Field label="Payer">
-            <input
-              style={monoInputStyle}
-              value="parent agent wallet"
-              readOnly
-            />
-          </Field>
-          <Field label="Max per call">
-            <input style={monoInputStyle} defaultValue={`${tpl?.price} USDC`} />
-          </Field>
-        </Section>
-      </>
-    );
-  }
-
+  // Every x402 node is custom now (TOOL402_TEMPLATES removed -- see
+  // node-cleanup plan Part A1), so this Inspector no longer has a
+  // preset/non-custom branch to render; it always falls through to the
+  // full editable form below.
   return (
     <>
       <Section label="Identity">
@@ -1641,9 +1832,11 @@ function Tool402Inspector({
 function TriggerInspector({
   node,
   onUpdate,
+  workflowId,
 }: {
   node: WorkflowNode;
   onUpdate: (n: WorkflowNode) => void;
+  workflowId: string;
 }) {
   const tpl = TRIGGER_TEMPLATES.find((t) => t.id === node.template);
   return (
@@ -1668,9 +1861,7 @@ function TriggerInspector({
         </Field>
       )}
       {node.template === "webhook" && (
-        <Field label="Path">
-          <input style={monoInputStyle} defaultValue="/in/abc123" />
-        </Field>
+        <WebhookTriggerFields node={node} workflowId={workflowId} />
       )}
       {node.template === "chat" && (
         <Field label="Source">
@@ -1678,6 +1869,46 @@ function TriggerInspector({
         </Field>
       )}
     </Section>
+  );
+}
+
+// The real public endpoint and its required auth secret -- both generated
+// server-side (UpdateWorkflow's ensureWebhookSecrets) the first time this
+// node is saved, never authored here. Only rendered once a secret exists
+// (i.e. after at least one save), since before that the endpoint would
+// reject every call anyway. Plain readonly inputs rather than a copy
+// button: the security fix is the point here, a copy affordance is a nice-
+// to-have this doesn't block on.
+function WebhookTriggerFields({
+  node,
+  workflowId,
+}: {
+  node: WorkflowNode;
+  workflowId: string;
+}) {
+  const apiOrigin = process.env.NEXT_PUBLIC_API_URL ?? "";
+  const url = `${apiOrigin}/run/${workflowId}`;
+  const secret = node.secrets?.webhookSecret;
+  return (
+    <>
+      <Field label="Endpoint URL">
+        <input style={monoInputStyle} value={url} readOnly />
+      </Field>
+      <Field label="Secret header">
+        {secret ? (
+          <input style={monoInputStyle} value={secret} readOnly />
+        ) : (
+          <div style={{ fontSize: 11.5, color: "var(--fg-muted)" }}>
+            Save this workflow once to generate a secret.
+          </div>
+        )}
+      </Field>
+      <div style={{ fontSize: 11, color: "var(--fg-muted)", marginTop: 4 }}>
+        POST to the endpoint above with header{" "}
+        <code>X-Webhook-Secret: {secret ? "<secret>" : "…"}</code> -- calls
+        without it are rejected.
+      </div>
+    </>
   );
 }
 
@@ -1792,6 +2023,31 @@ const CONNECTOR_CONFIG_FIELDS: Record<
         key: "telegramChatID",
         label: "Chat ID",
         placeholder: "-1001234567890",
+      },
+    ],
+  },
+  telegram_get_updates: {
+    label: "Telegram config",
+    fields: [
+      {
+        kind: "secret",
+        key: "telegramBotToken",
+        label: "Bot Token",
+        placeholder: "123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      },
+      {
+        kind: "config",
+        key: "telegramOffset",
+        label: "Offset",
+        hint: "optional -- only updates after this ID",
+        placeholder: "e.g. 481231",
+      },
+      {
+        kind: "config",
+        key: "telegramLimit",
+        label: "Limit",
+        hint: "optional, default 100",
+        placeholder: "e.g. 20",
       },
     ],
   },
@@ -2141,6 +2397,209 @@ const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
+  twilio: {
+    label: "Twilio config",
+    fields: [
+      {
+        kind: "secret",
+        key: "twilioAccountSID",
+        label: "Account SID",
+        placeholder: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      },
+      {
+        kind: "secret",
+        key: "twilioAuthToken",
+        label: "Auth Token",
+        placeholder: "your Twilio auth token",
+      },
+      {
+        kind: "config",
+        key: "twilioFrom",
+        label: "From",
+        placeholder: "+15551234567 (a number on your account)",
+      },
+      {
+        kind: "config",
+        key: "twilioTo",
+        label: "To",
+        placeholder: "+15559876543",
+      },
+    ],
+  },
+  stripe: {
+    label: "Stripe config",
+    fields: [
+      {
+        kind: "secret",
+        key: "stripeSecretKey",
+        label: "Secret Key",
+        placeholder: "sk_live_… or sk_test_…",
+      },
+      {
+        kind: "config",
+        key: "stripeEmail",
+        label: "Customer Email",
+        hint: "optional, defaults to the upstream message",
+      },
+      {
+        kind: "config",
+        key: "stripeName",
+        label: "Customer Name",
+        hint: "optional",
+      },
+    ],
+  },
+  pagerduty: {
+    label: "PagerDuty config",
+    fields: [
+      {
+        kind: "secret",
+        key: "pagerdutyRoutingKey",
+        label: "Events API v2 Integration Key",
+        placeholder: "32-character routing key",
+      },
+      {
+        kind: "config",
+        key: "pagerdutySeverity",
+        label: "Severity",
+        placeholder: "info (default) · warning · error · critical",
+      },
+    ],
+  },
+  zendesk: {
+    label: "Zendesk config",
+    fields: [
+      {
+        kind: "config",
+        key: "zendeskEmail",
+        label: "Agent Email",
+        placeholder: "agent@yourcompany.com",
+      },
+      {
+        kind: "secret",
+        key: "zendeskAPIToken",
+        label: "API Token",
+        placeholder: "your Zendesk API token",
+      },
+      {
+        kind: "config",
+        key: "zendeskSubdomain",
+        label: "Subdomain",
+        hint: "the part before .zendesk.com",
+        placeholder: "yourcompany",
+      },
+    ],
+  },
+  intercom: {
+    label: "Intercom config",
+    fields: [
+      {
+        kind: "secret",
+        key: "intercomAccessToken",
+        label: "Access Token",
+        placeholder: "your Intercom access token",
+      },
+      {
+        kind: "config",
+        key: "intercomEmail",
+        label: "Lead Email",
+        hint: "optional, defaults to the upstream message",
+      },
+    ],
+  },
+  openweathermap: {
+    label: "OpenWeatherMap config",
+    fields: [
+      {
+        kind: "secret",
+        key: "openWeatherAPIKey",
+        label: "API Key",
+        placeholder: "your OpenWeatherMap API key",
+      },
+      {
+        kind: "config",
+        key: "weatherCity",
+        label: "City",
+        hint: "optional, defaults to the upstream message",
+        placeholder: "London",
+      },
+      {
+        kind: "config",
+        key: "weatherUnits",
+        label: "Units",
+        placeholder: "metric (default) · imperial · standard",
+      },
+    ],
+  },
+  calendly: {
+    label: "Calendly config",
+    fields: [
+      {
+        kind: "secret",
+        key: "calendlyAccessToken",
+        label: "Personal Access Token",
+        placeholder: "your Calendly PAT",
+      },
+      {
+        kind: "config",
+        key: "calendlyUserURI",
+        label: "User URI",
+        placeholder: "https://api.calendly.com/users/…",
+      },
+      {
+        kind: "config",
+        key: "calendlyCount",
+        label: "Count",
+        placeholder: "10 (default)",
+      },
+    ],
+  },
+  shopify: {
+    label: "Shopify config",
+    fields: [
+      {
+        kind: "secret",
+        key: "shopifyAccessToken",
+        label: "Admin API Access Token",
+        placeholder: "shpat_…",
+      },
+      {
+        kind: "config",
+        key: "shopifyShopDomain",
+        label: "Shop Domain",
+        placeholder: "mystore.myshopify.com",
+      },
+      {
+        kind: "config",
+        key: "shopifyOrderID",
+        label: "Order ID",
+        placeholder: "target order id",
+      },
+    ],
+  },
+  baserow: {
+    label: "Baserow config",
+    fields: [
+      {
+        kind: "secret",
+        key: "baserowAPIToken",
+        label: "API Token",
+        placeholder: "your Baserow database token",
+      },
+      {
+        kind: "config",
+        key: "baserowTableID",
+        label: "Table ID",
+        placeholder: "the numeric table id",
+      },
+      {
+        kind: "config",
+        key: "baserowFieldName",
+        label: "Field Name",
+        placeholder: "Notes (default)",
+      },
+    ],
+  },
 };
 
 // ── Per-connector auth metadata ─────────────────────────────────────────────
@@ -2179,6 +2638,11 @@ const CONNECTOR_AUTH: Record<
     linkLabel: "ntfy docs",
   },
   telegram: {
+    needsLogin: true,
+    docUrl: "https://t.me/BotFather",
+    linkLabel: "Open BotFather",
+  },
+  telegram_get_updates: {
     needsLogin: true,
     docUrl: "https://t.me/BotFather",
     linkLabel: "Open BotFather",
@@ -2264,6 +2728,51 @@ const CONNECTOR_AUTH: Record<
     docUrl: "https://elevenlabs.io/app/settings/api-keys",
     linkLabel: "Get key",
   },
+  twilio: {
+    needsLogin: true,
+    docUrl: "https://console.twilio.com",
+    linkLabel: "Get credentials",
+  },
+  stripe: {
+    needsLogin: true,
+    docUrl: "https://dashboard.stripe.com/apikeys",
+    linkLabel: "Get key",
+  },
+  pagerduty: {
+    needsLogin: true,
+    docUrl: "https://support.pagerduty.com/docs/services-and-integrations",
+    linkLabel: "Get integration key",
+  },
+  zendesk: {
+    needsLogin: true,
+    docUrl: "https://support.zendesk.com/hc/en-us/articles/4408889192858",
+    linkLabel: "Get API token",
+  },
+  intercom: {
+    needsLogin: true,
+    docUrl: "https://app.intercom.com/a/apps/_/settings/api-keys",
+    linkLabel: "Get token",
+  },
+  openweathermap: {
+    needsLogin: true,
+    docUrl: "https://home.openweathermap.org/api_keys",
+    linkLabel: "Get key",
+  },
+  calendly: {
+    needsLogin: true,
+    docUrl: "https://calendly.com/integrations/api_webhooks",
+    linkLabel: "Get token",
+  },
+  shopify: {
+    needsLogin: true,
+    docUrl: "https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens",
+    linkLabel: "Get access token",
+  },
+  baserow: {
+    needsLogin: true,
+    docUrl: "https://baserow.io/user/settings/tokens",
+    linkLabel: "Get token",
+  },
 };
 
 // Small "where to get the credential" deep-link. Underline-free per the design
@@ -2311,6 +2820,45 @@ function AuthDocLink({ href, label }: { href: string; label: string }) {
         />
       </svg>
     </a>
+  );
+}
+
+// Lets a connector send just part of the upstream output instead of always
+// the whole thing -- {{ result }} is the raw output (today's default
+// behavior, unchanged if this is left blank), {{ result.field }} picks one
+// field out of it (e.g. {{ result.extract }} against a JSON API response).
+// Backend: resolveMessage/expandTemplate in connector_helpers.go.
+function MessageTemplateField({
+  node,
+  onUpdate,
+}: {
+  node: WorkflowNode;
+  onUpdate: (n: WorkflowNode) => void;
+}) {
+  return (
+    <Field
+      label="Message template"
+      hint="optional -- {{ result }} or {{ result.field }}"
+    >
+      <textarea
+        style={{
+          ...inputStyle,
+          height: "auto",
+          padding: 10,
+          resize: "vertical",
+          lineHeight: 1.5,
+        }}
+        rows={3}
+        value={node.config?.messageTemplate ?? ""}
+        placeholder="Leave blank to send the raw output, or write e.g. {{ result.extract }}"
+        onChange={(e) =>
+          onUpdate({
+            ...node,
+            config: { ...node.config, messageTemplate: e.target.value },
+          })
+        }
+      />
+    </Field>
   );
 }
 
@@ -2401,6 +2949,15 @@ function ConnectorConfigSection({
               placeholder={f.placeholder}
             />
           ))}
+        </Section>
+      )}
+      {/* email is excluded: it already has its own dedicated Body field
+          (in the email-specific block above, in ActionInspector) wired to
+          the same expandTemplate engine server-side -- a second generic
+          field here would be redundant. */}
+      {node.template !== "email" && (
+        <Section label="Message">
+          <MessageTemplateField node={node} onUpdate={onUpdate} />
         </Section>
       )}
     </>
@@ -2521,6 +3078,351 @@ function ActionInspector({
         onUpdate={onUpdate}
       />
     </>
+  );
+}
+
+// ── Google Inspector ───────────────────────────────────────────────────────
+// One connection (Config.oauthCredentialID) covers all four products --
+// see backend/internal/api/handlers/oauth2creds.go's googleConnectorScopes,
+// requested together in a single consent screen -- so every Google template
+// shares the same "Connected account" section below, and only the
+// operation-specific fields change per product.
+function GoogleInspector({
+  node,
+  onUpdate,
+}: {
+  node: WorkflowNode;
+  onUpdate: (n: WorkflowNode) => void;
+}) {
+  const tpl = GOOGLE_TEMPLATES.find((t) => t.id === node.template);
+  const [credentials, setCredentials] = useState<OAuthCredentialSummary[]>([]);
+  const [loadingCreds, setLoadingCreds] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    oauth2
+      .listCredentials("google")
+      .then((creds) => {
+        if (!cancelled) {
+          setCredentials(creds);
+          setLoadingCreds(false);
+        }
+      })
+      .catch(() => {
+        // Same guard as tendrilApi.credit()/machines() below -- without
+        // this, a rejected fetch (network blip, backend briefly down)
+        // left loadingCreds stuck true forever, showing "Loading…"
+        // permanently instead of falling back to "no accounts connected".
+        if (!cancelled) {
+          setCredentials([]);
+          setLoadingCreds(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectedCredID = node.config?.oauthCredentialID ?? "";
+  const template = node.template ?? "";
+  // usesMessage lives on the GOOGLE_TEMPLATES row itself (data.ts) so this
+  // can't drift out of sync with the write-op cases in google.go the way a
+  // separately maintained id list could.
+  const usesMessageTemplate = tpl?.usesMessage ?? false;
+
+  return (
+    <>
+      <Section label="Google">
+        <Field label="Name">
+          <input
+            style={inputStyle}
+            value={node.name ?? ""}
+            placeholder={tpl?.name ?? "Google"}
+            onChange={(e) => onUpdate({ ...node, name: e.target.value })}
+          />
+        </Field>
+        <Field label="Operation">
+          <input
+            style={inputStyle}
+            value={tpl?.name ?? template}
+            readOnly
+          />
+        </Field>
+      </Section>
+
+      <Section label="Connected account">
+        {loadingCreds ? (
+          <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+            Loading…
+          </div>
+        ) : (
+          <>
+            {credentials.length === 0 ? (
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "var(--fg-muted)",
+                  marginBottom: 8,
+                  lineHeight: 1.5,
+                }}
+              >
+                No Google account connected yet.
+              </div>
+            ) : (
+              <Field label="Account">
+                <select
+                  style={monoInputStyle}
+                  value={selectedCredID}
+                  onChange={(e) =>
+                    onUpdate({
+                      ...node,
+                      config: { ...node.config, oauthCredentialID: e.target.value },
+                    })
+                  }
+                >
+                  <option value="">Select an account…</option>
+                  {credentials.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.accountLabel || c.id}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                window.location.href = oauth2.connectURL("google");
+              }}
+              style={{
+                marginTop: 8,
+                height: 32,
+                width: "100%",
+                border: "1px dashed var(--accent)",
+                background: "var(--accent-soft)",
+                color: "var(--accent)",
+                borderRadius: "var(--r-2)",
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: "pointer",
+              }}
+            >
+              + Connect Google Account
+            </button>
+            <div
+              style={{
+                fontSize: 10,
+                color: "var(--fg-dim)",
+                marginTop: 6,
+                lineHeight: 1.5,
+              }}
+            >
+              One connection covers Gmail, Sheets, Calendar, and Drive
+              together.
+            </div>
+          </>
+        )}
+      </Section>
+
+      {template.startsWith("gmail_") && (
+        <GoogleGmailFields node={node} onUpdate={onUpdate} />
+      )}
+      {template.startsWith("sheets_") && (
+        <GoogleSheetsFields node={node} onUpdate={onUpdate} />
+      )}
+      {template.startsWith("calendar_") && (
+        <GoogleCalendarFields node={node} onUpdate={onUpdate} />
+      )}
+      {template.startsWith("drive_") && (
+        <GoogleDriveFields node={node} onUpdate={onUpdate} />
+      )}
+
+      {usesMessageTemplate && (
+        <Section label="Message">
+          <MessageTemplateField node={node} onUpdate={onUpdate} />
+        </Section>
+      )}
+    </>
+  );
+}
+
+function GoogleGmailFields({
+  node,
+  onUpdate,
+}: {
+  node: WorkflowNode;
+  onUpdate: (n: WorkflowNode) => void;
+}) {
+  switch (node.template) {
+    case "gmail_list":
+      return (
+        <Section label="Search">
+          <ConfigField
+            node={node}
+            onUpdate={onUpdate}
+            configKey="gmailQuery"
+            label="Query"
+            hint="Gmail search syntax, e.g. is:unread from:someone@x.com"
+            placeholder="is:unread"
+          />
+          <ConfigField
+            node={node}
+            onUpdate={onUpdate}
+            configKey="gmailMaxResults"
+            label="Max results"
+            placeholder="10"
+          />
+        </Section>
+      );
+    case "gmail_get":
+      return (
+        <Section label="Message">
+          <ConfigField
+            node={node}
+            onUpdate={onUpdate}
+            configKey="gmailMessageID"
+            label="Message ID"
+            hint="e.g. {{ result.id }} from an upstream Gmail: List step"
+          />
+        </Section>
+      );
+    case "gmail_send":
+    case "gmail_reply":
+      return (
+        <Section label="Send">
+          <ConfigField
+            node={node}
+            onUpdate={onUpdate}
+            configKey="gmailTo"
+            label="To"
+            placeholder="recipient@example.com"
+          />
+          <ConfigField
+            node={node}
+            onUpdate={onUpdate}
+            configKey="gmailSubject"
+            label="Subject"
+            placeholder="AgentMesh workflow result"
+          />
+          {node.template === "gmail_reply" && (
+            <ConfigField
+              node={node}
+              onUpdate={onUpdate}
+              configKey="gmailThreadID"
+              label="Thread ID"
+              hint="keeps the reply in the original thread, e.g. {{ result.threadId }}"
+            />
+          )}
+        </Section>
+      );
+    default:
+      return null;
+  }
+}
+
+function GoogleSheetsFields({
+  node,
+  onUpdate,
+}: {
+  node: WorkflowNode;
+  onUpdate: (n: WorkflowNode) => void;
+}) {
+  return (
+    <Section label="Spreadsheet">
+      <ConfigField
+        node={node}
+        onUpdate={onUpdate}
+        configKey="sheetsSpreadsheetID"
+        label="Spreadsheet ID"
+        hint="the long id in the sheet's URL"
+      />
+      <ConfigField
+        node={node}
+        onUpdate={onUpdate}
+        configKey="sheetsRange"
+        label="Range"
+        placeholder="Sheet1!A1:Z1000"
+      />
+    </Section>
+  );
+}
+
+function GoogleCalendarFields({
+  node,
+  onUpdate,
+}: {
+  node: WorkflowNode;
+  onUpdate: (n: WorkflowNode) => void;
+}) {
+  return (
+    <Section label="Calendar">
+      <ConfigField
+        node={node}
+        onUpdate={onUpdate}
+        configKey="calendarID"
+        label="Calendar ID"
+        hint="leave blank for your primary calendar"
+        placeholder="primary"
+      />
+      {node.template === "calendar_create" && (
+        <>
+          <ConfigField
+            node={node}
+            onUpdate={onUpdate}
+            configKey="calendarSummary"
+            label="Title"
+            hint="leave blank to use the Message field below"
+          />
+          <ConfigField
+            node={node}
+            onUpdate={onUpdate}
+            configKey="calendarStart"
+            label="Start"
+            placeholder="2026-08-10T10:00:00Z"
+          />
+          <ConfigField
+            node={node}
+            onUpdate={onUpdate}
+            configKey="calendarEnd"
+            label="End"
+            placeholder="2026-08-10T11:00:00Z"
+          />
+        </>
+      )}
+    </Section>
+  );
+}
+
+function GoogleDriveFields({
+  node,
+  onUpdate,
+}: {
+  node: WorkflowNode;
+  onUpdate: (n: WorkflowNode) => void;
+}) {
+  if (node.template === "drive_list") {
+    return (
+      <Section label="Search">
+        <ConfigField
+          node={node}
+          onUpdate={onUpdate}
+          configKey="driveQuery"
+          label="Query"
+          hint="Drive search syntax, e.g. name contains 'report'"
+        />
+      </Section>
+    );
+  }
+  return (
+    <Section label="File">
+      <ConfigField
+        node={node}
+        onUpdate={onUpdate}
+        configKey="driveFileID"
+        label="File ID"
+        hint="e.g. {{ result.id }} from an upstream Drive: List step"
+      />
+    </Section>
   );
 }
 

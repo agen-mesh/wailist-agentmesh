@@ -39,6 +39,39 @@ func TestSlackAction_PostsMessageText(t *testing.T) {
 	}
 }
 
+// End-to-end proof that a real connector's payload actually reflects a
+// configured messageTemplate, not just that expandTemplate works in
+// isolation -- this is the wiring (resolveMessage replacing rc.Message()
+// at the call site) that the unit tests above can't catch on their own.
+func TestSlackAction_AppliesMessageTemplate(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{
+		ID: "s2", Type: models.NodeTypeAction, Template: "slack",
+		Secrets: map[string]string{"slackWebhookURL": srv.URL},
+		Config:  map[string]string{"messageTemplate": "New summary: {{ result.extract }}"},
+	}
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("h1", map[string]any{"extract": "Algorand is a proof-of-stake blockchain."})
+
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "slack_sent" {
+		t.Errorf("want 'slack_sent', got %v", result)
+	}
+	want := "New summary: Algorand is a proof-of-stake blockchain."
+	if received["text"] != want {
+		t.Errorf("want templated text %q, got %v", want, received["text"])
+	}
+}
+
 func TestSlackAction_SkipsWhenNoWebhookURL(t *testing.T) {
 	node := models.WorkflowNode{ID: "s2", Type: models.NodeTypeAction, Template: "slack"}
 	rc := engine.NewRunContext("r1", []byte(`"hi"`))
@@ -331,6 +364,43 @@ func TestTelegramAction_SendsMessageToChatID(t *testing.T) {
 	}
 }
 
+// A trailing newline or space surviving a copy-paste from BotFather's
+// message used to reach the URL verbatim, turning a genuinely valid token
+// into a 404 that looked identical to a wrong one.
+func TestTelegramAction_TrimsWhitespaceFromTokenAndChatID(t *testing.T) {
+	var gotPath string
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{
+		ID: "tg7", Type: models.NodeTypeAction, Template: "telegram",
+		Secrets: map[string]string{"telegramBotToken": "123:ABC\n"},
+		Config:  map[string]string{"telegramChatID": " 999 "},
+	}
+	nodes.SetTelegramAPIBaseForTest(srv.URL)
+	defer nodes.SetTelegramAPIBaseForTest("")
+
+	rc := engine.NewRunContext("r1", []byte(`"hi"`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "telegram_sent" {
+		t.Errorf("want 'telegram_sent', got %v", result)
+	}
+	if gotPath != "/bot123:ABC/sendMessage" {
+		t.Errorf("want trimmed token in path, got %q", gotPath)
+	}
+	if received["chat_id"] != "999" {
+		t.Errorf("want trimmed chat_id, got %v", received["chat_id"])
+	}
+}
+
 func TestTelegramAction_SkipsWhenNoBotToken(t *testing.T) {
 	node := models.WorkflowNode{
 		ID: "tg2", Type: models.NodeTypeAction, Template: "telegram",
@@ -358,5 +428,79 @@ func TestTelegramAction_SkipsWhenNoChatID(t *testing.T) {
 	}
 	if result != "telegram_skipped_no_chat_id" {
 		t.Errorf("want 'telegram_skipped_no_chat_id', got %v", result)
+	}
+}
+
+func TestTelegramGetUpdates_ReturnsDecodedResponse(t *testing.T) {
+	var gotPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true,"result":[{"update_id":1,"message":{"text":"hi"}}]}`))
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{
+		ID: "tg4", Type: models.NodeTypeAction, Template: "telegram_get_updates",
+		Secrets: map[string]string{"telegramBotToken": "123:ABC"},
+		Config:  map[string]string{"telegramOffset": "5", "telegramLimit": "10"},
+	}
+	nodes.SetTelegramAPIBaseForTest(srv.URL)
+	defer nodes.SetTelegramAPIBaseForTest("")
+
+	rc := engine.NewRunContext("r1", []byte(`""`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/bot123:ABC/getUpdates" {
+		t.Errorf("want getUpdates path, got %q", gotPath)
+	}
+	if gotQuery != "limit=10&offset=5" {
+		t.Errorf("want offset/limit query params, got %q", gotQuery)
+	}
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("want decoded map, got %T: %v", result, result)
+	}
+	if m["ok"] != true {
+		t.Errorf("want ok=true in decoded response, got %v", m)
+	}
+	updates, ok := m["result"].([]any)
+	if !ok || len(updates) != 1 {
+		t.Errorf("want one decoded update, got %v", m["result"])
+	}
+}
+
+func TestTelegramGetUpdates_SkipsWhenNoBotToken(t *testing.T) {
+	node := models.WorkflowNode{ID: "tg5", Type: models.NodeTypeAction, Template: "telegram_get_updates"}
+	rc := engine.NewRunContext("r1", []byte(`""`))
+	result, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("want ErrActionSkipped, got %v", err)
+	}
+	if result != "telegram_skipped_no_bot_token" {
+		t.Errorf("want 'telegram_skipped_no_bot_token', got %v", result)
+	}
+}
+
+func TestTelegramGetUpdates_PropagatesAPIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"ok":false,"description":"Unauthorized"}`))
+	}))
+	defer srv.Close()
+
+	node := models.WorkflowNode{
+		ID: "tg6", Type: models.NodeTypeAction, Template: "telegram_get_updates",
+		Secrets: map[string]string{"telegramBotToken": "bad-token"},
+	}
+	nodes.SetTelegramAPIBaseForTest(srv.URL)
+	defer nodes.SetTelegramAPIBaseForTest("")
+
+	rc := engine.NewRunContext("r1", []byte(`""`))
+	if _, err := nodes.ExecuteAction(context.Background(), node, rc); err == nil {
+		t.Fatal("want error on 401 response, got nil")
 	}
 }

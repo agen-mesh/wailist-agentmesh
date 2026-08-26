@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -31,6 +32,88 @@ func configVal(node models.WorkflowNode, key, def string) string {
 		return def
 	}
 	return node.Config[key]
+}
+
+// messageTemplateKey is the Config key a message-sending connector (Slack,
+// Discord, Telegram, GitHub, Notion, ...) reads an optional template from.
+// Empty (the default) preserves every such connector's original behavior
+// exactly: send rc.Message() verbatim.
+const messageTemplateKey = "messageTemplate"
+
+// resolveMessage is what a connector should call instead of rc.Message()
+// directly, so every one of them picks up template support for free. See
+// expandTemplate for the placeholder syntax.
+func resolveMessage(node models.WorkflowNode, rc RunContexter) string {
+	tmpl := configVal(node, messageTemplateKey, "")
+	if tmpl == "" {
+		return rc.Message()
+	}
+	return expandTemplate(tmpl, rc)
+}
+
+// templatePlaceholder matches {{ result }} and {{ result.field.path }}.
+// Capture group 1 is "" for the bare form, or ".field.path" for a dotted one.
+var templatePlaceholder = regexp.MustCompile(`\{\{\s*result((?:\.[A-Za-z0-9_]+)*)\s*\}\}`)
+
+// expandTemplate replaces every {{ result }} / {{ result.field.path }}
+// placeholder in tmpl against the run's most recent output. This is the
+// direct answer to "the whole raw response gets forwarded, not just the
+// part I want" -- {{ result }} keeps today's behavior (the whole thing,
+// stringified), while {{ result.extract }} against e.g. a Wikipedia API
+// response picks just that one field out of it instead.
+//
+// A path that doesn't resolve (wrong field name, or the output isn't a JSON
+// object at that point) expands to "" rather than leaving the literal
+// placeholder text in whatever gets sent -- there's no good way to surface
+// an error mid-template, and a blank beats a broken-looking "{{ result.x }}"
+// showing up in a real Slack message or email.
+func expandTemplate(tmpl string, rc RunContexter) string {
+	return templatePlaceholder.ReplaceAllStringFunc(tmpl, func(match string) string {
+		groups := templatePlaceholder.FindStringSubmatch(match)
+		path := groups[1]
+		if path == "" {
+			return rc.Message()
+		}
+		var cur any = rc.LastOutput()
+		for _, key := range strings.Split(strings.TrimPrefix(path, "."), ".") {
+			m, ok := cur.(map[string]any)
+			if !ok {
+				return ""
+			}
+			cur, ok = m[key]
+			if !ok {
+				return ""
+			}
+		}
+		return templateValueToString(cur)
+	})
+}
+
+// templateValueToString renders one resolved template value. Mirrors
+// engine.anyToString's string/JSON-fallback behavior, duplicated here (not
+// imported) because nodes is a lower-level package engine itself imports --
+// importing back would be circular.
+func templateValueToString(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+// ExpandTemplateForTest and ResolveMessageForTest are test-only exported
+// wrappers, used by connector_helpers_test.go (package nodes_test) to test
+// the unexported helpers above without exporting them from the package's
+// real API.
+func ExpandTemplateForTest(tmpl string, rc RunContexter) string {
+	return expandTemplate(tmpl, rc)
+}
+
+func ResolveMessageForTest(node models.WorkflowNode, rc RunContexter) string {
+	return resolveMessage(node, rc)
 }
 
 // newJSONRequest builds a JSON request with the given method, target, and headers.
@@ -99,6 +182,38 @@ func doAndCheck(req *http.Request, sentinel, serviceName string) (any, error) {
 	}
 	io.Copy(io.Discard, resp.Body)
 	return sentinel, nil
+}
+
+// getJSON executes req on the shared toolHTTPClient and decodes a successful
+// JSON response body into `any`, returning it to the caller. Unlike
+// doAndCheck -- which discards the body and hands back a fixed sentinel --
+// this is for connector operations that read data (list/get) rather than
+// just report success, so the result can flow to the next node.
+func getJSON(req *http.Request, serviceName string) (any, error) {
+	resp, err := doValidatedRequest(req, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("%s API %d: %s", serviceName, resp.StatusCode, readErrorBody(resp))
+	}
+	b, err := readBounded(resp.Body, httpResponseLimit)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", serviceName, err)
+	}
+	var result any
+	if err := json.Unmarshal(b, &result); err != nil {
+		return nil, fmt.Errorf("%s: decode response: %w", serviceName, err)
+	}
+	return result, nil
+}
+
+// GetJSONForTest is a test-only exported wrapper for getJSON, used by
+// connector_helpers_test.go (package nodes_test) to test the unexported
+// helper without exporting it from the package's real API.
+func GetJSONForTest(req *http.Request, serviceName string) (any, error) {
+	return getJSON(req, serviceName)
 }
 
 // mediaResponseLimit bounds binary media payloads (e.g. generated audio),

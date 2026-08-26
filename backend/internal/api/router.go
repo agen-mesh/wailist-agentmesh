@@ -43,6 +43,8 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	r.Get("/x402/relay/run-funding", d.X402RunFundingInfo)
 	// Same rationale, for nodes.SettlePlatformFee's PaymentRequirements.Resource.
 	r.Get("/x402/relay/platform-fee", d.X402PlatformFeeInfo)
+	// Same rationale, for nodes.SettleRunTotal's PaymentRequirements.Resource.
+	r.Get("/x402/relay/run-total", d.X402RunTotalInfo)
 
 	// Protected routes — JWT required
 	r.Group(func(r chi.Router) {
@@ -58,6 +60,7 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Delete("/workflows/{id}", d.DeleteWorkflow)
 
 		r.Post("/workflows/{id}/deploy", d.Deploy)
+		r.Post("/workflows/{id}/build", d.BuildWorkflow)
 		r.Get("/workflows/{id}/agents/{agentId}/balance", d.AgentBalance)
 		r.Post("/workflows/{id}/agents/{agentId}/fund", d.FundAgent)
 
@@ -95,6 +98,21 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Get("/leases/{id}/key", d.DownloadLeaseKey)
 		r.Get("/leases/{id}/terminal", d.LeaseTerminal)
 
+		// Connects an external account (Gmail/Sheets/Calendar/Drive today) a
+		// workflow node calls on this user's behalf -- distinct from
+		// /auth/oauth above, which signs a person INTO AgentMesh and lives
+		// outside this group since there's no session yet at that point.
+		// This flow requires one already, hence living here instead.
+		r.Get("/oauth2/{provider}/start", d.OAuth2CredStart)
+		r.Get("/oauth2/{provider}/callback", d.OAuth2CredCallback)
+		r.Get("/oauth2/credentials", d.OAuth2CredList)
+		r.Delete("/oauth2/credentials/{id}", d.OAuth2CredDelete)
+
+		// Connector account-linking (Slack/GitHub/Notion/etc, #42) -- a
+		// separate OAuth surface from oauth2/* above: that one is Google's
+		// four products sharing one consent screen, this one is one
+		// provider per connector node, each with its own authorize/token
+		// endpoint registered in connector_oauth.go's provider registry.
 		r.Get("/connectors/oauth/{provider}/start", d.ConnectorOAuthStart)
 		r.Get("/connectors/oauth/{provider}/callback", d.ConnectorOAuthCallback)
 	})

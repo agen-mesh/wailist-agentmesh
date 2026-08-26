@@ -9,7 +9,12 @@ export interface Bounds {
 }
 
 export const PALETTE: Bounds = { min: 200, max: 460, default: 280 };
-export const INSPECTOR: Bounds = { min: 260, max: 560, default: 320 };
+// The rail now hosts the Tendril terminal, so its max doubles as a column
+// budget: at fontSize 12 (~7.2px/cell, less a ~14px scrollbar) 640px clears
+// the de-facto 80-column floor, where 560 gave only ~75. PALETTE.min (200) +
+// 640 + MIN_CANVAS (320) = 1160, so a >=1160px window honours it and narrower
+// ones are already handled by clampWidth's container rule below.
+export const INSPECTOR: Bounds = { min: 260, max: 640, default: 320 };
 
 // Above this palette width, the item list reflows from one column into two.
 // Set to a width the palette can actually reach on a halved window: with the

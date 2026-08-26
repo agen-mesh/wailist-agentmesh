@@ -500,6 +500,7 @@ func payTendril(ctx context.Context, cfg TendrilConfig, path string, body []byte
 type emptyRunContext struct{}
 
 func (emptyRunContext) Message() string             { return "" }
+func (emptyRunContext) LastOutput() any             { return nil }
 func (emptyRunContext) UserInput() string           { return "" }
 func (emptyRunContext) ToolOutputs() map[string]any { return nil }
 func (emptyRunContext) Set(string, any)             {}
