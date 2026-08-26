@@ -24,7 +24,7 @@ const DEFAULT_DEST = "/workflows";
 
 // middleware redirects protected deep links here as ?next=<path>, so this value
 // is attacker-controlled: anyone can hand out /signin?next=<anywhere>. Only a
-// same-origin absolute path is allowed through — "//evil.com" is protocol-
+// same-origin absolute path is allowed through -- "//evil.com" is protocol-
 // relative and "https://evil.com" absolute, and either would turn the sign-in
 // form into an open redirect that lands a just-authenticated user off-site.
 // Backslashes are rejected too: browsers normalize them to forward slashes for
@@ -56,9 +56,11 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
   const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
   const [org, setOrg] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   // Surface OAuth failures the backend redirected back with (?error=...).
   useEffect(() => {
@@ -66,7 +68,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
     if (code) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- post-mount URL read; a lazy initializer would render the error on the server and break hydration
       setError(OAUTH_ERRORS[code] ?? "Something went wrong. Please try again.");
-      // Drop only ?error= — rewriting to a bare pathname would also discard the
+      // Drop only ?error= -- rewriting to a bare pathname would also discard the
       // ?next= deep link the user is still trying to reach after a failed OAuth
       // attempt, sending them to /workflows once they retry with a password.
       const url = new URL(window.location.href);
@@ -92,7 +94,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
       if (mode === "signin") {
         await signIn(email, password);
       } else {
-        await signUp(email, password, org);
+        await signUp(email, password, name, org);
       }
       router.push(nextPath());
     } catch {
@@ -112,7 +114,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
         background: "var(--bg)",
       }}
     >
-      {/* Left — form */}
+      {/* Left -- form */}
       <div
         style={{
           padding: "40px 56px",
@@ -188,6 +190,17 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
               }}
             >
               {mode === "signup" && (
+                <FormField label="Full name">
+                  <input
+                    style={inputStyle}
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Ada Lovelace"
+                  />
+                </FormField>
+              )}
+              {mode === "signup" && (
                 <FormField label="Organization">
                   <input
                     style={inputStyle}
@@ -229,14 +242,43 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                   )
                 }
               >
-                <input
-                  style={inputStyle}
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="•••••••••••"
-                />
+                {/* The reveal toggle sits inside the field, so the input keeps
+                    room for it rather than running under the button. */}
+                <div style={{ position: "relative" }}>
+                  <input
+                    style={{ ...inputStyle, paddingRight: 60 }}
+                    type={showPassword ? "text" : "password"}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="•••••••••••"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-pressed={showPassword}
+                    aria-label={
+                      showPassword ? "Hide password" : "Show password"
+                    }
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      right: 0,
+                      height: 38,
+                      padding: "0 10px",
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--fg-muted)",
+                      fontSize: 11,
+                      fontFamily: "var(--font-mono)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {showPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
               </FormField>
 
               {error && (
@@ -381,7 +423,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
         </div>
       </div>
 
-      {/* Right — visual */}
+      {/* Right -- visual */}
       <div
         style={{
           background: "var(--bg-elev-1)",

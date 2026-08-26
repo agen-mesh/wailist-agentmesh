@@ -109,7 +109,7 @@ export function CheckoutModal({
   return (
     <>
       <style>{MODAL_CSS}</style>
-      {/* Backdrop — click outside the panel to close */}
+      {/* Backdrop -- click outside the panel to close */}
       <div
         className="checkout-backdrop"
         role="presentation"

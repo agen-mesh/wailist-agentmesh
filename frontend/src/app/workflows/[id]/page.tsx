@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { CanvasPage } from "@/components/canvas/CanvasPage";
+import { WorkflowRoute } from "@/components/workflows/WorkflowRoute";
 
 export default async function CanvasPageRoute({
   params,
@@ -8,10 +8,14 @@ export default async function CanvasPageRoute({
 }) {
   const { id } = await params;
   // key ties component identity to the workflow id: switching workflows
-  // remounts CanvasPage so all editor state resets to initial values.
+  // remounts WorkflowRoute so all editor/console state resets to initial
+  // values instead of carrying over from whatever was previously open.
+  // Suspense boundary: WorkflowRoute renders CanvasPage, which calls
+  // useSearchParams() for the Bazaar `?add=` handoff -- Next 16 requires a
+  // Suspense boundary somewhere above that call or `next build` fails.
   return (
     <Suspense fallback={null}>
-      <CanvasPage key={id} workflowId={id} />
+      <WorkflowRoute key={id} workflowId={id} />
     </Suspense>
   );
 }

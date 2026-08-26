@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agentmesh/backend/internal/engine"
 	"github.com/agentmesh/backend/internal/engine/nodes"
+	"github.com/agentmesh/backend/internal/models"
 )
 
 func TestPostJSON_SendsAuthHeaderAndBody(t *testing.T) {
@@ -92,5 +94,137 @@ func TestReadBoundedForTest_ErrorsOverLimit(t *testing.T) {
 	_, err := nodes.ReadBoundedForTest(strings.NewReader("hello world"), 5)
 	if err == nil {
 		t.Fatal("want error when reader exceeds limit")
+	}
+}
+
+func TestGetJSON_DecodesSuccessResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"ok":true,"items":[1,2,3]}`))
+	}))
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	result, err := nodes.GetJSONForTest(req, "TestSvc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, ok := result.(map[string]any)
+	if !ok || m["ok"] != true {
+		t.Fatalf("want decoded map with ok=true, got %v", result)
+	}
+	items, ok := m["items"].([]any)
+	if !ok || len(items) != 3 {
+		t.Errorf("want 3 decoded items, got %v", m["items"])
+	}
+}
+
+func TestGetJSON_ErrorStatusReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("forbidden"))
+	}))
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	_, err := nodes.GetJSONForTest(req, "TestSvc")
+	if err == nil {
+		t.Fatal("want error for 403 response")
+	}
+}
+
+func TestGetJSON_InvalidJSONReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("not json"))
+	}))
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	_, err := nodes.GetJSONForTest(req, "TestSvc")
+	if err == nil {
+		t.Fatal("want error for non-JSON body")
+	}
+}
+
+// ── message templating ("{{ result }}" / "{{ result.field }}") ────────────
+
+func TestExpandTemplate_BareResultReturnsWholeMessage(t *testing.T) {
+	rc := engine.NewRunContext("r1", []byte(`"hello world"`))
+	got := nodes.ExpandTemplateForTest("{{ result }}", rc)
+	if got != "hello world" {
+		t.Errorf("want whole message, got %q", got)
+	}
+}
+
+func TestExpandTemplate_DottedPathExtractsField(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", map[string]any{
+		"extract": "Algorand is a proof-of-stake blockchain.",
+		"title":   "Algorand",
+	})
+	got := nodes.ExpandTemplateForTest("{{ result.extract }}", rc)
+	if got != "Algorand is a proof-of-stake blockchain." {
+		t.Errorf("want extracted field, got %q", got)
+	}
+}
+
+func TestExpandTemplate_NestedDottedPath(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", map[string]any{
+		"content_urls": map[string]any{
+			"desktop": map[string]any{"page": "https://en.wikipedia.org/wiki/Algorand"},
+		},
+	})
+	got := nodes.ExpandTemplateForTest("{{ result.content_urls.desktop.page }}", rc)
+	if got != "https://en.wikipedia.org/wiki/Algorand" {
+		t.Errorf("want nested field, got %q", got)
+	}
+}
+
+func TestExpandTemplate_MissingFieldExpandsToEmpty(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", map[string]any{"extract": "hi"})
+	got := nodes.ExpandTemplateForTest("[{{ result.nonexistent }}]", rc)
+	if got != "[]" {
+		t.Errorf("want empty expansion for missing field, got %q", got)
+	}
+}
+
+func TestExpandTemplate_NonObjectOutputWithPathExpandsToEmpty(t *testing.T) {
+	rc := engine.NewRunContext("r1", []byte(`"just a string"`))
+	got := nodes.ExpandTemplateForTest("[{{ result.field }}]", rc)
+	if got != "[]" {
+		t.Errorf("want empty expansion when output isn't an object, got %q", got)
+	}
+}
+
+func TestExpandTemplate_LiteralTextAndMultiplePlaceholdersPreserved(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", map[string]any{"title": "Algorand", "extract": "A blockchain."})
+	got := nodes.ExpandTemplateForTest("New article: {{ result.title }}\n\n{{ result.extract }}", rc)
+	want := "New article: Algorand\n\nA blockchain."
+	if got != want {
+		t.Errorf("want %q, got %q", want, got)
+	}
+}
+
+func TestResolveMessage_EmptyTemplateFallsBackToRawMessage(t *testing.T) {
+	node := models.WorkflowNode{ID: "n1", Type: models.NodeTypeAction, Template: "slack"}
+	rc := engine.NewRunContext("r1", []byte(`"unchanged"`))
+	got := nodes.ResolveMessageForTest(node, rc)
+	if got != "unchanged" {
+		t.Errorf("want rc.Message() verbatim when no template is configured, got %q", got)
+	}
+}
+
+func TestResolveMessage_UsesConfiguredTemplate(t *testing.T) {
+	node := models.WorkflowNode{
+		ID: "n1", Type: models.NodeTypeAction, Template: "slack",
+		Config: map[string]string{"messageTemplate": "Summary: {{ result.extract }}"},
+	}
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("h1", map[string]any{"extract": "Algorand is fast."})
+	got := nodes.ResolveMessageForTest(node, rc)
+	if got != "Summary: Algorand is fast." {
+		t.Errorf("want templated message, got %q", got)
 	}
 }

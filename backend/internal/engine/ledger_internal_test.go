@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/agentmesh/backend/internal/db"
+	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/sse"
 	"github.com/agentmesh/backend/internal/x402"
@@ -65,7 +66,7 @@ func TestPaymentLedgerCommitAndReleaseSurviveCancelledContext(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := NewRunner(store, sse.NewBroker(), nil, "", "", X402Config{USDCAssetID: 10458941})
+	r := NewRunner(store, sse.NewBroker(), nil, "", "", "", X402Config{USDCAssetID: 10458941})
 	ledger := r.newPaymentLedger(wf, run)
 
 	if err := ledger.Reserve(context.Background(), 250_000); err != nil {
@@ -159,7 +160,7 @@ func TestRecordRunFundedSettlementSurvivesCancelledContext(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := NewRunner(store, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", X402Config{USDCAssetID: 10458941})
+	r := NewRunner(store, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{USDCAssetID: 10458941})
 
 	recordSettlement := r.newRecordSettlement(wf, run, funding.ID)
 
@@ -192,6 +193,17 @@ func (f *fakeUSDCSignerForLedgerTest) SignAndSendPayment(_ context.Context, _, _
 func (f *fakeUSDCSignerForLedgerTest) SignUSDCPaymentGroup(_ context.Context, _, _ string, _, _ uint64, _ string) ([]string, int, error) {
 	return []string{"g0", "g1"}, 0, nil
 }
+
+// SignUSDCPaymentSingle must also be implemented -- see fakeRelaySigner's
+// identical doc comment in runner_stop_test.go for why a missing method
+// here silently degrades every test using this fake to the no-fund path.
+func (f *fakeUSDCSignerForLedgerTest) SignUSDCPaymentSingle(_ context.Context, _, _ string, _, _ uint64) ([]string, int, error) {
+	return []string{"g0"}, 0, nil
+}
+
+// Compile-time check, matching fakeRelaySigner's identical assertion in
+// runner_stop_test.go.
+var _ nodes.USDCGroupSigner = (*fakeUSDCSignerForLedgerTest)(nil)
 
 // TestReserveAndFundRunFailsRatherThanSilentlyDegradingWhenRecordRunFundingFails
 // is a white-box regression test for the exact bug this branch's final
@@ -247,8 +259,13 @@ func TestReserveAndFundRunFailsRatherThanSilentlyDegradingWhenRecordRunFundingFa
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 2500000 micros: comfortably covers the credit reservation this test
+	// needs to get past (300000 real vendor cost + the platform's flat
+	// markup, models.X402PlatformFeeUSDMicros) so reserveAndFundRun reaches
+	// FundRunReserve/RecordRunFunding -- the actual thing under test -- and
+	// doesn't just fail earlier at ReserveCredits from being underfunded.
 	orderID := fmt.Sprintf("fund_%s_%d", user.ID, time.Now().UnixNano())
-	if _, err := store.CreateCreditTransaction(context.Background(), user.ID, orderID, 100, 1.0); err != nil {
+	if _, err := store.CreateCreditTransaction(context.Background(), user.ID, orderID, 250, 1.0); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := store.CompleteCreditTransaction(context.Background(), "cashfree", orderID, "pay_"+orderID); err != nil {
@@ -270,7 +287,7 @@ func TestReserveAndFundRunFailsRatherThanSilentlyDegradingWhenRecordRunFundingFa
 		t.Fatal(err)
 	}
 
-	r := NewRunner(store, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", X402Config{
+	r := NewRunner(store, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{
 		USDCAssetID:               10458941,
 		PlatformWalletAddress:     "PLATFORMADDR",
 		PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
@@ -293,8 +310,9 @@ func TestReserveAndFundRunFailsRatherThanSilentlyDegradingWhenRecordRunFundingFa
 	if err != nil {
 		t.Fatal(err)
 	}
-	if balance != 700000 {
-		t.Fatalf("want the 300000 reservation to remain deducted, NOT released (real money already settled on-chain), got balance %d (started at 1000000)", balance)
+	wantBalance := int64(2_500_000 - 300_000 - models.X402PlatformFeeUSDMicros)
+	if balance != wantBalance {
+		t.Fatalf("want the 300000+markup reservation to remain deducted, NOT released (real money already settled on-chain), got balance %d (want %d, started at 2500000)", balance, wantBalance)
 	}
 }
 
@@ -419,7 +437,7 @@ func TestReserveAndFundRunRejectsOutOfRangeQuote(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := NewRunner(store, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", X402Config{
+	r := NewRunner(store, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{
 		USDCAssetID:               10458941,
 		PlatformWalletAddress:     "PLATFORMADDR",
 		PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
@@ -467,7 +485,7 @@ func TestReserveAndFundRunRejectsOutOfRangeQuoteNoDatabase(t *testing.T) {
 	}))
 	defer facilitator.Close()
 
-	r := NewRunner(nil, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", X402Config{
+	r := NewRunner(nil, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{
 		USDCAssetID:               10458941,
 		PlatformWalletAddress:     "PLATFORMADDR",
 		PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
@@ -544,8 +562,12 @@ func TestReserveAndFundRunHoldsReservationOnIndeterminateSettle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 2500000 micros: comfortably covers the credit reservation this test
+	// needs to get past (300000 real vendor cost + the platform's flat
+	// markup) so reserveAndFundRun reaches FundRunReserve -- see the
+	// identical comment in TestReserveAndFundRunFailsRatherThan... above.
 	orderID := fmt.Sprintf("fund_%s_%d", user.ID, time.Now().UnixNano())
-	if _, err := store.CreateCreditTransaction(context.Background(), user.ID, orderID, 100, 1.0); err != nil {
+	if _, err := store.CreateCreditTransaction(context.Background(), user.ID, orderID, 250, 1.0); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := store.CompleteCreditTransaction(context.Background(), "cashfree", orderID, "pay_"+orderID); err != nil {
@@ -563,7 +585,7 @@ func TestReserveAndFundRunHoldsReservationOnIndeterminateSettle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := NewRunner(store, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", X402Config{
+	r := NewRunner(store, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{
 		USDCAssetID:               10458941,
 		PlatformWalletAddress:     "PLATFORMADDR",
 		PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
@@ -586,8 +608,9 @@ func TestReserveAndFundRunHoldsReservationOnIndeterminateSettle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if balance != 700000 {
-		t.Fatalf("want the 300000 reservation to remain deducted, NOT released (settlement's fate is unknown, not confirmed failed), got balance %d (started at 1000000)", balance)
+	wantBalance := int64(2_500_000 - 300_000 - models.X402PlatformFeeUSDMicros)
+	if balance != wantBalance {
+		t.Fatalf("want the 300000+markup reservation to remain deducted, NOT released (settlement's fate is unknown, not confirmed failed), got balance %d (want %d, started at 2500000)", balance, wantBalance)
 	}
 }
 
@@ -645,7 +668,7 @@ func TestReserveAndFundRunDegradesGracefullyWithNilFacilitator(t *testing.T) {
 	// (both already-checked fields), but FacilitatorClient left nil and
 	// PlatformWalletAddress left empty -- the two fields the existing guard
 	// doesn't check.
-	r := NewRunner(store, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", X402Config{
+	r := NewRunner(store, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{
 		USDCAssetID: 10458941,
 	})
 

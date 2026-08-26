@@ -14,16 +14,18 @@ const ALGORAND_NETWORK = process.env.NEXT_PUBLIC_ALGORAND_NETWORK ?? "mainnet";
 export function Topbar() {
   const router = useRouter();
   const pathname = usePathname();
-  const { signOut, user } = useAuth();
+  const { signOut, user, completeOnboarding } = useAuth();
 
-  // Avatar initials from the signed-in email's local part (first two
-  // alphanumerics, uppercased). Falls back to "AC" while auth is still loading.
-  const initials =
-    (user?.email ?? "")
-      .split("@")[0]
-      .replace(/[^a-zA-Z0-9]/g, "")
-      .slice(0, 2)
-      .toUpperCase() || "AC";
+  // Avatar shows the first letter of the signed-in user's name, falling back
+  // to the email local part while auth is still loading or for an OAuth
+  // account that hasn't completed onboarding yet.
+  const initial = (
+    user?.name?.trim()?.[0] ??
+    user?.email?.trim()?.[0] ??
+    "?"
+  ).toUpperCase();
+
+  const orgName = user?.orgName?.trim() || "Personal workspace";
 
   // Account menu opens two ways: hovering with a mouse (soft — closes shortly
   // after the pointer leaves the avatar and panel) or clicking/tapping (pinned —
@@ -109,7 +111,7 @@ export function Topbar() {
         </button>
         <Hairline vertical length={22} />
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button style={ghostBtnSm}>Acme Capital ▾</button>
+          <button style={ghostBtnSm}>{orgName} ▾</button>
           <Pill mono dot tone="warm">
             {ALGORAND_NETWORK}
           </Pill>
@@ -156,7 +158,7 @@ export function Topbar() {
               setMenuState((s) => (s === "pinned" ? "closed" : "pinned"))
             }
           >
-            {initials}
+            {initial}
           </button>
           {menuOpen && (
             <div className="profile-menu__panel" role="menu">
@@ -184,7 +186,7 @@ export function Topbar() {
                       flexShrink: 0,
                     }}
                   >
-                    {initials}
+                    {initial}
                   </div>
                   <div style={{ minWidth: 0 }}>
                     <div
@@ -194,7 +196,7 @@ export function Topbar() {
                         color: "var(--fg)",
                       }}
                     >
-                      Acme Capital
+                      {user?.name?.trim() || "—"}
                     </div>
                     <div
                       style={{
@@ -233,9 +235,152 @@ export function Topbar() {
           )}
         </div>
       </div>
+      {user?.needsOnboarding && (
+        <OnboardingModal onComplete={completeOnboarding} />
+      )}
     </div>
   );
 }
+
+// Shown once, right after a first-time OAuth sign-in — Google/GitHub only
+// hand back a verified email, never a name or organization, so the account
+// exists with both blank (see backend Me's needsOnboarding) until the user
+// fills this in. Not dismissable: there's no cancel/skip, since every other
+// account (password signup) already has both by the time it can sign in.
+function OnboardingModal({
+  onComplete,
+}: {
+  onComplete: (name: string, org: string) => Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [org, setOrg] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setSaving(true);
+    setError("");
+    try {
+      await onComplete(name.trim(), org.trim());
+    } catch {
+      setError("Something went wrong. Please try again.");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Finish setting up your account"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0, 0, 0, 0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+    >
+      <form
+        onSubmit={handleSubmit}
+        style={{
+          width: 340,
+          background: "var(--bg-elev-1)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--r-2)",
+          padding: 24,
+          display: "flex",
+          flexDirection: "column",
+          gap: 14,
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--fg)" }}>
+            Welcome — one more step
+          </div>
+          <div
+            style={{ fontSize: 12.5, color: "var(--fg-muted)", marginTop: 4 }}
+          >
+            Tell us who you are so your teammates recognize you.
+          </div>
+        </div>
+        <label
+          style={{ display: "flex", flexDirection: "column", gap: 6 }}
+        >
+          <span style={{ fontSize: 12, color: "var(--fg-muted)" }}>
+            Full name
+          </span>
+          <input
+            autoFocus
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Ada Lovelace"
+            style={onboardingInputStyle}
+          />
+        </label>
+        <label
+          style={{ display: "flex", flexDirection: "column", gap: 6 }}
+        >
+          <span style={{ fontSize: 12, color: "var(--fg-muted)" }}>
+            Organization (optional)
+          </span>
+          <input
+            value={org}
+            onChange={(e) => setOrg(e.target.value)}
+            placeholder="Acme Capital"
+            style={onboardingInputStyle}
+          />
+        </label>
+        {error && (
+          <div
+            style={{
+              color: "var(--danger)",
+              fontSize: 12,
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            {error}
+          </div>
+        )}
+        <button
+          type="submit"
+          disabled={saving || !name.trim()}
+          style={{
+            height: 38,
+            marginTop: 4,
+            background: "var(--accent)",
+            color: "var(--accent-fg)",
+            border: "none",
+            borderRadius: "var(--r-2)",
+            fontSize: 13.5,
+            fontWeight: 600,
+            fontFamily: "var(--font-sans)",
+            cursor: saving || !name.trim() ? "not-allowed" : "pointer",
+            opacity: saving || !name.trim() ? 0.7 : 1,
+          }}
+        >
+          {saving ? "Saving…" : "Continue"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+const onboardingInputStyle: React.CSSProperties = {
+  height: 36,
+  padding: "0 10px",
+  background: "var(--bg-elev-2)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--r-2)",
+  color: "var(--fg)",
+  fontSize: 13,
+  fontFamily: "var(--font-sans)",
+};
 
 // Top-bar navigation link. Active route is filled + full-contrast; others are
 // muted and lighten on hover, so the bar always signals "you are here".

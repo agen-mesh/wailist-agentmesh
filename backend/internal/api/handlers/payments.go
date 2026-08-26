@@ -150,7 +150,7 @@ func (d *Deps) RedeemCoupon(w http.ResponseWriter, r *http.Request) {
 	}
 	code := strings.ToUpper(strings.TrimSpace(body.Code))
 
-	balance, err := d.Store.RedeemCoupon(r.Context(), userID, code)
+	balance, credited, err := d.Store.RedeemCoupon(r.Context(), userID, code)
 	switch {
 	case errors.Is(err, db.ErrCouponInvalid):
 		respond.Error(w, http.StatusBadRequest, "invalid coupon code")
@@ -164,7 +164,12 @@ func (d *Deps) RedeemCoupon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, map[string]any{"credit_usd_micros": balance})
+	respond.JSON(w, http.StatusOK, map[string]any{
+		"credit_usd_micros": balance,
+		// What this specific code granted, so the UI can report the amount added
+		// instead of assuming a fixed one — coupon values are configuration now.
+		"credited_usd_micros": credited,
+	})
 }
 
 // VerifyCashfreePayment is called by the frontend after the Cashfree JS SDK

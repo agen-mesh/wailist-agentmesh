@@ -17,6 +17,7 @@ import (
 	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/sse"
+	"github.com/agentmesh/backend/internal/tendril"
 	"github.com/agentmesh/backend/internal/x402"
 )
 
@@ -47,8 +48,19 @@ type Runner struct {
 	registry                 *runRegistry
 	relayBaseURL             string
 	platformSpendEncMnemonic string
+	encryptionKey            string
 	x402                     X402Config
 	platformKeys             map[string]string
+	tendrilClient            *tendril.Client
+	tendrilSession           *tendril.Session
+	googleClientID           string
+	googleClientSecret       string
+	// runBilling accumulates each run's non-tool402 billable total (run.ID
+	// -> *int64, in USD micros) so it can be settled as one lump-sum x402
+	// payment at the end of Run -- see addRunBilling and settleRunTotal.
+	// Real tool402 spend is deliberately excluded (see addRunBilling's own
+	// filtering): it already gets its own on-chain settlement.
+	runBilling sync.Map
 }
 
 func NewRunner(
@@ -57,6 +69,7 @@ func NewRunner(
 	walletSvc nodes.WalletSigner,
 	relayBaseURL string,
 	platformSpendEncMnemonic string,
+	encryptionKey string,
 	x402Cfg X402Config,
 ) *Runner {
 	return &Runner{
@@ -66,6 +79,7 @@ func NewRunner(
 		registry:                 newRunRegistry(),
 		relayBaseURL:             relayBaseURL,
 		platformSpendEncMnemonic: platformSpendEncMnemonic,
+		encryptionKey:            encryptionKey,
 		x402:                     x402Cfg,
 	}
 }
@@ -77,6 +91,27 @@ func NewRunner(
 // harness and any deployment that hasn't configured PLATFORM_*_API_KEY.
 func (r *Runner) SetPlatformKeys(keys map[string]string) {
 	r.platformKeys = keys
+	nodes.SetPlatformKeys(keys)
+}
+
+// SetTendril supplies the Tendril registry client and the Wallet 2 session
+// that reads the shared credit pool. Left nil when TENDRIL_REGISTRY_URL is
+// unset, in which case tendril nodes fail closed.
+func (r *Runner) SetTendril(client *tendril.Client, session *tendril.Session) {
+	r.tendrilClient = client
+	r.tendrilSession = session
+}
+
+// SetGoogleOAuth supplies the same GOOGLE_CLIENT_ID/SECRET already used for
+// the sign-in-with-Google login flow (handlers/oauth.go) -- reused
+// deliberately, not a separate app registration, so a deployment that
+// already has Google login configured gets Gmail/Sheets/Calendar/Drive
+// nodes "for free" once those APIs and scopes are enabled on that same
+// Google Cloud project. Left unset ("", ""), Google connector nodes fail
+// closed with a clear error, the same pattern as SetTendril above.
+func (r *Runner) SetGoogleOAuth(clientID, clientSecret string) {
+	r.googleClientID = clientID
+	r.googleClientSecret = clientSecret
 }
 
 // preflightCheck fails a node before it runs if wf.UserID can't cover
@@ -101,6 +136,20 @@ func (r *Runner) debitOrLog(ctx context.Context, wf models.Workflow, run models.
 	if err := r.store.DebitCredits(ctx, wf.UserID, amountUSDMicros, kind, wf.ID, run.ID, nodeID); err != nil {
 		log.Printf("debit failed: user=%s workflow=%s run=%s node=%s kind=%s amount=%d: %v",
 			wf.UserID, wf.ID, run.ID, nodeID, kind, amountUSDMicros, err)
+		return // the DB was never actually charged -- don't settle it on-chain either
+	}
+	// Always a BYOK flat fee (the only kind debitOrLog is ever called with),
+	// never a tool402 kind -- safe to accumulate unconditionally.
+	r.addRunBilling(run.ID, amountUSDMicros)
+}
+
+// addRunBilling folds amountUSDMicros into the running total settleRunTotal
+// will settle on-chain once, at the end of the run -- see runBilling's own
+// doc comment. A no-op when runID isn't currently tracked (e.g. a unit test
+// calling this helper's callers directly without going through Run()).
+func (r *Runner) addRunBilling(runID string, amountUSDMicros int64) {
+	if v, ok := r.runBilling.Load(runID); ok {
+		atomic.AddInt64(v.(*int64), amountUSDMicros)
 	}
 }
 
@@ -109,6 +158,18 @@ func (r *Runner) debitOrLog(ctx context.Context, wf models.Workflow, run models.
 // long enough for a single locked UPDATE, short enough not to hang a
 // terminating process indefinitely.
 const ledgerCompensationTimeout = 10 * time.Second
+
+// runTotalSettleTimeout bounds settleRunTotal's own facilitator round trip
+// (sign + Verify + Settle -- three real network calls, not a single locked
+// UPDATE), so it deliberately doesn't reuse ledgerCompensationTimeout.
+// reserveAndFundRun's identical FundRunReserve call has no timeout of its
+// own beyond the run's own ctx; settleRunTotal needs one because it runs
+// from a defer after ctx may already be cancelled (context.WithoutCancel),
+// but it should still give the facilitator as much room as the equivalent
+// pre-fund settlement effectively gets, not the much tighter DB-write
+// budget -- an overly tight bound here would spuriously drop a perfectly
+// good settlement under nothing worse than ordinary facilitator latency.
+const runTotalSettleTimeout = 60 * time.Second
 
 // newPaymentLedger builds the reserve/commit/release closures a real
 // on-chain tool402 payment (either dialect, standalone or agent-attached)
@@ -139,6 +200,22 @@ func (r *Runner) newPaymentLedger(wf models.Workflow, run models.Run) nodes.Paym
 			defer cancel()
 			if err := r.store.CommitReservedDebit(bctx, wf.UserID, amountUSDMicros, kind, wf.ID, run.ID, nodeID); err != nil {
 				criticalAlert(wf, run, "commit reserved debit failed (balance already decremented, no ledger row written)", err, "node", nodeID, "kind", kind, "amount", amountUSDMicros)
+				return // the DB ledger row was never actually written -- don't settle it on-chain either
+			}
+			// Real tool402 spend (standalone or agent-attached, either
+			// dialect, including Tendril's own gate fee -- which is routed
+			// through this same closure via ExecuteTool402V2) already gets
+			// its own on-chain settlement -- the run-level pre-fund or the
+			// per-call relay/legacy path -- so accumulating it here too
+			// would double-settle the same money. Everything else this
+			// shared ledger commits (agent-attached http/action flat fees)
+			// has no on-chain leg of its own yet, so it belongs in the
+			// run-total settlement. Tendril's own lease/rent cost never
+			// reaches this closure at all -- it's charged against a wholly
+			// separate Tendril-credit pool via Store.ChargeTendrilCredit,
+			// not this one.
+			if kind != models.DebitKindX402RelayCost && kind != models.DebitKindX402PlatformFee {
+				r.addRunBilling(run.ID, amountUSDMicros)
 			}
 		},
 		Release: func(cctx context.Context, amountUSDMicros int64) {
@@ -252,9 +329,71 @@ func (r *Runner) newRecordSettlement(wf models.Workflow, run models.Run, funding
 // be told apart — see X402RelayConfig.RunFundedToolIDs), and a cleanup func
 // that releases whatever's left of the pool back to the DB balance at the
 // end of the agent's turn.
+// selfSettleConfig reports whether this Runner can settle a real Wallet 1 ->
+// Wallet 2 x402 payment at all, and if so builds the config both
+// reserveAndFundRun (tool402 pre-fund) and settleRunTotal (end-of-run lump
+// sum) need to do it. Shared so the two call sites can't drift on the
+// four-condition check a real settlement depends on. ok is false when any
+// piece is missing -- no platform spend wallet configured, r.walletSvc's
+// dynamic type not satisfying USDCGroupSigner (a real, valid configuration:
+// e.g. a noopSigner test double, or a WalletSigner-only production wiring),
+// no facilitator client, or no platform wallet address -- in which case
+// callers should degrade to a no-op rather than attempt a settlement that
+// can't succeed.
+func (r *Runner) selfSettleConfig() (cfg nodes.RunPreFundConfig, usdcSigner nodes.USDCGroupSigner, ok bool) {
+	usdcSigner, _ = r.walletSvc.(nodes.USDCGroupSigner)
+	if r.platformSpendEncMnemonic == "" || usdcSigner == nil || r.x402.FacilitatorClient == nil || r.x402.PlatformWalletAddress == "" {
+		return nodes.RunPreFundConfig{}, nil, false
+	}
+	return nodes.RunPreFundConfig{
+		USDCSigner:               usdcSigner,
+		PlatformSpendEncMnemonic: r.platformSpendEncMnemonic,
+		Facilitator:              r.x402.FacilitatorClient,
+		PlatformWalletAddress:    r.x402.PlatformWalletAddress,
+		RelayNetwork:             r.x402.RelayNetwork,
+		RelayFeePayer:            r.x402.RelayFeePayer,
+		ExpectedAssetID:          r.x402.USDCAssetID,
+		FrontendURL:              r.x402.FrontendURL,
+	}, usdcSigner, true
+}
+
+// settleRunTotal fires once per run (see Run's deferred call), settling
+// whatever addRunBilling accumulated for this run -- every non-tool402
+// billable amount committed during the run -- as one real, additive Wallet 1
+// -> Wallet 2 x402 payment. Called after the run has already finished and
+// finishRun has already recorded its status, so a failure here never fails
+// the run: the user's credit balance was already correctly debited per node
+// as it ran, and this is purely a missing on-chain receipt, not a billing
+// error. total <= 0 (no billable non-tool402 work happened, e.g. a
+// trigger-only workflow, or a run with only tool402 nodes) is a no-op, same
+// as no platform wallet being configured.
+func (r *Runner) settleRunTotal(ctx context.Context, wf models.Workflow, run models.Run, total *int64) {
+	amount := atomic.LoadInt64(total)
+	if amount <= 0 {
+		return
+	}
+	fundCfg, _, ok := r.selfSettleConfig()
+	if !ok {
+		return
+	}
+	txID, err := nodes.SettleRunTotal(ctx, fundCfg, amount)
+	if err != nil {
+		criticalAlert(wf, run, "run total settlement failed (run already finished, DB billing already correct -- this is a missing on-chain receipt only)", err, "amount", amount)
+		return
+	}
+	if _, err := r.store.RecordRunFunding(ctx, run.ID, txID, amount); err != nil {
+		criticalAlert(wf, run, "run total settled on-chain but RecordRunFunding failed", err, "txID", txID, "amount", amount)
+	}
+}
+
 type runFundResult struct {
-	Ledger    nodes.PaymentLedger
-	FundingID string
+	Ledger nodes.PaymentLedger
+	// MarkupLedger is a second, separately-sized in-memory pool for the
+	// platform's flat per-call markup — see X402RelayConfig.MarkupLedger
+	// for why this must stay a distinct pool from Ledger rather than one
+	// pool sized estimate+markupTotal.
+	MarkupLedger nodes.PaymentLedger
+	FundingID    string
 	// FundingTxID and FundedUSDMicros describe the real on-chain inbound
 	// settlement FundingID refers to (Wallet 1 -> Wallet 2, the whole run's
 	// tool budget in one payment). Both zero when no pre-fund happened.
@@ -270,8 +409,16 @@ type runFundResult struct {
 // reserveAndFundRun sizes and reserves a single run-level credit hold for
 // agentNode's attached tool402 tools, then settles that exact amount as one
 // real inbound x402 payment (Wallet 1 -> Wallet 2) before the agent's
-// tool-calling loop starts. Size = sum of REAL, freshly-fetched quotes for
-// each attached v2 tool402 node — never padded.
+// tool-calling loop starts. estimate = sum of REAL, freshly-fetched vendor
+// quotes for each attached v2 tool402 node — never padded. creditReserve =
+// estimate plus one flat platform markup (models.X402PlatformFeeUSDMicros)
+// per funded tool, and is what's held against the user's CREDIT balance AND
+// what FundRunReserve actually settles on-chain: the whole run's margin
+// lands in Wallet 2 in this one up-front payment, same as every real vendor
+// cost, so nothing here is a pure ledger fiction with no backing transfer.
+// executeTool402RunLevel's own per-call spend still only ever draws
+// `estimate` worth out to vendors (vendorLedger below), never touching the
+// markup portion sitting in Wallet 2.
 //
 // An agent with no attached tool402 nodes, or only legacy-dialect ones,
 // gets estimate=0 — a no-op returning the existing per-call
@@ -282,6 +429,7 @@ func (r *Runner) reserveAndFundRun(ctx context.Context, wf models.Workflow, run 
 	noFund := runFundResult{Ledger: r.newPaymentLedger(wf, run), Cleanup: func(context.Context) {}}
 
 	var estimate int64
+	var fundedToolCount int64
 	fundedToolIDs := make(map[string]bool)
 	for _, tool := range attach.Tools {
 		if tool.Type != models.NodeTypeTool402 {
@@ -303,12 +451,29 @@ func (r *Runner) reserveAndFundRun(ctx context.Context, wf models.Workflow, run 
 			return runFundResult{}, fmt.Errorf("x402 run funding: estimate overflow summing tool %s", tool.ID)
 		}
 		estimate += amount
+		fundedToolCount++
 		fundedToolIDs[tool.ID] = true
 	}
 
 	if estimate == 0 {
 		return noFund, nil
 	}
+
+	// creditReserve is what's actually held against the user's CREDIT
+	// balance and settled on-chain -- estimate (real vendor cost) plus one
+	// flat markup per funded tool, matching the total executeTool402RunLevel
+	// reserves/commits per call (see its own total/amount split).
+	// FundRunReserve below settles this FULL amount, not estimate alone: the
+	// whole point is that Wallet 2 actually receives everything the user was
+	// charged in one real transaction, not just the vendor-cost portion --
+	// see SettlePlatformFee's doc comment for why the per-call (non-run-
+	// funded) path needs a second dedicated transaction to reach the same
+	// end state, which this single up-front settlement gets for free.
+	markupTotal := fundedToolCount * models.X402PlatformFeeUSDMicros
+	if markupTotal/models.X402PlatformFeeUSDMicros != fundedToolCount || estimate > math.MaxInt64-markupTotal {
+		return runFundResult{}, fmt.Errorf("x402 run funding: credit reserve overflow (estimate %d, %d funded tools)", estimate, fundedToolCount)
+	}
+	creditReserve := estimate + markupTotal
 
 	// Same two-condition check executeTool402V2Relay (the old per-call relay
 	// path) already makes before attempting anything: without a platform
@@ -325,26 +490,16 @@ func (r *Runner) reserveAndFundRun(ctx context.Context, wf models.Workflow, run 
 	// goroutine — after ReserveCredits already ran, stranding credits on
 	// top of the crash. Degrading gracefully here instead matches an agent
 	// with no attached tool402 nodes at all.
-	usdcSigner, _ := r.walletSvc.(nodes.USDCGroupSigner)
-	if r.platformSpendEncMnemonic == "" || usdcSigner == nil || r.x402.FacilitatorClient == nil || r.x402.PlatformWalletAddress == "" {
+	fundCfg, _, ok := r.selfSettleConfig()
+	if !ok {
 		return noFund, nil
 	}
 
-	if err := r.store.ReserveCredits(ctx, wf.UserID, estimate); err != nil {
+	if err := r.store.ReserveCredits(ctx, wf.UserID, creditReserve); err != nil {
 		return runFundResult{}, err
 	}
 
-	fundCfg := nodes.RunPreFundConfig{
-		USDCSigner:               usdcSigner,
-		PlatformSpendEncMnemonic: r.platformSpendEncMnemonic,
-		Facilitator:              r.x402.FacilitatorClient,
-		PlatformWalletAddress:    r.x402.PlatformWalletAddress,
-		RelayNetwork:             r.x402.RelayNetwork,
-		RelayFeePayer:            r.x402.RelayFeePayer,
-		ExpectedAssetID:          r.x402.USDCAssetID,
-		FrontendURL:              r.x402.FrontendURL,
-	}
-	txID, err := nodes.FundRunReserve(ctx, fundCfg, run.ID, estimate)
+	txID, err := nodes.FundRunReserve(ctx, fundCfg, run.ID, creditReserve)
 	if err != nil {
 		if errors.Is(err, nodes.ErrSettlementIndeterminate) {
 			// The settle response was lost -- we don't know whether the
@@ -354,18 +509,18 @@ func (r *Runner) reserveAndFundRun(ctx context.Context, wf models.Workflow, run 
 			// reconcile by hand, matching the same "money might have
 			// already moved" caution the RecordRunFunding-failure branch
 			// below already applies at the next step in this flow.
-			criticalAlert(wf, run, "run pre-fund settle response lost, fate unknown, reservation held", err, "amount", estimate)
+			criticalAlert(wf, run, "run pre-fund settle response lost, fate unknown, reservation held", err, "amount", creditReserve)
 			return runFundResult{}, fmt.Errorf("x402 run funding: settlement indeterminate, failing rather than risking a refund for money already sent: %w", err)
 		}
 		bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ledgerCompensationTimeout)
 		defer cancel()
-		if relErr := r.store.ReleaseReservedCredits(bctx, wf.UserID, estimate); relErr != nil {
-			criticalAlert(wf, run, "run pre-fund failed AND release failed (balance stranded)", relErr, "amount", estimate, "fundErr", err)
+		if relErr := r.store.ReleaseReservedCredits(bctx, wf.UserID, creditReserve); relErr != nil {
+			criticalAlert(wf, run, "run pre-fund failed AND release failed (balance stranded)", relErr, "amount", creditReserve, "fundErr", err)
 		}
 		return runFundResult{}, fmt.Errorf("x402 run funding failed: %w", err)
 	}
 
-	funding, err := r.store.RecordRunFunding(ctx, run.ID, txID, estimate)
+	funding, err := r.store.RecordRunFunding(ctx, run.ID, txID, creditReserve)
 	if err != nil {
 		// Real money already moved on-chain — this is a bookkeeping failure,
 		// not a payment failure. Do NOT release the DB reservation (the
@@ -386,9 +541,21 @@ func (r *Runner) reserveAndFundRun(ctx context.Context, wf models.Workflow, run 
 		return runFundResult{}, fmt.Errorf("run funding settled on-chain (tx %s) but recording it failed, failing the run rather than risking a double-settle on the old per-call path: %w", txID, err)
 	}
 
-	ledger, remaining := newRunLevelLedger(estimate, wf, run, r.store)
+	// Two separate pools, not one sized creditReserve: vendorLedger is
+	// bounded by estimate -- the exact amount executeTool402RunLevel's real
+	// PayTargetFromWallet2 is allowed to pay OUT to vendors -- so a single
+	// call can never drain more than this run's own real vendor-cost
+	// budget, even though the on-chain settlement above moved creditReserve
+	// (estimate + markupTotal) into Wallet 2 in one lump sum. markupLedger
+	// is bounded by markupTotal, the flat-fee counterpart -- both are pure
+	// credits-side bookkeeping pools (Reserve/Release never touch the DB
+	// balance — see newRunLevelLedger); the single real DB decrement already
+	// happened above via ReserveCredits(creditReserve), so splitting the
+	// in-memory budget here doesn't double-reserve anything.
+	vendorLedger, vendorRemaining := newRunLevelLedger(estimate, wf, run, r.store)
+	markupLedger, markupRemaining := newRunLevelLedger(markupTotal, wf, run, r.store)
 	cleanup := func(cctx context.Context) {
-		unused := remaining()
+		unused := vendorRemaining() + markupRemaining()
 		if unused <= 0 {
 			return
 		}
@@ -399,10 +566,11 @@ func (r *Runner) reserveAndFundRun(ctx context.Context, wf models.Workflow, run 
 		}
 	}
 	return runFundResult{
-		Ledger:          ledger,
+		Ledger:          vendorLedger,
+		MarkupLedger:    markupLedger,
 		FundingID:       funding.ID,
 		FundingTxID:     funding.InboundTxID,
-		FundedUSDMicros: estimate,
+		FundedUSDMicros: creditReserve,
 		FundedToolIDs:   fundedToolIDs,
 		Cleanup:         cleanup,
 	}, nil
@@ -419,6 +587,12 @@ func (r *Runner) reserveAndFundRun(ctx context.Context, wf models.Workflow, run 
 // (their only inbound leg) with just their own slice of that amount — so a
 // consumer de-duplicating by tx id keeps the accurate one by keeping the
 // first.
+//
+// isFundingReceipt marks this row as bookkeeping, not a tool invocation: a
+// single funding transaction can cover many real per-call receipts that
+// follow, so a consumer counting "how many tools ran" must skip this row
+// specifically rather than deduplicating by tx id (that would collapse the
+// real, distinct calls that share its tx id down to one).
 func prependRunFundingReceipt(result map[string]any, rf runFundResult, node models.WorkflowNode, usdcAssetID uint64) {
 	if rf.FundingTxID == "" {
 		return
@@ -431,6 +605,7 @@ func prependRunFundingReceipt(result map[string]any, rf runFundResult, node mode
 		"txId":             rf.FundingTxID,
 		"amount":           fmt.Sprintf("%.6f", float64(rf.FundedUSDMicros)/1e6),
 		"explorerURL":      nodes.ExplorerURLForAsset(usdcAssetID, rf.FundingTxID),
+		"isFundingReceipt": true,
 	}
 	// []map[string]any is the concrete type Run()'s publish loop asserts on;
 	// anything else there would silently drop every payment row.
@@ -438,16 +613,14 @@ func prependRunFundingReceipt(result map[string]any, rf runFundResult, node mode
 	result["x402Payments"] = append([]map[string]any{funded}, existing...)
 }
 
-// debitAgentFee charges the agent node's own LLM-call fee — the flat BYOK
-// convenience fee, or the platform-key tier fee with usage recorded — and
-// logs on failure rather than failing the node, same rationale as
-// debitOrLog: the call already happened, there's nothing left to roll back.
 // debitAgentFee charges an agent step. BYOK is free: the user is paying their
 // own provider directly with their own key, so AgentMesh incurs no cost to
 // pass on and takes no cut. Credits exist to cover what the platform actually
 // spends on the user's behalf — platform-key LLM calls, and real x402
 // settlements paid out of the platform wallets. Charging for BYOK billed
-// users for compute they had already bought themselves.
+// users for compute they had already bought themselves. Logs on failure
+// rather than failing the node, same rationale as debitOrLog: the call
+// already happened, there's nothing left to roll back.
 func (r *Runner) debitAgentFee(ctx context.Context, wf models.Workflow, run models.Run, nodeID string, amountUSDMicros int64, platformMode bool, model string, tokensIn, tokensOut int) {
 	if !platformMode {
 		return
@@ -455,7 +628,9 @@ func (r *Runner) debitAgentFee(ctx context.Context, wf models.Workflow, run mode
 	if err := r.store.DebitCreditsForPlatformLLM(ctx, wf.UserID, amountUSDMicros, wf.ID, run.ID, nodeID, model, tokensIn, tokensOut); err != nil {
 		log.Printf("platform-key debit failed: user=%s workflow=%s run=%s node=%s model=%s amount=%d: %v",
 			wf.UserID, wf.ID, run.ID, nodeID, model, amountUSDMicros, err)
+		return // the DB was never actually charged -- don't settle it on-chain either
 	}
+	r.addRunBilling(run.ID, amountUSDMicros)
 }
 
 // Start creates a cancellable context for the run, registers it, and launches
@@ -484,6 +659,24 @@ func (r *Runner) finishRun(wf models.Workflow, run models.Run, status models.Run
 func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run) {
 	defer r.broker.Close(run.ID)
 	defer r.registry.deregister(wf.ID)
+
+	// Tracks this run's non-tool402 billable total (see addRunBilling) so it
+	// can be settled as one lump-sum x402 payment once the run is done.
+	// Registered as a defer, not called at each of the explicit finishRun
+	// return sites below, so it fires unconditionally on every exit path --
+	// including the early TopologicalSort failure -- without those sites
+	// needing to know about it. context.WithoutCancel + a bounded timeout
+	// matches the same compensating-write convention used elsewhere in this
+	// file (e.g. reserveAndFundRun's Cleanup), so the settlement still runs
+	// even if Stop() already cancelled ctx.
+	runTotal := new(int64)
+	r.runBilling.Store(run.ID, runTotal)
+	defer func() {
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), runTotalSettleTimeout)
+		defer cancel()
+		r.settleRunTotal(sctx, wf, run, runTotal)
+		r.runBilling.Delete(run.ID)
+	}()
 
 	go alert.Notify(context.Background(), alert.ChannelWorkflows, fmt.Sprintf("workflow %q run %s started", wf.Name, run.ID))
 
@@ -688,7 +881,21 @@ func (r *Runner) executeNode(
 			PlatformSpendEncMnemonic: r.platformSpendEncMnemonic,
 			ExpectedAssetID:          r.x402.USDCAssetID,
 			RelayBaseURL:             r.relayBaseURL,
+			Facilitator:              r.x402.FacilitatorClient,
+			PlatformWalletAddress:    r.x402.PlatformWalletAddress,
+			RelayNetwork:             r.x402.RelayNetwork,
+			RelayFeePayer:            r.x402.RelayFeePayer,
+			FrontendURL:              r.x402.FrontendURL,
 			Ledger:                   nodes.RunLedger(rf.Ledger),
+			MarkupLedger:             nodes.RunLedger(rf.MarkupLedger),
+			// PerCallLedger backs any v2 dispatch not covered by this run's
+			// funding -- either the whole agent has no run-level pre-fund
+			// (rf.Ledger degrades to r.newPaymentLedger itself in that case,
+			// via reserveAndFundRun's noFund branch) or this specific tool's
+			// probe failed during estimation and toolIsRunFunded is false
+			// for it. Always DB-backed, never the in-memory pool -- see
+			// X402RelayConfig.PerCallLedger.
+			PerCallLedger: nodes.CallLedger(r.newPaymentLedger(wf, run)),
 			// LegacyLedger is always the original per-call, DB-backed
 			// ledger — never rf.Ledger, which is the run-level in-memory
 			// pool once the agent is run-funded. Legacy-dialect billing
@@ -706,6 +913,15 @@ func (r *Runner) executeNode(
 				MaxRelayOutboundUSDMicros: r.x402.MaxRelayOutboundUSDMicros,
 			},
 			RecordSettlement: r.newRecordSettlement(wf, run, rf.FundingID),
+			// FlatFeeLedger reserves/commits/releases each attached billable
+			// flat-fee call (http Tool or Action/connector node) atomically,
+			// the moment it happens inside ExecuteAgent's tool-calling loop —
+			// same DB-backed, per-call ledger as LegacyLedger above, reused
+			// here since both need the identical atomic-decrement semantics.
+			// NOT batched until the turn ends: see FlatFeeLedger's doc
+			// comment for why that would let every loop iteration check the
+			// same stale balance and collectively overspend.
+			FlatFeeLedger: nodes.CallLedger(r.newPaymentLedger(wf, run)),
 		}
 		result, err := nodes.ExecuteAgent(ctx, node, attach, aw, r.walletSvc, rc, checkBalance, r.platformKeys, relayCfg)
 		if err != nil {
@@ -729,20 +945,15 @@ func (r *Runner) executeNode(
 			}
 		}
 		r.debitAgentFee(ctx, wf, run, node.ID, agentFeeUSDMicros, platformMode, resolvedModel, tokensIn, tokensOut)
+		// Attached x402Payments entries (relay markup included) and attached
+		// flat-fee tool/action calls are already reserved+committed from
+		// inside ExecuteAgent's tool-calling loop, atomically per call, at
+		// the moment each payment/call settled — not batched here. See
+		// relayCfg.Ledger/MarkupLedger/FlatFeeLedger and their doc comments
+		// for why batching until the whole agent turn completes would let
+		// every loop iteration check the same stale balance and collectively
+		// overspend past what the user can cover.
 		if m, ok := result.(map[string]any); ok {
-			// x402Payments entries are already reserved+committed via
-			// relayCfg.Ledger from inside ExecuteAgent's tool-calling loop, at
-			// the moment each payment settled — not batched here. Batching the
-			// debit until after the whole agent turn completes would let every
-			// iteration of the loop check the same stale balance and
-			// collectively overspend past what the user can cover; see
-			// newPaymentLedger. This entry is retained in the result only so
-			// Run() can still publish a log/SSE event per payment below.
-			if nodeIDs, ok := m["billedFlatFeeNodeIds"].([]string); ok {
-				for _, nodeID := range nodeIDs {
-					r.debitOrLog(ctx, wf, run, nodeID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
-				}
-			}
 			// The run-level pre-fund is a real inbound settlement of its own
 			// (Wallet 1 -> Wallet 2, the run's whole tool budget in one
 			// payment) with no node of its own to report it. Folding it in as
@@ -806,22 +1017,28 @@ func (r *Runner) executeNode(
 		// see the matching comment in provider.go's executeFunctionCall. The
 		// real, exact-amount reservation happens inside ExecuteTool402V2 via
 		// ledger below.
-		if err := r.preflightCheck(ctx, wf, models.X402PlatformFeeUSDMicros); err != nil {
+		if err := r.preflightCheck(ctx, wf, models.X402ProbeFloorUSDMicros); err != nil {
 			return nil, err
 		}
 		// A standalone tool402 node is never run-funded (that only ever
-		// applies to an agent's attached tools), so Ledger and LegacyLedger
-		// are the same DB-backed, per-call ledger here — both fields are
-		// still populated so ExecuteTool402V2's legacy-dialect branch (which
-		// only ever reads LegacyLedger) works identically to the v2 branch
-		// (which only ever reads Ledger).
+		// applies to an agent's attached tools, RunFundingID stays "" here),
+		// so toolIsRunFunded is always false and v2 dispatch always takes
+		// the PerCallLedger path -- Ledger is never actually read for a
+		// standalone node, but PerCallLedger and LegacyLedger are the same
+		// DB-backed, per-call ledger, matching the identical
+		// legacy-dialect/v2-dialect split ExecuteTool402V2 already makes.
 		standaloneLedger := r.newPaymentLedger(wf, run)
 		relayCfg := nodes.X402RelayConfig{
 			USDCSigner:               usdcSigner,
 			PlatformSpendEncMnemonic: r.platformSpendEncMnemonic,
 			ExpectedAssetID:          r.x402.USDCAssetID,
 			RelayBaseURL:             r.relayBaseURL,
-			Ledger:                   nodes.RunLedger(standaloneLedger),
+			Facilitator:              r.x402.FacilitatorClient,
+			PlatformWalletAddress:    r.x402.PlatformWalletAddress,
+			RelayNetwork:             r.x402.RelayNetwork,
+			RelayFeePayer:            r.x402.RelayFeePayer,
+			FrontendURL:              r.x402.FrontendURL,
+			PerCallLedger:            nodes.CallLedger(standaloneLedger),
 			LegacyLedger:             nodes.CallLedger(standaloneLedger),
 		}
 		paymentResult, err := nodes.ExecuteTool402V2(ctx, node, rc, aw, r.walletSvc, relayCfg)
@@ -831,6 +1048,40 @@ func (r *Runner) executeNode(
 		// Already reserved+committed via ledger inside ExecuteTool402V2, at
 		// the moment the payment settled — see newPaymentLedger.
 		return paymentResult.Response, nil
+	case models.NodeTypeTendril:
+		if r.tendrilClient == nil || r.tendrilSession == nil {
+			return nil, fmt.Errorf("tendril: TENDRIL_REGISTRY_URL is not configured on this server")
+		}
+		// Same conservative pre-flight as tool402: one cheap balance check
+		// before any network call that could spend money.
+		if err := r.preflightCheck(ctx, wf, models.X402PlatformFeeUSDMicros); err != nil {
+			return nil, err
+		}
+		usdcSigner, _ := r.walletSvc.(nodes.USDCGroupSigner)
+		ledger := r.newPaymentLedger(wf, run)
+		return nodes.ExecuteTendril(ctx, node, rc, nodes.TendrilConfig{
+			Client:     r.tendrilClient,
+			Session:    r.tendrilSession,
+			Store:      r.store,
+			EncryptKey: r.encryptionKey,
+			UserID:     wf.UserID,
+			WorkflowID: wf.ID,
+			RunID:      run.ID,
+			Relay: nodes.X402RelayConfig{
+				USDCSigner:               usdcSigner,
+				PlatformSpendEncMnemonic: r.platformSpendEncMnemonic,
+				ExpectedAssetID:          r.x402.USDCAssetID,
+				RelayBaseURL:             r.relayBaseURL,
+				Facilitator:              r.x402.FacilitatorClient,
+				PlatformWalletAddress:    r.x402.PlatformWalletAddress,
+				RelayNetwork:             r.x402.RelayNetwork,
+				RelayFeePayer:            r.x402.RelayFeePayer,
+				FrontendURL:              r.x402.FrontendURL,
+				Ledger:                   nodes.RunLedger(ledger),
+				LegacyLedger:             nodes.CallLedger(ledger),
+				PerCallLedger:            nodes.CallLedger(ledger),
+			},
+		})
 	case models.NodeTypeAction:
 		billable := nodes.BillableFlatFee(node.Type, node.Template)
 		if billable {
@@ -839,6 +1090,40 @@ func (r *Runner) executeNode(
 			}
 		}
 		result, err := nodes.ExecuteAction(ctx, node, rc)
+		if err != nil {
+			if errors.Is(err, nodes.ErrActionSkipped) {
+				return result, nil
+			}
+			return nil, err
+		}
+		if billable {
+			r.debitOrLog(ctx, wf, run, node.ID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+		}
+		return result, nil
+	case models.NodeTypeGoogle:
+		if r.googleClientID == "" || r.googleClientSecret == "" {
+			return nil, fmt.Errorf("google: GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET are not configured on this server")
+		}
+		// Routed through BillableFlatFee, same as NodeTypeAction above,
+		// instead of hardcoding "always billable" here -- BillableFlatFee is
+		// the single source of truth for which template/nodeType pairs are
+		// billable (NodeTypeTool already varies by template: template ==
+		// "http"), so calling it here means a future template-conditional
+		// change there (e.g. a free Google read-only op) takes effect
+		// automatically instead of silently being ignored by this branch.
+		billable := nodes.BillableFlatFee(node.Type, node.Template)
+		if billable {
+			if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
+				return nil, err
+			}
+		}
+		result, err := nodes.ExecuteGoogle(ctx, node, rc, nodes.GoogleConfig{
+			Store:        r.store,
+			EncryptKey:   r.encryptionKey,
+			ClientID:     r.googleClientID,
+			ClientSecret: r.googleClientSecret,
+			UserID:       wf.UserID,
+		})
 		if err != nil {
 			if errors.Is(err, nodes.ErrActionSkipped) {
 				return result, nil

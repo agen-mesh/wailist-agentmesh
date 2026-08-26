@@ -155,6 +155,20 @@ Optional (needed for specific features):
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth |
 | `RESEND_API_KEY` | Email action node |
+| `TENDRIL_REGISTRY_URL` | Tendril compute registry (default `https://tendrilregister.007575.xyz`). Unset disables tendril nodes — they fail closed. |
+| `MAX_RELAY_OUTBOUND_USD_MICROS` | Ceiling on one relayed x402 payment (default `20000000`, $20.00 — raised from $5.00 because a 2-hour rent on a $6/hr machine tops the pool up by $12 in a single call). |
+
+### The two Tendril balances
+
+Tendril keys credit to the paying address, and the payer is always Wallet 2 (`PLATFORM_WALLET_*`) — so on Tendril's own side there is exactly **one** balance for all of AgentMesh combined. AgentMesh therefore keeps a **per-user sub-ledger** on top of that shared pool: `users.tendril_credit_usd_micros` plus the append-only `tendril_credit_ledger` table. A user may only ever spend what they themselves converted into it.
+
+A Topup node settles real USDC into the shared pool and, in the same transaction, moves the same value from that user's AgentMesh credits into their Tendril credits — one transfer, two ledger rows. Renting is a flat 1¢ gate fee that does **not** buy time; the hours themselves come out of the user's Tendril credit at the machine's hourly rate. Release is where compute is actually billed — Tendril reports what it charged, and the unused remainder of the reservation returns to that user's Tendril credit (never to AgentMesh credits, which would let a user cycle rent/release to convert Tendril credit back into general platform credit the pool cannot honor). The reaper exists because an unreleased lease keeps metering against the pool even after its funded window closes.
+
+The invariant every Tendril-touching change must preserve:
+
+```
+SUM(users.tendril_credit_usd_micros) + (hours currently metering) <= Tendril pool balance at Wallet 2
+```
 
 ---
 

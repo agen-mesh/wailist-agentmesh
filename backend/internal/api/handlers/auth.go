@@ -18,6 +18,29 @@ import (
 
 const authCookieName = "agentmesh_token"
 
+// uiCookieName mirrors the frontend's own agentmesh_ui cookie (see
+// useAuth.ts's setUICookie / middleware.ts) — a non-HttpOnly signal cookie
+// the Next.js middleware gates protected routes on, since it can't read the
+// HttpOnly agentmesh_token cookie set on the backend's cross-site response.
+// Password sign-in/signup set it client-side right after a successful call,
+// but OAuth is a pure server-redirect chain with no client JS in the loop,
+// so OAuthCallback has to set it here or the middleware bounces a freshly
+// signed-in OAuth user straight back to /signin.
+const uiCookieName = "agentmesh_ui"
+
+func (d *Deps) setUICookie(w http.ResponseWriter) {
+	secure := strings.HasPrefix(os.Getenv("BASE_URL"), "https")
+	http.SetCookie(w, &http.Cookie{
+		Name:     uiCookieName,
+		Value:    "1",
+		Path:     "/",
+		MaxAge:   int(tokenTTL.Seconds()),
+		HttpOnly: false,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
 func (d *Deps) setAuthCookie(w http.ResponseWriter, token string) {
 	secure := strings.HasPrefix(os.Getenv("BASE_URL"), "https")
 	sameSite := http.SameSiteLaxMode
@@ -69,17 +92,24 @@ func (d *Deps) SignUp(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		Name     string `json:"name"`
 		Org      string `json:"org"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 
 	body.Email = strings.TrimSpace(strings.ToLower(body.Email))
+	body.Name = strings.TrimSpace(body.Name)
+	body.Org = strings.TrimSpace(body.Org)
 	if body.Email == "" || !strings.Contains(body.Email, "@") {
 		respond.Error(w, http.StatusBadRequest, "valid email required")
 		return
 	}
 	if len(body.Password) < 8 {
 		respond.Error(w, http.StatusBadRequest, "password must be at least 8 characters")
+		return
+	}
+	if body.Name == "" {
+		respond.Error(w, http.StatusBadRequest, "name required")
 		return
 	}
 
@@ -96,6 +126,16 @@ func (d *Deps) SignUp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.Printf("create user: %v", err)
+		respond.Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	// Password signup collects name/org up front, unlike OAuth (which only
+	// gets a verified email from the provider) — persist them immediately
+	// rather than sending this user through the OAuth onboarding prompt too.
+	user, err = d.Store.UpdateProfile(r.Context(), user.ID, body.Name, body.Org)
+	if err != nil {
+		log.Printf("set profile on signup: %v", err)
 		respond.Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -148,7 +188,53 @@ func (d *Deps) SignOut(w http.ResponseWriter, r *http.Request) {
 
 func (d *Deps) Me(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(CtxUserID).(string)
-	respond.JSON(w, http.StatusOK, map[string]string{"id": userID})
+	user, err := d.Store.GetUserByID(r.Context(), userID)
+	if err != nil {
+		respond.Error(w, http.StatusUnauthorized, "not found")
+		return
+	}
+	respond.JSON(w, http.StatusOK, map[string]any{
+		"id":      user.ID,
+		"email":   user.Email,
+		"name":    user.Name,
+		"orgName": user.OrgName,
+		// OAuth accounts are created with no name — the frontend prompts for
+		// name+org once, right after the provider redirect lands them here.
+		"needsOnboarding": user.Name == "",
+	})
+}
+
+// UpdateProfile sets the signed-in user's display name and organization
+// name. Used by the post-OAuth onboarding prompt (see Me's needsOnboarding),
+// and safe to call again later as a general profile edit.
+func (d *Deps) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(CtxUserID).(string)
+
+	var body struct {
+		Name    string `json:"name"`
+		OrgName string `json:"orgName"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	body.Name = strings.TrimSpace(body.Name)
+	body.OrgName = strings.TrimSpace(body.OrgName)
+	if body.Name == "" {
+		respond.Error(w, http.StatusBadRequest, "name required")
+		return
+	}
+
+	user, err := d.Store.UpdateProfile(r.Context(), userID, body.Name, body.OrgName)
+	if err != nil {
+		log.Printf("update profile: %v", err)
+		respond.Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	respond.JSON(w, http.StatusOK, map[string]any{
+		"id":              user.ID,
+		"email":           user.Email,
+		"name":            user.Name,
+		"orgName":         user.OrgName,
+		"needsOnboarding": false,
+	})
 }
 
 func (d *Deps) issueToken(user models.User) (string, error) {

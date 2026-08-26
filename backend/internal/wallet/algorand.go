@@ -279,3 +279,55 @@ func (s *Service) SignUSDCPaymentSingle(ctx context.Context, encMnemonic, payTo 
 
 	return []string{base64.StdEncoding.EncodeToString(signed)}, 0, nil
 }
+
+// SignZeroSelfPayment signs a 0-amount payment from an address to itself,
+// carrying note in the note field, using hardcoded suggested params rather
+// than any algod round trip.
+//
+// Tendril's /auth/wallet-login verifies this signature and then discards the
+// transaction — it is never broadcast. That is why the params below are
+// invented rather than fetched: a transaction nobody submits has no real
+// validity window to respect, and requiring algod here would make logging in
+// to read a balance fail whenever the node is slow. It also costs nothing and
+// requires no balance, which matters because Wallet 2's ALGO is not this
+// feature's concern.
+//
+// Returns the base64 signed transaction and the signing address.
+func (s *Service) SignZeroSelfPayment(ctx context.Context, encMnemonic, note, genesisHashB64, genesisID string) (string, string, error) {
+	mn, err := s.DecryptMnemonic(encMnemonic)
+	if err != nil {
+		return "", "", err
+	}
+	privateKey, err := mnemonic.ToPrivateKey(mn)
+	if err != nil {
+		return "", "", err
+	}
+	acct, err := crypto.AccountFromPrivateKey(privateKey)
+	if err != nil {
+		return "", "", err
+	}
+	addr := acct.Address.String()
+
+	genesisHash, err := base64.StdEncoding.DecodeString(genesisHashB64)
+	if err != nil {
+		return "", "", fmt.Errorf("genesis hash: %w", err)
+	}
+	params := types.SuggestedParams{
+		Fee:             1000,
+		MinFee:          1000,
+		FirstRoundValid: 1,
+		LastRoundValid:  1000,
+		GenesisID:       genesisID,
+		GenesisHash:     genesisHash,
+		FlatFee:         true,
+	}
+	txn, err := transaction.MakePaymentTxn(addr, addr, 0, []byte(note), "", params)
+	if err != nil {
+		return "", "", err
+	}
+	_, signed, err := crypto.SignTransaction(privateKey, txn)
+	if err != nil {
+		return "", "", err
+	}
+	return base64.StdEncoding.EncodeToString(signed), addr, nil
+}

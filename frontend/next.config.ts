@@ -7,6 +7,13 @@ import type { NextConfig } from "next";
 const BACKEND_URL = process.env.BACKEND_URL ?? "";
 
 const nextConfig: NextConfig = {
+  // Next's rewrites() proxy kills the upstream connection after 30s by
+  // default -- too short for the chat-driven workflow builder, whose
+  // meta-agent loop can take several sequential Gemini round trips per
+  // message. Give it more room.
+  experimental: {
+    proxyTimeout: 120000,
+  },
   async rewrites() {
     if (!BACKEND_URL) return [];
     return [

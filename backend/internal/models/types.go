@@ -13,6 +13,14 @@ const (
 	NodeTypeTool402  NodeType = "tool402"
 	NodeTypeAction   NodeType = "action"
 	NodeTypeEnd      NodeType = "end"
+	NodeTypeTendril  NodeType = "tendril"
+	// NodeTypeGoogle covers Gmail/Sheets/Calendar/Drive -- grouped under one
+	// node type (Template selects the specific operation, e.g.
+	// "gmail_send") the same way NodeTypeTendril's TendrilAction does,
+	// rather than one node type per Google product, since they all share
+	// the identical OAuth-credential-lookup mechanics (see
+	// nodes.ExecuteGoogle) and differ only in which API they call.
+	NodeTypeGoogle NodeType = "google"
 )
 
 const (
@@ -115,7 +123,7 @@ type WorkflowNode struct {
 	// referenced from here rather than uploaded separately, since the whole
 	// point of this mode is bodies where a file is one field among others.
 	BodyTemplate string `json:"bodyTemplate,omitempty"`
-	Description  string        `json:"description,omitempty"`
+	Description  string `json:"description,omitempty"`
 	// Secrets holds per-connector credential values for connectors added after the
 	// original dedicated fields (APIKey, EmailAPIKey, ...). Each value is encrypted
 	// independently, exactly like EmailAPIKey, via encryptNodes/maskNodes/decryptNodes.
@@ -123,6 +131,20 @@ type WorkflowNode struct {
 	// Config holds per-connector non-secret settings (list IDs, project keys, channel
 	// names, etc.) for the same connectors. Never encrypted.
 	Config map[string]string `json:"config,omitempty"`
+	// Tendril node fields. TendrilAction is "topup" | "rent" | "run" | "release";
+	// TendrilHours is how many hours of credit to guarantee before renting,
+	// as a decimal string ("1", "2", "0.5") — a string, like every other
+	// canvas-entered value on this struct.
+	TendrilAction string `json:"tendrilAction,omitempty"`
+	TendrilNodeID string `json:"tendrilNodeId,omitempty"`
+	TendrilHours  string `json:"tendrilHours,omitempty"`
+	// TendrilAmount is USD of AgentMesh credit to convert into Tendril
+	// credit, on a topup node.
+	TendrilAmount string `json:"tendrilAmount,omitempty"`
+	// TendrilLeaseToken is a bearer the TARGET needs, carried to the relay
+	// out of band. Never persisted on a saved workflow — it is only ever set
+	// on the synthesized nodes payTendril builds at call time.
+	TendrilLeaseToken string `json:"-"`
 }
 
 type WorkflowEdge struct {
@@ -234,6 +256,8 @@ type User struct {
 	ID           string    `json:"id"`
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"-"`
+	Name         string    `json:"name"`
+	OrgName      string    `json:"orgName"`
 	CreatedAt    time.Time `json:"createdAt"`
 }
 
@@ -278,11 +302,100 @@ const (
 	DebitKindX402PlatformFee   = "x402_platform_fee"
 	DebitKindX402RelayCost     = "x402_relay_cost"
 	DebitKindPlatformKeyLLMFee = "platform_key_llm_fee"
+	DebitKindTendrilLease      = "tendril_lease"
+)
+
+// TendrilLease is one rented Tendril machine. A lease deliberately outlives
+// the run that opened it: a workflow run finishes in seconds while the machine
+// meters for hours, so this is a first-class AgentMesh resource with its own
+// release lifecycle rather than run-scoped state.
+type TendrilLease struct {
+	ID         string `json:"id"`
+	UserID     string `json:"userId"`
+	WorkflowID string `json:"workflowId"`
+	RunID      string `json:"runId"`
+	NodeID     string `json:"nodeId"`
+
+	LeaseID          string `json:"leaseId"`
+	LeaseTokenEnc    string `json:"-"`
+	TendrilNodeID    string `json:"tendrilNodeId"`
+	TendrilNodeLabel string `json:"tendrilNodeLabel"`
+
+	SSHHost          string `json:"sshHost"`
+	SSHPort          int    `json:"sshPort"`
+	SSHUsername      string `json:"sshUsername"`
+	SSHCommand       string `json:"sshCommand"`
+	SSHPublicKey     string `json:"sshPublicKey"`
+	SSHPrivateKeyEnc string `json:"-"`
+	SSHPasswordEnc   string `json:"-"`
+
+	RateUSDMicrosPerHour int64      `json:"rateUsdMicrosPerHour"`
+	HoursPurchased       float64    `json:"hoursPurchased"`
+	ReservedUSDMicros    int64      `json:"reservedUsdMicros"`
+	ChargedUSDMicros     *int64     `json:"chargedUsdMicros,omitempty"`
+	UsedSeconds          *int64     `json:"usedSeconds,omitempty"`
+	Status               string     `json:"status"`
+	StartedAt            time.Time  `json:"startedAt"`
+	FundedUntil          time.Time  `json:"fundedUntil"`
+	ReleasedAt           *time.Time `json:"releasedAt,omitempty"`
+}
+
+// OAuthCredential is one persisted, refreshable connection to an external
+// OAuth2 provider (Google today; Slack/Microsoft could follow the same
+// shape) that a workflow node reads a live access token from. Distinct from
+// the sign-in OAuth flow (handlers/oauth.go): that flow authenticates a
+// person into AgentMesh and never stores a token; this is a token a node
+// calls the provider's own API with, on the user's behalf, long after the
+// browser session that connected it is gone -- so AccessToken/RefreshToken
+// are the encrypted-at-rest fields, never round-tripped to the frontend.
+type OAuthCredential struct {
+	ID              string    `json:"id"`
+	UserID          string    `json:"userId"`
+	Provider        string    `json:"provider"`
+	AccountLabel    string    `json:"accountLabel"`
+	AccessTokenEnc  string    `json:"-"`
+	RefreshTokenEnc string    `json:"-"`
+	Scopes          string    `json:"scopes"`
+	ExpiresAt       time.Time `json:"expiresAt"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+}
+
+// TendrilCreditEntry is one row of the append-only tendril_credit_ledger
+// table — a movement of a single user's Tendril credit sub-ledger, distinct
+// from and never checked against the shared Wallet 2 pool balance.
+type TendrilCreditEntry struct {
+	ID              string    `json:"id"`
+	UserID          string    `json:"userId"`
+	Kind            string    `json:"kind"`
+	AmountUSDMicros int64     `json:"amountUsdMicros"`
+	LeaseID         *string   `json:"leaseId,omitempty"`
+	TxID            *string   `json:"txId,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
+}
+
+const (
+	TendrilCreditKindTopup  = "topup"  // AgentMesh credits -> Tendril credits
+	TendrilCreditKindCharge = "charge" // Tendril credits -> compute
+	TendrilCreditKindRefund = "refund" // unused reservation returned
 )
 
 const (
-	ByokFlatFeeUSDMicros     int64 = 10_000  // $0.01
-	X402PlatformFeeUSDMicros int64 = 500_000 // $0.50
+	ByokFlatFeeUSDMicros     int64 = 500_000   // $0.50
+	X402PlatformFeeUSDMicros int64 = 1_500_000 // $1.50
+	// X402ProbeFloorUSDMicros is the pre-call balance floor checked before
+	// letting an agent make ANY outbound HTTP request to a tool402 node's
+	// endpoint -- including the unauthenticated probe that just fetches the
+	// 402 price quote, before any real payment exists. Checked at two call
+	// sites: nodes.executeFunctionCall (an agent-attached tool402 call not
+	// covered by run funding) and Runner.executeNode (a standalone
+	// NodeTypeTool402 node, which is never run-funded). Deliberately its own
+	// constant, separate from X402PlatformFeeUSDMicros: this one guards
+	// against an unfunded caller driving unbounded outbound requests through
+	// a tool402 node (SSRF / DoS-amplification risk), not against
+	// underpaying -- so it should stay cheap even as the real platform
+	// markup moves for pricing reasons.
+	X402ProbeFloorUSDMicros int64 = 50_000 // $0.05
 	// MaxSingleX402QuoteUSDMicros is a sanity ceiling on any one attached
 	// tool402 node's live quote during reserveAndFundRun's estimate
 	// summation — generous against any real tool price, tight against an
@@ -314,13 +427,14 @@ type X402RunFunding struct {
 }
 
 // Platform-key LLM tiers follow Zapier's flat-multiplier pattern: a fixed
-// credit charge per tier per call (1x/3x/5x the BYOK convenience-fee unit),
-// known upfront so it can feed the pre-run cost estimate, rather than live
-// per-token metering. Token usage is still captured (DebitEntry.TokensIn/
-// TokensOut) purely to confirm these multiples hold a healthy margin
-// against real provider cost as pricing/models change.
+// credit charge per tier per call, known upfront so it can feed the pre-run
+// cost estimate, rather than live per-token metering. Token usage is still
+// captured (DebitEntry.TokensIn/TokensOut) purely to confirm these
+// multiples hold a healthy margin against real provider cost as
+// pricing/models change. Tier ratio (1x/3x/5x) is relative to the economy
+// tier itself, not to ByokFlatFeeUSDMicros — the two moved independently.
 const (
-	PlatformKeyEconomyFeeUSDMicros  int64 = 10_000 // $0.01 (1x)
-	PlatformKeyStandardFeeUSDMicros int64 = 30_000 // $0.03 (3x)
-	PlatformKeyFrontierFeeUSDMicros int64 = 50_000 // $0.05 (5x)
+	PlatformKeyEconomyFeeUSDMicros  int64 = 30_000  // $0.03 (1x)
+	PlatformKeyStandardFeeUSDMicros int64 = 90_000  // $0.09 (3x)
+	PlatformKeyFrontierFeeUSDMicros int64 = 150_000 // $0.15 (5x)
 )

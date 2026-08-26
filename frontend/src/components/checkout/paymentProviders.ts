@@ -1,7 +1,7 @@
 import type { PaymentMethod } from "./types";
 
 // Single source of truth for the checkout's payment providers and their live
-// state. Cashfree + NOWPayments are selectable today; PayPal + Stripe render as
+// state. Cashfree is selectable today; NOWPayments, PayPal + Stripe render as
 // disabled "coming soon" rows. Order here is the display order.
 export interface PaymentProvider {
   id: PaymentMethod;
@@ -20,8 +20,8 @@ export const PAYMENT_PROVIDERS: PaymentProvider[] = [
   {
     id: "nowpayments",
     label: "NOWPayments",
-    sublabel: "Pay with crypto",
-    enabled: true,
+    sublabel: "Coming soon",
+    enabled: false,
   },
   {
     id: "paypal",
@@ -37,6 +37,6 @@ export const PAYMENT_PROVIDERS: PaymentProvider[] = [
   },
 ];
 
-// The default selected provider — the first enabled one.
+// The default selected provider -- the first enabled one.
 export const DEFAULT_PROVIDER: PaymentMethod =
   PAYMENT_PROVIDERS.find((p) => p.enabled)?.id ?? "cashfree";

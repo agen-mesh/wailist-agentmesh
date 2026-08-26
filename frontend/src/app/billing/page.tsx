@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { IconArrow, IconWallet } from "@/components/ui";
 import { Topbar } from "@/components/Topbar";
 import { PurchaseHistory } from "@/components/billing/PurchaseHistory";
@@ -13,7 +13,7 @@ const LOW_BALANCE_USD = 5;
 
 const HOW_IT_WORKS = [
   "Credits are spent as your agents call paid tools, x402 endpoints, and LLM providers.",
-  "Testnet usage is always free — you only pay for mainnet calls.",
+  "Testnet usage is always free. You only pay for mainnet calls.",
   "Top-ups of ₹1000 or more earn 5% bonus credits.",
   "Every purchase generates a printable receipt for your records.",
 ];
@@ -42,10 +42,19 @@ const panelStyle: React.CSSProperties = {
 const fmtUSD = (n: number) => `$${n.toFixed(2)}`;
 
 export default function BillingPage() {
-  const { balanceUSD, lastPurchase, refreshBalance } = useCredits();
+  const { balanceUSD, balanceKnown, lastPurchase, refreshBalance } =
+    useCredits();
   const [amountINR, setAmountINR] = useState<number>(PRESETS_INR[1]);
   const [customINR, setCustomINR] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+
+  // Read the authoritative balance (users.credit_balance_usd_micros) every time
+  // this page is opened. The store keeps a cross-route copy in memory, but it
+  // goes stale the moment a run spends credits in another tab — and this is the
+  // page where the number has to be right.
+  useEffect(() => {
+    void refreshBalance();
+  }, [refreshBalance]);
 
   const [couponCode, setCouponCode] = useState("");
   const [couponState, setCouponState] = useState<
@@ -63,14 +72,20 @@ export default function BillingPage() {
     if (!code || couponState === "loading") return;
     setCouponState("loading");
     try {
-      await creditsApi.redeemCoupon(code);
+      // The credited amount is whatever this code is configured for on the
+      // backend, so report what the server actually granted.
+      const { creditedUSD } = await creditsApi.redeemCoupon(code);
       await refreshBalance();
       setCouponState("success");
-      setCouponMessage("Coupon applied — $5 added to your balance.");
+      setCouponMessage(
+        `Coupon applied — ${fmtUSD(creditedUSD)} added to your balance.`,
+      );
       setCouponCode("");
     } catch (e) {
       setCouponState("error");
-      setCouponMessage(e instanceof Error ? e.message : "coupon redemption failed");
+      setCouponMessage(
+        e instanceof Error ? e.message : "coupon redemption failed",
+      );
     }
   };
 
@@ -83,7 +98,10 @@ export default function BillingPage() {
   const checkoutAmountINR = effectiveINR >= 1 ? effectiveINR : 0;
   const canCheckout = checkoutAmountINR > 0;
   const credits = creditsForTopup(checkoutAmountINR);
-  const isLow = balanceUSD < LOW_BALANCE_USD;
+  // Only call a balance "low" once we've actually read it — before the first
+  // fetch lands, balanceUSD is 0 because nothing is known, not because the
+  // account is empty.
+  const isLow = balanceKnown && balanceUSD < LOW_BALANCE_USD;
 
   return (
     <div
@@ -130,7 +148,7 @@ export default function BillingPage() {
               }}
             >
               Credits are spent as your agents call paid tools and models. Top
-              up anytime — testnet usage stays free.
+              up anytime; testnet usage stays free.
             </p>
           </div>
 
@@ -198,7 +216,7 @@ export default function BillingPage() {
                         fontVariantNumeric: "tabular-nums",
                       }}
                     >
-                      {fmtUSD(balanceUSD)}
+                      {balanceKnown ? fmtUSD(balanceUSD) : "—"}
                     </div>
                   </div>
                   <span
@@ -226,7 +244,11 @@ export default function BillingPage() {
                         background: isLow ? "var(--warm)" : "var(--accent)",
                       }}
                     />
-                    {isLow ? "Low balance" : "Active"}
+                    {!balanceKnown
+                      ? "Checking…"
+                      : isLow
+                        ? "Low balance"
+                        : "Active"}
                   </span>
                 </div>
               </div>
@@ -347,11 +369,23 @@ export default function BillingPage() {
                       ₹
                     </span>
                     <input
-                      type="number"
-                      inputMode="numeric"
+                      // Deliberately type="text", not type="number": a number
+                      // input carries spinner arrows (and scroll-wheel/arrow-key
+                      // stepping) that let the amount change without anyone
+                      // typing it. The value is still numeric — non-numeric
+                      // characters are rejected on input below.
+                      type="text"
+                      inputMode="decimal"
                       placeholder="Custom amount"
                       value={customINR}
-                      onChange={(e) => setCustomINR(e.target.value)}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        // Digits with at most one decimal point; empty clears
+                        // back to the selected preset.
+                        if (next === "" || /^\d*\.?\d*$/.test(next)) {
+                          setCustomINR(next);
+                        }
+                      }}
                       style={{
                         flex: 1,
                         height: "100%",

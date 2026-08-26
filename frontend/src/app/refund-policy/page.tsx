@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Cancellation & Refund Policy — AgentMesh",
+  title: "Cancellation & Refund Policy | AgentMesh",
   description: "AgentMesh prepaid credit purchase policy: all sales are final and non-refundable once provisioned.",
 };
 
@@ -65,7 +65,7 @@ function PolicyDoc() {
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
 
       <Section n="1" title="What We Sell">
-        <P>{COMPANY} sells prepaid platform Credits (&ldquo;Credits&rdquo;) that are deducted in real time as your agent workflows consume computational resources. Credits are a finite, platform-internal resource — not a subscription and not a financial product.</P>
+        <P>{COMPANY} sells prepaid platform Credits (&ldquo;Credits&rdquo;) that are deducted in real time as your agent workflows consume computational resources. Credits are a finite, platform-internal resource, not a subscription and not a financial product.</P>
       </Section>
 
       <Section n="2" title="All Sales Are Final" highlight>
@@ -93,7 +93,7 @@ function PolicyDoc() {
 
       <Section n="5" title="Disputed or Failed Payments">
         <P>If your payment fails mid-transaction, no Credits are provisioned and no amount is charged. If your bank or payment processor debits your account despite a transaction failure, please contact us at <a href={`mailto:${CONTACT}`} style={inlineLink}>{CONTACT}</a> with your transaction reference and we will investigate promptly.</P>
-        <P>Initiating a chargeback or payment dispute for a legitimately completed Credit purchase — where Credits were provisioned as described — is a breach of these Terms and may result in immediate suspension of your account.</P>
+        <P>Initiating a chargeback or payment dispute for a legitimately completed Credit purchase, where Credits were provisioned as described, is a breach of these Terms and may result in immediate suspension of your account.</P>
       </Section>
 
       <Section n="6" title="Exceptions">

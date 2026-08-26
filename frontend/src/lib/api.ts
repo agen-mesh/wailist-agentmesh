@@ -21,6 +21,16 @@ export const BASE =
   _CONFIGURED && typeof window !== "undefined" ? "/api" : _CONFIGURED;
 
 // -- Auth ------------------------------------------------------------------
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  orgName: string;
+  // True for an OAuth account that has never set a name/org — Google and
+  // GitHub only hand back a verified email, not an organization.
+  needsOnboarding: boolean;
+}
+
 export const auth = {
   signIn: async (email: string, password: string): Promise<void> => {
     if (BASE) {
@@ -42,6 +52,7 @@ export const auth = {
   signUp: async (
     email: string,
     password: string,
+    name: string,
     org: string,
   ): Promise<void> => {
     if (BASE) {
@@ -49,7 +60,7 @@ export const auth = {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, org }),
+        body: JSON.stringify({ email, password, name, org }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "sign up failed");
@@ -57,17 +68,48 @@ export const auth = {
     }
     void email;
     void password;
+    void name;
     void org;
     await delay(500);
   },
 
-  me: async (): Promise<{ id: string; email: string }> => {
+  me: async (): Promise<AuthUser> => {
     if (BASE) {
       const res = await fetch(`${BASE}/auth/me`, { credentials: "include" });
       if (!res.ok) throw new Error("unauthorized");
       return res.json();
     }
-    return { id: "dev", email: "dev@local" };
+    return {
+      id: "dev",
+      email: "dev@local",
+      name: "Dev",
+      orgName: "Acme Capital",
+      needsOnboarding: false,
+    };
+  },
+
+  // Sets name/org for the signed-in user. Used by the post-OAuth onboarding
+  // prompt (OAuth accounts start with no name/org), and reusable as a
+  // general profile edit.
+  updateProfile: async (name: string, orgName: string): Promise<AuthUser> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/auth/me`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, orgName }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "could not update profile");
+      return data;
+    }
+    return {
+      id: "dev",
+      email: "dev@local",
+      name,
+      orgName,
+      needsOnboarding: false,
+    };
   },
 
   signOut: async (): Promise<void> => {
@@ -82,7 +124,7 @@ export const auth = {
   },
 
   // Full URL to kick off a backend OAuth flow. Empty string when no backend
-  // is configured (mock mode) — callers should guard on the http prefix.
+  // is configured (mock mode) -- callers should guard on the http prefix.
   oauthURL: (provider: "github" | "google"): string =>
     BASE ? `${BASE}/auth/oauth/${provider}` : "",
 };
@@ -155,6 +197,25 @@ export const workflows = {
     };
   },
 
+  // DELETE /workflows/:id — permanent. The backend refuses (409) for a
+  // workflow that has Tendril lease history, since deleting it would destroy
+  // the only copy of an active lease's encrypted credentials; that message is
+  // surfaced to the caller rather than swallowed.
+  remove: async (id: string): Promise<void> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/workflows/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "workflow delete failed");
+      }
+      return;
+    }
+    await delay(200);
+  },
+
   // TODO: POST /workflows/:id/deploy
   deploy: async (
     id: string,
@@ -194,6 +255,34 @@ export const workflows = {
     return { runId: `r-${Math.floor(1800 + Math.random() * 200)}` };
   },
 
+  // TODO: POST /workflows/:id/build
+  build: async (
+    id: string,
+    message: string,
+  ): Promise<{ reply: string; workflow: Workflow }> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/workflows/${id}/build`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "build failed");
+      return data;
+    }
+    await delay(300);
+    // Echo the current mock workflow back untouched: the caller replaces its
+    // nodes/edges with whatever comes back, so returning an empty graph here
+    // would wipe the demo canvas on the first chat message.
+    const current = await workflows.get(id);
+    return {
+      reply:
+        "Mock build response — connect a real backend to build workflows from chat.",
+      workflow: current,
+    };
+  },
+
   // TODO: POST /workflows/:id/stop
   stop: async (id: string): Promise<void> => {
     if (BASE) {
@@ -225,10 +314,15 @@ export const credits = {
     return 0;
   },
 
-  // Redeems a coupon code and returns the new balance. Throws with the
-  // server's message (e.g. "invalid coupon code", "coupon already redeemed")
-  // on failure so the caller can show it directly.
-  redeemCoupon: async (code: string): Promise<number> => {
+  // Redeems a coupon code, returning the new balance and what this code
+  // granted — both in USD. The credited amount is per-code configuration
+  // (COUPON_CODES on the backend), so it has to come from the response rather
+  // than being assumed. Throws with the server's message (e.g. "invalid coupon
+  // code", "coupon already redeemed") on failure so the caller can show it
+  // directly.
+  redeemCoupon: async (
+    code: string,
+  ): Promise<{ balanceUSD: number; creditedUSD: number }> => {
     if (BASE) {
       const res = await fetch(`${BASE}/credits/redeem-coupon`, {
         method: "POST",
@@ -238,7 +332,10 @@ export const credits = {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "coupon redemption failed");
-      return (data.credit_usd_micros ?? 0) / 1e6;
+      return {
+        balanceUSD: (data.credit_usd_micros ?? 0) / 1e6,
+        creditedUSD: (data.credited_usd_micros ?? 0) / 1e6,
+      };
     }
     await delay(120);
     throw new Error("coupons aren't available in mock mode");
@@ -280,7 +377,62 @@ export const runs = {
       return data;
     }
     await delay(150);
-    return { run: { status: "success" }, logs: [] };
+    // Mock mode returns a realistic finished run rather than an empty one, so
+    // the console and the chat panel can be exercised with no backend
+    // attached: an agent answer to render as prose, and a paid tool402 step
+    // so the activity strip has a real tool count and settled amount. Mirrors
+    // SAMPLE_WORKFLOW's node ids and its $0.065/call x402 weather endpoint.
+    const now = Date.now();
+    const iso = (msAgo: number) => new Date(now - msAgo).toISOString();
+    // One id, referenced everywhere it appears. Spelling it out per-field let
+    // the receipt, the explorer link and the payment list drift apart.
+    const mockTxId =
+      "7F2AC9D1E4B8A6350C1D9E2F4A7B8C3D5E6F1A2B3C4D5E6F7A8B9C0D1E2F3A4B";
+    return {
+      run: { status: "success" },
+      logs: [
+        {
+          id: "rl-1",
+          runId,
+          stepIndex: 0,
+          nodeId: "n4",
+          nodeType: "tool402",
+          status: "success",
+          output: {
+            txId: mockTxId,
+            amount: "0.065",
+            settledUsdMicros: 65000,
+            nodeName: "x402 Weather",
+            explorerURL: `https://allo.info/tx/${mockTxId}`,
+            response: {
+              location: "San Francisco, CA",
+              tempC: 14.2,
+              condition: "Partly cloudy",
+              windKph: 18,
+            },
+          },
+          durationMs: 1900,
+          ts: iso(6300),
+        },
+        {
+          id: "rl-2",
+          runId,
+          stepIndex: 1,
+          nodeId: "n2",
+          nodeType: "agent",
+          status: "success",
+          output: {
+            message:
+              "It's 14.2°C in San Francisco right now and partly cloudy, with " +
+              "winds around 18 km/h. Mild, but the wind makes it feel cooler — " +
+              "worth a light jacket if you're heading out.",
+            x402Payments: [{ txId: mockTxId, amount: "0.065" }],
+          },
+          durationMs: 4400,
+          ts: iso(1900),
+        },
+      ],
+    };
   },
 };
 
@@ -379,6 +531,44 @@ export const tools = {
   },
 };
 
+// -- OAuth2 connected accounts (Gmail/Sheets/Calendar/Drive) --------------
+// Distinct from `auth` above: that signs a person INTO AgentMesh; this
+// connects an EXTERNAL account a Google-type workflow node calls on the
+// user's behalf. See backend/internal/api/handlers/oauth2creds.go.
+export interface OAuthCredentialSummary {
+  id: string;
+  provider: string;
+  accountLabel: string;
+  scopes: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export const oauth2 = {
+  // A full-page redirect (Google's consent screen), not a fetch -- the
+  // caller should set window.location.href to this, not call it as an
+  // async request.
+  connectURL: (provider: string): string => `${BASE}/oauth2/${provider}/start`,
+
+  listCredentials: async (provider: string): Promise<OAuthCredentialSummary[]> => {
+    if (!BASE) return []; // No connected-account concept in mock mode.
+    const res = await fetch(
+      `${BASE}/oauth2/credentials?provider=${encodeURIComponent(provider)}`,
+      { credentials: "include" },
+    );
+    if (!res.ok) return [];
+    return res.json().catch(() => []);
+  },
+
+  deleteCredential: async (id: string): Promise<void> => {
+    if (!BASE) return;
+    await fetch(`${BASE}/oauth2/credentials/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+  },
+};
+
 // -- Waitlist -------------------------------------------------------------
 export const waitlist = {
   // TODO: POST /waitlist
@@ -437,7 +627,7 @@ export const payments = {
 };
 
 // -- Usage & Credits ------------------------------------------------------
-// Real endpoints don't exist yet (see plan §5 — needs a metering change in
+// Real endpoints don't exist yet (see plan §5 -- needs a metering change in
 // tool402.go + provider.go). Until then these return fixtures in mock mode,
 // and in real mode call the proposed /usage/* routes once the backend adds them.
 // Mock fixtures depend on Date.now(); memoize per range so every panel in a
@@ -460,7 +650,7 @@ function bucketFor(range: UsageRange): "hour" | "day" {
 }
 
 // One fetch/mock branch for every usage endpoint. Always reads the response
-// body for a server-provided `error` message — before this was shared, only
+// body for a server-provided `error` message -- before this was shared, only
 // summary did, and the other four threw fixed strings that discarded detail.
 async function usageFetch<T>(path: string, mock: () => T): Promise<T> {
   if (BASE) {
@@ -506,7 +696,7 @@ export const usage = {
       () => mockUsage(range).byEndpoint,
     ),
 
-  // Settlements are the latest on-chain payments, not a range-scoped metric —
+  // Settlements are the latest on-chain payments, not a range-scoped metric --
   // the real endpoint takes only `limit`, and the panel deliberately ignores
   // the 24h/7d/30d selector. Any range yields the same rows in mock mode, so
   // "30d" just picks a canonical memoized payload to slice from.

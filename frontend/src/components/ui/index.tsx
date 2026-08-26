@@ -111,7 +111,7 @@ export function Pill({
 // ── Card ─────────────────────────────────────────────────────────────────
 // The standard elevated panel (bg-elev-1 / border / r-3 / 16px padding) used
 // across the workflows and usage pages. Override via style (e.g. padding: 0)
-// and attach handlers as needed — extra props spread onto the div.
+// and attach handlers as needed -- extra props spread onto the div.
 export function Card({ style, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
@@ -272,6 +272,70 @@ export const IconClose = ({ size = 14 }: { size?: number }) => (
       strokeWidth="1.5"
       strokeLinecap="round"
     />
+  </svg>
+);
+
+export const IconBackspace = ({ size = 12 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    aria-hidden="true"
+    style={{ display: "block" }}
+  >
+    <path
+      d="M6 3.5h6.5a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1-1.5 1.5H6L1.5 8z"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M7.5 6.5l3 3M10.5 6.5l-3 3"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+export const IconChat = ({ size = 11 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    aria-hidden="true"
+    style={{ display: "block" }}
+  >
+    <path
+      d="M4.5 3h7a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H7.5L4.5 13.5V11a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+export const IconInspect = ({ size = 11 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    aria-hidden="true"
+    style={{ display: "block" }}
+  >
+    <path
+      d="M2.5 5h2.5M8 5h5.5M2.5 11h5.5M11 11h2.5"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+    />
+    <circle cx="6.5" cy="5" r="1.5" stroke="currentColor" strokeWidth="1.4" />
+    <circle cx="9.5" cy="11" r="1.5" stroke="currentColor" strokeWidth="1.4" />
   </svg>
 );
 

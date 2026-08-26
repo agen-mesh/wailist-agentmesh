@@ -1,6 +1,6 @@
 import type { PaymentMethod } from "@/components/checkout/types";
 
-// Frontend-only credit wallet model. This is a mock persisted to localStorage —
+// Frontend-only credit wallet model. This is a mock persisted to localStorage --
 // there is no backend, so balances and history are per-browser until a real API
 // lands. Amounts paid are INR; credits are denominated in USD (via a mock FX).
 

@@ -1,9 +1,9 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { auth } from "@/lib/api";
+import { auth, AuthUser } from "@/lib/api";
 
 const UI_COOKIE = "agentmesh_ui";
-const TTL = 60 * 60 * 24 * 7; // 7 days — matches backend JWT TTL
+const TTL = 60 * 60 * 24 * 7; // 7 days -- matches backend JWT TTL
 
 function setUICookie() {
   document.cookie = `${UI_COOKIE}=1; Path=/; SameSite=Lax; Max-Age=${TTL}`;
@@ -16,7 +16,7 @@ function clearUICookie() {
 export function useAuth() {
   const [signedIn, setSignedIn] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<{ id: string; email: string } | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
 
   useEffect(() => {
     auth
@@ -41,8 +41,8 @@ export function useAuth() {
   }, []);
 
   const signUp = useCallback(
-    async (email: string, password: string, org: string) => {
-      await auth.signUp(email, password, org);
+    async (email: string, password: string, name: string, org: string) => {
+      await auth.signUp(email, password, name, org);
       setUICookie();
       setSignedIn(true);
     },
@@ -56,5 +56,21 @@ export function useAuth() {
     setUser(null);
   }, []);
 
-  return { signedIn, loading, user, signIn, signUp, signOut };
+  // Completes the post-OAuth onboarding prompt (or a later profile edit) —
+  // updates the backend then reflects it locally so callers don't need a
+  // full re-fetch just to clear needsOnboarding.
+  const completeOnboarding = useCallback(async (name: string, org: string) => {
+    const updated = await auth.updateProfile(name, org);
+    setUser(updated);
+  }, []);
+
+  return {
+    signedIn,
+    loading,
+    user,
+    signIn,
+    signUp,
+    signOut,
+    completeOnboarding,
+  };
 }

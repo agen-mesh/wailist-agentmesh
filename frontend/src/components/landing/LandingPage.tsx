@@ -44,7 +44,7 @@ export function LandingPage({ signedIn }: LandingPageProps) {
     v.addEventListener("ended", onEnded);
     v.play().catch(() => {});
     // Named handlers so the listeners (and the pending restart timer) are torn
-    // down on unmount — anonymous ones leaked across StrictMode re-mounts.
+    // down on unmount -- anonymous ones leaked across StrictMode re-mounts.
     return () => {
       cancelled = true;
       cancelAnimationFrame(rafId);
@@ -220,9 +220,13 @@ function HeroSection({ openStudio, signedIn, scrollToId }: {
 }
 
 function LogoMarquee() {
+  // Real, working integrations only -- Tavily/Firecrawl/Neon never had a
+  // functioning connector behind them (invented x402 hostnames / no case
+  // in ExecuteAction). Tendril is a genuine live x402 compute-rental
+  // integration; Slack and GitHub are real connectors in the Actions tab.
   const logos = [
-    { letter: "T", name: "Tavily" }, { letter: "F", name: "Firecrawl" },
-    { letter: "N", name: "Neon" },
+    { letter: "T", name: "Tendril" }, { letter: "S", name: "Slack" },
+    { letter: "G", name: "GitHub" },
   ];
   const doubled = [...logos, ...logos];
 
@@ -283,7 +287,7 @@ function LandingPillars() {
                 <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, background: "linear-gradient(90deg, transparent, var(--accent), transparent)", opacity: 0.4 }} />
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 28 }}>
                   <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--accent)", padding: "3px 9px", border: "1px solid var(--accent-line)", borderRadius: 999, background: "var(--accent-soft)", letterSpacing: "0.06em" }}>{p.tag}</span>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-dim)", letterSpacing: "0.08em", textTransform: "uppercase" }}>— {p.kicker}</span>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-dim)", letterSpacing: "0.08em", textTransform: "uppercase" }}>· {p.kicker}</span>
                 </div>
                 <h3 style={{ margin: 0, fontSize: 22, fontWeight: 500, letterSpacing: "-0.022em", lineHeight: 1.25 }}>{p.title}</h3>
                 <p style={{ margin: "14px 0 0", color: "var(--fg-muted)", fontSize: 14.5, lineHeight: 1.65 }}>{p.body}</p>
@@ -347,9 +351,9 @@ function LandingWaitlist() {
     const email = data.get("email") as string;
     try {
       await waitlist.join(email);
-      alert("Thanks — we'll be in touch.");
+      alert("Thanks! We'll be in touch.");
     } catch {
-      alert("Thanks — we'll be in touch.");
+      alert("Thanks! We'll be in touch.");
     }
   };
 

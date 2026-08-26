@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { Purchase } from "@/lib/credits/types";
 import type { PaymentMethod } from "@/components/checkout/types";
 import { gstBreakdown } from "@/lib/credits/fx";
@@ -17,10 +18,20 @@ const dateFmt = new Intl.DateTimeFormat("en", {
 });
 
 // The modal is dark on-screen (design system), but a printed receipt must be
-// legible on paper, so print inverts the receipt to black-on-white and hides
-// everything else on the page.
+// legible on paper.
+//
+// Printing does NOT print the <dialog>. The dialog lives deep inside the app's
+// React tree, so a print rule that hides everything but it (`body > *:not(...)`)
+// hides its own ancestors and takes the receipt down with them — that's why
+// printing produced a blank page. On top of that, an open modal dialog sits in
+// the browser's top layer, which print engines handle inconsistently.
+//
+// Instead, the same receipt data is rendered a second time into a plain,
+// print-only sheet portalled directly to <body> (always a real body child, never
+// in the top layer). Screen hides it; print hides everything else and shows it,
+// already black-on-white so nothing depends on the app's dark theme variables.
 const RECEIPT_CSS = `
-/* margin:auto re-centres the modal — Tailwind's preflight resets the native
+/* margin:auto re-centres the modal -- Tailwind's preflight resets the native
    dialog's default centring margin, which otherwise pins it to the top-left. */
 .receipt-dialog { margin: auto; }
 .receipt-dialog[open] { animation: receipt-in 0.22s var(--ease); }
@@ -32,12 +43,106 @@ const RECEIPT_CSS = `
 @media (prefers-reduced-motion: reduce) {
   .receipt-dialog[open] { animation: none; }
 }
+
+.receipt-print-sheet { display: none; }
+
 @media print {
-  body > *:not(.receipt-dialog) { display: none !important; }
-  .receipt-dialog { position: static !important; box-shadow: none !important; border: none !important; }
-  .receipt-dialog, .receipt-dialog * { background: #fff !important; color: #000 !important; border-color: #ddd !important; }
+  /* Hide the whole app, including the branch the dialog is nested in. */
+  body > *:not(.receipt-print-sheet) { display: none !important; }
+  /* The dialog is in the top layer, so display:none on its ancestors is not
+     guaranteed to remove it -- hide it explicitly too. */
+  .receipt-dialog { display: none !important; }
+  .receipt-dialog::backdrop { display: none !important; background: none !important; }
+
+  .receipt-print-sheet {
+    display: block !important;
+    position: static !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    background: #fff !important;
+    color: #000 !important;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @page { margin: 18mm; }
+}`;
+
+const printRowStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 24,
+  padding: "7px 0",
+  borderBottom: "1px solid #ddd",
+  fontSize: 12,
+  color: "#000",
+};
+
+// The print-only rendering of the receipt. Styled with literal colours rather
+// than theme variables: this markup only ever appears on paper, where the app's
+// dark palette would come out illegible (or be dropped entirely by browsers
+// that disable background graphics when printing).
+function PrintSheet({ purchase }: { purchase: Purchase }) {
+  const { base, gst } = gstBreakdown(purchase.amountINR);
+  const rows: [string, string][] = [
+    ["Receipt ID", purchase.id],
+    ["Date", dateFmt.format(new Date(purchase.createdAt))],
+    ["Subtotal (excl. GST)", `INR ${base.toFixed(2)}`],
+    ["GST (18%)", `INR ${gst.toFixed(2)}`],
+    ["Amount paid", `INR ${purchase.amountINR.toFixed(2)}`],
+    ["Credits added", `USD ${purchase.creditsUSD.toFixed(2)}`],
+    ["Method", METHOD_LABELS[purchase.method]],
+    ["Status", "Paid"],
+  ];
+
+  return (
+    <div className="receipt-print-sheet" aria-hidden>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          borderBottom: "2px solid #000",
+          paddingBottom: 10,
+          marginBottom: 16,
+        }}
+      >
+        <span style={{ fontSize: 20, fontWeight: 700, color: "#000" }}>
+          AgentMesh
+        </span>
+        <span
+          style={{
+            fontSize: 11,
+            textTransform: "uppercase",
+            letterSpacing: "0.12em",
+            color: "#000",
+          }}
+        >
+          Receipt
+        </span>
+      </div>
+
+      <div>
+        {rows.map(([label, value]) => (
+          <div key={label} style={printRowStyle}>
+            <span style={{ color: "#444" }}>{label}</span>
+            <span
+              style={{
+                color: "#000",
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              }}
+            >
+              {value}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <p style={{ fontSize: 10, color: "#444", margin: "16px 0 0" }}>
+        Mock receipt: not a valid tax invoice.
+      </p>
+    </div>
+  );
 }
-`;
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
@@ -81,123 +186,133 @@ export function Receipt({
   }, [onClose]);
 
   return (
-    <dialog
-      ref={dialogRef}
-      className="receipt-dialog"
-      aria-label="Receipt"
-      onClick={(e) => {
-        if (e.target === dialogRef.current) onClose();
-      }}
-      style={{
-        padding: 0,
-        border: "1px solid var(--border-strong)",
-        borderRadius: "var(--r-4)",
-        background: "var(--bg-elev-1)",
-        color: "var(--fg)",
-        width: "min(420px, calc(100vw - 48px))",
-        maxWidth: "min(420px, calc(100vw - 48px))",
-        boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
-      }}
-    >
+    <>
+      {/* Portalled to <body> so print can isolate it; see RECEIPT_CSS. The
+          document guard is for the server render, where there is no portal
+          target — it costs nothing at hydration since a portal contributes no
+          markup to this position either way. */}
+      {typeof document !== "undefined" &&
+        createPortal(<PrintSheet purchase={purchase} />, document.body)}
       <style>{RECEIPT_CSS}</style>
-      <div style={{ padding: 24 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "baseline",
-            justifyContent: "space-between",
-            marginBottom: 16,
-          }}
-        >
-          <span style={{ fontSize: 16, fontWeight: 700, color: "var(--fg)" }}>
-            AgentMesh
-          </span>
-          <span
+      <dialog
+        ref={dialogRef}
+        className="receipt-dialog"
+        aria-label="Receipt"
+        onClick={(e) => {
+          if (e.target === dialogRef.current) onClose();
+        }}
+        style={{
+          padding: 0,
+          border: "1px solid var(--border-strong)",
+          borderRadius: "var(--r-4)",
+          background: "var(--bg-elev-1)",
+          color: "var(--fg)",
+          width: "min(420px, calc(100vw - 48px))",
+          maxWidth: "min(420px, calc(100vw - 48px))",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
+        }}
+      >
+        <div style={{ padding: 24 }}>
+          <div
             style={{
-              fontSize: 12,
-              textTransform: "uppercase",
-              letterSpacing: "0.08em",
-              color: "var(--fg-dim)",
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              marginBottom: 16,
             }}
           >
-            Receipt
-          </span>
-        </div>
+            <span style={{ fontSize: 16, fontWeight: 700, color: "var(--fg)" }}>
+              AgentMesh
+            </span>
+            <span
+              style={{
+                fontSize: 12,
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
+                color: "var(--fg-dim)",
+              }}
+            >
+              Receipt
+            </span>
+          </div>
 
-        <div>
-          <Row label="Receipt ID" value={purchase.id} />
-          <Row
-            label="Date"
-            value={dateFmt.format(new Date(purchase.createdAt))}
-          />
-          <Row
-            label="Subtotal (excl. GST)"
-            value={`₹${gstBreakdown(purchase.amountINR).base.toFixed(2)}`}
-          />
-          <Row
-            label="GST (18%)"
-            value={`₹${gstBreakdown(purchase.amountINR).gst.toFixed(2)}`}
-          />
-          <Row
-            label="Amount paid"
-            value={`₹${purchase.amountINR.toFixed(2)}`}
-          />
-          <Row
-            label="Credits added"
-            value={`$${purchase.creditsUSD.toFixed(2)}`}
-          />
-          <Row label="Method" value={METHOD_LABELS[purchase.method]} />
-          <Row label="Status" value="Paid" />
-        </div>
+          <div>
+            <Row label="Receipt ID" value={purchase.id} />
+            <Row
+              label="Date"
+              value={dateFmt.format(new Date(purchase.createdAt))}
+            />
+            <Row
+              label="Subtotal (excl. GST)"
+              value={`₹${gstBreakdown(purchase.amountINR).base.toFixed(2)}`}
+            />
+            <Row
+              label="GST (18%)"
+              value={`₹${gstBreakdown(purchase.amountINR).gst.toFixed(2)}`}
+            />
+            <Row
+              label="Amount paid"
+              value={`₹${purchase.amountINR.toFixed(2)}`}
+            />
+            <Row
+              label="Credits added"
+              value={`$${purchase.creditsUSD.toFixed(2)}`}
+            />
+            <Row label="Method" value={METHOD_LABELS[purchase.method]} />
+            <Row label="Status" value="Paid" />
+          </div>
 
-        <p style={{ fontSize: 11, color: "var(--fg-dim)", margin: "14px 0 0" }}>
-          Mock receipt — not a valid tax invoice.
-        </p>
+          <p
+            style={{ fontSize: 11, color: "var(--fg-dim)", margin: "14px 0 0" }}
+          >
+            Mock receipt: not a valid tax invoice.
+          </p>
 
-        <div
-          style={{
-            display: "flex",
-            gap: 10,
-            marginTop: 20,
-            justifyContent: "flex-end",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => window.print()}
+          <div
             style={{
-              height: 36,
-              padding: "0 16px",
-              borderRadius: "var(--r-2)",
-              border: "1px solid var(--accent-line)",
-              background: "var(--accent)",
-              color: "var(--accent-fg)",
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
+              display: "flex",
+              gap: 10,
+              marginTop: 20,
+              justifyContent: "flex-end",
             }}
           >
-            Print
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              height: 36,
-              padding: "0 16px",
-              borderRadius: "var(--r-2)",
-              border: "1px solid var(--border-strong)",
-              background: "transparent",
-              color: "var(--fg-muted)",
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: "pointer",
-            }}
-          >
-            Close
-          </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              style={{
+                height: 36,
+                padding: "0 16px",
+                borderRadius: "var(--r-2)",
+                border: "1px solid var(--accent-line)",
+                background: "var(--accent)",
+                color: "var(--accent-fg)",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Print
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                height: 36,
+                padding: "0 16px",
+                borderRadius: "var(--r-2)",
+                border: "1px solid var(--border-strong)",
+                background: "transparent",
+                color: "var(--fg-muted)",
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: "pointer",
+              }}
+            >
+              Close
+            </button>
+          </div>
         </div>
-      </div>
-    </dialog>
+      </dialog>
+    </>
   );
 }

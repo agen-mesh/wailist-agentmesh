@@ -143,13 +143,25 @@ func (d *Deps) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set the token as an HttpOnly cookie so it never appears in URLs or logs.
-	// Redirect straight to the app — the callback page is no longer needed.
+	// Also set the UI signal cookie the Next.js middleware gates protected
+	// routes on — see uiCookieName's doc comment: with no client JS in this
+	// server-redirect flow, skipping this would bounce the just-authenticated
+	// user straight back to /signin.
 	d.setAuthCookie(w, token)
+	d.setUICookie(w)
 	http.Redirect(w, r, d.FrontendURL+"/workflows", http.StatusFound)
 }
 
+// oauthRedirectURI must resolve to the SAME origin the browser used to reach
+// OAuthStart, or the oauth_state_* cookie set there won't be sent back on the
+// callback request. In production the browser talks to the frontend's own
+// domain, which Next.js rewrites proxy at /api/* through to this backend
+// (see frontend/next.config.ts) — so the callback also has to go through
+// that /api proxy rather than hitting BaseURL (the raw Railway host)
+// directly, which would land the callback on a different origin than the
+// cookie and produce invalid_state ("Login session expired").
 func (d *Deps) oauthRedirectURI(provider string) string {
-	return strings.TrimRight(d.BaseURL, "/") + "/auth/oauth/" + provider + "/callback"
+	return strings.TrimRight(d.FrontendURL, "/") + "/api/auth/oauth/" + provider + "/callback"
 }
 
 func (d *Deps) redirectFail(w http.ResponseWriter, r *http.Request, reason string) {
