@@ -54,7 +54,8 @@ func (d *Deps) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusNotFound, "workflow not found")
 		return
 	}
-	wf.Nodes = maskNodes(wf.Nodes)
+	decrypted := decryptNodes(wf.Nodes, d.EncryptionKey)
+	wf.Nodes = unmaskWebhookSecrets(maskNodes(wf.Nodes), decrypted)
 	respond.JSON(w, http.StatusOK, wf)
 }
 
@@ -73,13 +74,15 @@ func (d *Deps) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 	encryptedNodes := encryptNodes(body.Nodes, d.EncryptionKey, existing.Nodes)
+	encryptedNodes = ensureWebhookSecrets(encryptedNodes, d.EncryptionKey)
 	graph := models.WorkflowGraph{Nodes: encryptedNodes, Edges: body.Edges}
 	wf, err := d.Store.UpdateWorkflow(r.Context(), id, body.Name, graph)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	wf.Nodes = maskNodes(wf.Nodes)
+	decrypted := decryptNodes(wf.Nodes, d.EncryptionKey)
+	wf.Nodes = unmaskWebhookSecrets(maskNodes(wf.Nodes), decrypted)
 	respond.JSON(w, http.StatusOK, wf)
 }
 
@@ -155,6 +158,7 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	encryptedNodes := encryptNodes(result.Graph.Nodes, d.EncryptionKey, existing.Nodes)
+	encryptedNodes = ensureWebhookSecrets(encryptedNodes, d.EncryptionKey)
 	graph := models.WorkflowGraph{Nodes: encryptedNodes, Edges: result.Graph.Edges}
 	wf, err := d.Store.UpdateWorkflow(r.Context(), id, existing.Name, graph)
 	if err != nil {
@@ -162,6 +166,7 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusInternalServerError, "could not save the updated workflow")
 		return
 	}
-	wf.Nodes = maskNodes(wf.Nodes)
+	decrypted := decryptNodes(wf.Nodes, d.EncryptionKey)
+	wf.Nodes = unmaskWebhookSecrets(maskNodes(wf.Nodes), decrypted)
 	respond.JSON(w, http.StatusOK, map[string]any{"reply": result.Reply, "workflow": wf})
 }

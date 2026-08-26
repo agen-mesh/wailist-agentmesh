@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   settleIn,
   lastUnboundPendingIndex,
+  attachRunIn,
   serialiseForStorage,
   type ChatMessage,
 } from "./useChatSession";
@@ -89,6 +90,32 @@ describe("lastUnboundPendingIndex", () => {
       msg({ id: "a-2", pending: true, runId: "r-9" }),
     ]);
     expect(idx).toBe(-1);
+  });
+});
+
+describe("attachRunIn", () => {
+  it("binds the last unbound pending turn, same as before", () => {
+    const out = attachRunIn(
+      [msg({ id: "a-1", sender: "user", pending: undefined }), msg({ id: "a-2", pending: true })],
+      "r-1",
+    );
+    expect(out[1]).toMatchObject({ id: "a-2", runId: "r-1" });
+  });
+
+  it("seeds a bound assistant turn when nothing is waiting -- a run started outside the chat composer (e.g. the topbar Run button) still lands in the chat rail", () => {
+    const out = attachRunIn([], "r-1");
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      sender: "assistant",
+      pending: true,
+      runId: "r-1",
+    });
+  });
+
+  it("does not duplicate a turn already bound to this run", () => {
+    const seeded = attachRunIn([], "r-1");
+    const out = attachRunIn(seeded, "r-1");
+    expect(out).toBe(seeded);
   });
 });
 

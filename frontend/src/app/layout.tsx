@@ -22,7 +22,7 @@ export const metadata: Metadata = {
     url: "/",
     siteName: "AgentMesh",
     type: "website",
-    // No `images` here on purpose: opengraph-image.tsx (the file convention)
+    // No `images` here on purpose: opengraph-image.png (the file convention)
     // already supplies og:image, and it takes precedence over anything set
     // here -- setting both leaves og:image pointing at the generated route
     // while twitter:image points somewhere else, which is how this file
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
   // A listing that renders an avatar wants this shape, not the banner, and
   // until now the only thing on the domain was favicon.ico.
   icons: {
-    icon: [{ url: "/logo.svg", type: "image/svg+xml" }],
+    icon: [{ url: "/logo.png", type: "image/png" }],
     apple: [{ url: "/logo.png" }],
   },
 };

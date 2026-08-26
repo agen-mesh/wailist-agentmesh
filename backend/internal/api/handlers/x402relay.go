@@ -390,6 +390,16 @@ func (d *Deps) X402PlatformFeeInfo(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// X402RunTotalInfo is X402RunFundingInfo's counterpart for
+// nodes.SettleRunTotal's PaymentRequirements.Resource — same rationale, a
+// real reachable route rather than an opaque identifier, registered at
+// nodes.runTotalPublicPath.
+func (d *Deps) X402RunTotalInfo(w http.ResponseWriter, r *http.Request) {
+	respond.JSON(w, http.StatusOK, map[string]string{
+		"description": "AgentMesh workflow run total — internal lump-sum settlement of a run's platform-billed work, not directly payable via this route",
+	})
+}
+
 // targetPriceQuote is the subset of a target's x402 402 response the relay
 // cares about.
 type targetPriceQuote struct {

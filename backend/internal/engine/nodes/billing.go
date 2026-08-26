@@ -26,13 +26,15 @@ import (
 // separately — relay-path payments charge the real settled amount, legacy
 // direct-pay charges a flat fee, both gated on whether a payment actually
 // happened at runtime, not on static config — so it always returns false
-// here.
+// here. "websearch" is billable alongside "http": it's a real call to
+// Gemini's (paid) search-grounding API on the platform's own key, not local
+// computation like "calc"/"datetime".
 func BillableFlatFee(nodeType models.NodeType, template string) bool {
 	switch nodeType {
 	case models.NodeTypeAgent, models.NodeTypeAction, models.NodeTypeGoogle:
 		return true
 	case models.NodeTypeTool:
-		return template == "http"
+		return template == "http" || template == "websearch"
 	default:
 		return false
 	}

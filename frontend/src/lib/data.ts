@@ -1,6 +1,7 @@
 import {
   NodeTypeMeta,
   Workflow,
+  WorkflowNode,
   UsageRange,
   UsageCategory,
   UsagePayload,
@@ -147,13 +148,11 @@ export function modelTier(
 }
 
 // "code" (Pinecone/pgvector-style vector store, JS/Python inline) and "memory"
-// removed: ExecuteTool (backend/internal/engine/nodes/tool.go) only handles
-// calc/datetime/http -- every other template fell through to a default case
-// that echoed the input back and reported success, rendering a green node
-// that did nothing. Real inline code execution exists today via the Tendril
-// tab's "Run a Job" node (metered Python over x402); route there instead of
-// reintroducing a stub. "datetime" is fully implemented backend-side but had
-// no palette entry -- added below.
+// removed: neither has a case in ExecuteTool (backend/internal/engine/nodes/
+// tool.go), so both fell through to a default case that echoed the input
+// back and reported success, rendering a green node that did nothing. Real
+// inline code execution exists today via the Tendril tab's "Run a Job" node
+// (metered Python over x402); route there instead of reintroducing a stub.
 export const TOOL_TEMPLATES = [
   { id: "http", name: "HTTP Request", desc: "GET/POST any URL", icon: "⟶" },
   { id: "calc", name: "Calculator", desc: "Math expressions", icon: "Σ" },
@@ -166,6 +165,12 @@ export const TOOL_TEMPLATES = [
   { id: "html_extract", name: "HTML Extract", desc: "CSS selector → text", icon: "⌸" },
   { id: "markdown", name: "Markdown → HTML", desc: "Render agent output", icon: "⌘" },
   { id: "quickchart", name: "QuickChart", desc: "Chart image URL", icon: "▦" },
+  {
+    id: "websearch",
+    name: "Web Search",
+    desc: "Search the live web (Gemini grounding)",
+    icon: "⌕",
+  },
 ];
 
 // TOOL402_TEMPLATES removed: the x402 tab's palette `map` never set an
@@ -603,6 +608,213 @@ export const SAMPLE_WORKFLOW: Workflow = {
     { id: "e3", from: "n4", to: "n2", kind: "attach", toPort: "tools" },
     { id: "e4", from: "n2", to: "n5", kind: "flow", toPort: "in" },
     { id: "e5", from: "n5", to: "n6", kind: "flow", toPort: "in" },
+  ],
+};
+
+// DEMO_WORKFLOW mirrors the live workflow at /workflows/4b47fe4a-df79-4cf4-
+// a9d6-3abb0bcdda79 (pulled directly from the workflows.graph column) --
+// this is that workflow's actual node graph, node-for-node, including the
+// system-prompt edits and the freshly-added manual trigger made in the
+// canvas UI. One deliberate deviation: that row's two provider nodes were
+// saved as keyMode "byok" with `apiKey: "enc:…"` -- the workflow owner's own
+// real, encrypted Gemini key. Baking that into this shared, publicly-shipped
+// template would mean every user who clicks "Load demo workflow" runs
+// their agents on THAT PERSON'S personal Gemini key -- a credential leak
+// and a billing problem, not a demo. Both providers are switched to
+// keyMode "platform" here instead (no apiKey field at all) so a fresh copy
+// uses AgentMesh's own platform key path and bills the flat platform fee,
+// same as everyone else's copy of this template.
+// Real, verified billing math (backend/internal/engine/runner.go +
+// billing.go + models/types.go), not an invented number:
+//   - agent node, platform-key mode: flat fee by model tier
+//     (nodes.PlatformKeyFeeUSDMicros). gemini-2.5-flash is "economy" in
+//     MODEL_TIERS/tier.go = $0.03/call.
+//   - tool402/tendril node, real x402 relay: the merchant's live price PLUS
+//     a flat $1.50 platform markup (models.X402PlatformFeeUSDMicros) -- NOT
+//     $1.50 per node in general, only on an actual x402 relay call. Every
+//     x402 node here points at the same REAL, live Bazaar-listed merchant
+//     this repo's own backend already relays to (canix402-api.compx.io,
+//     see internal/engine/nodes/walletpay.go) -- confirmed live by a direct
+//     probe: GET /opportunities returned a real 402 challenge for 0.01 USDC
+//     on Algorand mainnet (asset 31566704), tagged x402-global-challenge.
+//   - action/google node, or an http-templated tool node, run standalone in
+//     the flow: flat $0.50 (models.ByokFlatFeeUSDMicros, gated by
+//     nodes.BillableFlatFee).
+//   2 economy-tier Gemini 2.5 Flash calls  0.03 + 0.03      = 0.06  guaranteed
+//   1 guaranteed CANIX402 x402 call (d8)   0.01 + 1.50      = 1.51  guaranteed
+//   1 standalone http tool ("Fetch Data")                   = 0.50  guaranteed
+//   -------------------------------------------------------------
+//   guaranteed floor                                          $2.07 per successful run
+//   + up to 2 more CANIX402 x402 calls (d4/d7, 0.01 + 1.50 = 1.51 each) --
+//     billed only if the agent's LLM opts into calling them, so NOT part of
+//     the guaranteed floor above. Not capped at one call each either:
+//     provider.go allows up to 15 tool-calling iterations per agent, so a
+//     run can bill for either tool more than once. $5.09 (both optional
+//     calls firing exactly once) is a realistic typical figure, not a ceiling.
+//   1 Telegram action ("Post Summary") -- unbilled, see below  = 0.00
+// address (both the tool402 paramDefaults and the address text the workflow
+// owner pasted into each system prompt) is the real Wallet 2 /
+// PLATFORM_WALLET address, same as before.
+// d10 ("Post Summary") ships with no telegramBotToken/telegramChatID --
+// a shared public template can't embed one user's real credential without
+// leaking it to everyone who clicks this button. ExecuteAction
+// (connectors_messaging.go) returns ErrActionSkipped when unconfigured,
+// which runner.go's NodeTypeAction case treats as a non-failure and never
+// bills (see debitOrLog only firing after a non-skip result) -- so this step
+// is a real, visible no-op until the user adds their own webhook, not a
+// silent failure and not part of the guaranteed cost above.
+// d8 (the third canixNode call) is deliberately NOT attached to either
+// agent's tools port, unlike d4/d7 -- it's a guaranteed flow step that runs
+// on every execution, not something the agent's LLM opts into. This is
+// intentional, not an oversight: attaching it to d5 alongside d7 would give
+// that agent two tool402 nodes with the identical name "CANIX402
+// Opportunities", and toolFuncName() (provider.go) derives the LLM function
+// name from Node.Name -- two identical declarations sent to the same model
+// would collide. So d4/d7 are the "agent decides" calls (billed only if the
+// agent's LLM actually invokes them), and d8 is the one guaranteed real
+// CANIX402 call baked into the total above.
+const CANIX_ADDRESS =
+  "M6JQNJVX32HEN2LS5W2WX2PMSXPDHHKADVUATIQ5KQIVVVHSVILQNOS62A";
+
+function canixNode(
+  id: string,
+  x: number,
+  y: number,
+  finalPull = false,
+): WorkflowNode {
+  return {
+    id,
+    type: "tool402",
+    x,
+    y,
+    // finalPull (d8) isn't attached to either agent's tools port -- it's a
+    // guaranteed flow step, not an agent-invoked one like d4/d7 -- so its
+    // name/description say so, both to keep it visually distinct from d4/d7
+    // on the canvas and because it can't reuse their exact name without
+    // risking a toolFuncName() collision if it's ever attached later.
+    name: finalPull
+      ? "CANIX402 Opportunities (final pull)"
+      : "CANIX402 Opportunities",
+    description: finalPull
+      ? "Real, live x402-paid DeFi opportunities feed on Algorand mainnet (canix402-api.compx.io). Runs unconditionally as a flow step after the Synthesis Agent finishes -- unlike the two tool402 nodes above, this one is not agent-invoked, so it's billed on every run. Accepts: address (Algorand address, required), limit (optional)."
+      : "Real, live x402-paid DeFi opportunities feed on Algorand mainnet (canix402-api.compx.io). Accepts: address (Algorand address, required), limit (optional).",
+    endpoint: "https://canix402-api.compx.io/opportunities",
+    provider: "canix402.compx.io",
+    price: "0.01",
+    unit: "call",
+    discoveredParams: [
+      {
+        name: "address",
+        type: "string",
+        required: true,
+        description: "Algorand address to look up opportunities for",
+      },
+      {
+        name: "limit",
+        type: "string",
+        required: false,
+        description: "Max results to return",
+      },
+    ],
+    paramDefaults: { address: CANIX_ADDRESS },
+  };
+}
+
+export const DEMO_WORKFLOW: Workflow = {
+  id: "wf-demo",
+  name: "Demo: Research & Report Pipeline",
+  nodes: [
+    {
+      id: "n_1787155279250",
+      type: "trigger",
+      template: "manual",
+      icon: "▶",
+      x: 51.57894736842107,
+      y: 266.8421052631579,
+      label: "Manual Trigger",
+    },
+    {
+      id: "d2",
+      type: "agent",
+      template: "agent",
+      x: 320,
+      y: 220,
+      name: "Research Agent",
+      systemPrompt:
+        "You are a research agent. Use the CANIX402 Opportunities tool to pull real DeFi opportunity data, then pass a structured research brief on to the next agent.\naddress M6JQNJVX32HEN2LS5W2WX2PMSXPDHHKADVUATIQ5KQIVVVHSVILQNOS62A",
+    },
+    {
+      id: "d3",
+      type: "provider",
+      template: "gemini",
+      x: 240,
+      y: 460,
+      name: "Gemini 2.5 Flash",
+      model: "gemini-2.5-flash",
+      keyMode: "platform",
+    },
+    canixNode("d4", 440, 460),
+    {
+      id: "d5",
+      type: "agent",
+      template: "agent",
+      x: 700,
+      y: 220,
+      name: "Synthesis Agent",
+      systemPrompt:
+        "You receive a research brief from the prior agent. Use the CANIX402 Opportunities tool for a second, independent data pull, then write a final report summarizing both.\naddress M6JQNJVX32HEN2LS5W2WX2PMSXPDHHKADVUATIQ5KQIVVVHSVILQNOS62A",
+    },
+    {
+      id: "d6",
+      type: "provider",
+      template: "gemini",
+      x: 618.9473684210526,
+      y: 461.05263157894734,
+      name: "Gemini 2.5 Flash",
+      model: "gemini-2.5-flash",
+      keyMode: "platform",
+    },
+    canixNode("d7", 820, 460),
+    canixNode("d8", 980, 220, true),
+    {
+      id: "d9",
+      type: "tool",
+      template: "http",
+      x: 1220,
+      y: 220,
+      name: "Fetch Data",
+      url: "https://httpbin.org/get",
+      method: "GET",
+    },
+    {
+      id: "d10",
+      type: "action",
+      template: "telegram",
+      x: 1460,
+      y: 220,
+      name: "Post Summary",
+      description:
+        "Posts the pipeline's report to Telegram -- add your own bot token (Secrets) and chat ID (Config) in this node's settings to enable it. Unconfigured, this step no-ops (green, unbilled) rather than failing.",
+    },
+    { id: "d11", type: "end", template: "done", x: 1700, y: 220 },
+  ],
+  edges: [
+    {
+      id: "e_1787155284330",
+      from: "n_1787155279250",
+      to: "d2",
+      kind: "flow",
+      toPort: "in",
+    },
+    { id: "de2", from: "d3", to: "d2", kind: "attach", toPort: "model" },
+    { id: "de3", from: "d4", to: "d2", kind: "attach", toPort: "tools" },
+    { id: "de4", from: "d2", to: "d5", kind: "flow", toPort: "in" },
+    { id: "de5", from: "d6", to: "d5", kind: "attach", toPort: "model" },
+    { id: "de6", from: "d7", to: "d5", kind: "attach", toPort: "tools" },
+    { id: "de7", from: "d5", to: "d8", kind: "flow", toPort: "in" },
+    { id: "de8", from: "d8", to: "d9", kind: "flow", toPort: "in" },
+    { id: "de9", from: "d9", to: "d10", kind: "flow", toPort: "in" },
+    { id: "de10", from: "d10", to: "d11", kind: "flow", toPort: "in" },
   ],
 };
 

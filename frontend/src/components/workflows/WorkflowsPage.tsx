@@ -15,6 +15,7 @@ import { Workflow } from "@/lib/types";
 import { workflows as workflowsApi } from "@/lib/api";
 import { useCredits } from "@/lib/credits/store";
 import { tendril } from "@/lib/tendril";
+import { DEMO_WORKFLOW } from "@/lib/data";
 
 export function WorkflowsPage() {
   const router = useRouter();
@@ -25,7 +26,16 @@ export function WorkflowsPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [creatingTendril, setCreatingTendril] = useState(false);
-  const [deleteError, setDeleteError] = useState("");
+  const [creatingDemo, setCreatingDemo] = useState(false);
+  // Tagged by source so the banner always shows the most recent failure --
+  // two separate error strings with a fixed `a || b` precedence would let
+  // a stale error from one action permanently mask a newer one from the
+  // other. A success only clears the error if it's the one that owns it,
+  // so it never wipes an unrelated action's still-relevant error.
+  const [pageError, setPageError] = useState<{
+    source: "demo" | "delete";
+    message: string;
+  } | null>(null);
   const { balanceUSD, balanceKnown, refreshBalance } = useCredits();
 
   useEffect(() => {
@@ -81,18 +91,56 @@ export function WorkflowsPage() {
     }
   }, [creatingTendril, router]);
 
+  // Loads DEMO_WORKFLOW (lib/data.ts) into a brand-new workflow row every
+  // click -- unlike handleLoadTendrilWorkflow's find-or-create console, a
+  // demo is just a starting point the user immediately edits, so there's no
+  // "the one shared demo" identity to preserve and a fresh copy each time is
+  // correct. create() makes the empty row, then update() writes the full
+  // node/edge graph in one shot (same two-call pattern the canvas editor's
+  // own save path already uses).
+  const handleLoadDemoWorkflow = useCallback(async () => {
+    if (creatingDemo) return;
+    setCreatingDemo(true);
+    setPageError((prev) => (prev?.source === "demo" ? null : prev));
+    let wf: Workflow | undefined;
+    try {
+      wf = await workflowsApi.create(DEMO_WORKFLOW.name);
+      // UpdateWorkflow (backend/internal/api/handlers/workflows.go) overwrites
+      // name unconditionally from the request body -- omitting it here would
+      // blank out the name create() just set.
+      await workflowsApi.update(wf.id, {
+        name: DEMO_WORKFLOW.name,
+        nodes: DEMO_WORKFLOW.nodes,
+        edges: DEMO_WORKFLOW.edges,
+      });
+      router.push(`/workflows/${wf.id}`);
+    } catch (e) {
+      // If create() succeeded but update() failed, don't leave an empty
+      // orphaned row behind in the user's workflow list -- best-effort
+      // delete it before surfacing the error.
+      if (wf) await workflowsApi.remove(wf.id).catch(() => {});
+      setPageError({
+        source: "demo",
+        message:
+          e instanceof Error ? e.message : "could not load demo workflow",
+      });
+      setCreatingDemo(false);
+    }
+  }, [creatingDemo, router]);
+
   // Deletion is permanent, so the row only calls this after its own in-menu
   // confirm step. The backend refuses (409) for workflows with Tendril lease
   // history; that message is shown rather than leaving the row silently intact.
   const handleDelete = useCallback(async (id: string) => {
-    setDeleteError("");
+    setPageError((prev) => (prev?.source === "delete" ? null : prev));
     try {
       await workflowsApi.remove(id);
       setWfList((prev) => prev.filter((w) => w.id !== id));
     } catch (e) {
-      setDeleteError(
-        e instanceof Error ? e.message : "could not delete workflow",
-      );
+      setPageError({
+        source: "delete",
+        message: e instanceof Error ? e.message : "could not delete workflow",
+      });
     }
   }, []);
 
@@ -144,6 +192,23 @@ export function WorkflowsPage() {
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button style={ghostBtn}>Import</button>
+              <button
+                onClick={handleLoadDemoWorkflow}
+                disabled={creatingDemo}
+                style={{
+                  ...ghostBtn,
+                  opacity: creatingDemo ? 0.6 : 1,
+                  position: "relative",
+                }}
+                title="Two Gemini 2.5 Flash agents + an HTTP tool + a Telegram step (no-ops until you add your own bot token/chat ID) + up to 3 real CANIX402 x402 calls (Algorand mainnet) -- only 1 of those 3 is guaranteed, the other 2 fire only if the agent's LLM chooses to call them (and can fire more than once). $2.07 guaranteed floor, ~$5.09 typical, no fixed ceiling."
+              >
+                {creatingDemo ? "Loading…" : "Load demo workflow"}
+                <span style={{ marginLeft: 6 }}>
+                  <Pill tone="accent" mono>
+                    $2.07+/run
+                  </Pill>
+                </span>
+              </button>
               <button
                 onClick={handleLoadTendrilWorkflow}
                 disabled={creatingTendril}
@@ -234,7 +299,7 @@ export function WorkflowsPage() {
             </button>
           </Card>
 
-          {deleteError && (
+          {pageError && (
             <div
               style={{
                 marginBottom: 16,
@@ -246,7 +311,7 @@ export function WorkflowsPage() {
                 fontSize: 12.5,
               }}
             >
-              {deleteError}
+              {pageError.message}
             </div>
           )}
 

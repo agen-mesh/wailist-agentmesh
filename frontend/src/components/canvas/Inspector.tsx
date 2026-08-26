@@ -146,7 +146,11 @@ export function Inspector({
           <Tool402Inspector node={selected} onUpdate={onUpdate} />
         )}
         {selected.type === "trigger" && (
-          <TriggerInspector node={selected} onUpdate={onUpdate} />
+          <TriggerInspector
+            node={selected}
+            onUpdate={onUpdate}
+            workflowId={workflowId}
+          />
         )}
         {selected.type === "action" && (
           <ActionInspector
@@ -1865,9 +1869,11 @@ function Tool402Inspector({
 function TriggerInspector({
   node,
   onUpdate,
+  workflowId,
 }: {
   node: WorkflowNode;
   onUpdate: (n: WorkflowNode) => void;
+  workflowId: string;
 }) {
   const tpl = TRIGGER_TEMPLATES.find((t) => t.id === node.template);
   return (
@@ -1892,9 +1898,7 @@ function TriggerInspector({
         </Field>
       )}
       {node.template === "webhook" && (
-        <Field label="Path">
-          <input style={monoInputStyle} defaultValue="/in/abc123" />
-        </Field>
+        <WebhookTriggerFields node={node} workflowId={workflowId} />
       )}
       {node.template === "chat" && (
         <Field label="Source">
@@ -1902,6 +1906,46 @@ function TriggerInspector({
         </Field>
       )}
     </Section>
+  );
+}
+
+// The real public endpoint and its required auth secret -- both generated
+// server-side (UpdateWorkflow's ensureWebhookSecrets) the first time this
+// node is saved, never authored here. Only rendered once a secret exists
+// (i.e. after at least one save), since before that the endpoint would
+// reject every call anyway. Plain readonly inputs rather than a copy
+// button: the security fix is the point here, a copy affordance is a nice-
+// to-have this doesn't block on.
+function WebhookTriggerFields({
+  node,
+  workflowId,
+}: {
+  node: WorkflowNode;
+  workflowId: string;
+}) {
+  const apiOrigin = process.env.NEXT_PUBLIC_API_URL ?? "";
+  const url = `${apiOrigin}/run/${workflowId}`;
+  const secret = node.secrets?.webhookSecret;
+  return (
+    <>
+      <Field label="Endpoint URL">
+        <input style={monoInputStyle} value={url} readOnly />
+      </Field>
+      <Field label="Secret header">
+        {secret ? (
+          <input style={monoInputStyle} value={secret} readOnly />
+        ) : (
+          <div style={{ fontSize: 11.5, color: "var(--fg-muted)" }}>
+            Save this workflow once to generate a secret.
+          </div>
+        )}
+      </Field>
+      <div style={{ fontSize: 11, color: "var(--fg-muted)", marginTop: 4 }}>
+        POST to the endpoint above with header{" "}
+        <code>X-Webhook-Secret: {secret ? "<secret>" : "…"}</code> -- calls
+        without it are rejected.
+      </div>
+    </>
   );
 }
 

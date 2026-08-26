@@ -315,7 +315,7 @@ func executeFunctionCall(ctx context.Context, funcName string, args map[string]a
 			}
 			return paymentResult.Response, toolNode, payment, nil
 		}
-		result, err := ExecuteTool(ctx, toolNode, rc)
+		result, err := ExecuteToolWithArgs(ctx, toolNode, rc, args)
 		if billableFlatFee {
 			if err != nil {
 				if release := relayCfg.FlatFeeLedger.Release; release != nil {

@@ -95,6 +95,45 @@ export function lastUnboundPendingIndex(messages: ChatMessage[]): number {
 }
 
 /**
+ * Bind `runId` to the last unbound pending turn, or -- if there is none --
+ * seed a bare assistant turn already bound to it.
+ *
+ * A run can start with no turn waiting at all: the topbar Run button on a
+ * manual-trigger workflow calls startRun() directly, without going through
+ * startTurn. Without a turn to bind, that run's outcome would only ever
+ * reach the logs dock, never the chat rail. Guarded against already having
+ * a turn for this runId so a duplicate call (e.g. an effect firing twice
+ * under React Strict Mode) can't append two bubbles for one run.
+ *
+ * Exported for tests, same as settleIn/lastUnboundPendingIndex below.
+ */
+export function attachRunIn(
+  messages: ChatMessage[],
+  runId: string,
+): ChatMessage[] {
+  const idx = lastUnboundPendingIndex(messages);
+  if (idx >= 0) {
+    const next = [...messages];
+    next[idx] = { ...next[idx], runId };
+    return next;
+  }
+  if (messages.some((m) => m.runId === runId)) return messages;
+  const now = new Date().toISOString();
+  const seq = Math.random().toString(36).slice(2, 8);
+  return [
+    ...messages,
+    {
+      id: `a-${now}-${seq}`,
+      sender: "assistant",
+      text: "",
+      ts: now,
+      pending: true,
+      runId,
+    },
+  ];
+}
+
+/**
  * Settle the first pending turn matching `match`. Exported for tests: the
  * targeting rules here are what keep an answer attached to the question that
  * asked it, so they are worth asserting directly.
@@ -216,19 +255,8 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
     return assistantId;
   }, []);
 
-  // Binds by predicate rather than by id: attachRun fires from a separate
-  // effect (keyed on runId) that never sees the id startTurn returned to
-  // handleSend's caller. "Last pending turn that has no runId yet" is the
-  // actual invariant -- a turn awaiting its run -- and unlike a bare position
-  // it cannot rebind a run onto a turn already bound to a different one.
   const attachRun = useCallback((runId: string) => {
-    setMessages((prev) => {
-      const idx = lastUnboundPendingIndex(prev);
-      if (idx < 0) return prev;
-      const next = [...prev];
-      next[idx] = { ...next[idx], runId };
-      return next;
-    });
+    setMessages((prev) => attachRunIn(prev, runId));
   }, []);
 
   // Settling a turn targets it by identity, never by position. Position was

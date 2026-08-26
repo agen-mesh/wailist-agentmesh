@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"strings"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -107,6 +109,87 @@ func maskSecretsMap(vals map[string]string) map[string]string {
 		} else {
 			out[k] = v
 		}
+	}
+	return out
+}
+
+// ensureWebhookSecrets generates and encrypts a webhookSecret for any
+// webhook trigger node that doesn't already have one. Call after
+// encryptNodes, on its output -- an existing secret (from this node's own
+// prior save) is already carried forward by encryptSecretsMap by that
+// point, so this only fills the gap for a node that's never had one.
+// runs.go's PublicTrigger requires this secret on every unauthenticated
+// POST /run/{workflowId} call; a webhook trigger node with no secret can
+// never be triggered, which is the deliberately fail-closed side of that.
+func ensureWebhookSecrets(nodes []models.WorkflowNode, key string) []models.WorkflowNode {
+	if key == "" {
+		return nodes
+	}
+	for i, n := range nodes {
+		if n.Type != models.NodeTypeTrigger || n.Template != "webhook" {
+			continue
+		}
+		if n.Secrets["webhookSecret"] != "" {
+			continue
+		}
+		secret, err := generateWebhookSecret()
+		if err != nil {
+			continue
+		}
+		enc, err := wallet.Encrypt(secret, key)
+		if err != nil {
+			continue
+		}
+		if nodes[i].Secrets == nil {
+			nodes[i].Secrets = map[string]string{}
+		}
+		nodes[i].Secrets["webhookSecret"] = encPrefix + enc
+	}
+	return nodes
+}
+
+func generateWebhookSecret() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// unmaskWebhookSecrets restores the real webhookSecret value maskNodes just
+// replaced with the sentinel, for webhook trigger nodes only. Called after
+// maskNodes on the owner-facing endpoints backing the canvas editor
+// (GetWorkflow, UpdateWorkflow, BuildWorkflow) -- unlike a BYOK API key
+// (write-only: paste a new one, never need the old one back), a webhook
+// secret is something AgentMesh generated FOR the owner that they need to
+// actually read and paste into whatever external service calls this
+// endpoint. This is the one deliberate, narrow exception to "never send
+// ciphertext or its plaintext back to the client": scoped to exactly one
+// secret key, on nodes the requester already owns (every caller here has
+// already owner-checked the workflow before this runs).
+func unmaskWebhookSecrets(masked, decrypted []models.WorkflowNode) []models.WorkflowNode {
+	byID := make(map[string]string, len(decrypted))
+	for _, n := range decrypted {
+		if n.Type == models.NodeTypeTrigger && n.Template == "webhook" && n.Secrets["webhookSecret"] != "" {
+			byID[n.ID] = n.Secrets["webhookSecret"]
+		}
+	}
+	if len(byID) == 0 {
+		return masked
+	}
+	out := make([]models.WorkflowNode, len(masked))
+	copy(out, masked)
+	for i, n := range out {
+		secret, ok := byID[n.ID]
+		if !ok {
+			continue
+		}
+		cp := make(map[string]string, len(n.Secrets)+1)
+		for k, v := range n.Secrets {
+			cp[k] = v
+		}
+		cp["webhookSecret"] = secret
+		out[i].Secrets = cp
 	}
 	return out
 }

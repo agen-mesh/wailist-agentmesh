@@ -43,6 +43,52 @@ func TestApplyGraphOpAddNodeInvalidType(t *testing.T) {
 	}
 }
 
+func TestApplyGraphOpAddNodeDefaultsProviderToPlatformKeyMode(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type":     "provider",
+		"template": "gemini",
+		"name":     "Gemini Model",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if graph.Nodes[0].KeyMode != "platform" {
+		t.Fatalf("want KeyMode defaulted to platform, got %q", graph.Nodes[0].KeyMode)
+	}
+}
+
+func TestApplyGraphOpAddNodeRespectsExplicitByokKeyMode(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type":     "provider",
+		"template": "gemini",
+		"name":     "Gemini Model",
+		"fields":   map[string]any{"keyMode": "byok"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if graph.Nodes[0].KeyMode != "byok" {
+		t.Fatalf("want explicit byok preserved, got %q", graph.Nodes[0].KeyMode)
+	}
+}
+
+func TestApplyGraphOpAddNodeNonProviderKeyModeUnset(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type":     "agent",
+		"template": "agent",
+		"name":     "An Agent",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if graph.Nodes[0].KeyMode != "" {
+		t.Fatalf("KeyMode default should only apply to provider nodes, got %q", graph.Nodes[0].KeyMode)
+	}
+}
+
 func TestApplyGraphOpAddNodeFieldTypeMismatch(t *testing.T) {
 	graph := &models.WorkflowGraph{}
 	_, err := applyGraphOp(graph, "add_node", map[string]any{

@@ -115,6 +115,20 @@ func SafeOutboundPayHTTPClient() *http.Client {
 }
 
 func ExecuteTool(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	return executeTool(ctx, node, rc, nil)
+}
+
+// ExecuteToolWithArgs is ExecuteTool plus the LLM's chosen function-call
+// arguments. Only "websearch" reads them today -- a per-call query the
+// static node config can't supply, unlike "http"'s fixed URL/calc's fixed
+// expression. A separate entry point rather than widening ExecuteTool's own
+// signature so the many call sites that never have LLM args (every
+// standalone, non-agent-attached tool node) don't need to pass nil through.
+func ExecuteToolWithArgs(ctx context.Context, node models.WorkflowNode, rc RunContexter, args map[string]any) (any, error) {
+	return executeTool(ctx, node, rc, args)
+}
+
+func executeTool(ctx context.Context, node models.WorkflowNode, rc RunContexter, args map[string]any) (any, error) {
 	switch node.Template {
 	case "calc":
 		return evalMath(node.URL)
@@ -138,10 +152,37 @@ func ExecuteTool(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 		return executeMarkdown(node, rc)
 	case "quickchart":
 		return executeQuickChart(node, rc)
+	case "websearch":
+		return webSearch(ctx, websearchQuery(args, rc), platformGeminiKey())
 	default:
 		return rc.Message(), nil
 	}
 }
+
+// websearchQuery prefers the LLM's own "query" argument -- the whole point
+// of an agent choosing to call this tool -- and falls back to the run's
+// current message for a standalone (non-agent-attached) websearch node,
+// same fallback convention "http" already uses for its request body.
+func websearchQuery(args map[string]any, rc RunContexter) string {
+	if q, ok := args["query"].(string); ok && strings.TrimSpace(q) != "" {
+		return q
+	}
+	return rc.Message()
+}
+
+// platformKeysForTools holds AgentMesh's own provider API keys for tool
+// execution -- set once at startup, mirroring geminiBaseURL/urlValidator's
+// swappable-package-var pattern above, rather than widening ExecuteTool's
+// signature (and every one of its many existing call sites) just to carry
+// one map that's genuinely process-wide, not per-call.
+var platformKeysForTools map[string]string
+
+// SetPlatformKeys installs the keys "websearch" (and any future built-in
+// tool needing a platform-held credential) reads from. Called once from
+// engine.Runner.SetPlatformKeys.
+func SetPlatformKeys(keys map[string]string) { platformKeysForTools = keys }
+
+func platformGeminiKey() string { return platformKeysForTools["gemini"] }
 
 // httpMethodsWithBody are the methods callHTTP attaches rc.Message() to as a
 // request body -- GET/HEAD/OPTIONS never carry one, matching real HTTP
