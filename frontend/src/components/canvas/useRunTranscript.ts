@@ -190,8 +190,13 @@ export function useRunTranscript({
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Mirrors `elapsed` without joining the SSE effect's dependency array --
   // read inside that effect (below) to continue the clock across a resume
-  // instead of re-basing it to zero.
+  // instead of re-basing it to zero. Kept in sync via its own effect (right
+  // below) rather than written during render: refs can't be safely written
+  // during render, only in effects/event handlers.
   const elapsedRef = useRef(0);
+  useEffect(() => {
+    elapsedRef.current = elapsed ?? 0;
+  }, [elapsed]);
 
   // Reset the transcript the moment a new run starts. This host used to be
   // remounted on key={runId} for exactly this reset, which also tore down
@@ -211,7 +216,6 @@ export function useRunTranscript({
     setTranscriptRunId(runId);
     setLogs([]);
     setElapsed(null);
-    elapsedRef.current = 0;
     setDone(false);
     setStopped(false);
     setDeadLetters([]);
@@ -257,15 +261,17 @@ export function useRunTranscript({
     // clear it so the dock shows "in progress" again instead of a stale
     // "run stopped"/"run complete" state while the resumed attempt runs.
     // logs/elapsed are deliberately left alone: completed steps stay visible.
+    // Intentional synchronous reset, not the derived-state-cascade pattern
+    // this lint rule exists to catch: it must land in the one render this
+    // effect fires on, not a render later.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDone(false);
     setStopped(false);
     setDeadLetters([]);
 
     // Start elapsed timer
     timerRef.current = setInterval(() => {
-      const value = Math.floor((Date.now() - startRef.current!) / 100) / 10;
-      setElapsed(value);
-      elapsedRef.current = value;
+      setElapsed(Math.floor((Date.now() - startRef.current!) / 100) / 10);
     }, 100);
 
     const url = SSE_BASE ? `${SSE_BASE}/runs/${runId}/stream` : null;
