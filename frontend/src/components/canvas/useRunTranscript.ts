@@ -1,6 +1,11 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { runs as runsApi, auth as authApi, type RunLogRecord } from "@/lib/api";
+import {
+  runs as runsApi,
+  auth as authApi,
+  type RunLogRecord,
+  type DeadLetterRun,
+} from "@/lib/api";
 import { recordSettlements } from "@/lib/settlements";
 
 // This hook owns everything about *what happened in a run*: the live SSE
@@ -146,6 +151,10 @@ interface UseRunTranscriptArgs {
   // Scopes the cached last-run transcript, so reopening a workflow shows that
   // workflow's own last result rather than whatever ran most recently.
   workflowId?: string;
+  /** Bumped by the caller after a successful resume, on the SAME runId, to
+   *  force the SSE-connect effect below to tear down and reconnect -- it's
+   *  keyed on runId alone, which doesn't change across a resume. */
+  attempt?: number;
 }
 
 export interface RunTranscript {
@@ -156,6 +165,7 @@ export interface RunTranscript {
   leaseId: string | null;
   /** The run was stopped from the UI rather than reaching its own end. */
   stopped: boolean;
+  deadLetters: DeadLetterRun[];
 }
 
 export function useRunTranscript({
@@ -163,6 +173,7 @@ export function useRunTranscript({
   running,
   onRunComplete,
   workflowId,
+  attempt = 0,
 }: UseRunTranscriptArgs): RunTranscript {
   // With no live run, start from this workflow's cached last transcript so
   // reopening it still shows what happened, instead of an empty console.
@@ -173,6 +184,7 @@ export function useRunTranscript({
   );
   const [done, setDone] = useState(!!cached);
   const [stopped, setStopped] = useState(false);
+  const [deadLetters, setDeadLetters] = useState<DeadLetterRun[]>([]);
   const esRef = useRef<EventSource | null>(null);
   const startRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -197,6 +209,7 @@ export function useRunTranscript({
     setElapsed(null);
     setDone(false);
     setStopped(false);
+    setDeadLetters([]);
   }
 
   // onRunComplete is invoked from inside the SSE effect, which must stay keyed
@@ -229,6 +242,14 @@ export function useRunTranscript({
     if (!runId) return;
     completedRef.current = false;
     startRef.current = Date.now();
+    // A resume (attempt bumped, same runId) re-enters this effect with the
+    // run's prior terminal state still in `done`/`stopped` from before --
+    // clear it so the dock shows "in progress" again instead of a stale
+    // "run stopped"/"run complete" state while the resumed attempt runs.
+    // logs/elapsed are deliberately left alone: completed steps stay visible.
+    setDone(false);
+    setStopped(false);
+    setDeadLetters([]);
 
     // Start elapsed timer
     timerRef.current = setInterval(() => {
@@ -294,9 +315,14 @@ export function useRunTranscript({
       // an agent that chains many tool iterations.
       for (let attempt = 0; attempt < 900 && !cancelled; attempt++) {
         try {
-          const { run, logs: dbLogs } = await runsApi.get(runId);
+          const {
+            run,
+            logs: dbLogs,
+            deadLetters: dl,
+          } = await runsApi.get(runId);
           if (cancelled) return;
           if (dbLogs.length > 0) mergeDBLogs(dbLogs);
+          setDeadLetters(dl ?? []);
           if (TERMINAL.has(run.status)) {
             // The run itself is finished — this, not a dropped stream, is
             // what "complete" means.
@@ -387,8 +413,9 @@ export function useRunTranscript({
     };
     // completeOnce is a stable useCallback([]), so listing it keeps the
     // linter happy without re-running this effect -- which must stay keyed on
-    // runId alone, per the note above.
-  }, [runId, completeOnce]);
+    // runId and attempt (bumped by the caller to force a resume's
+    // reconnect), per the note above.
+  }, [runId, attempt, completeOnce]);
 
   // Stopped externally (the Run button's stop branch). Closing the stream is
   // not enough: the run is over, so the transcript has to say so. Leaving
@@ -472,5 +499,5 @@ export function useRunTranscript({
     return null;
   }, [logs]);
 
-  return { logs, elapsed, done, leaseId, stopped };
+  return { logs, elapsed, done, leaseId, stopped, deadLetters };
 }
