@@ -188,6 +188,10 @@ export function useRunTranscript({
   const esRef = useRef<EventSource | null>(null);
   const startRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Mirrors `elapsed` without joining the SSE effect's dependency array --
+  // read inside that effect (below) to continue the clock across a resume
+  // instead of re-basing it to zero.
+  const elapsedRef = useRef(0);
 
   // Reset the transcript the moment a new run starts. This host used to be
   // remounted on key={runId} for exactly this reset, which also tore down
@@ -207,6 +211,7 @@ export function useRunTranscript({
     setTranscriptRunId(runId);
     setLogs([]);
     setElapsed(null);
+    elapsedRef.current = 0;
     setDone(false);
     setStopped(false);
     setDeadLetters([]);
@@ -241,7 +246,12 @@ export function useRunTranscript({
   useEffect(() => {
     if (!runId) return;
     completedRef.current = false;
-    startRef.current = Date.now();
+    // Continue the elapsed clock across a resume (same runId, attempt bumped)
+    // rather than re-basing to zero -- a fresh run already has elapsed/
+    // elapsedRef at 0 here (reset by the render-time block above), so this
+    // resolves correctly to Date.now() for a new run and continues in-place
+    // for a resume.
+    startRef.current = Date.now() - elapsedRef.current * 1000;
     // A resume (attempt bumped, same runId) re-enters this effect with the
     // run's prior terminal state still in `done`/`stopped` from before --
     // clear it so the dock shows "in progress" again instead of a stale
@@ -253,7 +263,9 @@ export function useRunTranscript({
 
     // Start elapsed timer
     timerRef.current = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startRef.current!) / 100) / 10);
+      const value = Math.floor((Date.now() - startRef.current!) / 100) / 10;
+      setElapsed(value);
+      elapsedRef.current = value;
     }, 100);
 
     const url = SSE_BASE ? `${SSE_BASE}/runs/${runId}/stream` : null;
