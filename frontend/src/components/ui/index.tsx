@@ -2,6 +2,10 @@
 import React, { CSSProperties } from "react";
 
 // ── Logo ──────────────────────────────────────────────────────────────────
+// /logo.png is the actual brand mark -- also what layout.tsx points the
+// favicon/apple-touch icon at (metadata.icons) -- so the wordmark badge
+// matches the tab icon instead of the hand-drawn mesh glyph this used to
+// render on its own.
 export function Logo({ size = 18 }: { size?: number }) {
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
