@@ -319,7 +319,25 @@ func (s *Store) CreateRunWithCooldown(ctx context.Context, workflowID, triggered
 		return models.Run{}, fmt.Errorf("run cooldown: acquire advisory lock: %w", err)
 	}
 	if !locked {
-		return models.Run{}, &ErrRunOnCooldown{RetryAfter: cooldown}
+		// Best-effort: report the actual remaining cooldown, not the full
+		// duration. This read doesn't need (and doesn't take) the advisory
+		// lock -- it's a plain MVCC snapshot read on the pool, purely to give
+		// the caller a more accurate Retry-After than "the whole window,"
+		// which could be up to `cooldown` longer than the real remaining
+		// wait if the lock holder's own check is almost done. Any error, or
+		// no rows yet, falls back to reporting the full cooldown -- correct
+		// (if imprecise) either way, since RetryAfter is a hint, not a
+		// correctness guarantee.
+		retryAfter := cooldown
+		var lastStarted time.Time
+		if err := s.pool.QueryRow(ctx, `
+			SELECT started_at FROM runs WHERE workflow_id = $1 ORDER BY started_at DESC LIMIT 1
+		`, workflowID).Scan(&lastStarted); err == nil {
+			if elapsed := time.Since(lastStarted); elapsed < cooldown {
+				retryAfter = cooldown - elapsed
+			}
+		}
+		return models.Run{}, &ErrRunOnCooldown{RetryAfter: retryAfter}
 	}
 
 	var lastStarted time.Time

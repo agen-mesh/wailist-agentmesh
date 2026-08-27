@@ -636,8 +636,8 @@ func (r *Runner) debitAgentFee(ctx context.Context, wf models.Workflow, run mode
 // Run in a goroutine. Replaces the previous pattern of calling Run directly.
 func (r *Runner) Start(wf models.Workflow, run models.Run) {
 	ctx, cancel := context.WithCancel(context.Background())
-	r.registry.register(wf.ID, cancel)
-	go r.Run(ctx, wf, run)
+	gen := r.registry.register(wf.ID, cancel)
+	go r.Run(ctx, wf, run, gen)
 }
 
 // Stop cancels the active run for the given workflow ID. Returns false if no
@@ -655,9 +655,9 @@ func (r *Runner) finishRun(wf models.Workflow, run models.Run, status models.Run
 }
 
 // Run executes a workflow. Call via Start rather than directly.
-func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run) {
+func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run, gen uint64) {
 	defer r.broker.Close(run.ID)
-	defer r.registry.deregister(wf.ID)
+	defer r.registry.deregister(wf.ID, gen)
 
 	// Tracks this run's non-tool402 billable total (see addRunBilling) so it
 	// can be settled as one lump-sum x402 payment once the run is done.
