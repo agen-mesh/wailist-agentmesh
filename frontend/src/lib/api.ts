@@ -355,6 +355,15 @@ export interface RunLogRecord {
   ts: string;
 }
 
+export interface DeadLetterRun {
+  id: string;
+  runId: string;
+  nodeId: string;
+  error: string;
+  attemptCount: number;
+  createdAt: string;
+}
+
 export const runs = {
   // The DB-backed source of truth for a run's logs — used as a reconciliation
   // fallback once the live SSE stream ends, since the stream's broker only
@@ -367,7 +376,11 @@ export const runs = {
   // happened to deliver live.
   get: async (
     runId: string,
-  ): Promise<{ run: { status: string }; logs: RunLogRecord[] }> => {
+  ): Promise<{
+    run: { status: string };
+    logs: RunLogRecord[];
+    deadLetters: DeadLetterRun[];
+  }> => {
     if (BASE) {
       const res = await fetch(`${BASE}/runs/${runId}`, {
         credentials: "include",
@@ -390,6 +403,7 @@ export const runs = {
       "7F2AC9D1E4B8A6350C1D9E2F4A7B8C3D5E6F1A2B3C4D5E6F7A8B9C0D1E2F3A4B";
     return {
       run: { status: "success" },
+      deadLetters: [],
       logs: [
         {
           id: "rl-1",
@@ -433,6 +447,20 @@ export const runs = {
         },
       ],
     };
+  },
+
+  resume: async (runId: string): Promise<{ runId: string }> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/runs/${runId}/resume`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "resume failed");
+      return data;
+    }
+    await delay(200);
+    return { runId };
   },
 };
 
@@ -550,7 +578,9 @@ export const oauth2 = {
   // async request.
   connectURL: (provider: string): string => `${BASE}/oauth2/${provider}/start`,
 
-  listCredentials: async (provider: string): Promise<OAuthCredentialSummary[]> => {
+  listCredentials: async (
+    provider: string,
+  ): Promise<OAuthCredentialSummary[]> => {
     if (!BASE) return []; // No connected-account concept in mock mode.
     const res = await fetch(
       `${BASE}/oauth2/credentials?provider=${encodeURIComponent(provider)}`,
