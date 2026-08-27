@@ -521,11 +521,18 @@ export function WorkflowsPage() {
 function StatusBadge({ status }: { status?: string }) {
   const map: Record<
     string,
-    { tone: "ok" | "warm" | "default"; label: string }
+    { tone: "ok" | "warm" | "default" | "danger"; label: string }
   > = {
     active: { tone: "ok", label: "Active" },
     paused: { tone: "warm", label: "Paused" },
     draft: { tone: "default", label: "Draft" },
+    // The real backend enum (models.WorkflowStatus) is draft/deployed/error --
+    // "active"/"paused" above predate that and don't match anything the
+    // backend actually stores. These two were missing entirely, so every
+    // real deployed (or errored) workflow silently fell through to the
+    // "draft" default and showed the wrong badge.
+    deployed: { tone: "ok", label: "Deployed" },
+    error: { tone: "danger", label: "Error" },
   };
   const s = map[status ?? "draft"] ?? map.draft;
   return (
@@ -630,11 +637,26 @@ function RowMenu({
   );
   const ref = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+  // Guards the schedule fetch below against a stale response landing after
+  // the popover was closed/reopened (or this row was deleted) before it
+  // resolved -- resetSchedule bumps this so a resolved-but-stale request's
+  // setState calls are dropped rather than clobbering newer state or firing
+  // after unmount.
+  const scheduleFetchIdRef = useRef(0);
 
   const resetSchedule = useCallback(() => {
+    scheduleFetchIdRef.current += 1;
     setFreshSchedule(null);
     setScheduleLoading(false);
     setScheduleFetchError(null);
+  }, []);
+
+  // Invalidate any in-flight fetch on unmount too (e.g. this row's workflow
+  // was deleted while its schedule request was still pending).
+  useEffect(() => {
+    return () => {
+      scheduleFetchIdRef.current += 1;
+    };
   }, []);
 
   const close = useCallback(() => {
@@ -737,22 +759,33 @@ function RowMenu({
                   setFreshSchedule(null);
                   setScheduleFetchError(null);
                   setScheduleLoading(true);
+                  // Captured now: if the popover is closed/reopened (or this
+                  // row is deleted) before this resolves, resetSchedule/
+                  // unmount will have bumped the ref past this value, and
+                  // every branch below becomes a no-op instead of clobbering
+                  // whatever's current with a stale response.
+                  const fetchId = scheduleFetchIdRef.current;
                   workflowsApi
                     .get(workflowId)
-                    .then((wf) =>
+                    .then((wf) => {
+                      if (scheduleFetchIdRef.current !== fetchId) return;
                       setFreshSchedule({
                         cron: wf.scheduleCron,
                         nextRunAt: wf.scheduleNextRunAt,
-                      }),
-                    )
-                    .catch((e) =>
+                      });
+                    })
+                    .catch((e) => {
+                      if (scheduleFetchIdRef.current !== fetchId) return;
                       setScheduleFetchError(
                         e instanceof Error
                           ? e.message
                           : "could not load schedule",
-                      ),
-                    )
-                    .finally(() => setScheduleLoading(false));
+                      );
+                    })
+                    .finally(() => {
+                      if (scheduleFetchIdRef.current !== fetchId) return;
+                      setScheduleLoading(false);
+                    });
                 }}
                 style={{
                   display: "block",

@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll } from "vitest";
+import { describe, expect, it } from "vitest";
 
 // Pin a fixed, non-UTC timezone with a stable (non-DST-ambiguous) offset for
 // the whole file, set before any Date is constructed below — Node reads
@@ -6,9 +6,14 @@ import { describe, expect, it, beforeAll } from "vitest";
 // accessors, so this makes every test deterministic regardless of which
 // machine/CI runner executes it. America/New_York in January is a fixed
 // UTC-5 (EST, no DST), avoiding a DST-transition-week false failure.
-beforeAll(() => {
-  process.env.TZ = "America/New_York";
-});
+//
+// This must be a plain top-level statement, not a beforeAll(...) callback:
+// beforeAll's body doesn't run until vitest actually executes lifecycle
+// hooks, which happens AFTER all of this module's top-level code (including
+// the NOW constant below) has already run during module collection. A
+// beforeAll here would pin TZ too late to affect NOW's underlying instant —
+// only a synchronous statement, in file order, actually runs first.
+process.env.TZ = "America/New_York";
 
 import { cadenceToCron, cronToCadence } from "./cronCadence";
 

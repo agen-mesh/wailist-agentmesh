@@ -90,6 +90,12 @@ interface CachedRun {
   runId: string;
   logs: LogEvent[];
   elapsed: number | null;
+  // Optional: cached blobs written before this field existed won't have it,
+  // and readCachedRun must still accept those. Caches the already-resolved
+  // (visibleDeadLetters) view, not the raw backend list, so a dead-letter
+  // that was fixed by a resume before the cache write doesn't come back
+  // from the dead on the next reload.
+  deadLetters?: DeadLetterRun[];
 }
 
 function readCachedRun(workflowId: string | undefined): CachedRun | null {
@@ -98,7 +104,11 @@ function readCachedRun(workflowId: string | undefined): CachedRun | null {
     const raw = window.localStorage.getItem(RUN_CACHE_PREFIX + workflowId);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CachedRun;
-    return Array.isArray(parsed.logs) ? parsed : null;
+    if (!Array.isArray(parsed.logs)) return null;
+    // deadLetters is a newer field -- an older cached blob won't have it,
+    // and a corrupt one shouldn't crash the filter this feeds into.
+    if (!Array.isArray(parsed.deadLetters)) parsed.deadLetters = [];
+    return parsed;
   } catch {
     return null;
   }
@@ -184,7 +194,9 @@ export function useRunTranscript({
   );
   const [done, setDone] = useState(!!cached);
   const [stopped, setStopped] = useState(false);
-  const [deadLetters, setDeadLetters] = useState<DeadLetterRun[]>([]);
+  const [deadLetters, setDeadLetters] = useState<DeadLetterRun[]>(
+    cached?.deadLetters ?? [],
+  );
   const esRef = useRef<EventSource | null>(null);
   const startRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -490,14 +502,6 @@ export function useRunTranscript({
     };
   }, [done, logs, workflowId]);
 
-  // Cache the finished transcript for this workflow. Runs after `done` so it
-  // captures the reconciled set (including any steps the live stream missed),
-  // not a partial mid-run snapshot.
-  useEffect(() => {
-    if (!done || !runId || logs.length === 0) return;
-    writeCachedRun(workflowId, { runId, logs, elapsed });
-  }, [done, runId, logs, elapsed, workflowId]);
-
   // Detect the lease a Tendril rent step in this run opened, so the console
   // can offer a Terminal tab into it. Takes the most recent one — a run
   // renting two machines would need explicit lease-id wiring between nodes,
@@ -534,5 +538,28 @@ export function useRunTranscript({
     [deadLetters, logs],
   );
 
-  return { logs, elapsed, done, leaseId, stopped, deadLetters: visibleDeadLetters };
+  // Cache the finished transcript for this workflow, including its
+  // (already-resolved) dead-letters -- otherwise a reload mid-dead-letter
+  // loses the pill and the Resume action entirely, even though the run is
+  // still resumable server-side. Runs after `done` so it captures the
+  // reconciled set (including any steps the live stream missed), not a
+  // partial mid-run snapshot.
+  useEffect(() => {
+    if (!done || !runId || logs.length === 0) return;
+    writeCachedRun(workflowId, {
+      runId,
+      logs,
+      elapsed,
+      deadLetters: visibleDeadLetters,
+    });
+  }, [done, runId, logs, elapsed, workflowId, visibleDeadLetters]);
+
+  return {
+    logs,
+    elapsed,
+    done,
+    leaseId,
+    stopped,
+    deadLetters: visibleDeadLetters,
+  };
 }

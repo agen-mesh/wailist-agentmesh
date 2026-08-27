@@ -284,7 +284,14 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   }, []);
 
   const handleResume = useCallback(async () => {
-    if (!runId) return;
+    // Reachable now that a dead-letter row can be restored from a cached
+    // transcript (see useRunTranscript's CachedRun.deadLetters) with no
+    // live runId in this session -- give real feedback instead of a silent
+    // no-op, since the button looks clickable either way.
+    if (!runId) {
+      showToast("Nothing to resume — start the workflow again to retry it.");
+      return;
+    }
     try {
       await runsApi.resume(runId);
       setRunning(true);
