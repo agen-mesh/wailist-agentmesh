@@ -1,5 +1,5 @@
 "use client";
-import { formatPrice, type BazaarResource } from "@/lib/bazaar";
+import { assetSymbol, formatPrice, type BazaarResource } from "@/lib/bazaar";
 
 // Matches ResourceCard's tool402 accent, so a row still reads as "the same
 // kind of thing" as the pinned Supported cards above it.
@@ -58,7 +58,9 @@ export function EndpointRow({
       </div>
 
       <div className="bz-row__meta">
-        <span className="bz-row__price">${formatPrice(resource.amountMicros)}</span>
+        <span className="bz-row__price">
+          {formatPrice(resource.amountMicros)} {assetSymbol(resource.asset)}
+        </span>
         <span className="bz-row__price-unit">/ call</span>
         {resource.testnet && <span className="bz-pill">testnet</span>}
         {resource.settleCount > 0 && (

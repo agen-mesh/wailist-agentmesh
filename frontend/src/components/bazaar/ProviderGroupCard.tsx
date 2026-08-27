@@ -1,5 +1,5 @@
 "use client";
-import { formatPrice, type BazaarResource } from "@/lib/bazaar";
+import { assetSymbol, formatPrice, type BazaarResource } from "@/lib/bazaar";
 import { EndpointRow } from "./EndpointRow";
 
 const MAGENTA = "#E879F9";
@@ -31,7 +31,15 @@ export function ProviderGroupCard({
   partial?: boolean;
 }) {
   const label = resources[0]?.provider ?? host;
-  const cheapest = Math.min(...resources.map((r) => r.amountMicros));
+  // The min amountMicros alone isn't safe to label "$X": a host can mix
+  // ALGO-, USDC-, and ASA-priced endpoints, and comparing raw amounts across
+  // assets with no price feed is meaningless anyway. Tracking which
+  // resource actually achieved the minimum, and labeling it with THAT
+  // resource's own asset, at least never shows a currency the price doesn't
+  // apply to.
+  const cheapest = resources.reduce((min, r) =>
+    r.amountMicros < min.amountMicros ? r : min,
+  resources[0]);
 
   return (
     <div>
@@ -66,7 +74,7 @@ export function ProviderGroupCard({
             {partial ? "+" : ""} endpoint{resources.length === 1 ? "" : "s"}
           </span>
           <span className="bz-row__stat">
-            from ${formatPrice(cheapest)}
+            from {formatPrice(cheapest.amountMicros)} {assetSymbol(cheapest.asset)}
             {partial ? " so far" : ""}
           </span>
         </span>

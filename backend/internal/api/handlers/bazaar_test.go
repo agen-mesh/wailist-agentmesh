@@ -100,10 +100,11 @@ func TestBazaarResourcesCachesUpstream(t *testing.T) {
 			t.Fatalf("request %d: status %d", i, rec.Code)
 		}
 	}
-	// One crawl is two upstream calls at most (page 0 plus the short-page
-	// stop); three handler calls must not multiply that.
-	if got := atomic.LoadInt32(&hits); got > 2 {
-		t.Errorf("upstream hit %d times across 3 cached requests, want <= 2", got)
+	// One crawl fetches up to bazaar.fetchConcurrency (5) pages concurrently
+	// before the short page that ends this 1-page catalog is even seen;
+	// three handler calls must not multiply that.
+	if got := atomic.LoadInt32(&hits); got > 5 {
+		t.Errorf("upstream hit %d times across 3 cached requests, want <= 5 (one crawl's worth)", got)
 	}
 }
 
@@ -252,8 +253,79 @@ func TestBazaarResourcesColdStartBackoffThrottlesRetries(t *testing.T) {
 	if rec1.Code != http.StatusBadGateway || rec2.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, %d, want both 502", rec1.Code, rec2.Code)
 	}
-	if got := atomic.LoadInt32(&hits); got != 1 {
-		t.Errorf("upstream hit %d times across 2 cold-start requests within the backoff window, want 1", got)
+	// The first crawl's own first batch fetches up to bazaar.fetchConcurrency
+	// (5) pages concurrently before any of them can report the failure that
+	// stops it -- what this test actually guards is that the second request
+	// doesn't start ANOTHER crawl on top of that (which would push hits well
+	// past one batch's worth).
+	if got := atomic.LoadInt32(&hits); got > 5 {
+		t.Errorf("upstream hit %d times across 2 cold-start requests within the backoff window, want <= 5 (one crawl's worth)", got)
+	}
+}
+
+// TestCatalogFollowerWaitsOnInflightCrawlInsteadOfTakingBackoffBranch guards
+// against checking the backoff window before the inflight channel: a
+// follower arriving while a crawl is already running (and still within the
+// backoff window that crawl's own start just set) must wait on that crawl,
+// not read items/lastErr while both are still nil on a cold start and
+// return a spurious empty "200 {items: [], total: 0}".
+func TestCatalogFollowerWaitsOnInflightCrawlInsteadOfTakingBackoffBranch(t *testing.T) {
+	orig := bazaarRetryBackoff
+	bazaarRetryBackoff = 5 * time.Second
+	defer func() { bazaarRetryBackoff = orig }()
+
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		items := []map[string]any{}
+		if r.URL.Query().Get("offset") == "0" {
+			items = append(items, map[string]any{
+				"id": "r0", "resourceUrl": "https://h0.example/api", "method": "GET",
+				"accepts": []any{map[string]any{
+					"network": bzMainnet, "amount": "5000", "asset": "31566704", "payTo": "P",
+				}},
+			})
+		}
+		json.NewEncoder(w).Encode(map[string]any{"items": items})
+	}))
+	defer srv.Close()
+	d := &Deps{BazaarBaseURL: srv.URL}
+
+	firstDone := make(chan struct{})
+	go func() {
+		d.catalog(context.Background())
+		close(firstDone)
+	}()
+	time.Sleep(20 * time.Millisecond) // let the first caller actually start the crawl
+
+	secondResult := make(chan []bazaar.Resource, 1)
+	go func() {
+		items, _ := d.catalog(context.Background())
+		secondResult <- items
+	}()
+
+	select {
+	case items := <-secondResult:
+		t.Fatalf("second caller returned early with %d items instead of waiting for the in-flight crawl", len(items))
+	case <-time.After(50 * time.Millisecond):
+		// Still waiting on the shared crawl, as expected.
+	}
+
+	close(release)
+	<-firstDone
+	items := <-secondResult
+	// Merge() also appends the curated registry's own entries, so the total
+	// isn't exactly 1 -- what matters is that the fetched item made it
+	// through, proving the second caller saw the real crawl result rather
+	// than a spurious pre-completion nil/nil.
+	found := false
+	for _, r := range items {
+		if r.ID == "r0" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("want the second caller to see the real crawl result (item r0 present), got %d items: %+v", len(items), items)
 	}
 }
 
@@ -304,8 +376,11 @@ func TestCatalogConcurrentColdRequestsShareOneCrawlAndHonourCancellation(t *test
 	close(release)
 	wg.Wait()
 
-	if got := atomic.LoadInt32(&hits); got != 1 {
-		t.Errorf("upstream hit %d times across 4 concurrent cold-start callers, want exactly 1 shared crawl", got)
+	// One shared crawl's first batch fetches up to bazaar.fetchConcurrency
+	// (5) pages concurrently; 4 concurrent callers must not multiply that
+	// into a second, independent crawl.
+	if got := atomic.LoadInt32(&hits); got > 5 {
+		t.Errorf("upstream hit %d times across 4 concurrent cold-start callers, want <= 5 (one shared crawl)", got)
 	}
 }
 

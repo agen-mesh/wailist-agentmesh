@@ -210,6 +210,12 @@ export function BazaarPage() {
   // in. Map preserves first-seen order, which is that host's highest
   // settle-count entry's position (items already arrive settle-count
   // sorted) — so a provider surfaces where its best single entry would have.
+  // Rebuilds the whole grouping from all of `items` on every loadMore page,
+  // not just the newly-appended page -- O(n) per page, O(n²/pageSize) over a
+  // full scroll session instead of O(n). Not worth an incremental fold at
+  // the current ~780-entry catalog (worst case is a few tens of thousands of
+  // trivial operations, well under one frame); revisit if the catalog grows
+  // by an order of magnitude or more.
   const groupedItems = useMemo(() => {
     const byHost = new Map<string, BazaarResource[]>();
     for (const r of items) {
@@ -270,6 +276,12 @@ export function BazaarPage() {
     setItems([]);
     setTotal(0);
     setNoMore(false);
+    // Without this, a query change right after a failed load leaves the
+    // sentinel effect's `if (noMore || loading || error) return;` guard
+    // permanently tripped for the NEW query: the stale error message stays
+    // on screen with only a manual Retry button instead of the new search
+    // auto-loading.
+    setError(null);
   }
 
   // Bumped every time a search reset commits, so an in-flight loadMore

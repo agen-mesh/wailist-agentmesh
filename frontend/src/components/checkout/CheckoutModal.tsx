@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { IconClose } from "@/components/ui";
+import { useModalDismissal } from "@/hooks/useModalDismissal";
 import { useCredits } from "@/lib/credits/store";
 import type { Purchase } from "@/lib/credits/types";
 import type { PaymentMethod } from "./types";
@@ -82,27 +83,7 @@ export function CheckoutModal({
     );
   };
 
-  // Close on Escape key
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  // Lock body scroll while open
-  useEffect(() => {
-    if (open) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [open]);
+  useModalDismissal(onClose, open);
 
   if (!open) return null;
 

@@ -1,6 +1,6 @@
 "use client";
 import { Pill } from "@/components/ui";
-import { formatPrice, type BazaarResource } from "@/lib/bazaar";
+import { assetSymbol, formatPrice, type BazaarResource } from "@/lib/bazaar";
 
 // The tool402 accent, matching the canvas node and Inspector so an endpoint
 // looks like the same thing everywhere it appears (Inspector.tsx:276-280).
@@ -118,7 +118,7 @@ export function ResourceCard({
         }}
       >
         <span style={{ color: "var(--fg)", fontWeight: 600 }}>
-          ${formatPrice(resource.amountMicros)}
+          {formatPrice(resource.amountMicros)} {assetSymbol(resource.asset)}
         </span>
         <span>/ call</span>
         {resource.testnet && <Pill>testnet</Pill>}

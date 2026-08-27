@@ -99,10 +99,13 @@ func Merge(catalog []Resource) []Resource {
 	emitted := make(map[string]bool, len(curated))
 	for _, r := range catalog {
 		key := normalizeURLForMatch(r.URL)
-		if c, ok := byURL[key]; ok {
-			if emitted[key] {
-				continue
-			}
+		// !emitted[key], not a `continue` on emitted[key]: a second catalog
+		// entry under an already-emitted curated URL must still appear in
+		// out (with its own id/SettleCount/LastSeen, just not re-flagged
+		// Supported) -- a `continue` here would skip the unconditional
+		// append below too, dropping the entry from the merged catalog
+		// entirely instead of merely not re-pinning it.
+		if c, ok := byURL[key]; ok && !emitted[key] {
 			emitted[key] = true
 			matched[key] = true
 			r.Supported = true

@@ -79,7 +79,13 @@ func TestMergeDoesNotDuplicate(t *testing.T) {
 func TestMergeDoesNotDuplicateWhenTwoCatalogEntriesShareOneCuratedURL(t *testing.T) {
 	// Regression: if the upstream catalog (re-)registers the same real
 	// endpoint under two distinct catalog ids, both used to match the same
-	// curated URL and both got appended as separate Supported=true rows.
+	// curated URL and both got appended as separate Supported=true rows --
+	// the real endpoint rendered twice in the pinned section.
+	//
+	// Both catalog entries must still appear in the merged result (each
+	// keeps its own id/SettleCount/LastSeen -- a re-registered provider
+	// under a new catalog id is real data, not a duplicate to drop), but
+	// only the first one is flagged Supported.
 	curatedURL := Curated()[0].URL
 	catalog := []Resource{
 		{ID: "cat1", URL: curatedURL, Method: "GET", SettleCount: 3},
@@ -87,14 +93,21 @@ func TestMergeDoesNotDuplicateWhenTwoCatalogEntriesShareOneCuratedURL(t *testing
 	}
 	got := Merge(catalog)
 
-	count := 0
+	total, supportedCount := 0, 0
 	for _, r := range got {
-		if r.URL == curatedURL {
-			count++
+		if r.URL != curatedURL {
+			continue
+		}
+		total++
+		if r.Supported {
+			supportedCount++
 		}
 	}
-	if count != 1 {
-		t.Errorf("curated URL appears %d times across %d catalog entries, want exactly 1", count, len(catalog))
+	if total != len(catalog) {
+		t.Errorf("want both catalog entries preserved, got %d rows for the shared URL", total)
+	}
+	if supportedCount != 1 {
+		t.Errorf("want exactly 1 row flagged Supported for the shared URL, got %d", supportedCount)
 	}
 }
 

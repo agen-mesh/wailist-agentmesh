@@ -79,28 +79,37 @@ func (d *Deps) catalog(ctx context.Context) ([]bazaar.Resource, error) {
 		d.bazaarCache.mu.Unlock()
 		return items, nil
 	}
-	// A prior refresh attempt failed recently — serve the stale cache instead
-	// of re-running the full crawl on every request until the backoff clears.
-	// This applies even on a cold start (no successful fetch yet, items ==
-	// nil): checking lastAttemptedAt rather than requiring items != nil is
-	// what makes the backoff actually engage during a from-boot outage,
-	// instead of every single request racing to start its own crawl.
-	if !d.bazaarCache.lastAttemptedAt.IsZero() && time.Since(d.bazaarCache.lastAttemptedAt) < bazaarRetryBackoff {
-		items, err := d.bazaarCache.items, d.bazaarCache.lastErr
-		d.bazaarCache.mu.Unlock()
-		if items != nil {
-			return items, nil
-		}
-		return nil, err
-	}
+	// inflight is checked BEFORE the backoff check below, not after: a
+	// caller that arrives after a crawl has started but before it finishes
+	// must wait on that crawl. Checking backoff first would let it take the
+	// backoff branch instead (lastAttemptedAt was just set by whoever
+	// started the crawl) and read items/lastErr while both are still nil on
+	// a cold start -- a spurious empty "200 {items: [], total: 0}" that
+	// looks like a real, if unfortunate, page state instead of "still
+	// loading."
 	ch := d.bazaarCache.inflight
 	if ch == nil {
-		// No refresh running — start one on a detached goroutine so it is
-		// never at the mercy of whichever caller happens to be the one that
-		// triggers it. Every caller, this one included, only ever *waits* on
-		// it below via select, so every caller (not just followers) honours
-		// its own ctx and can bail out early without affecting the shared
-		// fetch.
+		// No refresh running — only now does the backoff apply: a prior
+		// attempt failed recently, so serve the stale cache instead of
+		// re-running the full crawl on every request until it clears. This
+		// applies even on a cold start (no successful fetch yet, items ==
+		// nil): checking lastAttemptedAt rather than requiring items != nil
+		// is what makes the backoff actually engage during a from-boot
+		// outage, instead of every single request racing to start its own
+		// crawl.
+		if !d.bazaarCache.lastAttemptedAt.IsZero() && time.Since(d.bazaarCache.lastAttemptedAt) < bazaarRetryBackoff {
+			items, err := d.bazaarCache.items, d.bazaarCache.lastErr
+			d.bazaarCache.mu.Unlock()
+			if items != nil {
+				return items, nil
+			}
+			return nil, err
+		}
+		// Start one on a detached goroutine so it is never at the mercy of
+		// whichever caller happens to be the one that triggers it. Every
+		// caller, this one included, only ever *waits* on it below via
+		// select, so every caller (not just followers) honours its own ctx
+		// and can bail out early without affecting the shared fetch.
 		ch = make(chan struct{})
 		d.bazaarCache.inflight = ch
 		d.bazaarCache.lastAttemptedAt = time.Now()

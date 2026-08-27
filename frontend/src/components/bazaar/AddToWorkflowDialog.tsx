@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { workflows } from "@/lib/api";
+import { useModalDismissal } from "@/hooks/useModalDismissal";
 import {
   encodePendingNode,
   resourceToNode,
@@ -45,22 +46,7 @@ export function AddToWorkflowDialog({
     };
   }, []);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  // Lock body scroll while open, matching CheckoutModal — otherwise the
-  // Bazaar page behind this dialog stays scrollable.
-  useEffect(() => {
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, []);
+  useModalDismissal(onClose);
 
   const choose = (id: string) => {
     const encoded = encodePendingNode(resourceToNode(resource));
