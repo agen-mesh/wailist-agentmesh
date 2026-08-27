@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -113,9 +115,14 @@ func (d *Deps) startRun(w http.ResponseWriter, r *http.Request, workflowID, trig
 	if err != nil {
 		var cooldownErr *db.ErrRunOnCooldown
 		if errors.As(err, &cooldownErr) {
-			w.Header().Set("Retry-After", fmt.Sprintf("%.0f", cooldownErr.RetryAfter.Seconds()))
+			// math.Ceil, not %.0f (which rounds to nearest): the caller must
+			// never be told to wait less than the real remaining cooldown, or
+			// a client that retries exactly as told lands inside the
+			// still-active window and gets hit with a second, unexpected 429.
+			retryAfterSecs := int64(math.Ceil(cooldownErr.RetryAfter.Seconds()))
+			w.Header().Set("Retry-After", strconv.FormatInt(retryAfterSecs, 10))
 			respond.Error(w, http.StatusTooManyRequests,
-				fmt.Sprintf("this workflow was triggered too recently — wait %.0fs and try again", cooldownErr.RetryAfter.Seconds()))
+				fmt.Sprintf("this workflow was triggered too recently — wait %ds and try again", retryAfterSecs))
 			return
 		}
 		respond.Error(w, http.StatusInternalServerError, err.Error())

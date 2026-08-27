@@ -1474,18 +1474,18 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 		// to the caller, already succeeded. cfg.Facilitator == nil (dev/test
 		// wiring that never configured one) makes this a silent no-op.
 		//
-		// NOT detached from ctx (no WithoutCancel) -- a StopWorkflow racing
-		// this call is safe to honor promptly now: SettlePlatformFee only
-		// shields the one narrow, actually-unsafe-to-interrupt moment (the
-		// Settle HTTP call itself) internally, via its own detached
-		// sub-context -- see selfSettleWallet1ToWallet2/attemptSelfSettle's
-		// doc comments. Everything else here (signing, Verify, retry gaps)
-		// stays cancelable, so a Stop click isn't blocked for the whole
-		// SelfSettleRetryBudget ceiling below -- that ceiling is just a
-		// backstop against an unbounded hang if ctx has no deadline of its
-		// own, not the thing making this call safe.
+		// Detached from ctx (context.WithoutCancel) -- unlike FundRunReserve,
+		// where a StopWorkflow landing mid-retry just means ReleaseReservedCredits
+		// undoes a reservation that was never committed, the two Commit calls
+		// above have ALREADY moved this fee into the caller's committed ledger
+		// total by the time we get here. A StopWorkflow racing this call must
+		// not be allowed to abort the retry sequence early (selfSettleWallet1ToWallet2's
+		// ctx.Err() check would do exactly that on a cancelable ctx): that would
+		// leave the fee permanently billed in the ledger with no on-chain
+		// settlement ever attempted again, not merely delayed. SelfSettleRetryBudget
+		// still bounds how long this can run.
 		if cfg.Facilitator != nil {
-			fctx, cancel := context.WithTimeout(ctx, SelfSettleRetryBudget)
+			fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), SelfSettleRetryBudget)
 			feeTxID, feeErr := SettlePlatformFee(fctx, RunPreFundConfig{
 				USDCSigner:               usdcSigner,
 				PlatformSpendEncMnemonic: platformSpendEncMnemonic,

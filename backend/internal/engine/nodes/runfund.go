@@ -189,6 +189,12 @@ const selfSettleMaxAttempts = 3
 // backstop, not the real limiter, so it never needs to be tight.
 const settleCallBudget = 60 * time.Second
 
+// verifyCallBudget is generous headroom for attemptSelfSettle's Verify call,
+// same rationale as settleCallBudget: x402.FacilitatorClient's own http.Client
+// has a 20s timeout, which is what actually bounds Verify; this just needs to
+// not be tighter than that.
+const verifyCallBudget = 20 * time.Second
+
 // SelfSettleRetryBudget is a sane ceiling a caller MAY wrap around
 // SettlePlatformFee/FundRunReserve with (context.WithTimeout(ctx,
 // SelfSettleRetryBudget) -- deliberately NOT context.WithoutCancel: unlike
@@ -198,10 +204,16 @@ const settleCallBudget = 60 * time.Second
 // there's no reason to make the whole call deaf to a StopWorkflow just to
 // protect the one part that needs it. This exists purely as a backstop
 // against an unbounded hang if the caller's own ctx has no deadline of
-// its own: selfSettleMaxAttempts attempts, each budgeted generously for a
-// full sign+verify+settle cycle (20s+20s facilitator calls, plus signing,
-// plus headroom).
-const SelfSettleRetryBudget = selfSettleMaxAttempts * 60 * time.Second
+// its own: selfSettleMaxAttempts attempts, each budgeted for a full
+// sign+verify+settle cycle -- verifyCallBudget for Verify plus
+// settleCallBudget for Settle, signing itself being local and negligible.
+// Derived from the two per-call budgets above, not re-hardcoded, so this
+// stays correct if either one changes; a version of this that only
+// accounted for settleCallBudget (i.e. omitted verifyCallBudget) could let
+// two attempts' worth of Verify calls alone eat enough of the ceiling that
+// a legitimate third retry gets cut short by ctx.Err() -- the exact
+// reliability gap this whole retry mechanism exists to close.
+const SelfSettleRetryBudget = selfSettleMaxAttempts * (verifyCallBudget + settleCallBudget)
 
 func attemptSelfSettle(ctx context.Context, cfg RunPreFundConfig, publicPath, description, errPrefix string, amountUSDMicros int64) (string, error) {
 	resourceURL := cfg.FrontendURL + publicPath

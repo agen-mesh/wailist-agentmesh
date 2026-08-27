@@ -294,11 +294,19 @@ func (e *ErrRunOnCooldown) Error() string {
 // of how many backend replicas are running, unlike an in-process lock
 // that only ever sees its own replica's traffic.
 //
-// pg_advisory_xact_lock, not a plain "SELECT ... FOR UPDATE" against runs,
-// because a workflow's very first run has no existing row to lock against
-// -- the advisory lock is keyed on workflowID's hash and held regardless
-// of whether any row exists yet, and is automatically released at this
-// transaction's COMMIT or ROLLBACK either way.
+// pg_try_advisory_xact_lock (non-blocking), not the plain blocking
+// pg_advisory_xact_lock LockOAuthCredentialForRefresh uses below -- that
+// function WANTS a caller to wait for a concurrent refresh of the same
+// credential to finish. Here, waiting would be actively harmful: this repo
+// runs against the Supabase transaction pooler's small shared connection
+// budget, and a blocking lock means every request in a burst against the
+// same workflow (exactly the burst this cooldown exists to reject) queues
+// holding a pooled connection until the one ahead of it finishes -- turning
+// this anti-abuse check into a connection-pool-exhaustion vector that can
+// starve unrelated, legitimate requests across the whole app. A failed
+// try-lock is treated as "another request for this workflow is already
+// mid-check" and answered with the same cooldown response, so a burst still
+// gets rejected, it just never blocks a connection to do it.
 func (s *Store) CreateRunWithCooldown(ctx context.Context, workflowID, triggeredBy string, inputContext []byte, cooldown time.Duration) (models.Run, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -306,8 +314,12 @@ func (s *Store) CreateRunWithCooldown(ctx context.Context, workflowID, triggered
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, workflowID); err != nil {
+	var locked bool
+	if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtext($1))`, workflowID).Scan(&locked); err != nil {
 		return models.Run{}, fmt.Errorf("run cooldown: acquire advisory lock: %w", err)
+	}
+	if !locked {
+		return models.Run{}, &ErrRunOnCooldown{RetryAfter: cooldown}
 	}
 
 	var lastStarted time.Time
@@ -1445,6 +1457,13 @@ func (s *Store) DeleteOAuthCredential(ctx context.Context, id string) error {
 //
 // release must be called (via defer) once the caller is done -- it commits
 // the underlying transaction, which is what actually releases the lock.
+//
+// Same Begin+pg_advisory_xact_lock(hashtext(...)) shape as
+// CreateRunWithCooldown, deliberately not shared: this one blocks until the
+// lock is free (a caller here wants to wait for a concurrent refresh of the
+// same credential to finish), whereas CreateRunWithCooldown uses the
+// non-blocking pg_try_advisory_xact_lock specifically to avoid queuing
+// pooled connections under a burst -- see that function's doc comment.
 func (s *Store) LockOAuthCredentialForRefresh(ctx context.Context, id string) (release func(context.Context), err error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

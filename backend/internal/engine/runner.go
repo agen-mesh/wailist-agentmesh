@@ -159,18 +159,6 @@ func (r *Runner) addRunBilling(runID string, amountUSDMicros int64) {
 // terminating process indefinitely.
 const ledgerCompensationTimeout = 10 * time.Second
 
-// runTotalSettleTimeout bounds settleRunTotal's own facilitator round trip
-// (sign + Verify + Settle -- three real network calls, not a single locked
-// UPDATE), so it deliberately doesn't reuse ledgerCompensationTimeout.
-// reserveAndFundRun's identical FundRunReserve call has no timeout of its
-// own beyond the run's own ctx; settleRunTotal needs one because it runs
-// from a defer after ctx may already be cancelled (context.WithoutCancel),
-// but it should still give the facilitator as much room as the equivalent
-// pre-fund settlement effectively gets, not the much tighter DB-write
-// budget -- an overly tight bound here would spuriously drop a perfectly
-// good settlement under nothing worse than ordinary facilitator latency.
-const runTotalSettleTimeout = 60 * time.Second
-
 // newPaymentLedger builds the reserve/commit/release closures a real
 // on-chain tool402 payment (either dialect, standalone or agent-attached)
 // uses to atomically decrement the user's balance at the moment a payment
@@ -679,11 +667,17 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run) {
 	// needing to know about it. context.WithoutCancel + a bounded timeout
 	// matches the same compensating-write convention used elsewhere in this
 	// file (e.g. reserveAndFundRun's Cleanup), so the settlement still runs
-	// even if Stop() already cancelled ctx.
+	// even if Stop() already cancelled ctx. Uses nodes.SelfSettleRetryBudget,
+	// not a locally-hardcoded timeout: settleRunTotal's underlying retry
+	// loop (selfSettleWallet1ToWallet2) can make up to 3 real sign+verify+settle
+	// attempts, same as FundRunReserve/SettlePlatformFee, and needs the same
+	// ceiling those get -- a tighter one here would spuriously cut off a
+	// later retry attempt under nothing worse than ordinary facilitator
+	// latency.
 	runTotal := new(int64)
 	r.runBilling.Store(run.ID, runTotal)
 	defer func() {
-		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), runTotalSettleTimeout)
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), nodes.SelfSettleRetryBudget)
 		defer cancel()
 		r.settleRunTotal(sctx, wf, run, runTotal)
 		r.runBilling.Delete(run.ID)
