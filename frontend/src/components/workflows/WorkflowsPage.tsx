@@ -16,6 +16,12 @@ import { workflows as workflowsApi } from "@/lib/api";
 import { useCredits } from "@/lib/credits/store";
 import { tendril } from "@/lib/tendril";
 import { DEMO_WORKFLOW } from "@/lib/data";
+import {
+  cadenceToCron,
+  cronToCadence,
+  type Cadence,
+  type CadenceValue,
+} from "@/lib/cronCadence";
 
 export function WorkflowsPage() {
   const router = useRouter();
@@ -33,7 +39,7 @@ export function WorkflowsPage() {
   // other. A success only clears the error if it's the one that owns it,
   // so it never wipes an unrelated action's still-relevant error.
   const [pageError, setPageError] = useState<{
-    source: "demo" | "delete";
+    source: "demo" | "delete" | "schedule";
     message: string;
   } | null>(null);
   const { balanceUSD, balanceKnown, refreshBalance } = useCredits();
@@ -141,6 +147,54 @@ export function WorkflowsPage() {
         source: "delete",
         message: e instanceof Error ? e.message : "could not delete workflow",
       });
+    }
+  }, []);
+
+  // Schedule set/clear mirror handleDelete's pattern: optimistic local list
+  // update on success, tagged pageError on failure. Both re-throw so
+  // SchedulePopover's own inline error state (right next to the button the
+  // user just clicked) shows the same message rather than only the
+  // page-level banner.
+  const handleSetSchedule = useCallback(async (id: string, cron: string) => {
+    setPageError((prev) => (prev?.source === "schedule" ? null : prev));
+    try {
+      const { cron: savedCron, nextRunAt } = await workflowsApi.setSchedule(
+        id,
+        cron,
+      );
+      setWfList((prev) =>
+        prev.map((w) =>
+          w.id === id
+            ? { ...w, scheduleCron: savedCron, scheduleNextRunAt: nextRunAt }
+            : w,
+        ),
+      );
+    } catch (e) {
+      setPageError({
+        source: "schedule",
+        message: e instanceof Error ? e.message : "could not save schedule",
+      });
+      throw e;
+    }
+  }, []);
+
+  const handleClearSchedule = useCallback(async (id: string) => {
+    setPageError((prev) => (prev?.source === "schedule" ? null : prev));
+    try {
+      await workflowsApi.clearSchedule(id);
+      setWfList((prev) =>
+        prev.map((w) =>
+          w.id === id
+            ? { ...w, scheduleCron: undefined, scheduleNextRunAt: undefined }
+            : w,
+        ),
+      );
+    } catch (e) {
+      setPageError({
+        source: "schedule",
+        message: e instanceof Error ? e.message : "could not remove schedule",
+      });
+      throw e;
     }
   }, []);
 
@@ -431,6 +485,8 @@ export function WorkflowsPage() {
               items={filtered}
               onOpen={(id) => router.push(`/workflows/${id}`)}
               onDelete={handleDelete}
+              onSetSchedule={handleSetSchedule}
+              onClearSchedule={handleClearSchedule}
             />
           ) : (
             <WorkflowGrid
@@ -534,9 +590,24 @@ function WorkflowIcon({ name }: { name: string }) {
 // a second click ("Delete permanently?") in place rather than firing on the
 // first — and rather than a browser confirm() dialog, which the rest of the app
 // doesn't use.
-function RowMenu({ onDelete }: { onDelete: () => void }) {
+function RowMenu({
+  onDelete,
+  deployed,
+  scheduleCron,
+  scheduleNextRunAt,
+  onSetSchedule,
+  onClearSchedule,
+}: {
+  onDelete: () => void;
+  deployed: boolean;
+  scheduleCron?: string;
+  scheduleNextRunAt?: string;
+  onSetSchedule: (cron: string) => Promise<void>;
+  onClearSchedule: () => Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [view, setView] = useState<"menu" | "schedule">("menu");
   // The rows list scrolls horizontally (overflow-x: auto), which clips absolutely
   // positioned children in both axes — so the menu is position:fixed, anchored to
   // the button's viewport rect, and closes on scroll/resize rather than drifting.
@@ -549,6 +620,7 @@ function RowMenu({ onDelete }: { onDelete: () => void }) {
   const close = useCallback(() => {
     setOpen(false);
     setConfirming(false);
+    setView("menu");
   }, []);
 
   // Close on any click outside, so an open menu can't be left hanging over a
@@ -604,6 +676,7 @@ function RowMenu({ onDelete }: { onDelete: () => void }) {
             });
           }
           setConfirming(false);
+          setView("menu");
           setOpen(true);
         }}
       >
@@ -625,66 +698,340 @@ function RowMenu({ onDelete }: { onDelete: () => void }) {
             boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
           }}
         >
-          <button
-            role="menuitem"
-            onClick={() => {
-              if (!confirming) {
-                setConfirming(true);
-                return;
-              }
-              close();
-              onDelete();
-            }}
-            style={{
-              display: "block",
-              width: "100%",
-              textAlign: "left",
-              padding: "8px 10px",
-              border: "none",
-              borderRadius: 5,
-              background: confirming
-                ? "var(--danger-soft, transparent)"
-                : "transparent",
-              color: "var(--danger)",
-              fontSize: 12.5,
-              fontWeight: confirming ? 600 : 500,
-              fontFamily: "var(--font-sans)",
-              cursor: "pointer",
-            }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.background = "var(--bg-elev-3)")
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.background = confirming
-                ? "var(--danger-soft, transparent)"
-                : "transparent")
-            }
-          >
-            {confirming ? "Delete permanently?" : "Delete workflow"}
-          </button>
-          {confirming && (
-            <button
-              role="menuitem"
-              onClick={() => setConfirming(false)}
-              style={{
-                display: "block",
-                width: "100%",
-                textAlign: "left",
-                padding: "8px 10px",
-                border: "none",
-                borderRadius: 5,
-                background: "transparent",
-                color: "var(--fg-muted)",
-                fontSize: 12.5,
-                fontFamily: "var(--font-sans)",
-                cursor: "pointer",
+          {view === "menu" && (
+            <>
+              <button
+                role="menuitem"
+                disabled={!deployed}
+                title={deployed ? undefined : "Deploy this workflow first"}
+                onClick={() => {
+                  if (!deployed) return;
+                  setView("schedule");
+                }}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "8px 10px",
+                  border: "none",
+                  borderRadius: 5,
+                  background: "transparent",
+                  color: deployed ? "var(--fg)" : "var(--fg-dim)",
+                  fontSize: 12.5,
+                  fontWeight: 500,
+                  fontFamily: "var(--font-sans)",
+                  cursor: deployed ? "pointer" : "not-allowed",
+                }}
+                onMouseEnter={(e) => {
+                  if (deployed)
+                    e.currentTarget.style.background = "var(--bg-elev-3)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                }}
+              >
+                {scheduleCron ? "Edit schedule" : "Schedule"}
+              </button>
+              <div
+                style={{
+                  height: 1,
+                  background: "var(--border)",
+                  margin: "4px 0",
+                }}
+              />
+              <button
+                role="menuitem"
+                onClick={() => {
+                  if (!confirming) {
+                    setConfirming(true);
+                    return;
+                  }
+                  close();
+                  onDelete();
+                }}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "8px 10px",
+                  border: "none",
+                  borderRadius: 5,
+                  background: confirming
+                    ? "var(--danger-soft, transparent)"
+                    : "transparent",
+                  color: "var(--danger)",
+                  fontSize: 12.5,
+                  fontWeight: confirming ? 600 : 500,
+                  fontFamily: "var(--font-sans)",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = "var(--bg-elev-3)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = confirming
+                    ? "var(--danger-soft, transparent)"
+                    : "transparent")
+                }
+              >
+                {confirming ? "Delete permanently?" : "Delete workflow"}
+              </button>
+              {confirming && (
+                <button
+                  role="menuitem"
+                  onClick={() => setConfirming(false)}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    textAlign: "left",
+                    padding: "8px 10px",
+                    border: "none",
+                    borderRadius: 5,
+                    background: "transparent",
+                    color: "var(--fg-muted)",
+                    fontSize: 12.5,
+                    fontFamily: "var(--font-sans)",
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+            </>
+          )}
+          {view === "schedule" && (
+            <SchedulePopover
+              scheduleCron={scheduleCron}
+              scheduleNextRunAt={scheduleNextRunAt}
+              onBack={() => setView("menu")}
+              onSave={async (cron) => {
+                await onSetSchedule(cron);
+                close();
               }}
-            >
-              Cancel
-            </button>
+              onRemove={async () => {
+                await onClearSchedule();
+                close();
+              }}
+            />
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// SchedulePopover renders inside RowMenu's existing anchored floating
+// panel (view === "schedule") rather than opening a second popover, so
+// there's one open/close/outside-click state machine, not two.
+function SchedulePopover({
+  scheduleCron,
+  scheduleNextRunAt,
+  onBack,
+  onSave,
+  onRemove,
+}: {
+  scheduleCron?: string;
+  scheduleNextRunAt?: string;
+  onBack: () => void;
+  onSave: (cron: string) => Promise<void>;
+  onRemove: () => Promise<void>;
+}) {
+  const initial = useMemo<CadenceValue>(
+    () =>
+      (scheduleCron ? cronToCadence(scheduleCron) : null) ?? {
+        cadence: "daily",
+        time: "09:00",
+        dayOfWeek: 1,
+        dayOfMonth: 1,
+      },
+    [scheduleCron],
+  );
+  const [cadence, setCadence] = useState<Cadence>(initial.cadence);
+  const [time, setTime] = useState(initial.time);
+  const [dayOfWeek, setDayOfWeek] = useState(initial.dayOfWeek ?? 1);
+  const [dayOfMonth, setDayOfMonth] = useState(initial.dayOfMonth ?? 1);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const selectStyle: React.CSSProperties = {
+    width: "100%",
+    padding: "5px 6px",
+    marginBottom: 8,
+    fontSize: 12,
+    fontFamily: "var(--font-mono)",
+    background: "var(--bg-elev-1)",
+    border: "1px solid var(--border)",
+    borderRadius: 4,
+    color: "var(--fg)",
+  };
+  const labelStyle: React.CSSProperties = {
+    display: "block",
+    fontSize: 10,
+    color: "var(--fg-dim)",
+    marginBottom: 3,
+  };
+
+  return (
+    <div style={{ padding: 10, width: 220 }}>
+      <button
+        onClick={onBack}
+        style={{
+          background: "none",
+          border: "none",
+          color: "var(--fg-muted)",
+          cursor: "pointer",
+          fontSize: 11,
+          padding: 0,
+          marginBottom: 8,
+        }}
+      >
+        ← back
+      </button>
+      <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+        {(["daily", "weekly", "monthly"] as Cadence[]).map((c) => (
+          <button
+            key={c}
+            onClick={() => setCadence(c)}
+            style={{
+              flex: 1,
+              padding: "5px 0",
+              fontSize: 11,
+              fontFamily: "var(--font-sans)",
+              borderRadius: 4,
+              border: "1px solid var(--border)",
+              background: cadence === c ? "var(--accent-soft)" : "transparent",
+              color: cadence === c ? "var(--accent)" : "var(--fg-muted)",
+              cursor: "pointer",
+              textTransform: "capitalize",
+            }}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+      <label style={labelStyle}>Time (your timezone)</label>
+      <input
+        type="time"
+        value={time}
+        onChange={(e) => setTime(e.target.value)}
+        style={{
+          width: "100%",
+          padding: "5px 6px",
+          marginBottom: 8,
+          fontSize: 12,
+          fontFamily: "var(--font-mono)",
+          background: "var(--bg-elev-1)",
+          border: "1px solid var(--border)",
+          borderRadius: 4,
+          color: "var(--fg)",
+        }}
+      />
+      {cadence === "weekly" && (
+        <>
+          <label style={labelStyle}>Day of week</label>
+          <select
+            value={dayOfWeek}
+            onChange={(e) => setDayOfWeek(Number(e.target.value))}
+            style={selectStyle}
+          >
+            {DOW_LABELS.map((label, i) => (
+              <option key={i} value={i}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+      {cadence === "monthly" && (
+        <>
+          <label style={labelStyle}>Day of month</label>
+          <select
+            value={dayOfMonth}
+            onChange={(e) => setDayOfMonth(Number(e.target.value))}
+            style={selectStyle}
+          >
+            {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+      {scheduleNextRunAt && (
+        <div style={{ fontSize: 10, color: "var(--fg-dim)", marginBottom: 8 }}>
+          Next run: {new Date(scheduleNextRunAt).toLocaleString()}
+        </div>
+      )}
+      {error && (
+        <div
+          style={{ fontSize: 10.5, color: "var(--danger)", marginBottom: 8 }}
+        >
+          {error}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 6 }}>
+        <button
+          disabled={saving}
+          onClick={async () => {
+            setSaving(true);
+            setError(null);
+            try {
+              await onSave(
+                cadenceToCron({ cadence, time, dayOfWeek, dayOfMonth }),
+              );
+            } catch (e) {
+              setError(
+                e instanceof Error ? e.message : "could not save schedule",
+              );
+              setSaving(false);
+            }
+          }}
+          style={{
+            flex: 1,
+            padding: "6px 0",
+            fontSize: 11.5,
+            fontWeight: 600,
+            borderRadius: 4,
+            border: "none",
+            background: "var(--accent)",
+            color: "var(--bg)",
+            cursor: saving ? "default" : "pointer",
+            opacity: saving ? 0.6 : 1,
+          }}
+        >
+          Save
+        </button>
+        {scheduleCron && (
+          <button
+            disabled={saving}
+            onClick={async () => {
+              setSaving(true);
+              setError(null);
+              try {
+                await onRemove();
+              } catch (e) {
+                setError(
+                  e instanceof Error ? e.message : "could not remove schedule",
+                );
+                setSaving(false);
+              }
+            }}
+            style={{
+              padding: "6px 10px",
+              fontSize: 11.5,
+              borderRadius: 4,
+              border: "1px solid var(--border-strong)",
+              background: "transparent",
+              color: "var(--danger)",
+              cursor: saving ? "default" : "pointer",
+            }}
+          >
+            Remove
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -693,10 +1040,14 @@ function WorkflowRows({
   items,
   onOpen,
   onDelete,
+  onSetSchedule,
+  onClearSchedule,
 }: {
   items: Workflow[];
   onOpen: (id: string) => void;
   onDelete: (id: string) => void;
+  onSetSchedule: (id: string, cron: string) => Promise<void>;
+  onClearSchedule: (id: string) => Promise<void>;
 }) {
   return (
     <Card style={{ padding: 0, overflowX: "auto" }}>
@@ -838,7 +1189,14 @@ function WorkflowRows({
             >
               Open
             </button>
-            <RowMenu onDelete={() => onDelete(wf.id)} />
+            <RowMenu
+              onDelete={() => onDelete(wf.id)}
+              deployed={wf.status === "deployed"}
+              scheduleCron={wf.scheduleCron}
+              scheduleNextRunAt={wf.scheduleNextRunAt}
+              onSetSchedule={(cron) => onSetSchedule(wf.id, cron)}
+              onClearSchedule={() => onClearSchedule(wf.id)}
+            />
           </div>
         </div>
       ))}
