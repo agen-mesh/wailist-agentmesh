@@ -118,7 +118,7 @@ export function ConsolePanel({
   // Auto-scroll to bottom on new logs
   useEffect(() => {
     if (open) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logs, open]);
+  }, [logs, deadLetters, open]);
 
   const statusColor = (s: LogEvent["status"]) => {
     if (s === "success") return "var(--accent)";

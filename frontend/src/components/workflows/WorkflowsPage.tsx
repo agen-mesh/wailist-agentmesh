@@ -591,6 +591,7 @@ function WorkflowIcon({ name }: { name: string }) {
 // first — and rather than a browser confirm() dialog, which the rest of the app
 // doesn't use.
 function RowMenu({
+  workflowId,
   onDelete,
   deployed,
   scheduleCron,
@@ -598,6 +599,7 @@ function RowMenu({
   onSetSchedule,
   onClearSchedule,
 }: {
+  workflowId: string;
   onDelete: () => void;
   deployed: boolean;
   scheduleCron?: string;
@@ -608,6 +610,18 @@ function RowMenu({
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [view, setView] = useState<"menu" | "schedule">("menu");
+  // workflowsApi.list() doesn't return scheduleCron/scheduleNextRunAt (only
+  // the single-workflow GET does), so the row's props are always stale --
+  // fetched fresh every time the Schedule item is opened, rather than
+  // trusted from the list hydration.
+  const [freshSchedule, setFreshSchedule] = useState<{
+    cron?: string;
+    nextRunAt?: string;
+  } | null>(null);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [scheduleFetchError, setScheduleFetchError] = useState<string | null>(
+    null,
+  );
   // The rows list scrolls horizontally (overflow-x: auto), which clips absolutely
   // positioned children in both axes — so the menu is position:fixed, anchored to
   // the button's viewport rect, and closes on scroll/resize rather than drifting.
@@ -617,11 +631,18 @@ function RowMenu({
   const ref = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
 
+  const resetSchedule = useCallback(() => {
+    setFreshSchedule(null);
+    setScheduleLoading(false);
+    setScheduleFetchError(null);
+  }, []);
+
   const close = useCallback(() => {
     setOpen(false);
     setConfirming(false);
     setView("menu");
-  }, []);
+    resetSchedule();
+  }, [resetSchedule]);
 
   // Close on any click outside, so an open menu can't be left hanging over a
   // row the user has moved on from.
@@ -677,6 +698,7 @@ function RowMenu({
           }
           setConfirming(false);
           setView("menu");
+          resetSchedule();
           setOpen(true);
         }}
       >
@@ -707,6 +729,30 @@ function RowMenu({
                 onClick={() => {
                   if (!deployed) return;
                   setView("schedule");
+                  // The row's scheduleCron/scheduleNextRunAt props come from
+                  // workflowsApi.list(), which the backend never populates --
+                  // always fetch the authoritative single-workflow record so
+                  // the popover doesn't show stale defaults (or silently
+                  // overwrite a real schedule on Save).
+                  setFreshSchedule(null);
+                  setScheduleFetchError(null);
+                  setScheduleLoading(true);
+                  workflowsApi
+                    .get(workflowId)
+                    .then((wf) =>
+                      setFreshSchedule({
+                        cron: wf.scheduleCron,
+                        nextRunAt: wf.scheduleNextRunAt,
+                      }),
+                    )
+                    .catch((e) =>
+                      setScheduleFetchError(
+                        e instanceof Error
+                          ? e.message
+                          : "could not load schedule",
+                      ),
+                    )
+                    .finally(() => setScheduleLoading(false));
                 }}
                 style={{
                   display: "block",
@@ -799,10 +845,40 @@ function RowMenu({
               )}
             </>
           )}
-          {view === "schedule" && (
+          {view === "schedule" && scheduleLoading && (
+            <div style={{ padding: 10, width: 220 }}>
+              <button
+                onClick={() => setView("menu")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--fg-muted)",
+                  cursor: "pointer",
+                  fontSize: 11,
+                  padding: 0,
+                  marginBottom: 8,
+                }}
+              >
+                ← back
+              </button>
+              <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+                Loading…
+              </div>
+            </div>
+          )}
+          {view === "schedule" && !scheduleLoading && (
             <SchedulePopover
-              scheduleCron={scheduleCron}
-              scheduleNextRunAt={scheduleNextRunAt}
+              // scheduleFetchError falls back to the stale row props rather
+              // than blocking the popover -- a degraded-but-usable state
+              // instead of a dead end when the fresh fetch fails.
+              scheduleCron={
+                scheduleFetchError ? scheduleCron : freshSchedule?.cron
+              }
+              scheduleNextRunAt={
+                scheduleFetchError
+                  ? scheduleNextRunAt
+                  : freshSchedule?.nextRunAt
+              }
               onBack={() => setView("menu")}
               onSave={async (cron) => {
                 await onSetSchedule(cron);
@@ -927,6 +1003,9 @@ function SchedulePopover({
           color: "var(--fg)",
         }}
       />
+      <div style={{ fontSize: 9.5, color: "var(--fg-dim)", marginBottom: 8 }}>
+        Stored in UTC — may shift by an hour across daylight saving.
+      </div>
       {cadence === "weekly" && (
         <>
           <label style={labelStyle}>Day of week</label>
@@ -1190,6 +1269,7 @@ function WorkflowRows({
               Open
             </button>
             <RowMenu
+              workflowId={wf.id}
               onDelete={() => onDelete(wf.id)}
               deployed={wf.status === "deployed"}
               scheduleCron={wf.scheduleCron}

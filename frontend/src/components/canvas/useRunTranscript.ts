@@ -264,10 +264,11 @@ export function useRunTranscript({
     // Intentional synchronous reset, not the derived-state-cascade pattern
     // this lint rule exists to catch: it must land in the one render this
     // effect fires on, not a render later.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    /* eslint-disable react-hooks/set-state-in-effect */
     setDone(false);
     setStopped(false);
     setDeadLetters([]);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     // Start elapsed timer
     timerRef.current = setInterval(() => {
@@ -331,7 +332,7 @@ export function useRunTranscript({
       // failure this polling exists to prevent. 900 attempts * 2s = 30
       // minutes, well past any observed run length, with real headroom for
       // an agent that chains many tool iterations.
-      for (let attempt = 0; attempt < 900 && !cancelled; attempt++) {
+      for (let poll = 0; poll < 900 && !cancelled; poll++) {
         try {
           const {
             run,
@@ -517,5 +518,21 @@ export function useRunTranscript({
     return null;
   }, [logs]);
 
-  return { logs, elapsed, done, leaseId, stopped, deadLetters };
+  // The backend's dead_letter_runs table is insert-only -- GetDeadLetterRuns
+  // returns every row for a run id forever, even after that node has since
+  // succeeded on a resumed attempt. Without this filter, a resumed node that
+  // has since succeeded would still show a stale "dead-lettered" pill with a
+  // live Resume button, right alongside its own "success" row. The node's
+  // own execution history in `logs` is the authoritative signal here, not
+  // the never-cleared backend table.
+  const visibleDeadLetters = useMemo(
+    () =>
+      deadLetters.filter(
+        (dl) =>
+          !logs.some((l) => l.nodeId === dl.nodeId && l.status === "success"),
+      ),
+    [deadLetters, logs],
+  );
+
+  return { logs, elapsed, done, leaseId, stopped, deadLetters: visibleDeadLetters };
 }

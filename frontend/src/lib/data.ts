@@ -822,7 +822,7 @@ export const WORKFLOWS: Workflow[] = [
   {
     id: "wf-triage",
     name: "Customer Support Triage",
-    status: "active",
+    status: "deployed",
     updated: "2m ago",
     agents: 1,
     runs: 1842,
