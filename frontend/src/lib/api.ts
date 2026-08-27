@@ -24,10 +24,23 @@ export interface AuthUser {
   email: string;
   name: string;
   orgName: string;
+  // ISO 8601, from users.created_at. Shown as "member since" on the settings
+  // page. Optional because a response cached from before the field existed
+  // would otherwise type as present and render "Invalid Date".
+  createdAt?: string;
+  // Which currency the UI renders amounts in. Carried here rather than fetched
+  // separately because every page already calls /auth/me, so a USD user gains
+  // no extra request. Optional so a response cached from before the field
+  // existed falls back to the default rather than reading as undefined.
+  displayCurrency?: string;
   // True for an OAuth account that has never set a name/org — Google and
   // GitHub only hand back a verified email, not an organization.
   needsOnboarding: boolean;
 }
+
+// Mutable in mock mode so a profile edit persists for the session, the same
+// way MOCK_SETTINGS does for the settings page.
+const MOCK_PROFILE = { name: "Dev", orgName: "Acme Capital" };
 
 export const auth = {
   signIn: async (email: string, password: string): Promise<void> => {
@@ -80,8 +93,16 @@ export const auth = {
     return {
       id: "dev",
       email: "dev@local",
-      name: "Dev",
-      orgName: "Acme Capital",
+      // Read from the same mock object updateProfile writes, so a saved
+      // name survives in mock mode instead of reverting to "Dev" on the
+      // next read -- matching how MOCK_SETTINGS already behaves.
+      name: MOCK_PROFILE.name,
+      orgName: MOCK_PROFILE.orgName,
+      createdAt: "2026-01-01T00:00:00Z",
+      // Read from the same mock the settings endpoints mutate, so changing
+      // currency in mock mode propagates exactly as it does in real mode
+      // (where the server persists it and /auth/me reads it back).
+      displayCurrency: MOCK_SETTINGS.displayCurrency,
       needsOnboarding: false,
     };
   },
@@ -101,13 +122,39 @@ export const auth = {
       if (!res.ok) throw new Error(data.error ?? "could not update profile");
       return data;
     }
+    MOCK_PROFILE.name = name;
+    MOCK_PROFILE.orgName = orgName;
     return {
       id: "dev",
       email: "dev@local",
       name,
       orgName,
+      createdAt: "2026-01-01T00:00:00Z",
+      displayCurrency: MOCK_SETTINGS.displayCurrency,
       needsOnboarding: false,
     };
+  },
+
+  // Changes the signed-in user's password after the server verifies the
+  // current one. Throws with the server's own message so the form can show
+  // "current password is incorrect" and the distinct OAuth-only case
+  // ("this account signs in with Google or GitHub") without guessing which
+  // happened from the status code alone.
+  changePassword: async (
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> => {
+    if (!BASE) throw new Error("changing a password requires a backend");
+    const res = await fetch(`${BASE}/auth/password`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error ?? "could not change password");
+    }
   },
 
   signOut: async (): Promise<void> => {
@@ -340,6 +387,109 @@ export const credits = {
   },
 };
 
+// -- Settings ---------------------------------------------------------------
+// Account-level preferences (user_settings). Amounts are USD micros, matching
+// the ledgers — the UI converts for display and never stores a float.
+export interface UserSettings {
+  // Presentation only — never affects what is stored, charged, or settled.
+  // "USD" means render exactly as the app did before this feature.
+  displayCurrency: string;
+  lowBalanceUsdMicros: number;
+  // null / absent means no per-call ceiling of the user's own; the platform's
+  // global cap still applies, so this is never "unlimited".
+  maxCallSpendUsdMicros?: number | null;
+}
+
+// A PATCH sends only what changed. maxCallSpendUsdMicros is deliberately
+// `number | null` rather than optional-undefined: the server treats an absent
+// key as "leave it alone" and an explicit null as "remove my ceiling", and
+// collapsing those two would silently drop a user's spend limit on every save.
+export type UserSettingsPatch = Partial<{
+  displayCurrency: string;
+  lowBalanceUsdMicros: number;
+  maxCallSpendUsdMicros: number | null;
+}>;
+
+const MOCK_SETTINGS: UserSettings = {
+  displayCurrency: "USD",
+  lowBalanceUsdMicros: 5_000_000,
+  maxCallSpendUsdMicros: null,
+};
+
+export const settings = {
+  // Never 404s: an account with no user_settings row gets the defaults.
+  get: async (): Promise<UserSettings> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/settings`, { credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "settings fetch failed");
+      return data;
+    }
+    await delay(150);
+    return { ...MOCK_SETTINGS };
+  },
+
+  // Returns the full merged settings, so callers replace their state with the
+  // response rather than assuming the patch applied exactly as sent.
+  update: async (patch: UserSettingsPatch): Promise<UserSettings> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/settings`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "could not save settings");
+      return data;
+    }
+    await delay(200);
+    Object.assign(MOCK_SETTINGS, patch);
+    return { ...MOCK_SETTINGS };
+  },
+};
+
+// -- Exchange rates ---------------------------------------------------------
+// Display only. Top-ups never use these: the server fetches its own fresh rate
+// at order time and locks it into the ledger row. Callers must only reach for
+// this when the user's display currency is not USD.
+export interface FXRateTable {
+  base: string;
+  rates: Record<string, number>;
+  fetchedAt: string;
+}
+
+const MOCK_RATES: FXRateTable = {
+  base: "USD",
+  // Illustrative only, for mock mode. Real values come from the backend.
+  rates: {
+    USD: 1,
+    INR: 95.25,
+    EUR: 0.8655,
+    GBP: 0.7415,
+    JPY: 157.88,
+    AUD: 1.4164,
+    CAD: 1.3954,
+    SGD: 1.2791,
+    AED: 3.6725,
+    CHF: 0.8085,
+  },
+  fetchedAt: "2026-08-10T00:02:31Z",
+};
+
+export const fx = {
+  rates: async (): Promise<FXRateTable> => {
+    if (BASE) {
+      const res = await fetch(`${BASE}/fx/rates`, { credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "exchange rate fetch failed");
+      return data;
+    }
+    await delay(150);
+    return { ...MOCK_RATES };
+  },
+};
+
 // -- Runs -------------------------------------------------------------------
 export interface RunLogRecord {
   id: string;
@@ -548,22 +698,30 @@ export const oauth2 = {
   // async request.
   connectURL: (provider: string): string => `${BASE}/oauth2/${provider}/start`,
 
-  listCredentials: async (provider: string): Promise<OAuthCredentialSummary[]> => {
+  // Omitting the provider lists every connected account, which is what the
+  // settings page shows; the canvas passes one to narrow to its own node.
+  listCredentials: async (
+    provider?: string,
+  ): Promise<OAuthCredentialSummary[]> => {
     if (!BASE) return []; // No connected-account concept in mock mode.
-    const res = await fetch(
-      `${BASE}/oauth2/credentials?provider=${encodeURIComponent(provider)}`,
-      { credentials: "include" },
-    );
-    if (!res.ok) return [];
+    const qs = provider ? `?provider=${encodeURIComponent(provider)}` : "";
+    const res = await fetch(`${BASE}/oauth2/credentials${qs}`, {
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("could not load connected accounts");
     return res.json().catch(() => []);
   },
 
   deleteCredential: async (id: string): Promise<void> => {
     if (!BASE) return;
-    await fetch(`${BASE}/oauth2/credentials/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-      credentials: "include",
-    });
+    const res = await fetch(
+      `${BASE}/oauth2/credentials/${encodeURIComponent(id)}`,
+      { method: "DELETE", credentials: "include" },
+    );
+    // Revoking is destructive and irreversible, so a failure has to reach
+    // the caller. Swallowing it would report "disconnected" while the
+    // credential is still live and still usable.
+    if (!res.ok) throw new Error("could not disconnect this account");
   },
 };
 

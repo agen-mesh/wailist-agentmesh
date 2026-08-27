@@ -15,6 +15,7 @@ import {
   useCredits,
   refreshBalance as refreshCredits,
 } from "@/lib/credits/store";
+import { useCurrency } from "@/lib/currency/store";
 import { CanvasGraph } from "./CanvasGraph";
 import { PalettePanel } from "./PalettePanel";
 import { Inspector } from "./Inspector";
@@ -638,6 +639,7 @@ function CanvasTopbar({
   // hence balanceKnown rather than the localStorage `hydrated` flag.
   const { balanceUSD, autoRecharge, balanceKnown, refreshBalance } =
     useCredits();
+  const { formatBalance } = useCurrency();
   const lowBalance = balanceKnown && balanceUSD < autoRecharge.thresholdUSD;
 
   useEffect(() => {
@@ -712,7 +714,7 @@ function CanvasTopbar({
       >
         <Stat
           label="credits"
-          value={balanceKnown ? `$${balanceUSD.toFixed(2)}` : "-"}
+          value={balanceKnown ? formatBalance(balanceUSD) : "-"}
           color={lowBalance ? "var(--danger)" : "var(--accent)"}
         />
         <Hairline vertical length={18} />

@@ -261,6 +261,87 @@ type User struct {
 	CreatedAt    time.Time `json:"createdAt"`
 }
 
+// DefaultCurrency is what every account renders in until someone chooses
+// otherwise. While a user is on this value the frontend must behave exactly as
+// it did before display currency existed — no conversion, no rate lookup. It
+// matches the DEFAULT on user_settings.display_currency.
+const DefaultCurrency = "USD"
+
+// SupportedCurrencies is the curated shortlist offered in settings, and the
+// same set the user_settings.display_currency CHECK constraint enforces. Kept
+// short deliberately: every code here is liquid, widely recognised, and has had
+// its formatting checked (JPY has no minor units).
+var SupportedCurrencies = []string{
+	"USD", "INR", "EUR", "GBP", "JPY", "AUD", "CAD", "SGD", "AED", "CHF",
+}
+
+// IsSupportedCurrency reports whether code is one the platform will render.
+func IsSupportedCurrency(code string) bool {
+	for _, c := range SupportedCurrencies {
+		if c == code {
+			return true
+		}
+	}
+	return false
+}
+
+// UserSettings is one row of user_settings — the account-level preferences
+// edited from the settings page. A user with no row is not an error: the store
+// returns DefaultUserSettings, so every account has settings from the moment
+// it exists and the row is written lazily on first change.
+type UserSettings struct {
+	// LowBalanceUSDMicros is the balance below which the UI warns.
+	LowBalanceUSDMicros int64 `json:"lowBalanceUsdMicros"`
+	// MaxCallSpendUSDMicros caps any single metered charge, enforced in
+	// engine.Runner.preflightCheck. nil means no user ceiling — the global
+	// MaxSingleX402QuoteUSDMicros still applies, so nil is a weaker limit,
+	// never an unlimited one.
+	MaxCallSpendUSDMicros *int64 `json:"maxCallSpendUsdMicros,omitempty"`
+	// DisplayCurrency is presentation only — it changes what the UI renders,
+	// never what is stored, charged, or settled. DefaultCurrency means "render
+	// exactly as before this field existed".
+	DisplayCurrency string `json:"displayCurrency"`
+}
+
+// DefaultUserSettings is what an account has before it ever opens the settings
+// page. LowBalanceUSDMicros matches both the DEFAULT on user_settings and the
+// frontend's previous hardcoded $5, so moving the threshold to the server
+// changes no existing behaviour.
+func DefaultUserSettings() UserSettings {
+	return UserSettings{
+		LowBalanceUSDMicros: 5_000_000, // $5
+		DisplayCurrency:     DefaultCurrency,
+	}
+}
+
+// UserSettingsPatch is the subset of fields a PATCH actually sent. Each pointer
+// is nil when the key was absent, which is what keeps "leave this alone"
+// distinct from "set this".
+type UserSettingsPatch struct {
+	LowBalanceUSDMicros *int64
+	// SetMaxCallSpend records that the key was present at all, so an explicit
+	// null (MaxCallSpendUSDMicros stays nil) clears the ceiling instead of
+	// being indistinguishable from omitting the field.
+	SetMaxCallSpend       bool
+	MaxCallSpendUSDMicros *int64
+	DisplayCurrency       *string
+}
+
+// ApplyTo merges the patch onto s, leaving fields the request omitted alone.
+// Used for the insert case, where an account with no stored row starts from
+// DefaultUserSettings; the update case merges per column in SQL instead.
+func (p UserSettingsPatch) ApplyTo(s *UserSettings) {
+	if p.LowBalanceUSDMicros != nil {
+		s.LowBalanceUSDMicros = *p.LowBalanceUSDMicros
+	}
+	if p.SetMaxCallSpend {
+		s.MaxCallSpendUSDMicros = p.MaxCallSpendUSDMicros
+	}
+	if p.DisplayCurrency != nil {
+		s.DisplayCurrency = *p.DisplayCurrency
+	}
+}
+
 // CreditTransaction is one row of the append-only credit_ledger table.
 type CreditTransaction struct {
 	ID                string     `json:"id"`

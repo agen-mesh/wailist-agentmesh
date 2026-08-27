@@ -159,6 +159,28 @@ export function setAutoRecharge(cfg: AutoRecharge): void {
   commit({ ...state, autoRecharge: cfg });
 }
 
+// Mirrors the server-side low balance threshold
+// (user_settings.low_balance_usd_micros) into the store the UI already reads.
+//
+// The threshold used to be a browser-local default that no screen could
+// change, duplicated as a second hardcoded constant on the credits page. The
+// settings page now owns it and the server stores it; this keeps
+// LowBalanceBanner and the canvas indicator — both of which read
+// autoRecharge.thresholdUSD — in step without either having to learn about
+// /settings.
+//
+// This is a cache of a server value, not the source of truth: SettingsPage
+// calls it after every load and save, and a browser that never opens settings
+// simply keeps the default until it does.
+export function setLowBalanceThresholdUSD(thresholdUSD: number): void {
+  ensureLoaded();
+  if (state.autoRecharge.thresholdUSD === thresholdUSD) return;
+  commit({
+    ...state,
+    autoRecharge: { ...state.autoRecharge, thresholdUSD },
+  });
+}
+
 export interface CreditsSnapshot extends CreditsState {
   hydrated: boolean;
   balanceKnown: boolean;

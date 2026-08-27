@@ -314,6 +314,51 @@ func TestOAuth2CredList_ReturnsOnlyCurrentUsersCredentials(t *testing.T) {
 	}
 }
 
+// The settings page lists every connected account, so an absent provider must
+// return all of them rather than 400. The canvas still filters by provider, so
+// both behaviours are asserted here together.
+func TestOAuth2CredList_UnfilteredReturnsEveryProvider(t *testing.T) {
+	d := oauth2Deps(t)
+	ctx := context.Background()
+	user, err := d.Store.CreateUser(ctx, "oauth2-all-"+randSuffix(t)+"@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	insert := func(provider, label string) {
+		if _, err := d.Store.InsertOAuthCredential(ctx, models.OAuthCredential{
+			UserID: user.ID, Provider: provider, AccountLabel: label,
+			AccessTokenEnc: "enc-a", RefreshTokenEnc: "enc-r",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert("google", "one@gmail.com")
+	insert("github", "octocat")
+
+	list := func(query string) []models.OAuthCredential {
+		t.Helper()
+		req := withUser(httptest.NewRequest(http.MethodGet, "/oauth2/credentials"+query, nil), user.ID)
+		rec := httptest.NewRecorder()
+		d.OAuth2CredList(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("want 200 for %q, got %d", query, rec.Code)
+		}
+		var got []models.OAuthCredential
+		if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+
+	if all := list(""); len(all) != 2 {
+		t.Fatalf("want both providers listed without a filter, got %d", len(all))
+	}
+	filtered := list("?provider=google")
+	if len(filtered) != 1 || filtered[0].Provider != "google" {
+		t.Fatalf("want the provider filter to still narrow, got %+v", filtered)
+	}
+}
+
 func TestOAuth2CredDelete_OwnerCanDelete(t *testing.T) {
 	d := oauth2Deps(t)
 	ctx := context.Background()
