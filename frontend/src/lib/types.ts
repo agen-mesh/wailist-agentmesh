@@ -114,6 +114,8 @@ export interface Workflow {
   runs?: number;
   spend?: string;
   tags?: string[];
+  scheduleCron?: string;
+  scheduleNextRunAt?: string;
 }
 
 export interface NodeTypeMeta {
