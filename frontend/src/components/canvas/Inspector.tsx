@@ -1957,6 +1957,14 @@ type ConnectorField =
       label: string;
       hint?: string;
       placeholder: string;
+      // The field's old Secrets key, for a connector whose Inspector field
+      // moved to a new key -- e.g. Stripe's stripeAPIKey (was
+      // stripeSecretKey). The backend already falls back to this key for a
+      // node saved under the old name and runs correctly either way; this
+      // is only so the "connected" status badge below doesn't call an
+      // already-working node "Not connected" just because it checks the
+      // new key alone.
+      legacyKey?: string;
     }
   | {
       kind: "config";
@@ -2523,6 +2531,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
         key: "stripeAPIKey",
         label: "Secret Key",
         placeholder: "sk_live_xxxxxxxxxxxx",
+        legacyKey: "stripeSecretKey",
       },
       {
         kind: "config",
@@ -3303,7 +3312,10 @@ function ConnectorConfigSection({
     return v !== undefined && v !== "";
   };
   const connected =
-    secretFields.length > 0 && secretFields.every((f) => secretSet(f.key));
+    secretFields.length > 0 &&
+    secretFields.every(
+      (f) => secretSet(f.key) || (f.legacyKey !== undefined && secretSet(f.legacyKey)),
+    );
   const needsLogin = auth?.needsLogin ?? true;
 
   const statusTone: "ok" | "warn" | "default" = connected

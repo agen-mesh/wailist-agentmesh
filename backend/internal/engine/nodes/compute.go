@@ -183,8 +183,10 @@ func executeXMLToJSON(rc RunContexter) (any, error) {
 	}
 }
 
-// decodeXMLNode reads one element's subtree. Shared with the RSS connector —
-// keep it package-level rather than inlining into executeXMLToJSON.
+// decodeXMLNode reads one element's subtree. The RSS connector parses via
+// its own typed xml.Unmarshal instead of this generic tree-walker -- kept
+// package-level rather than inlined into executeXMLToJSON only for
+// readability, not because anything else currently calls it.
 func decodeXMLNode(d *xml.Decoder, start xml.StartElement) (any, error) {
 	node := map[string]any{}
 	for _, a := range start.Attr {

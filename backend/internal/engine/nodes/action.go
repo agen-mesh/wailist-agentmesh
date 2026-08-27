@@ -165,7 +165,7 @@ func sendEmail(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 		subject = "AgentMesh workflow result"
 	}
 	// Build body: {{ result }} / {{ result.field }} placeholders expand
-	// against the most recent output -- see expandTemplate.
+	// against the most recent output -- see resolveTemplate.
 	bodyText := node.EmailBody
 	if bodyText == "" {
 		bodyText = "Hi,\n\nHere is your result:\n\n" + rc.Message() + "\n\n— AgentMesh"

@@ -49,7 +49,7 @@ func sendStripe(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	}
 	form := url.Values{}
 	form.Set("email", email)
-	form.Set("description", rc.Message())
+	form.Set("description", resolveMessage(node, rc))
 	if name := resolveTemplate(configVal(node, "stripeName", ""), rc); name != "" {
 		form.Set("name", name)
 	}
@@ -103,7 +103,7 @@ func sendShopify(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	}
 	payload := map[string]any{"customer": map[string]any{
 		"email": email,
-		"note":  rc.Message(),
+		"note":  resolveMessage(node, rc),
 	}}
 	headers := map[string]string{"X-Shopify-Access-Token": token}
 	return postJSON(ctx, base+"/admin/api/"+shopifyAPIVersion+"/customers.json",
@@ -140,7 +140,7 @@ func sendPipedrive(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		}
 		base = "https://" + domain + ".pipedrive.com"
 	}
-	payload := map[string]any{"content": rc.Message()}
+	payload := map[string]any{"content": resolveMessage(node, rc)}
 	// Pipedrive's Notes API documents deal_id/person_id as integers --
 	// resolveTemplate always returns a string, so send them as real JSON
 	// numbers (via strconv.Atoi) rather than quoted strings, which a strict

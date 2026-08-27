@@ -21,13 +21,25 @@ import (
 // level — until the caller cancels it by hand.
 var pgConnectTimeout = 10 * time.Second
 
-// SetPostgresConnectTimeoutForTest overrides pgConnectTimeout. Call only from
-// tests. Pass 0 to reset to the real 10s timeout.
+// pgQueryTimeout bounds each Exec call (the INSERT itself, and its
+// lowercase-then-verbatim retry -- see quotePGIdentifier's doc comment).
+// pgConnectTimeout alone doesn't cover this: a successful connection can
+// still hang indefinitely on a row/table lock held by another transaction,
+// or a network stall after the handshake, which is the same "hangs the
+// whole run" failure pgConnectTimeout exists to prevent, just relocated
+// from connect to query.
+var pgQueryTimeout = 10 * time.Second
+
+// SetPostgresConnectTimeoutForTest overrides pgConnectTimeout and
+// pgQueryTimeout together. Call only from tests. Pass 0 to reset both to
+// their real 10s default.
 func SetPostgresConnectTimeoutForTest(d time.Duration) {
 	if d <= 0 {
 		pgConnectTimeout = 10 * time.Second
+		pgQueryTimeout = 10 * time.Second
 	} else {
 		pgConnectTimeout = d
+		pgQueryTimeout = d
 	}
 }
 
@@ -90,7 +102,7 @@ func sendPostgres(ctx context.Context, node models.WorkflowNode, rc RunContexter
 	}
 
 	extraCols := []string{column}
-	vals := []any{rc.Message()}
+	vals := []any{resolveMessage(node, rc)}
 
 	if extra := configVal(node, "pgExtraColumns", ""); extra != "" {
 		var m map[string]any
@@ -131,7 +143,17 @@ func sendPostgres(ctx context.Context, node models.WorkflowNode, rc RunContexter
 	}
 	defer conn.Close(ctx)
 
-	if _, err := conn.Exec(ctx, buildStmt(true), vals...); err != nil {
+	// pgConnectTimeout only bounds the connection above -- a successful
+	// connection can still hang indefinitely on a row/table lock held by
+	// another transaction, or a network stall after the handshake, which is
+	// the same "hangs the whole run" failure pgConnectTimeout exists to
+	// prevent, just relocated from connect to query. Each Exec (including
+	// the retry) gets its own fresh budget rather than sharing one across
+	// both attempts, so a slow-but-eventually-successful first attempt
+	// doesn't starve the retry's budget.
+	queryCtx, queryCancel := context.WithTimeout(ctx, pgQueryTimeout)
+	defer queryCancel()
+	if _, err := conn.Exec(queryCtx, buildStmt(true), vals...); err != nil {
 		// See quotePGIdentifier's doc comment: a lowercased identifier is the
 		// right call for a table/column created via unquoted DDL, but wrong
 		// for one created via quoted, case-preserved DDL. Retry once with
@@ -140,7 +162,9 @@ func sendPostgres(ctx context.Context, node models.WorkflowNode, rc RunContexter
 		// match.
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && (pgErr.Code == "42P01" || pgErr.Code == "42703") {
-			if _, err2 := conn.Exec(ctx, buildStmt(false), vals...); err2 != nil {
+			retryCtx, retryCancel := context.WithTimeout(ctx, pgQueryTimeout)
+			defer retryCancel()
+			if _, err2 := conn.Exec(retryCtx, buildStmt(false), vals...); err2 != nil {
 				return nil, fmt.Errorf("db: insert failed (tried both lowercased and as-configured identifiers): %w", err2)
 			}
 			return "db_row_inserted", nil
