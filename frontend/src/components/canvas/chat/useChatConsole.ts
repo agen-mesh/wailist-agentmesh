@@ -4,7 +4,11 @@ import { useRunTranscript, type LogEvent } from "../useRunTranscript";
 import { useChatSession, type ChatSession } from "./useChatSession";
 import { resolveReply } from "./resolveReply";
 import { recoverPendingTurn } from "./recoverPendingTurn";
-import { runs as runsApi, type RunLogRecord } from "@/lib/api";
+import {
+  runs as runsApi,
+  type RunLogRecord,
+  type DeadLetterRun,
+} from "@/lib/api";
 
 interface UseChatConsoleArgs {
   runId: string | null;
@@ -16,6 +20,7 @@ interface UseChatConsoleArgs {
   // deployed agent -- see CanvasPage's hasProviderNode/buildMode wiring.
   buildMode?: boolean;
   onBuildMessage?: (text: string) => Promise<{ ok: boolean; reply?: string }>;
+  attempt?: number;
 }
 
 export interface ChatConsole {
@@ -26,6 +31,7 @@ export interface ChatConsole {
   session: ChatSession;
   busy: boolean;
   handleSend: (text: string) => void;
+  deadLetters: DeadLetterRun[];
 }
 
 // Owns the run transcript (SSE + reconciliation) and the chat session
@@ -39,13 +45,16 @@ export function useChatConsole({
   onSendMessage,
   buildMode,
   onBuildMessage,
+  attempt,
 }: UseChatConsoleArgs): ChatConsole {
-  const { logs, elapsed, done, leaseId, stopped } = useRunTranscript({
-    runId,
-    running,
-    onRunComplete,
-    workflowId,
-  });
+  const { logs, elapsed, done, leaseId, stopped, deadLetters } =
+    useRunTranscript({
+      runId,
+      running,
+      onRunComplete,
+      workflowId,
+      attempt,
+    });
 
   const session = useChatSession(workflowId);
 
@@ -188,5 +197,14 @@ export function useChatConsole({
   // bill. The run happens, the chat has no record of it.
   const busy = !hydrated || running || session.messages.some((m) => m.pending);
 
-  return { logs, elapsed, done, leaseId, session, busy, handleSend };
+  return {
+    logs,
+    elapsed,
+    done,
+    leaseId,
+    session,
+    busy,
+    handleSend,
+    deadLetters,
+  };
 }

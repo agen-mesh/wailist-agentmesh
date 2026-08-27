@@ -416,7 +416,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "unknown error";
         showToast(`Build failed · ${message}`);
-        return { ok: false, reply: `Could not update the workflow: ${message}` };
+        return {
+          ok: false,
+          reply: `Could not update the workflow: ${message}`,
+        };
       }
     },
     [workflow, showToast, flushPendingSave],
@@ -711,6 +714,7 @@ function ChatConsoleHost({
   onSendMessage,
   buildMode,
   onBuildMessage,
+  attempt,
   children,
 }: {
   runId: string | null;
@@ -720,6 +724,7 @@ function ChatConsoleHost({
   onSendMessage?: (text: string) => Promise<boolean>;
   buildMode?: boolean;
   onBuildMessage?: (text: string) => Promise<{ ok: boolean; reply?: string }>;
+  attempt?: number;
   children: (chat: ChatConsole) => React.ReactNode;
 }) {
   const chat = useChatConsole({
@@ -730,6 +735,7 @@ function ChatConsoleHost({
     onSendMessage,
     buildMode,
     onBuildMessage,
+    attempt,
   });
   return <>{children(chat)}</>;
 }
