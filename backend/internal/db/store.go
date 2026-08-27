@@ -329,26 +329,33 @@ func (s *Store) CreateRunWithCooldown(ctx context.Context, workflowID, triggered
 		// (if imprecise) either way, since RetryAfter is a hint, not a
 		// correctness guarantee.
 		retryAfter := cooldown
-		var lastStarted time.Time
+		var elapsedSecs float64
 		if err := s.pool.QueryRow(ctx, `
-			SELECT started_at FROM runs WHERE workflow_id = $1 ORDER BY started_at DESC LIMIT 1
-		`, workflowID).Scan(&lastStarted); err == nil {
-			if elapsed := time.Since(lastStarted); elapsed < cooldown {
+			SELECT EXTRACT(EPOCH FROM (now() - started_at)) FROM runs
+			WHERE workflow_id = $1 ORDER BY started_at DESC LIMIT 1
+		`, workflowID).Scan(&elapsedSecs); err == nil {
+			if elapsed := time.Duration(elapsedSecs * float64(time.Second)); elapsed < cooldown {
 				retryAfter = cooldown - elapsed
 			}
 		}
 		return models.Run{}, &ErrRunOnCooldown{RetryAfter: retryAfter}
 	}
 
-	var lastStarted time.Time
+	// EXTRACT(EPOCH FROM (now() - started_at)), not started_at scanned into
+	// Go and compared via time.Since: the elapsed duration must be computed
+	// against Postgres's own clock throughout, not the app server's --
+	// otherwise clock skew between hosts could make the cooldown window
+	// effectively longer or shorter than `cooldown` actually specifies.
+	var elapsedSecs float64
 	err = tx.QueryRow(ctx, `
-		SELECT started_at FROM runs WHERE workflow_id = $1 ORDER BY started_at DESC LIMIT 1
-	`, workflowID).Scan(&lastStarted)
+		SELECT EXTRACT(EPOCH FROM (now() - started_at)) FROM runs
+		WHERE workflow_id = $1 ORDER BY started_at DESC LIMIT 1
+	`, workflowID).Scan(&elapsedSecs)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return models.Run{}, fmt.Errorf("run cooldown: check last run: %w", err)
 	}
 	if err == nil {
-		if elapsed := time.Since(lastStarted); elapsed < cooldown {
+		if elapsed := time.Duration(elapsedSecs * float64(time.Second)); elapsed < cooldown {
 			return models.Run{}, &ErrRunOnCooldown{RetryAfter: cooldown - elapsed}
 		}
 	}

@@ -152,7 +152,19 @@ func (s *Service) SignAndSendPayment(ctx context.Context, encMnemonic, toAddress
 	if err != nil {
 		return "", err
 	}
-	txn, err := transaction.MakePaymentTxn(acc.Address.String(), toAddress, microAlgo, nil, "", params)
+	// uniqueNote, not nil: this is the same "identical sender/receiver/amount
+	// within one algod round hashes identically" collision uniqueNote's own
+	// doc comment describes, on the legacy ALGO-direct-pay dialect
+	// (ExecuteTool402's older non-USDC-relay path) rather than the USDC
+	// group-signing path that comment was written for -- an agent calling
+	// the same tool402 endpoint twice in quick succession with an unchanged
+	// quoted price would otherwise produce byte-identical transactions and
+	// have the second rejected by algod as an exact duplicate.
+	note, err := uniqueNote("x402-legacy-pay")
+	if err != nil {
+		return "", err
+	}
+	txn, err := transaction.MakePaymentTxn(acc.Address.String(), toAddress, microAlgo, note, "", params)
 	if err != nil {
 		return "", err
 	}
