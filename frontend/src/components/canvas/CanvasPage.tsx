@@ -11,7 +11,7 @@ import {
   IconPlay,
   IconStop,
 } from "@/components/ui";
-import { workflows as workflowsApi } from "@/lib/api";
+import { workflows as workflowsApi, runs as runsApi } from "@/lib/api";
 import {
   useCredits,
   refreshBalance as refreshCredits,
@@ -48,6 +48,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   const [toast, setToast] = useState<string | null>(null);
   const [saveLabel, setSaveLabel] = useState("");
   const [runId, setRunId] = useState<string | null>(null);
+  const [resumeAttempt, setResumeAttempt] = useState(0);
   // A single boolean, not a counter: it can only suppress ONE upcoming
   // autosave cycle at a time, regardless of which of the two trusted writes
   // below (initial load, Bazaar auto-add) set it. Both origins collapse into
@@ -281,6 +282,20 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     setToast(msg);
     setTimeout(() => setToast(null), 2400);
   }, []);
+
+  const handleResume = useCallback(async () => {
+    if (!runId) return;
+    try {
+      await runsApi.resume(runId);
+      setRunning(true);
+      setResumeAttempt((a) => a + 1);
+      showToast("Run resumed");
+    } catch (err) {
+      showToast(
+        `Resume failed · ${err instanceof Error ? err.message : "unknown error"}`,
+      );
+    }
+  }, [runId, showToast]);
 
   const onUpdate = useCallback((n: WorkflowNode) => {
     setWorkflow((wf) =>
@@ -609,6 +624,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
           running={running}
           workflowId={workflow?.id}
           buildMode={buildMode}
+          attempt={resumeAttempt}
           onBuildMessage={startBuild}
           onSendMessage={async (msg) =>
             (await startRun({ message: msg })) !== null
@@ -649,6 +665,8 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                   logs={chat.logs}
                   elapsed={chat.elapsed}
                   done={chat.done}
+                  deadLetters={chat.deadLetters}
+                  onResume={handleResume}
                 />
               </div>
 

@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pill } from "@/components/ui";
+import type { DeadLetterRun } from "@/lib/api";
 import {
   isX402Payment,
   type LogEvent,
@@ -15,6 +16,8 @@ interface ConsolePanelProps {
   logs: LogEvent[];
   elapsed: number | null;
   done: boolean;
+  deadLetters: DeadLetterRun[];
+  onResume: () => void;
 }
 
 const HEIGHT_KEY = "agentmesh_console_height";
@@ -37,6 +40,8 @@ export function ConsolePanel({
   logs,
   elapsed,
   done,
+  deadLetters,
+  onResume,
 }: ConsolePanelProps) {
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [resizing, setResizing] = useState(false);
@@ -341,6 +346,9 @@ export function ConsolePanel({
               <OutputCell output={l.output} />
             </div>
           ))}
+          {deadLetters.map((dl) => (
+            <DeadLetterRow key={dl.id} dl={dl} onResume={onResume} />
+          ))}
           {done &&
             (() => {
               const succeeded = logs.filter(
@@ -364,6 +372,71 @@ export function ConsolePanel({
           <div ref={bottomRef} />
         </div>
       )}
+    </div>
+  );
+}
+
+// DeadLetterRow renders one node that exhausted retry or hit a
+// non-retryable error. Resume is a two-click confirm in place, matching
+// RowMenu's delete pattern -- this codebase deliberately avoids
+// window.confirm() (see RowMenu.tsx's comment on why).
+function DeadLetterRow({
+  dl,
+  onResume,
+}: {
+  dl: DeadLetterRun;
+  onResume: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <div
+      style={{
+        padding: "6px 0",
+        borderBottom: "1px solid var(--border-soft)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        <Pill mono tone="danger" dot>
+          dead-lettered
+        </Pill>
+        <span style={{ color: "var(--fg-muted)", fontSize: 10.5 }}>
+          {dl.nodeId} · attempt {dl.attemptCount}
+        </span>
+        <button
+          onClick={() => {
+            if (!confirming) {
+              setConfirming(true);
+              return;
+            }
+            setConfirming(false);
+            onResume();
+          }}
+          onBlur={() => setConfirming(false)}
+          style={{
+            marginLeft: "auto",
+            fontFamily: "var(--font-mono)",
+            fontSize: 10.5,
+            padding: "3px 8px",
+            borderRadius: 4,
+            border: "1px solid var(--border-strong)",
+            background: confirming ? "var(--accent-soft)" : "var(--bg-elev-2)",
+            color: confirming ? "var(--accent)" : "var(--fg)",
+            cursor: "pointer",
+          }}
+        >
+          {confirming ? "Confirm — completed steps won't re-run" : "Resume"}
+        </button>
+      </div>
+      <div style={{ color: "var(--fg-dim)", fontSize: 10, paddingTop: 2 }}>
+        {dl.error}
+      </div>
     </div>
   );
 }
