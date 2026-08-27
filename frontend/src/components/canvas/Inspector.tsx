@@ -2723,7 +2723,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
-  shopify: {
+  shopify_customer: {
     label: "Shopify config",
     fields: [
       {
@@ -2962,12 +2962,14 @@ const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
-  // Distinct from "shopify" above (which creates a customer): this adds a
-  // note to an existing order. Two independent Shopify connectors were
-  // added on either side of this merge -- see connectors_business.go's
-  // sendShopifyOrderNote doc comment -- kept as separate template ids
-  // instead of one silently overwriting the other's backend dispatch.
-  shopify_order_note: {
+  // Distinct from "shopify_customer" above (which creates a customer): this
+  // adds a note to an existing order, and keeps template id "shopify" --
+  // master's original id and behavior for this operation -- rather than
+  // "shopify_customer"'s newer id, so an already-saved order-note node
+  // keeps hitting the same backend dispatch with no config change on the
+  // user's side. See connectors_business.go's sendShopifyOrderNote doc
+  // comment.
+  shopify: {
     label: "Shopify: Add Order Note config",
     fields: [
       {
@@ -3177,6 +3179,11 @@ const CONNECTOR_AUTH: Record<
     linkLabel: "Get token",
   },
   shopify: {
+    needsLogin: true,
+    docUrl: "https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens",
+    linkLabel: "Get access token",
+  },
+  shopify_customer: {
     needsLogin: true,
     docUrl: "https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens",
     linkLabel: "Get access token",

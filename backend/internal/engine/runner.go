@@ -683,6 +683,26 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run) {
 	attachMap := BuildAttachMap(wf.Nodes, wf.Edges)
 	levels, err := TopologicalSort(wf.Nodes, wf.Edges)
 	if err != nil {
+		// Surfaced, not swallowed: before this, a workflow that suddenly
+		// failed here (e.g. a real or implicit-edge cycle) showed the user
+		// only "Failed" with zero indication why -- no log row, no SSE
+		// event, nothing. There's no single node to blame it on, so this
+		// logs a run-level entry the same shape a node failure would get.
+		log.Printf("workflow %q run %s: topological sort failed: %v", wf.Name, run.ID, err)
+		outJSON, _ := json.Marshal(err.Error())
+		if entry, insErr := r.store.InsertRunLog(context.Background(), models.RunLog{
+			RunID:    run.ID,
+			NodeType: models.NodeTypeTrigger,
+			Status:   models.LogStatusRunning,
+		}); insErr == nil {
+			r.store.UpdateRunLog(context.Background(), entry.ID, models.LogStatusFailed, outJSON, 0)
+		}
+		r.broker.Publish(run.ID, models.LogEvent{
+			NodeType: models.NodeTypeTrigger,
+			Status:   models.LogStatusFailed,
+			Output:   err.Error(),
+			Ts:       time.Now(),
+		})
 		r.finishRun(wf, run, models.RunStatusFailed)
 		return
 	}

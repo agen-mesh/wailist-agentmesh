@@ -182,7 +182,7 @@ func TestEmailAction_ResendProvider(t *testing.T) {
 func TestEveryNewActionTemplateIsDispatched(t *testing.T) {
 	templates := []string{
 		"stripe", "twilio", "mattermost", "pagerduty",
-		"zendesk", "monday", "shopify", "pipedrive", "db", "rss",
+		"zendesk", "monday", "shopify", "shopify_customer", "pipedrive", "db", "rss",
 		"graphql", "hackernews", "coingecko",
 		"intercom", "openweathermap", "calendly", "baserow",
 	}

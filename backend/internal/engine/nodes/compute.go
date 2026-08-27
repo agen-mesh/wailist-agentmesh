@@ -53,6 +53,18 @@ func executeSet(node models.WorkflowNode, rc RunContexter) (any, error) {
 
 // executeJSONExtract parses the upstream output as JSON and walks a dot path
 // into it. Numeric segments index arrays: "data.items.0.name".
+//
+// Like every other new-in-this-PR handler defaulting to rc.Message() with no
+// explicit {{ node.<id> }} source, this inherits engine.RunContext.Message's
+// pre-existing, already-documented ambiguity: with more than one direct
+// upstream predecessor in the same parallel topological level, which one's
+// output this reads is decided by goroutine scheduling, not graph position.
+// graph.go's implicit-edge tracking only orders explicit {{ node.<id> }}
+// refs; it does not (and can't, without threading the calling node's actual
+// predecessor ID through RunContexter -- see Message's doc comment) resolve
+// this default-context read path. A workflow relying on this node's exact
+// upstream source with more than one direct predecessor should reference it
+// explicitly via {{ node.<id> }} instead of the bare/default form.
 func executeJSONExtract(node models.WorkflowNode, rc RunContexter) (any, error) {
 	path := configVal(node, "jsonPath", "")
 	if path == "" {

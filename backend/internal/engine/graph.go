@@ -25,12 +25,23 @@ var nodeRefPattern = regexp.MustCompile(`\{\{\s*node\.([A-Za-z0-9_\-]+)(?:\.[A-Z
 
 // templateEligibleStrings returns every string on n a connector might run
 // through resolveTemplate -- see that function's doc comment (nodes/
-// resolve.go) for the syntax this field list backs. Deliberately excludes
-// Secrets/APIKey/EmailAPIKey/TendrilLeaseToken: those are credentials, never
-// template text, and there's no reason for a same-run ordering scan to
-// touch them.
+// resolve.go) for the {{ node.<id> ... }} syntax this field list backs.
+// Deliberately excludes Secrets/APIKey/EmailAPIKey/TendrilLeaseToken: those
+// are credentials, never template text.
+//
+// Also deliberately excludes SystemPrompt, BodyTemplate, and Description,
+// even though they're plain strings that could happen to contain
+// "{{ node.<id> }}"-shaped text: none of them is ever passed through
+// resolveTemplate at runtime. SystemPrompt goes to the LLM verbatim;
+// Description goes into the function-call tool schema verbatim;
+// BodyTemplate is expanded by expandBodyTemplate's own, unrelated
+// {{param:x}}/{{file:x}} placeholder syntax, which doesn't understand
+// "node.<id>" at all. Scanning them anyway would add a real implicit
+// ordering edge -- and a real cycle-detection failure -- for what is, at
+// runtime, functionally inert prose (e.g. a SystemPrompt that happens to
+// describe or quote the templating syntax).
 func templateEligibleStrings(n models.WorkflowNode) []string {
-	out := []string{n.SystemPrompt, n.EmailBody, n.BodyTemplate, n.Description}
+	out := []string{n.EmailBody}
 	for _, v := range n.Config {
 		out = append(out, v)
 	}

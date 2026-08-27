@@ -35,12 +35,24 @@ func SetPostgresConnectTimeoutForTest(d time.Duration) {
 // optional schema qualifier is allowed: "public.events".
 var pgIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
 
-// quotePGIdentifier wraps each dot-separated part in double quotes. Only ever
-// called on strings already validated by pgIdentifier.
+// quotePGIdentifier wraps each dot-separated part in double quotes,
+// lowercasing first. Only ever called on strings already validated by
+// pgIdentifier.
+//
+// Postgres folds *unquoted* DDL identifiers to lowercase -- a table created
+// as `CREATE TABLE Events (...)` is actually stored as `events`. Quoting a
+// mixed-case value verbatim (without lowercasing) makes this connector
+// case-sensitive against a database that isn't: a user who types
+// pgTable="Events", matching what they see in their own schema/tooling,
+// would get `INSERT INTO "Events"`, which Postgres rejects with `relation
+// "Events" does not exist` -- a name that works fine unquoted fails here
+// purely because this always quotes it. Lowercasing before quoting matches
+// what typing that name unquoted in raw SQL would actually resolve to, the
+// overwhelmingly common case for real schemas.
 func quotePGIdentifier(ident string) string {
 	parts := strings.Split(ident, ".")
 	for i, p := range parts {
-		parts[i] = `"` + p + `"`
+		parts[i] = `"` + strings.ToLower(p) + `"`
 	}
 	return strings.Join(parts, ".")
 }

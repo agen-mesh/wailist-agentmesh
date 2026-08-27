@@ -178,7 +178,7 @@ func TestShopifyAction_AddsOrderNoteWithAccessTokenHeader(t *testing.T) {
 	defer nodes.SetShopifyOrderNoteAPIBaseForTest("")
 
 	node := models.WorkflowNode{
-		ID: "sh3", Type: models.NodeTypeAction, Template: "shopify_order_note",
+		ID: "sh3", Type: models.NodeTypeAction, Template: "shopify",
 		Secrets: map[string]string{"shopifyAccessToken": "shpat_123"},
 		Config:  map[string]string{"shopifyShopDomain": "mystore.myshopify.com", "shopifyOrderID": "9001"},
 	}
@@ -219,7 +219,7 @@ func TestShopifyAction_ResolvesTemplatesInDomainAndOrderID(t *testing.T) {
 	rc.Set("lookup", map[string]any{"domain": "mystore.myshopify.com", "orderID": "9002"})
 
 	node := models.WorkflowNode{
-		ID: "sh5", Type: models.NodeTypeAction, Template: "shopify_order_note",
+		ID: "sh5", Type: models.NodeTypeAction, Template: "shopify",
 		Secrets: map[string]string{"shopifyAccessToken": "shpat_123"},
 		Config: map[string]string{
 			"shopifyShopDomain": "{{ node.lookup.domain }}",
@@ -253,7 +253,7 @@ func TestShopifyAction_SkipsWhenDomainInvalid(t *testing.T) {
 	defer nodes.SetShopifyOrderNoteAPIBaseForTest("")
 
 	node := models.WorkflowNode{
-		ID: "sh4", Type: models.NodeTypeAction, Template: "shopify_order_note",
+		ID: "sh4", Type: models.NodeTypeAction, Template: "shopify",
 		Secrets: map[string]string{"shopifyAccessToken": "shpat_123"},
 		Config:  map[string]string{"shopifyShopDomain": "evil.com", "shopifyOrderID": "9001"},
 	}
@@ -272,7 +272,7 @@ func TestShopifyAction_SkipsWhenDomainInvalid(t *testing.T) {
 
 func TestShopifyAction_SkipsWhenMissingConfig(t *testing.T) {
 	node := models.WorkflowNode{
-		ID: "sh1", Type: models.NodeTypeAction, Template: "shopify_order_note",
+		ID: "sh1", Type: models.NodeTypeAction, Template: "shopify",
 		Secrets: map[string]string{"shopifyAccessToken": "tok"},
 	}
 	rc := engine.NewRunContext("r1", nil)
@@ -283,7 +283,7 @@ func TestShopifyAction_SkipsWhenMissingConfig(t *testing.T) {
 }
 
 func TestShopifyAction_SkipsWhenNoAccessToken(t *testing.T) {
-	node := models.WorkflowNode{ID: "sh2", Type: models.NodeTypeAction, Template: "shopify_order_note"}
+	node := models.WorkflowNode{ID: "sh2", Type: models.NodeTypeAction, Template: "shopify"}
 	rc := engine.NewRunContext("r1", nil)
 	result, err := nodes.ExecuteAction(context.Background(), node, rc)
 	if !errors.Is(err, nodes.ErrActionSkipped) || result != "shopify_skipped_no_access_token" {

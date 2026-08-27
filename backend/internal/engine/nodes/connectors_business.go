@@ -165,10 +165,13 @@ var shopifyDomainPattern = regexp.MustCompile(`^` + dnsLabelPattern + `\.myshopi
 func SetShopifyOrderNoteAPIBaseForTest(base string) { setAPIBaseForTest("shopify", base) }
 
 // sendShopifyOrderNote adds a note to an existing order -- distinct from
-// sendShopify (connectors_commerce.go, template id "shopify"), which
-// creates a new customer. Both are real, independently-added operations;
-// this one keeps its own template id ("shopify_order_note") rather than
-// colliding on "shopify".
+// sendShopify (connectors_commerce.go, template id "shopify_customer"),
+// which creates a new customer. Template id "shopify" (this function, via
+// action.go's dispatch) is master's original id and behavior for this
+// operation; a prior version of this PR repointed "shopify" at the
+// customer-creation operation instead, which would have made every
+// already-saved order-note node silently stop writing notes on its next
+// deploy with no config change on the user's side.
 func sendShopifyOrderNote(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	accessToken := secretVal(node, "shopifyAccessToken")
 	if accessToken == "" {

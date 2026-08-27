@@ -62,6 +62,41 @@ func TestTwilioAction_SendsSMS(t *testing.T) {
 	}
 }
 
+// A configured messageTemplate must actually be honored, not silently
+// ignored in favor of the raw upstream output -- resolveMessage, not
+// rc.Message() directly.
+func TestTwilioAction_HonorsMessageTemplate(t *testing.T) {
+	var gotForm url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotForm, _ = url.ParseQuery(string(body))
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"sid":"SM123"}`))
+	}))
+	defer srv.Close()
+	nodes.SetTwilioAPIBaseForTest(srv.URL)
+	defer nodes.SetTwilioAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "tw3", Type: models.NodeTypeAction, Template: "twilio",
+		Secrets: map[string]string{"twilioAuthToken": "authtok"},
+		Config: map[string]string{
+			"twilioAccountSID": "AC123",
+			"twilioFrom":       "+15550001111",
+			"twilioTo":         "+15550002222",
+			"messageTemplate":  "alert: {{ result }}",
+		},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"disk full"`))
+
+	if _, err := nodes.ExecuteAction(context.Background(), node, rc); err != nil {
+		t.Fatal(err)
+	}
+	if gotForm.Get("Body") != "alert: disk full" {
+		t.Errorf("want templated body, got %q", gotForm.Get("Body"))
+	}
+}
+
 // A node saved before this repo's Twilio Inspector field moved
 // twilioAccountSID from a secret to a config value has its SID under
 // Secrets, not Config -- must still resolve, or every pre-existing Twilio
@@ -214,7 +249,10 @@ func TestPagerDutyAction_TriggersIncident(t *testing.T) {
 	}
 }
 
-func TestPagerDutyAction_DefaultsSeverityToError(t *testing.T) {
+// Default severity is "info", not "error": every already-deployed PagerDuty
+// node that never set pagerdutySeverity explicitly must not have its alerts
+// silently escalate to "error" with no config change on the user's side.
+func TestPagerDutyAction_DefaultsSeverityToInfo(t *testing.T) {
 	var gotBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = jsonDecode(r.Body, &gotBody)
@@ -233,8 +271,64 @@ func TestPagerDutyAction_DefaultsSeverityToError(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := gotBody["payload"].(map[string]any)
-	if payload["severity"] != "error" {
-		t.Errorf("want default severity 'error', got %v", payload["severity"])
+	if payload["severity"] != "info" {
+		t.Errorf("want default severity 'info', got %v", payload["severity"])
+	}
+}
+
+// A summary over PagerDuty's Events API v2 1024-char cap must be truncated
+// (issueTitle), not sent raw -- a multi-KB LLM result would otherwise be
+// rejected with a 400 right when an alert matters most.
+func TestPagerDutyAction_TruncatesLongSummary(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = jsonDecode(r.Body, &gotBody)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+	nodes.SetPagerDutyAPIBaseForTest(srv.URL)
+	defer nodes.SetPagerDutyAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "pd1", Type: models.NodeTypeAction, Template: "pagerduty",
+		Secrets: map[string]string{"pagerdutyRoutingKey": "routing_xxx"},
+	}
+	longMsg := strings.Repeat("x", 2000)
+	rc := engine.NewRunContext("r1", []byte(`"`+longMsg+`"`))
+	if _, err := nodes.ExecuteAction(context.Background(), node, rc); err != nil {
+		t.Fatal(err)
+	}
+	payload := gotBody["payload"].(map[string]any)
+	summary, _ := payload["summary"].(string)
+	if len(summary) >= 1024 {
+		t.Errorf("summary not truncated: %d chars", len(summary))
+	}
+}
+
+// A configured messageTemplate must actually be honored, not silently
+// ignored in favor of the raw upstream output.
+func TestPagerDutyAction_HonorsMessageTemplate(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = jsonDecode(r.Body, &gotBody)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+	nodes.SetPagerDutyAPIBaseForTest(srv.URL)
+	defer nodes.SetPagerDutyAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "pd1", Type: models.NodeTypeAction, Template: "pagerduty",
+		Secrets: map[string]string{"pagerdutyRoutingKey": "routing_xxx"},
+		Config:  map[string]string{"messageTemplate": "alert: {{ result }}"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"disk full"`))
+	if _, err := nodes.ExecuteAction(context.Background(), node, rc); err != nil {
+		t.Fatal(err)
+	}
+	payload := gotBody["payload"].(map[string]any)
+	if payload["summary"] != "alert: disk full" {
+		t.Errorf("want templated summary, got %v", payload["summary"])
 	}
 }
 
@@ -369,6 +463,63 @@ func TestMondayAction_CreatesItem(t *testing.T) {
 		t.Errorf("boardId: got %v", vars["boardId"])
 	}
 	if vars["itemName"] != "follow up with the lead" {
+		t.Errorf("itemName: got %v", vars["itemName"])
+	}
+}
+
+// Monday.com is a GraphQL API: it reports failures as HTTP 200 with an
+// "errors" array, the same as any other GraphQL endpoint. Returning that as
+// success would render a green node for an item that was never created.
+func TestMondayAction_ReturnsErrorOnGraphQLErrorsArray(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"errors":[{"message":"board not found"}]}`))
+	}))
+	defer srv.Close()
+	nodes.SetMondayAPIBaseForTest(srv.URL)
+	defer nodes.SetMondayAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "mo2", Type: models.NodeTypeAction, Template: "monday",
+		Secrets: map[string]string{"mondayAPIKey": "mtok"},
+		Config:  map[string]string{"mondayBoardID": "bad-id"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"follow up with the lead"`))
+
+	_, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err == nil {
+		t.Fatal("want an error for a GraphQL errors-array response, got nil")
+	}
+	if !strings.Contains(err.Error(), "board not found") {
+		t.Errorf("want the GraphQL error message surfaced, got %v", err)
+	}
+}
+
+// A configured messageTemplate must actually be honored, not silently
+// ignored in favor of the raw upstream output.
+func TestMondayAction_HonorsMessageTemplate(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = jsonDecode(r.Body, &gotBody)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":{"create_item":{"id":"1"}}}`))
+	}))
+	defer srv.Close()
+	nodes.SetMondayAPIBaseForTest(srv.URL)
+	defer nodes.SetMondayAPIBaseForTest("")
+
+	node := models.WorkflowNode{
+		ID: "mo3", Type: models.NodeTypeAction, Template: "monday",
+		Secrets: map[string]string{"mondayAPIKey": "mtok"},
+		Config:  map[string]string{"mondayBoardID": "12345", "messageTemplate": "task: {{ result }}"},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"follow up with the lead"`))
+
+	if _, err := nodes.ExecuteAction(context.Background(), node, rc); err != nil {
+		t.Fatal(err)
+	}
+	vars := gotBody["variables"].(map[string]any)
+	if vars["itemName"] != "task: follow up with the lead" {
 		t.Errorf("itemName: got %v", vars["itemName"])
 	}
 }

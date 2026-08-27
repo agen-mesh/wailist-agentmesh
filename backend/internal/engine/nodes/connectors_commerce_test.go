@@ -157,7 +157,7 @@ func TestShopifyAction_CreatesCustomerNote(t *testing.T) {
 	defer nodes.SetShopifyAPIBaseForTest("")
 
 	node := models.WorkflowNode{
-		ID: "sh1", Type: models.NodeTypeAction, Template: "shopify",
+		ID: "sh1", Type: models.NodeTypeAction, Template: "shopify_customer",
 		Secrets: map[string]string{"shopifyAccessToken": "shpat_xxx"},
 		Config:  map[string]string{"shopifyStore": "acme-store", "shopifyEmail": "buyer@example.com"},
 	}
@@ -187,12 +187,12 @@ func TestShopifyAction_CreatesCustomerNote(t *testing.T) {
 
 func TestShopifyAction_SkipsWhenUnconfigured(t *testing.T) {
 	rc := engine.NewRunContext("r1", nil)
-	noToken := models.WorkflowNode{Type: models.NodeTypeAction, Template: "shopify",
+	noToken := models.WorkflowNode{Type: models.NodeTypeAction, Template: "shopify_customer",
 		Config: map[string]string{"shopifyStore": "s", "shopifyEmail": "a@b.com"}}
 	if got, _ := nodes.ExecuteAction(context.Background(), noToken, rc); got != "shopify_skipped_no_access_token" {
 		t.Errorf("want skip sentinel, got %v", got)
 	}
-	noStore := models.WorkflowNode{Type: models.NodeTypeAction, Template: "shopify",
+	noStore := models.WorkflowNode{Type: models.NodeTypeAction, Template: "shopify_customer",
 		Secrets: map[string]string{"shopifyAccessToken": "t"},
 		Config:  map[string]string{"shopifyEmail": "a@b.com"}}
 	if got, _ := nodes.ExecuteAction(context.Background(), noStore, rc); got != "shopify_skipped_missing_config" {

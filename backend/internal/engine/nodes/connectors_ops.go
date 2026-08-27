@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -32,7 +33,11 @@ func sendTwilio(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	// Config is where the Inspector saves this field today, but a node saved
 	// before this PR has it under Secrets (master's prior schema) -- fall
 	// back there so already-configured Twilio nodes don't silently break on
-	// deploy.
+	// deploy. Deliberately in Config, not Secrets, even though Config isn't
+	// masked by handlers/secrets.go: unlike twilioAuthToken (the real
+	// credential, correctly kept in Secrets), an Account SID is designed by
+	// Twilio to be semi-public -- it appears in every API request URL and
+	// isn't a rotation-sensitive value on its own.
 	sid := configVal(node, "twilioAccountSID", "")
 	if sid == "" {
 		sid = secretVal(node, "twilioAccountSID")
@@ -51,7 +56,7 @@ func sendTwilio(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	form := url.Values{}
 	form.Set("To", to)
 	form.Set("From", from)
-	form.Set("Body", rc.Message())
+	form.Set("Body", resolveMessage(node, rc))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		twilioAPIBase+"/Accounts/"+url.PathEscape(sid)+"/Messages.json",
@@ -101,12 +106,17 @@ func sendPagerDuty(ctx context.Context, node models.WorkflowNode, rc RunContexte
 	if routingKey == "" {
 		return "pagerduty_skipped_no_routing_key", ErrActionSkipped
 	}
+	// issueTitle, not the raw message: PagerDuty's Events API v2 rejects a
+	// summary over 1024 chars outright, and a multi-KB LLM result would hit
+	// that cap right when an alert matters most. Default severity is "info",
+	// matching every already-deployed node that never set this explicitly --
+	// "error" would silently escalate all of their alerts.
 	payload := map[string]any{
 		"routing_key":  routingKey,
 		"event_action": "trigger",
 		"payload": map[string]any{
-			"summary":  rc.Message(),
-			"severity": resolveTemplate(configVal(node, "pagerdutySeverity", "error"), rc),
+			"summary":  issueTitle(resolveMessage(node, rc)),
+			"severity": resolveTemplate(configVal(node, "pagerdutySeverity", "info"), rc),
 			"source":   resolveTemplate(configVal(node, "pagerdutySource", "agentmesh"), rc),
 		},
 	}
@@ -196,10 +206,27 @@ func sendMonday(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 		"query": mondayCreateItem,
 		"variables": map[string]any{
 			"boardId":  boardID,
-			"itemName": rc.Message(),
+			"itemName": resolveMessage(node, rc),
 		},
 	}
 	// Monday.com expects the bare token, with no "Bearer " prefix.
 	headers := map[string]string{"Authorization": apiKey, "API-Version": "2023-10"}
-	return postJSON(ctx, mondayAPIBase+"/v2", headers, payload, "monday_item_created", "Monday.com")
+	req, err := newJSONRequest(ctx, http.MethodPost, mondayAPIBase+"/v2", headers, payload)
+	if err != nil {
+		return nil, fmt.Errorf("Monday.com: %w", err)
+	}
+	out, err := doAndDecode(req, "Monday.com")
+	if err != nil {
+		return nil, err
+	}
+	// Monday.com is a GraphQL API: it reports failures (bad board ID, no
+	// write access, expired key) as HTTP 200 with an "errors" array, same as
+	// sendGraphQL guards against -- returning that as success would render a
+	// green node for an item that was never created.
+	if body, ok := out.(map[string]any); ok {
+		if errs, ok := body["errors"].([]any); ok && len(errs) > 0 {
+			return nil, fmt.Errorf("Monday.com: server returned errors: %s", graphQLErrorText(errs))
+		}
+	}
+	return "monday_item_created", nil
 }

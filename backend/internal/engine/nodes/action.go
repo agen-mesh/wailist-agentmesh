@@ -77,9 +77,17 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 	case "monday":
 		return sendMonday(ctx, node, rc)
 	case "shopify":
-		return sendShopify(ctx, node, rc)
-	case "shopify_order_note":
+		// "shopify" keeps master's original order-note behavior. A workflow
+		// with a node already saved under this id (from before this PR, or
+		// from master) must keep hitting the same handler with no config
+		// change on the user's side -- repointing it to a different
+		// operation here would have every such node read shopifyStore/
+		// shopifyEmail (which it never had) and silently no-op via
+		// shopify_skipped_missing_config. The new customer-creation feature
+		// gets its own fresh id below instead.
 		return sendShopifyOrderNote(ctx, node, rc)
+	case "shopify_customer":
+		return sendShopify(ctx, node, rc)
 	case "pipedrive":
 		return sendPipedrive(ctx, node, rc)
 	case "db":
