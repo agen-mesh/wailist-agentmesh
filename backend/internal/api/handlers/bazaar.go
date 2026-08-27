@@ -22,6 +22,10 @@ const defaultBazaarBaseURL = "https://facilitator.goplausible.xyz"
 // settles), so a short TTL would spend a full ~8-page crawl to learn nothing.
 const bazaarCacheTTL = 15 * time.Minute
 
+// bazaarCrawlTimeout bounds runCatalogFetch's whole sequential crawl -- see
+// that function's doc comment for the sizing rationale.
+const bazaarCrawlTimeout = 90 * time.Second
+
 // bazaarRetryBackoff bounds how often a failed refresh is retried once the
 // cache has expired (or, on a cold start, once no fetch has ever succeeded).
 // Without this, every request during an upstream outage re-attempts the full
@@ -135,8 +139,18 @@ func (d *Deps) catalog(ctx context.Context) ([]bazaar.Resource, error) {
 // shared cache, independent of any caller's request context. It always
 // closes done, even on failure, so every caller waiting in catalog's select
 // is released.
+//
+// Budget is 90s, not 30s: FetchAll pages strictly sequentially (one real
+// client.Do call at a time -- see its own doc comment for why a concurrent
+// version was tried and reverted), and at today's ~780-entry catalog that's
+// ~8 real pages, comfortably inside even 30s under normal latency. But if
+// the upstream slows to a few seconds per page, the sequential total alone
+// can approach or exceed a tight budget and the whole cache refresh fails
+// outright, falling into the backoff/stale-serve path. 90s gives real
+// headroom for a slow-but-not-dead upstream without gambling on an
+// out-of-range query the upstream might not tolerate.
 func (d *Deps) runCatalogFetch(done chan struct{}) {
-	fetchCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	fetchCtx, cancel := context.WithTimeout(context.Background(), bazaarCrawlTimeout)
 	defer cancel()
 	fetched, fetchErr := bazaar.FetchAll(fetchCtx, bazaarHTTPClient, d.bazaarBaseURL())
 

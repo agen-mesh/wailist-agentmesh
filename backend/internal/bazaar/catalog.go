@@ -19,8 +19,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"golang.org/x/sync/errgroup"
 )
 
 // AlgorandMainnet and AlgorandTestnet are the CAIP-2 network ids the catalog
@@ -40,20 +38,6 @@ const pageLimit = 100
 // (4000 entries) is far above that while still terminating if the upstream
 // ever returns a full page forever.
 const maxPages = 40
-
-// fetchConcurrency bounds how many pages FetchAll requests in parallel.
-// Strictly sequential paging (one real client.Do call at a time) is
-// comfortably inside runCatalogFetch's shared 30s crawl budget at the live
-// catalog's ~8 real pages under normal latency -- but if the upstream slows
-// to even 2-3s/page, the sequential total alone can approach or exceed that
-// budget and the whole cache refresh fails outright, falling into the
-// backoff/stale-serve path. Fetching a small batch of pages at a time cuts
-// the worst-case wall-clock roughly by this factor. Final ordering doesn't
-// depend on which page an entry arrived on -- FetchAll sorts by SettleCount
-// at the end -- so pages completing out of order within a batch, or a
-// batch's later pages coming back empty after the earlier ones already hit
-// the end of the catalog, are both harmless.
-const fetchConcurrency = 5
 
 // Param is one caller-supplied input a resource declares for itself.
 type Param struct {
@@ -115,78 +99,56 @@ type rawResource struct {
 	LastSeen    string `json:"lastSeen"`
 }
 
-// fetchCatalogPage fetches one page of the raw upstream catalog.
-func fetchCatalogPage(ctx context.Context, client *http.Client, baseURL string, page int) ([]rawResource, error) {
-	u := fmt.Sprintf("%s/discovery/resources?limit=%d&offset=%d",
-		strings.TrimRight(baseURL, "/"), pageLimit, page*pageLimit)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("bazaar: upstream returned %d", resp.StatusCode)
-	}
-	if readErr != nil {
-		return nil, readErr
-	}
-	var envelope struct {
-		Items []rawResource `json:"items"`
-	}
-	if err := json.Unmarshal(body, &envelope); err != nil {
-		return nil, err
-	}
-	return envelope.Items, nil
-}
-
 // FetchAll pages the whole catalog and returns only the resources AgentMesh
-// can actually pay and reach. Pages are fetched fetchConcurrency at a time —
-// see that constant's doc comment — stopping once any page in a batch comes
-// back short of pageLimit (the real end of the catalog) or maxPages is hit.
+// can actually pay and reach.
+//
+// Paging is strictly sequential -- one real client.Do call at a time, not
+// concurrent. A concurrent-batch version of this was tried and reverted: it
+// cuts wall-clock time, but pages routinely land past the real end of the
+// catalog (we don't know a page is short until its response arrives, so a
+// batch's later pages are already in flight by then) — a query shape the
+// upstream may not tolerate the same way as an in-bounds one. Rather than
+// gamble on unverified upstream behavior for an out-of-range offset,
+// runCatalogFetch's caller-side timeout is sized generously instead (see its
+// own doc comment) — slower, but only ever asks for offsets a real page
+// count justifies.
 func FetchAll(ctx context.Context, client *http.Client, baseURL string) ([]Resource, error) {
 	var out []Resource
 	seen := map[string]bool{}
-	for batchStart := 0; batchStart < maxPages; batchStart += fetchConcurrency {
-		batchEnd := batchStart + fetchConcurrency
-		if batchEnd > maxPages {
-			batchEnd = maxPages
-		}
-		pages := make([][]rawResource, batchEnd-batchStart)
-		g, gctx := errgroup.WithContext(ctx)
-		for i := batchStart; i < batchEnd; i++ {
-			g.Go(func() error {
-				items, err := fetchCatalogPage(gctx, client, baseURL, i)
-				if err != nil {
-					return err
-				}
-				pages[i-batchStart] = items
-				return nil
-			})
-		}
-		if err := g.Wait(); err != nil {
+	for page := 0; page < maxPages; page++ {
+		u := fmt.Sprintf("%s/discovery/resources?limit=%d&offset=%d",
+			strings.TrimRight(baseURL, "/"), pageLimit, page*pageLimit)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
 			return nil, err
 		}
-
-		reachedEnd := false
-		for _, items := range pages {
-			for _, raw := range items {
-				r, ok := normalise(raw)
-				if !ok || seen[r.ID] {
-					continue
-				}
-				seen[r.ID] = true
-				out = append(out, r)
-			}
-			if len(items) < pageLimit {
-				reachedEnd = true
-			}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
 		}
-		if reachedEnd {
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+		resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("bazaar: upstream returned %d", resp.StatusCode)
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+		var envelope struct {
+			Items []rawResource `json:"items"`
+		}
+		if err := json.Unmarshal(body, &envelope); err != nil {
+			return nil, err
+		}
+		for _, raw := range envelope.Items {
+			r, ok := normalise(raw)
+			if !ok || seen[r.ID] {
+				continue
+			}
+			seen[r.ID] = true
+			out = append(out, r)
+		}
+		if len(envelope.Items) < pageLimit {
 			break
 		}
 	}

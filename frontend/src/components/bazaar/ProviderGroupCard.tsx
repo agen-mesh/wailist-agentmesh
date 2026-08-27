@@ -30,7 +30,14 @@ export function ProviderGroupCard({
   // provisional and may grow/shrink as more pages scroll in.
   partial?: boolean;
 }) {
-  const label = resources[0]?.provider ?? host;
+  // BazaarPage only ever mounts this for a host with 2+ entries today, but
+  // nothing enforces that invariant here -- reduce with an empty array and
+  // an initial value of `resources[0]` (undefined) skips the callback
+  // entirely and returns undefined, which would crash on `cheapest.amountMicros`
+  // below instead of degrading gracefully.
+  if (resources.length === 0) return null;
+
+  const label = resources[0].provider ?? host;
   // The min amountMicros alone isn't safe to label "$X": a host can mix
   // ALGO-, USDC-, and ASA-priced endpoints, and comparing raw amounts across
   // assets with no price feed is meaningless anyway. Tracking which

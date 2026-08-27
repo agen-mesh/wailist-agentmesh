@@ -100,11 +100,10 @@ func TestBazaarResourcesCachesUpstream(t *testing.T) {
 			t.Fatalf("request %d: status %d", i, rec.Code)
 		}
 	}
-	// One crawl fetches up to bazaar.fetchConcurrency (5) pages concurrently
-	// before the short page that ends this 1-page catalog is even seen;
-	// three handler calls must not multiply that.
-	if got := atomic.LoadInt32(&hits); got > 5 {
-		t.Errorf("upstream hit %d times across 3 cached requests, want <= 5 (one crawl's worth)", got)
+	// One crawl is two upstream calls at most (page 0 plus the short-page
+	// stop); three handler calls must not multiply that.
+	if got := atomic.LoadInt32(&hits); got > 2 {
+		t.Errorf("upstream hit %d times across 3 cached requests, want <= 2", got)
 	}
 }
 
@@ -253,13 +252,8 @@ func TestBazaarResourcesColdStartBackoffThrottlesRetries(t *testing.T) {
 	if rec1.Code != http.StatusBadGateway || rec2.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, %d, want both 502", rec1.Code, rec2.Code)
 	}
-	// The first crawl's own first batch fetches up to bazaar.fetchConcurrency
-	// (5) pages concurrently before any of them can report the failure that
-	// stops it -- what this test actually guards is that the second request
-	// doesn't start ANOTHER crawl on top of that (which would push hits well
-	// past one batch's worth).
-	if got := atomic.LoadInt32(&hits); got > 5 {
-		t.Errorf("upstream hit %d times across 2 cold-start requests within the backoff window, want <= 5 (one crawl's worth)", got)
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Errorf("upstream hit %d times across 2 cold-start requests within the backoff window, want 1", got)
 	}
 }
 
@@ -376,11 +370,8 @@ func TestCatalogConcurrentColdRequestsShareOneCrawlAndHonourCancellation(t *test
 	close(release)
 	wg.Wait()
 
-	// One shared crawl's first batch fetches up to bazaar.fetchConcurrency
-	// (5) pages concurrently; 4 concurrent callers must not multiply that
-	// into a second, independent crawl.
-	if got := atomic.LoadInt32(&hits); got > 5 {
-		t.Errorf("upstream hit %d times across 4 concurrent cold-start callers, want <= 5 (one shared crawl)", got)
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Errorf("upstream hit %d times across 4 concurrent cold-start callers, want exactly 1 shared crawl", got)
 	}
 }
 
