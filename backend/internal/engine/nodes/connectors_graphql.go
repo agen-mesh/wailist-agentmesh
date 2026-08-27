@@ -54,15 +54,29 @@ func sendGraphQL(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	if err != nil {
 		return nil, err
 	}
-
-	// GraphQL reports failures as a 200 carrying an "errors" array. Returning
-	// that as success would render a green node for a query that did nothing.
-	if body, ok := out.(map[string]any); ok {
-		if errs, ok := body["errors"].([]any); ok && len(errs) > 0 {
-			return nil, fmt.Errorf("graphql: server returned errors: %s", graphQLErrorText(errs))
-		}
+	if err := checkGraphQLErrors(out, "graphql"); err != nil {
+		return nil, err
 	}
 	return out, nil
+}
+
+// checkGraphQLErrors reports a GraphQL "errors" array as a Go error. GraphQL
+// APIs (this generic connector, and any other connector built on top of a
+// GraphQL endpoint, e.g. Monday.com) report failures as HTTP 200 carrying an
+// "errors" array rather than a non-2xx status -- returning that as success
+// would render a green node for a query/mutation that did nothing.
+// errPrefix matches each caller's own error-message convention (e.g.
+// "graphql", "Monday.com").
+func checkGraphQLErrors(out any, errPrefix string) error {
+	body, ok := out.(map[string]any)
+	if !ok {
+		return nil
+	}
+	errs, ok := body["errors"].([]any)
+	if !ok || len(errs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s: server returned errors: %s", errPrefix, graphQLErrorText(errs))
 }
 
 // graphQLErrorText joins the "message" field of each GraphQL error for the

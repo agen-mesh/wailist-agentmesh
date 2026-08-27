@@ -159,6 +159,49 @@ func TestPostgresAction_ResolvesMixedCaseUnquotedTableName(t *testing.T) {
 	}
 }
 
+// A table created via quoted DDL (CREATE TABLE "Events" (...), common with
+// ORM-managed schemas) keeps its case exactly -- the opposite of the
+// unquoted-DDL case above. pgTable="Events" must still resolve here too:
+// quotePGIdentifier's lowercase-first attempt will miss, and sendPostgres
+// must retry with the identifier exactly as configured rather than give up.
+func TestPostgresAction_ResolvesMixedCaseQuotedTableName(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_URL")
+	if dsn == "" {
+		t.Skip("set TEST_POSTGRES_URL to run the live Postgres insert test")
+	}
+	conn, err := pgx.Connect(context.Background(), dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer conn.Close(context.Background())
+	if _, err := conn.Exec(context.Background(), `DROP TABLE IF EXISTS "QuotedCaseEvents"`); err != nil {
+		t.Fatalf("drop: %v", err)
+	}
+	// Deliberately quoted DDL -- Postgres preserves this exact case, unlike
+	// the sibling unquoted-DDL test above.
+	if _, err := conn.Exec(context.Background(), `CREATE TABLE "QuotedCaseEvents" (payload text)`); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	defer conn.Exec(context.Background(), `DROP TABLE "QuotedCaseEvents"`)
+
+	node := models.WorkflowNode{
+		ID: "db3", Type: models.NodeTypeAction, Template: "db",
+		Secrets: map[string]string{"pgConnString": dsn},
+		Config: map[string]string{
+			"pgTable":  "QuotedCaseEvents",
+			"pgColumn": "payload",
+		},
+	}
+	rc := engine.NewRunContext("r1", []byte(`"row from the workflow"`))
+	got, err := nodes.ExecuteAction(context.Background(), node, rc)
+	if err != nil {
+		t.Fatalf("insert into a quoted-case-preserved table should succeed via the fallback retry: %v", err)
+	}
+	if got != "db_row_inserted" {
+		t.Errorf("want 'db_row_inserted', got %v", got)
+	}
+}
+
 func TestPostgresAction_InsertsRow(t *testing.T) {
 	dsn := os.Getenv("TEST_POSTGRES_URL")
 	if dsn == "" {

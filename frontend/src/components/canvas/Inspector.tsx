@@ -2606,7 +2606,7 @@ const CONNECTOR_CONFIG_FIELDS: Record<
         kind: "config",
         key: "pagerdutySeverity",
         label: "Severity",
-        placeholder: "error (default)",
+        placeholder: "info (default)",
         hint: "critical · error · warning · info",
       },
       {

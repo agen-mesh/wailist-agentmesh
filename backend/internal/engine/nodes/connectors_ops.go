@@ -223,10 +223,8 @@ func sendMonday(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	// write access, expired key) as HTTP 200 with an "errors" array, same as
 	// sendGraphQL guards against -- returning that as success would render a
 	// green node for an item that was never created.
-	if body, ok := out.(map[string]any); ok {
-		if errs, ok := body["errors"].([]any); ok && len(errs) > 0 {
-			return nil, fmt.Errorf("Monday.com: server returned errors: %s", graphQLErrorText(errs))
-		}
+	if err := checkGraphQLErrors(out, "Monday.com"); err != nil {
+		return nil, err
 	}
 	return "monday_item_created", nil
 }

@@ -3,6 +3,7 @@ package nodes
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // pgConnectTimeout bounds how long sendPostgres waits to establish a
@@ -35,24 +37,34 @@ func SetPostgresConnectTimeoutForTest(d time.Duration) {
 // optional schema qualifier is allowed: "public.events".
 var pgIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
 
-// quotePGIdentifier wraps each dot-separated part in double quotes,
-// lowercasing first. Only ever called on strings already validated by
-// pgIdentifier.
+// quotePGIdentifier wraps each dot-separated part in double quotes, optionally
+// lowercasing each part first. Only ever called on strings already validated
+// by pgIdentifier.
 //
-// Postgres folds *unquoted* DDL identifiers to lowercase -- a table created
-// as `CREATE TABLE Events (...)` is actually stored as `events`. Quoting a
-// mixed-case value verbatim (without lowercasing) makes this connector
-// case-sensitive against a database that isn't: a user who types
-// pgTable="Events", matching what they see in their own schema/tooling,
-// would get `INSERT INTO "Events"`, which Postgres rejects with `relation
-// "Events" does not exist` -- a name that works fine unquoted fails here
-// purely because this always quotes it. Lowercasing before quoting matches
-// what typing that name unquoted in raw SQL would actually resolve to, the
-// overwhelmingly common case for real schemas.
-func quotePGIdentifier(ident string) string {
+// Two real, both-common cases disagree about what a mixed-case pgTable value
+// should resolve to, and there's no way to tell which one a given user meant
+// from the string alone:
+//   - A table created via unquoted DDL (`CREATE TABLE Events (...)`) is
+//     folded to lowercase by Postgres and stored as `events`. Quoting a
+//     mixed-case value verbatim would send `INSERT INTO "Events"`, which
+//     Postgres rejects with `relation "Events" does not exist` even though
+//     the table is right there as "events".
+//   - A table created via quoted DDL (`CREATE TABLE "Events" (...)`, common
+//     with ORM-managed schemas e.g. Prisma) keeps its case exactly.
+//     Lowercasing that value would send `INSERT INTO "events"`, which fails
+//     the exact same way against a table that's actually "Events".
+//
+// sendPostgres tries lower=true first (the more common unquoted-DDL case)
+// and retries once with lower=false on an undefined-table/column error,
+// rather than picking one interpretation and permanently breaking whichever
+// case doesn't match it.
+func quotePGIdentifier(ident string, lower bool) string {
 	parts := strings.Split(ident, ".")
 	for i, p := range parts {
-		parts[i] = `"` + strings.ToLower(p) + `"`
+		if lower {
+			p = strings.ToLower(p)
+		}
+		parts[i] = `"` + p + `"`
 	}
 	return strings.Join(parts, ".")
 }
@@ -77,7 +89,7 @@ func sendPostgres(ctx context.Context, node models.WorkflowNode, rc RunContexter
 		return nil, fmt.Errorf("db: column name %q is not a valid SQL identifier", column)
 	}
 
-	cols := []string{quotePGIdentifier(column)}
+	extraCols := []string{column}
 	vals := []any{rc.Message()}
 
 	if extra := configVal(node, "pgExtraColumns", ""); extra != "" {
@@ -89,7 +101,7 @@ func sendPostgres(ctx context.Context, node models.WorkflowNode, rc RunContexter
 			if !pgIdentifier.MatchString(k) {
 				return nil, fmt.Errorf("db: extra column name %q is not a valid SQL identifier", k)
 			}
-			cols = append(cols, quotePGIdentifier(k))
+			extraCols = append(extraCols, k)
 			if s, ok := v.(string); ok {
 				vals = append(vals, resolveTemplate(s, rc))
 				continue
@@ -102,8 +114,14 @@ func sendPostgres(ctx context.Context, node models.WorkflowNode, rc RunContexter
 	for i := range vals {
 		placeholders[i] = fmt.Sprintf("$%d", i+1)
 	}
-	stmt := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
-		quotePGIdentifier(table), strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+	buildStmt := func(lower bool) string {
+		cols := make([]string, len(extraCols))
+		for i, c := range extraCols {
+			cols[i] = quotePGIdentifier(c, lower)
+		}
+		return fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
+			quotePGIdentifier(table, lower), strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+	}
 
 	connCtx, cancel := context.WithTimeout(ctx, pgConnectTimeout)
 	defer cancel()
@@ -113,7 +131,20 @@ func sendPostgres(ctx context.Context, node models.WorkflowNode, rc RunContexter
 	}
 	defer conn.Close(ctx)
 
-	if _, err := conn.Exec(ctx, stmt, vals...); err != nil {
+	if _, err := conn.Exec(ctx, buildStmt(true), vals...); err != nil {
+		// See quotePGIdentifier's doc comment: a lowercased identifier is the
+		// right call for a table/column created via unquoted DDL, but wrong
+		// for one created via quoted, case-preserved DDL. Retry once with
+		// the identifiers exactly as configured before giving up, rather
+		// than permanently breaking whichever case the first attempt didn't
+		// match.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && (pgErr.Code == "42P01" || pgErr.Code == "42703") {
+			if _, err2 := conn.Exec(ctx, buildStmt(false), vals...); err2 != nil {
+				return nil, fmt.Errorf("db: insert failed (tried both lowercased and as-configured identifiers): %w", err2)
+			}
+			return "db_row_inserted", nil
+		}
 		return nil, fmt.Errorf("db: insert failed: %w", err)
 	}
 	return "db_row_inserted", nil
