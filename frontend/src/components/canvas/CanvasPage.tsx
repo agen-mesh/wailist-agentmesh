@@ -437,13 +437,21 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   // page boundary — see encodePendingNode in lib/bazaar.ts.
   const searchParams = useSearchParams();
   const pendingAdd = searchParams.get("add");
-  const consumedAdd = useRef(false);
+  // Tracks the specific `add` value already consumed, not just whether any
+  // add has ever happened -- CanvasPage doesn't remount between two Bazaar
+  // visits to the SAME workflow, so a plain boolean latch would silently
+  // drop every add after the first for that workflow's whole session.
+  // router.replace below clears the URL param immediately after consuming
+  // it, so pendingAdd returns to null before a genuinely new value can
+  // arrive -- this only needs to survive React's own re-render/Strict Mode
+  // double-invoke for the SAME value, not distinguish a history of values.
+  const consumedAdd = useRef<string | null>(null);
   useEffect(() => {
-    if (!pendingAdd || consumedAdd.current || !workflow) return;
+    if (!pendingAdd || consumedAdd.current === pendingAdd || !workflow) return;
     const meta = decodePendingNode(pendingAdd);
     // Consume the param either way: a malformed value must not re-trigger on
     // every render, and must not survive a refresh as a phantom pending node.
-    consumedAdd.current = true;
+    consumedAdd.current = pendingAdd;
     router.replace(`/workflows/${workflow.id}`);
     if (!meta) return;
     // Drop it slightly off-centre so it never lands exactly on an existing
