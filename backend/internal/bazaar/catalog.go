@@ -165,7 +165,8 @@ func normalise(raw rawResource) (Resource, bool) {
 		return Resource{}, false
 	}
 	a := raw.Accepts[0]
-	if !keepResource(raw.ResourceURL, a.Network) {
+	parsed, _ := url.Parse(raw.ResourceURL)
+	if !keepResource(parsed, a.Network) {
 		return Resource{}, false
 	}
 	amount, err := strconv.ParseInt(a.Amount, 10, 64)
@@ -179,12 +180,11 @@ func normalise(raw rawResource) (Resource, bool) {
 	if method == "" {
 		method = http.MethodGet
 	}
-	parsed, _ := url.Parse(raw.ResourceURL)
 	res := Resource{
 		ID:           raw.ID,
 		URL:          raw.ResourceURL,
 		Method:       strings.ToUpper(method),
-		Description:  raw.Description,
+		Description:  truncateRunes(raw.Description, resourceDescriptionMax),
 		MerchantID:   raw.MerchantID,
 		Network:      a.Network,
 		Testnet:      a.Network == AlgorandTestnet,
@@ -217,6 +217,19 @@ func normalise(raw rawResource) (Resource, bool) {
 // query param on the frontend, risking a truncated or rejected request.
 const paramDescriptionMax = 500
 
+// resourceDescriptionMax bounds a resource's own free-text description,
+// same rationale as paramDescriptionMax: this is an externally-writable,
+// permissionless catalog field that flows into the same `?add=` payload.
+const resourceDescriptionMax = 500
+
+// truncateRunes bounds s to max runes, appending an ellipsis if it had to cut.
+func truncateRunes(s string, max int) string {
+	if r := []rune(s); len(r) > max {
+		return string(r[:max]) + "…"
+	}
+	return s
+}
+
 // paramsFrom turns a catalog entry's declared inputs into Params. Query params
 // win over body params when both are present, matching the precedence in
 // nodes.ParamsFromChallenge.
@@ -240,10 +253,7 @@ func paramsFrom(raw rawResource) []Param {
 	sort.Strings(names)
 	out := make([]Param, 0, len(names))
 	for _, n := range names {
-		desc := fmt.Sprintf("example: %v", src[n])
-		if r := []rune(desc); len(r) > paramDescriptionMax {
-			desc = string(r[:paramDescriptionMax]) + "…"
-		}
+		desc := truncateRunes(fmt.Sprintf("example: %v", src[n]), paramDescriptionMax)
 		out = append(out, Param{
 			Name:        n,
 			Type:        "string",
@@ -256,12 +266,11 @@ func paramsFrom(raw rawResource) []Param {
 
 // keepResource reports whether a catalog entry is one we could actually pay
 // and reach: an Algorand network, over https, at a public hostname.
-func keepResource(rawURL, network string) bool {
+func keepResource(u *url.URL, network string) bool {
 	if network != AlgorandMainnet && network != AlgorandTestnet {
 		return false
 	}
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme != "https" {
+	if u == nil || u.Scheme != "https" {
 		return false
 	}
 	host := strings.ToLower(u.Hostname())

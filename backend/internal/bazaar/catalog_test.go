@@ -141,6 +141,21 @@ func TestParamsFromCapsDescriptionLength(t *testing.T) {
 	}
 }
 
+func TestNormaliseCapsResourceDescriptionLength(t *testing.T) {
+	raw := upstreamItem("big-desc", "https://big.example/api", mainnet)
+	raw["description"] = strings.Repeat("x", 5000)
+	srv := fakeUpstream(t, []map[string]any{raw})
+	defer srv.Close()
+
+	got, err := FetchAll(context.Background(), srv.Client(), srv.URL)
+	if err != nil {
+		t.Fatalf("FetchAll: %v", err)
+	}
+	if n := len([]rune(got[0].Description)); n > resourceDescriptionMax+1 {
+		t.Errorf("Description is %d runes, want capped near %d", n, resourceDescriptionMax)
+	}
+}
+
 func TestFetchAllPagesUntilShortPage(t *testing.T) {
 	// 250 items across 3 pages proves the loop follows offset rather than
 	// stopping after the first response.

@@ -455,8 +455,11 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     router.replace(`/workflows/${workflow.id}`);
     if (!meta) return;
     // Drop it slightly off-centre so it never lands exactly on an existing
-    // node when several are added in a row.
-    const offset = workflow.nodes.length * 24;
+    // node when several are added in a row. Wraps every 8 nodes instead of
+    // growing with workflow.nodes.length forever -- otherwise a workflow
+    // that already has many nodes places the next Bazaar add far outside
+    // the visible viewport with no pan-to-node to bring it back into view.
+    const offset = (workflow.nodes.length % 8) * 24;
     const node = {
       ...meta,
       id: `n_${Date.now()}`,
