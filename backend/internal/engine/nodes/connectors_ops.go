@@ -76,7 +76,7 @@ func sendMattermost(ctx context.Context, node models.WorkflowNode, rc RunContext
 	if hookURL == "" {
 		return "mattermost_skipped_no_webhook_url", ErrActionSkipped
 	}
-	payload := map[string]any{"text": rc.Message()}
+	payload := map[string]any{"text": resolveMessage(node, rc)}
 	if ch := resolveTemplate(configVal(node, "mattermostChannel", ""), rc); ch != "" {
 		payload["channel"] = ch
 	}
@@ -159,7 +159,7 @@ func sendZendesk(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	if base == "" {
 		base = "https://" + url.PathEscape(subdomain) + ".zendesk.com"
 	}
-	msg := rc.Message()
+	msg := resolveMessage(node, rc)
 	payload := map[string]any{"ticket": map[string]any{
 		"subject": issueTitle(msg),
 		"comment": map[string]any{"body": msg},

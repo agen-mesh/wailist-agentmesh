@@ -31,7 +31,7 @@ func sendSlack(ctx context.Context, node models.WorkflowNode, rc RunContexter) (
 		if channel == "" {
 			return "slack_skipped_no_channel", ErrActionSkipped
 		}
-		payload := map[string]any{"channel": channel, "text": rc.Message()}
+		payload := map[string]any{"channel": channel, "text": resolveMessage(node, rc)}
 		headers := map[string]string{"Authorization": "Bearer " + botToken}
 		// Slack's chat.postMessage returns HTTP 200 for application-level
 		// failures (bad channel, revoked token, missing scope), putting them in

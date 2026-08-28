@@ -289,8 +289,10 @@ export function useRunTranscript({
       // the SSE stream dies around 35s, so polling starts long before the
       // run ends. A budget that expires first shows an empty console for a
       // run that completed and charged the user, which is exactly the
-      // failure this polling exists to prevent.
-      for (let attempt = 0; attempt < 150 && !cancelled; attempt++) {
+      // failure this polling exists to prevent. 900 attempts * 2s = 30
+      // minutes, well past any observed run length, with real headroom for
+      // an agent that chains many tool iterations.
+      for (let attempt = 0; attempt < 900 && !cancelled; attempt++) {
         try {
           const { run, logs: dbLogs } = await runsApi.get(runId);
           if (cancelled) return;
@@ -308,6 +310,16 @@ export function useRunTranscript({
           // whose result is already recorded server-side.
         }
         await new Promise((r) => setTimeout(r, 2000));
+      }
+      // Budget exhausted without ever seeing a terminal status. The run may
+      // still be going server-side, but the UI must not hang on "working…"
+      // forever with no way out -- surface it as done with whatever partial
+      // transcript was collected, same as a manual stop, rather than
+      // silently returning and leaving the composer locked.
+      if (!cancelled) {
+        clearInterval(timerRef.current!);
+        setDone(true);
+        completeOnce();
       }
     };
 

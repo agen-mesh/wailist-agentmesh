@@ -108,7 +108,7 @@ func sendJira(ctx context.Context, node models.WorkflowNode, rc RunContexter) (a
 			base = "https://api.atlassian.com/ex/jira/" + cloudID
 		}
 		target := base + "/rest/api/3/issue"
-		msg := rc.Message()
+		msg := resolveMessage(node, rc)
 		payload := map[string]any{
 			"fields": map[string]any{
 				"project":   map[string]any{"key": projectKey},
