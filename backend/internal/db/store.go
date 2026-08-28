@@ -315,13 +315,14 @@ func (s *Store) CreateRunWithCooldown(ctx context.Context, workflowID, triggered
 	defer tx.Rollback(ctx)
 
 	var locked bool
-	if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtext($1))`, workflowID).Scan(&locked); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtext('run_cooldown:' || $1))`, workflowID).Scan(&locked); err != nil {
 		return models.Run{}, fmt.Errorf("run cooldown: acquire advisory lock: %w", err)
 	}
 	if !locked {
 		// Best-effort: report the actual remaining cooldown, not the full
 		// duration. This read doesn't need (and doesn't take) the advisory
-		// lock -- it's a plain MVCC snapshot read on the pool, purely to give
+		// lock -- it's a plain MVCC snapshot read on the already-held tx
+		// connection (not a fresh pool acquisition), purely to give
 		// the caller a more accurate Retry-After than "the whole window,"
 		// which could be up to `cooldown` longer than the real remaining
 		// wait if the lock holder's own check is almost done. Any error, or
@@ -330,7 +331,7 @@ func (s *Store) CreateRunWithCooldown(ctx context.Context, workflowID, triggered
 		// correctness guarantee.
 		retryAfter := cooldown
 		var elapsedSecs float64
-		if err := s.pool.QueryRow(ctx, `
+		if err := tx.QueryRow(ctx, `
 			SELECT EXTRACT(EPOCH FROM (now() - started_at)) FROM runs
 			WHERE workflow_id = $1 ORDER BY started_at DESC LIMIT 1
 		`, workflowID).Scan(&elapsedSecs); err == nil {
@@ -1494,7 +1495,7 @@ func (s *Store) LockOAuthCredentialForRefresh(ctx context.Context, id string) (r
 	if err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, id); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('oauth_credential:' || $1))`, id); err != nil {
 		tx.Rollback(ctx)
 		return nil, err
 	}

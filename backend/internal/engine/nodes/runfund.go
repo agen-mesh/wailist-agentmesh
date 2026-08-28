@@ -195,6 +195,12 @@ const settleCallBudget = 60 * time.Second
 // not be tighter than that.
 const verifyCallBudget = 20 * time.Second
 
+// signCallBudget covers the signing step of a self-settle attempt, which --
+// unlike Verify/Settle above -- makes a real algod SuggestedParams network
+// round trip (wallet.SignUSDCPaymentGroup/Single) with no timeout of its
+// own from the algod client. So this is a real bound, not just a backstop.
+const signCallBudget = 20 * time.Second
+
 // SelfSettleRetryBudget is a sane ceiling a caller MAY wrap around
 // SettlePlatformFee/FundRunReserve with (context.WithTimeout(ctx,
 // SelfSettleRetryBudget) -- deliberately NOT context.WithoutCancel: unlike
@@ -205,15 +211,15 @@ const verifyCallBudget = 20 * time.Second
 // protect the one part that needs it. This exists purely as a backstop
 // against an unbounded hang if the caller's own ctx has no deadline of
 // its own: selfSettleMaxAttempts attempts, each budgeted for a full
-// sign+verify+settle cycle -- verifyCallBudget for Verify plus
-// settleCallBudget for Settle, signing itself being local and negligible.
-// Derived from the two per-call budgets above, not re-hardcoded, so this
-// stays correct if either one changes; a version of this that only
-// accounted for settleCallBudget (i.e. omitted verifyCallBudget) could let
-// two attempts' worth of Verify calls alone eat enough of the ceiling that
-// a legitimate third retry gets cut short by ctx.Err() -- the exact
-// reliability gap this whole retry mechanism exists to close.
-const SelfSettleRetryBudget = selfSettleMaxAttempts * (verifyCallBudget + settleCallBudget)
+// sign+verify+settle cycle -- signCallBudget for signing, verifyCallBudget
+// for Verify, and settleCallBudget for Settle.
+// Derived from the three per-call budgets above, not re-hardcoded, so this
+// stays correct if any one of them changes; a version of this that omitted
+// any one of them could let that many attempts' worth of calls alone eat
+// enough of the ceiling that a legitimate later retry gets cut short by
+// ctx.Err() -- the exact reliability gap this whole retry mechanism exists
+// to close.
+const SelfSettleRetryBudget = selfSettleMaxAttempts * (signCallBudget + verifyCallBudget + settleCallBudget)
 
 func attemptSelfSettle(ctx context.Context, cfg RunPreFundConfig, publicPath, description, errPrefix string, amountUSDMicros int64) (string, error) {
 	resourceURL := cfg.FrontendURL + publicPath
