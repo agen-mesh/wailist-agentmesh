@@ -144,10 +144,10 @@ func executeGmail(ctx context.Context, node models.WorkflowNode, rc RunContexter
 	switch node.Template {
 	case "gmail_list":
 		q := url.Values{}
-		if query := configVal(node, "gmailQuery", ""); query != "" {
+		if query := resolveTemplate(configVal(node, "gmailQuery", ""), rc); query != "" {
 			q.Set("q", query)
 		}
-		if max := configVal(node, "gmailMaxResults", ""); max != "" {
+		if max := resolveTemplate(configVal(node, "gmailMaxResults", ""), rc); max != "" {
 			q.Set("maxResults", max)
 		}
 		target := gmailAPIBase + "/users/me/messages"
@@ -157,7 +157,7 @@ func executeGmail(ctx context.Context, node models.WorkflowNode, rc RunContexter
 		return googleGET(ctx, target, token, "Gmail")
 
 	case "gmail_get":
-		id := configVal(node, "gmailMessageID", "")
+		id := resolveTemplate(configVal(node, "gmailMessageID", ""), rc)
 		if id == "" {
 			return "gmail_skipped_no_message_id", ErrActionSkipped
 		}
@@ -169,18 +169,22 @@ func executeGmail(ctx context.Context, node models.WorkflowNode, rc RunContexter
 		return decodeGmailMessage(raw), nil
 
 	case "gmail_send", "gmail_reply":
-		to := configVal(node, "gmailTo", "")
+		// resolveTemplate, not plain configVal: the Inspector's own hint text
+		// for gmailThreadID below suggests "{{ result.threadId }}", so these
+		// fields have to actually go through the resolver or that documented
+		// usage silently sends the literal placeholder text to Gmail instead.
+		to := resolveTemplate(configVal(node, "gmailTo", ""), rc)
 		if to == "" {
 			return "gmail_skipped_no_recipient", ErrActionSkipped
 		}
-		subject := configVal(node, "gmailSubject", "AgentMesh workflow result")
+		subject := resolveTemplate(configVal(node, "gmailSubject", "AgentMesh workflow result"), rc)
 		if node.Template == "gmail_reply" && !strings.HasPrefix(strings.ToLower(subject), "re:") {
 			subject = "Re: " + subject
 		}
 		body := resolveMessage(node, rc)
 		payload := map[string]any{"raw": buildRFC2822Message(to, subject, body)}
 		if node.Template == "gmail_reply" {
-			if threadID := configVal(node, "gmailThreadID", ""); threadID != "" {
+			if threadID := resolveTemplate(configVal(node, "gmailThreadID", ""), rc); threadID != "" {
 				payload["threadId"] = threadID
 			}
 		}
@@ -199,11 +203,30 @@ func executeGmail(ctx context.Context, node models.WorkflowNode, rc RunContexter
 // for non-ASCII, no HTML/multipart body, no attachments -- matches what
 // n8n's own basic "Send" operation covers, not a full mail client.
 func buildRFC2822Message(to, subject, body string) string {
+	// to/subject are now resolveTemplate'd (an upstream node's output can
+	// land here via {{ node.<id> }} / {{ result }}), so a stray \r or \n in
+	// either would otherwise let that upstream value splice extra header
+	// lines into the raw message -- e.g. an LLM reply containing a literal
+	// newline followed by "Bcc: ..." would silently blind-copy an address
+	// the workflow author never configured. Strip embedded CR/LF from both
+	// before they ever reach the header block; body is unaffected; it's
+	// already correctly separated by the blank line above.
+	to = stripCRLF(to)
+	subject = stripCRLF(subject)
 	msg := "To: " + to + "\r\n" +
 		"Subject: " + subject + "\r\n" +
 		"Content-Type: text/plain; charset=\"UTF-8\"\r\n\r\n" +
 		body
 	return base64.RawURLEncoding.EncodeToString([]byte(msg))
+}
+
+// stripCRLF removes carriage returns and line feeds from a value destined
+// for a raw email header line, where an embedded newline would otherwise be
+// interpreted as the start of a new (attacker- or upstream-controlled)
+// header.
+func stripCRLF(s string) string {
+	s = strings.ReplaceAll(s, "\r", "")
+	return strings.ReplaceAll(s, "\n", "")
 }
 
 // decodeGmailMessage flattens Gmail's real response shape (id/threadId/
@@ -290,11 +313,11 @@ func executeSheets(ctx context.Context, node models.WorkflowNode, rc RunContexte
 	if err != nil {
 		return nil, err
 	}
-	spreadsheetID := configVal(node, "sheetsSpreadsheetID", "")
+	spreadsheetID := resolveTemplate(configVal(node, "sheetsSpreadsheetID", ""), rc)
 	if spreadsheetID == "" {
 		return "sheets_skipped_no_spreadsheet_id", ErrActionSkipped
 	}
-	rangeA1 := configVal(node, "sheetsRange", "A1:Z1000")
+	rangeA1 := resolveTemplate(configVal(node, "sheetsRange", "A1:Z1000"), rc)
 
 	switch node.Template {
 	case "sheets_read":
@@ -339,7 +362,7 @@ func executeCalendar(ctx context.Context, node models.WorkflowNode, rc RunContex
 	if err != nil {
 		return nil, err
 	}
-	calendarID := configVal(node, "calendarID", "primary")
+	calendarID := resolveTemplate(configVal(node, "calendarID", "primary"), rc)
 
 	switch node.Template {
 	case "calendar_list":
@@ -347,12 +370,12 @@ func executeCalendar(ctx context.Context, node models.WorkflowNode, rc RunContex
 		return googleGET(ctx, target, token, "Google Calendar")
 
 	case "calendar_create":
-		summary := configVal(node, "calendarSummary", "")
+		summary := resolveTemplate(configVal(node, "calendarSummary", ""), rc)
 		if summary == "" {
 			summary = resolveMessage(node, rc)
 		}
-		startISO := configVal(node, "calendarStart", "")
-		endISO := configVal(node, "calendarEnd", "")
+		startISO := resolveTemplate(configVal(node, "calendarStart", ""), rc)
+		endISO := resolveTemplate(configVal(node, "calendarEnd", ""), rc)
 		if startISO == "" || endISO == "" {
 			return "calendar_skipped_missing_times", ErrActionSkipped
 		}
@@ -388,7 +411,7 @@ func executeDrive(ctx context.Context, node models.WorkflowNode, rc RunContexter
 	switch node.Template {
 	case "drive_list":
 		q := url.Values{}
-		if query := configVal(node, "driveQuery", ""); query != "" {
+		if query := resolveTemplate(configVal(node, "driveQuery", ""), rc); query != "" {
 			q.Set("q", query)
 		}
 		target := driveAPIBase
@@ -398,14 +421,14 @@ func executeDrive(ctx context.Context, node models.WorkflowNode, rc RunContexter
 		return googleGET(ctx, target, token, "Google Drive")
 
 	case "drive_get":
-		id := configVal(node, "driveFileID", "")
+		id := resolveTemplate(configVal(node, "driveFileID", ""), rc)
 		if id == "" {
 			return "drive_skipped_no_file_id", ErrActionSkipped
 		}
 		return googleGET(ctx, driveAPIBase+"/"+url.PathEscape(id), token, "Google Drive")
 
 	case "drive_download":
-		id := configVal(node, "driveFileID", "")
+		id := resolveTemplate(configVal(node, "driveFileID", ""), rc)
 		if id == "" {
 			return "drive_skipped_no_file_id", ErrActionSkipped
 		}

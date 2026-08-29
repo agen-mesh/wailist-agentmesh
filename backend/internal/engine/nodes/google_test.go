@@ -266,6 +266,92 @@ func TestGmailSend_BuildsCorrectRawRFC2822MessageAndSkipsWithoutRecipient(t *tes
 	}
 }
 
+// TestGmailSend_ResolvesTemplateRefsInToSubjectAndThreadID guards against the
+// same class of bug found and fixed for Twilio/Pipedrive/Shopify/Zendesk
+// elsewhere in this PR: gmailTo/gmailSubject/gmailThreadID were read via
+// plain configVal with no resolveTemplate call, so a workflow following the
+// Inspector's own hint text for gmailThreadID ("e.g. {{ result.threadId }}")
+// would have gotten the literal placeholder string sent to Gmail instead of
+// the referenced value.
+func TestGmailSend_ResolvesTemplateRefsInToSubjectAndThreadID(t *testing.T) {
+	var gotRaw string
+	var gotThreadID any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		gotRaw, _ = body["raw"].(string)
+		gotThreadID = body["threadId"]
+		w.Write([]byte(`{"id":"sent3"}`))
+	}))
+	defer srv.Close()
+	nodes.SetGoogleAPIBasesForTest(srv.URL, "", "x", "x")
+	defer nodes.SetGoogleAPIBasesForTest("", "", "", "")
+
+	cfg, config := googleTestSetup(t, "u1")
+	config["gmailTo"] = "{{ node.lookup.email }}"
+	config["gmailSubject"] = "{{ node.lookup.subject }}"
+	config["gmailThreadID"] = "{{ node.trigger.threadId }}"
+	node := models.WorkflowNode{ID: "g9", Type: models.NodeTypeGoogle, Template: "gmail_reply", Config: config}
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("trigger", map[string]any{"threadId": "resolved-thread-99"})
+	rc.Set("lookup", map[string]any{"email": "resolved@example.com", "subject": "Resolved Subject"})
+
+	if _, err := nodes.ExecuteGoogle(context.Background(), node, rc, cfg); err != nil {
+		t.Fatal(err)
+	}
+	decoded, _ := base64.RawURLEncoding.DecodeString(gotRaw)
+	raw := string(decoded)
+	if !strings.Contains(raw, "To: resolved@example.com") {
+		t.Errorf("want gmailTo resolved, got %q", raw)
+	}
+	if !strings.Contains(raw, "Subject: Re: Resolved Subject") {
+		t.Errorf("want gmailSubject resolved (with Re: prefix), got %q", raw)
+	}
+	if gotThreadID != "resolved-thread-99" {
+		t.Errorf("want gmailThreadID resolved per the Inspector's own documented usage, got %v", gotThreadID)
+	}
+}
+
+// TestGmailSend_StripsCRLFFromToAndSubject guards the header-injection
+// surface that resolving gmailTo/gmailSubject through resolveTemplate opens
+// up: an upstream node's output can now land in a raw email header line, so
+// an embedded \r or \n must not be allowed to start a new (attacker- or
+// upstream-controlled) header.
+func TestGmailSend_StripsCRLFFromToAndSubject(t *testing.T) {
+	var gotRaw string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		gotRaw, _ = body["raw"].(string)
+		w.Write([]byte(`{"id":"sent4"}`))
+	}))
+	defer srv.Close()
+	nodes.SetGoogleAPIBasesForTest(srv.URL, "", "x", "x")
+	defer nodes.SetGoogleAPIBasesForTest("", "", "", "")
+
+	cfg, config := googleTestSetup(t, "u1")
+	config["gmailTo"] = "{{ node.lookup.email }}"
+	node := models.WorkflowNode{ID: "g10", Type: models.NodeTypeGoogle, Template: "gmail_send", Config: config}
+	rc := engine.NewRunContext("r1", []byte(`"body"`))
+	rc.Set("lookup", map[string]any{"email": "victim@example.com\r\nBcc: attacker@evil.com"})
+
+	if _, err := nodes.ExecuteGoogle(context.Background(), node, rc, cfg); err != nil {
+		t.Fatal(err)
+	}
+	decoded, _ := base64.RawURLEncoding.DecodeString(gotRaw)
+	raw := string(decoded)
+	// The security property is that "Bcc:" never starts its own header line
+	// (i.e. is never preceded by \r\n) -- not that the literal text "Bcc:"
+	// can't appear at all. With CR/LF stripped, the injected text collapses
+	// into harmless trailing garbage on the To: line instead of a real header.
+	if strings.Contains(raw, "\r\nBcc:") || strings.Contains(raw, "\nBcc:") {
+		t.Fatalf("want embedded CRLF stripped so \"Bcc:\" can't start a new header line, got %q", raw)
+	}
+	if !strings.Contains(raw, "To: victim@example.com") {
+		t.Errorf("want the recipient address preserved minus the injected CRLF, got %q", raw)
+	}
+}
+
 func TestGmailReply_PrefixesSubjectAndSetsThreadID(t *testing.T) {
 	var gotRaw string
 	var gotThreadID any
