@@ -302,7 +302,6 @@ func validateURL(raw string) error {
 	return nil
 }
 
-
 // evalMath evaluates a simple arithmetic expression using the go/constant package.
 // Expression length is capped and evaluation runs with panic recovery.
 func evalMath(expr string) (result string, err error) {

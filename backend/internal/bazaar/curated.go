@@ -98,13 +98,13 @@ func Merge(catalog []Resource) []Resource {
 	// twice in the pinned section.
 	emitted := make(map[string]bool, len(curated))
 	// Tracks non-curated URLs already appended. Unlike the curated case
-	// above, a plain community entry has no Supported badge to de-duplicate
-	// against, so without this a re-registered non-curated provider (same
-	// real resourceUrl, new catalog id) would render as two indistinguishable
-	// duplicate cards in the community grid rather than one row with a
-	// double-flagged badge. catalog is sorted by settle count descending
-	// (FetchAll), so keeping only the first occurrence keeps whichever
-	// registration is the most established.
+	// above, a plain community entry has no Supported badge at all, so
+	// without this a re-registered non-curated provider (same real
+	// resourceUrl, new catalog id) would render as two indistinguishable
+	// duplicate cards in the community grid instead of being collapsed to
+	// one. catalog is sorted by settle count descending (FetchAll), so
+	// keeping only the first occurrence keeps whichever registration is the
+	// most established.
 	seenUnsupportedURL := make(map[string]bool, len(catalog))
 	for _, r := range catalog {
 		key := normalizeURLForMatch(r.URL)
