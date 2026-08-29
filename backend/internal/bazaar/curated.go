@@ -17,6 +17,31 @@ import (
 //
 // Params here are hand-authored, not scraped: the whole point of the supported
 // tier is that a user fills labelled fields instead of hand-writing JSON.
+//
+// Prism (https://prism-99h2.onrender.com/resume-screen-accurate) is the one
+// launch provider named above that still has no entry here, and that's
+// deliberate on two independent grounds, not an oversight:
+//
+//  1. Unlike Tendril, we have no verified static payTo/amount for Prism to
+//     hand-author — engine/nodes/tool402.go discovers its challenge live, per
+//     call, from the Payment-Required header rather than a fixed quote.
+//     Guessing one would risk routing a real payment to the wrong address,
+//     exactly the hazard frontend/src/lib/bazaar.ts's MOCK_RESOURCES comment
+//     already refuses to take for the same provider.
+//  2. Prism's real body isn't expressible as labelled params anyway: it needs
+//     a nested files array (base64 file content alongside a text field) built
+//     via BodyMode-JSON + a body template (see
+//     TestBuildTargetRequestJSONBodyModeProducesPrismShape), while Resource's
+//     Param and the frontend's discoveredParams pipeline only ever render a
+//     flat list of plain-text inputs — there is no file-upload kind in either.
+//     A curated entry today, even with a trustworthy payTo, would let a user
+//     add "Prism" from the Bazaar expecting it to work and get a silently
+//     broken request (or the $0.25 charge-then-"No files provided" failure
+//     TestBuildTargetRequestJSONBodyModeProducesPrismShape exists to prevent).
+//
+// Making Prism a real Bazaar entry needs Param/discoveredParams to support a
+// file kind and a body-template shape first — a model change, not a one-line
+// registry addition.
 func Curated() []Resource {
 	return []Resource{
 		{
