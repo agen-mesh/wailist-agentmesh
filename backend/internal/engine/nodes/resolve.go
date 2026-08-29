@@ -3,6 +3,7 @@ package nodes
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -173,27 +174,64 @@ func resolveTemplateJSON(s string, rc RunContexter) string {
 func walkPath(v any, path string) (any, error) {
 	cur := v
 	for _, key := range strings.Split(path, ".") {
-		switch node := cur.(type) {
-		case map[string]any:
-			next, ok := node[key]
-			if !ok {
-				return nil, fmt.Errorf("no value at path %q (missing key %q)", path, key)
-			}
-			cur = next
-		case []any:
-			i, err := strconv.Atoi(key)
-			if err != nil {
-				return nil, fmt.Errorf("path %q indexes an array with non-numeric segment %q", path, key)
-			}
-			if i < 0 || i >= len(node) {
-				return nil, fmt.Errorf("index %d out of range at path %q (length %d)", i, path, len(node))
-			}
-			cur = node[i]
-		default:
-			return nil, fmt.Errorf("path %q descends past a scalar at %q", path, key)
+		next, err := walkOneSegment(cur, path, key)
+		if err != nil {
+			return nil, err
 		}
+		cur = next
 	}
 	return cur, nil
+}
+
+// walkOneSegment descends exactly one segment of a dotted path into cur.
+//
+// The map[string]any fast path covers everything that came from
+// json.Unmarshal (the common case). Everything else goes through reflect
+// rather than a type switch, because a Go type switch matches EXACT types,
+// not structurally, and connectors hand back concrete Go types rather than
+// the generic shapes json.Unmarshal produces: fetchRSS/fetchHackerNews
+// (connectors_feed.go) both return
+// map[string]any{"items": []map[string]any{...}}, so a `case []any` never
+// matches their "items" and the path would fail as if it hit a scalar.
+//
+// Reflection rather than enumerating the concrete types connectors happen
+// to use today: a future connector returning []map[string]string, []string,
+// or a named slice type works with no further change here, and neither
+// caller (executeJSONExtract's jsonPath or resolveTemplate's
+// {{ result.a.b }} refs) can silently diverge from the other on what it
+// accepts.
+func walkOneSegment(cur any, path, key string) (any, error) {
+	if m, ok := cur.(map[string]any); ok {
+		next, ok := m[key]
+		if !ok {
+			return nil, fmt.Errorf("no value at path %q (missing key %q)", path, key)
+		}
+		return next, nil
+	}
+
+	rv := reflect.ValueOf(cur)
+	switch rv.Kind() {
+	case reflect.Map:
+		// Only string-keyed maps are addressable by a dotted path segment.
+		if rv.Type().Key().Kind() != reflect.String {
+			return nil, fmt.Errorf("path %q descends past a scalar at %q", path, key)
+		}
+		val := rv.MapIndex(reflect.ValueOf(key).Convert(rv.Type().Key()))
+		if !val.IsValid() {
+			return nil, fmt.Errorf("no value at path %q (missing key %q)", path, key)
+		}
+		return val.Interface(), nil
+	case reflect.Slice, reflect.Array:
+		i, err := strconv.Atoi(key)
+		if err != nil {
+			return nil, fmt.Errorf("path %q indexes an array with non-numeric segment %q", path, key)
+		}
+		if i < 0 || i >= rv.Len() {
+			return nil, fmt.Errorf("index %d out of range at path %q (length %d)", i, path, rv.Len())
+		}
+		return rv.Index(i).Interface(), nil
+	}
+	return nil, fmt.Errorf("path %q descends past a scalar at %q", path, key)
 }
 
 // stringifyRef renders a resolved value for interpolation into text. Strings

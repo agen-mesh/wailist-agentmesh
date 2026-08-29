@@ -45,6 +45,36 @@ func TestResolveTemplate(t *testing.T) {
 	}
 }
 
+// TestResolveTemplateWalksConcreteSliceTypesFromConnectors is the
+// template-resolver half of the same guard
+// compute_test.go's TestJSONExtractWalksConcreteSliceTypesFromConnectors
+// covers for json_extract: both go through walkPath, and a connector's
+// concrete []map[string]any (what fetchRSS/fetchHackerNews actually
+// return) is not matched by a `case []any` type switch. Here the failure
+// was quieter than json_extract's -- lookupRef blanks a "result." miss
+// rather than erroring, so an RSS-fed {{ result.items.0.title }} silently
+// rendered as an empty Slack message / email body / SMS with no trace.
+func TestResolveTemplateWalksConcreteSliceTypesFromConnectors(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	// Exactly the shape fetchRSS/fetchHackerNews return.
+	rc.Set("feed", map[string]any{
+		"count": 1,
+		"items": []map[string]any{{"title": "headline", "link": "https://example.test"}},
+	})
+
+	cases := []struct{ name, in, want string }{
+		{"node ref into concrete slice", "t: {{ node.feed.items.0.title }}", "t: headline"},
+		{"result ref into concrete slice", "t: {{ result.items.0.title }}", "t: headline"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := nodes.ResolveTemplateForTest(tc.in, rc); got != tc.want {
+				t.Errorf("want %q, got %q", tc.want, got)
+			}
+		})
+	}
+}
+
 // The email body's {{ result }} contract predates this resolver and must keep
 // working exactly as before.
 func TestEmailBodyStillResolvesResult(t *testing.T) {
