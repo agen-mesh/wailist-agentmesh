@@ -10,10 +10,11 @@ import (
 // frozenX402Files pins the byte content of the x402 / Tendril payment path.
 //
 // The wallet topology these files implement is:
-//   Wallet 1 (PLATFORM_SPEND_WALLET) --USDC--> Wallet 2 (PLATFORM_WALLET)
-//       settled via the GoPlausible facilitator   [inbound leg]
-//   Wallet 2 --USDC--> the target endpoint's payTo [outbound leg]
-//   Wallet 1 --USDC--> Wallet 2, flat platform markup [markup leg]
+//
+//	Wallet 1 (PLATFORM_SPEND_WALLET) --USDC--> Wallet 2 (PLATFORM_WALLET)
+//	    settled via the GoPlausible facilitator   [inbound leg]
+//	Wallet 2 --USDC--> the target endpoint's payTo [outbound leg]
+//	Wallet 1 --USDC--> Wallet 2, flat platform markup [markup leg]
 //
 // Real mainnet USDC moves through this. A change here is never incidental.
 //
@@ -33,6 +34,7 @@ import (
 //     was a real prior cataloging bug on master, already fixed there).
 //   - tendril.go: emptyRunContext gained LastOutput() any, for the
 //     RunContexter interface's own determinism fix (see engine/context.go).
+//
 // Every one of these is a clean merge from master, not a local edit; the
 // payment amounts/addresses/signing logic (the thing this test actually
 // guards) is unchanged. Digests below reflect the merged state.
@@ -46,6 +48,7 @@ import (
 //     existing SettlePlatformFee/FundRunReserve self-settle pattern for a
 //     new "whole run's non-tool402 billable total" lump-sum settlement) and
 //     its accompanying X402RunTotalInfo resource-info handler.
+//
 // Both are additive: new billable-template case, new settlement function,
 // new info handler. No existing amount/address/signing logic changed.
 // Digests below reflect the merged state.
