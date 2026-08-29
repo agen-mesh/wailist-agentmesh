@@ -196,16 +196,45 @@ const (
 	selfSettleRetryBackoffMax  = 5 * time.Second
 )
 
+// backoffCapForAttempt is the full-jitter ceiling for the gap before
+// attempt N (N>1): exponential from selfSettleRetryBackoffBase, clamped to
+// selfSettleRetryBackoffMax. The delay actually slept is a random value
+// strictly below this, so summing it across attempts gives a true worst
+// case (see worstCaseBackoffTotal).
+//
+// Split out of sleepWithBackoff so the retry budget below, and the tests
+// asserting on real elapsed time, derive from this one schedule rather
+// than each re-deriving (or hand-mirroring) it and drifting apart.
+func backoffCapForAttempt(attempt int) time.Duration {
+	c := selfSettleRetryBackoffBase * time.Duration(uint64(1)<<uint(attempt-2))
+	if c > selfSettleRetryBackoffMax || c <= 0 {
+		c = selfSettleRetryBackoffMax
+	}
+	return c
+}
+
+// worstCaseBackoffTotal is the most time a full retry sequence can spend
+// sleeping between attempts -- the sum of every gap's cap.
+//
+// Deliberately the real per-attempt schedule rather than
+// (selfSettleMaxAttempts-1) * selfSettleRetryBackoffMax: at
+// selfSettleMaxAttempts=3 the two gaps cap at 500ms and 1s and never reach
+// the 5s max at all, so the flat-max version over-provisioned the budget
+// below by ~8.5s of time no run can actually spend.
+func worstCaseBackoffTotal() time.Duration {
+	var total time.Duration
+	for attempt := 2; attempt <= selfSettleMaxAttempts; attempt++ {
+		total += backoffCapForAttempt(attempt)
+	}
+	return total
+}
+
 // sleepWithBackoff waits before retry attempt N (N>1), honoring ctx
 // cancellation -- this gap is one of the safe-to-interrupt windows
 // selfSettleWallet1ToWallet2's doc comment describes, so a StopWorkflow
 // landing here returns promptly instead of waiting out the full delay.
 func sleepWithBackoff(ctx context.Context, attempt int) error {
-	backoffCap := selfSettleRetryBackoffBase * time.Duration(uint64(1)<<uint(attempt-2))
-	if backoffCap > selfSettleRetryBackoffMax || backoffCap <= 0 {
-		backoffCap = selfSettleRetryBackoffMax
-	}
-	delay := time.Duration(rand.Int63n(int64(backoffCap)))
+	delay := time.Duration(rand.Int63n(int64(backoffCapForAttempt(attempt))))
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {
@@ -264,12 +293,18 @@ var signCallBudget = defaultSignCallBudget
 // wiring indirectly (a fast transport-level error, or waiting out the real
 // 20s/60s budgets, which no existing test does either). Safety of mutating
 // these package-level vars with no lock rests entirely on Go's default
-// sequential (non-t.Parallel) test execution within this package -- same
-// assumption every other SetXForTest override in this package/file already
-// makes (e.g. connectors_db.go's SetPostgresConnectTimeoutForTest). Not
-// reachable from any production code path; if a future test in this
-// package ever adds t.Parallel(), this function must not be called
-// concurrently with anything reading these vars.
+// sequential (non-t.Parallel) test execution within this package -- the
+// same assumption every other SetXForTest override here already makes
+// (e.g. action.go's SetResendAPIBaseForTest, connectors_data.go's
+// SetHubSpotAPIBaseForTest). Not reachable from any production code path;
+// if a future test in this package ever adds t.Parallel(), this function
+// must not be called concurrently with anything reading these vars.
+//
+// Note this shrinks only the three per-call budgets, NOT the
+// inter-attempt backoff -- so under a small override SelfSettleRetryBudget
+// is dominated by worstCaseBackoffTotal() rather than by d, and is not
+// proportional to d. Tests asserting on real elapsed time should derive
+// their bound from both terms (see runfund_export_test.go).
 func SetSelfSettleCallBudgetsForTest(d time.Duration) {
 	if d <= 0 {
 		signCallBudget = defaultSignCallBudget
@@ -312,7 +347,7 @@ func SetSelfSettleCallBudgetsForTest(d time.Duration) {
 var SelfSettleRetryBudget = computeSelfSettleRetryBudget()
 
 func computeSelfSettleRetryBudget() time.Duration {
-	return selfSettleMaxAttempts*(signCallBudget+verifyCallBudget+settleCallBudget) + (selfSettleMaxAttempts-1)*selfSettleRetryBackoffMax
+	return selfSettleMaxAttempts*(signCallBudget+verifyCallBudget+settleCallBudget) + worstCaseBackoffTotal()
 }
 
 func attemptSelfSettle(ctx context.Context, cfg RunPreFundConfig, publicPath, description, errPrefix string, amountUSDMicros int64) (string, error) {

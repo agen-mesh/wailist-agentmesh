@@ -450,17 +450,7 @@ func TestFundRunReserveHonorsCancellationDuringVerify(t *testing.T) {
 // SetSelfSettleCallBudgetsForTest to shrink the budget rather than waiting
 // out the real 20s, so this stays a fast, deterministic unit test.
 func TestFundRunReserveSignBudgetBoundsAHungSign(t *testing.T) {
-	// Mirrors selfSettleMaxAttempts/selfSettleRetryBackoffMax from
-	// runfund.go: both unexported, so this external test package can't
-	// reference them directly. Kept as named values (not inlined into the
-	// bound below) so the coupling this test's timing assertion has to
-	// those two constants stays visible instead of looking like an
-	// arbitrary literal.
-	const (
-		shrunkBudget          = 50 * time.Millisecond
-		mirroredMaxAttempts   = 3
-		mirroredBackoffMaxCap = 5 * time.Second
-	)
+	const shrunkBudget = 50 * time.Millisecond
 	nodes.SetSelfSettleCallBudgetsForTest(shrunkBudget)
 	defer nodes.SetSelfSettleCallBudgetsForTest(0)
 
@@ -489,18 +479,30 @@ func TestFundRunReserveSignBudgetBoundsAHungSign(t *testing.T) {
 	if err == nil {
 		t.Fatal("want an error once every retry attempt's Sign call times out")
 	}
-	// mirroredMaxAttempts attempts at shrunkBudget each, plus
-	// (mirroredMaxAttempts-1) worst-case backoff gaps between them, plus a
-	// fixed scheduling-slack margin -- derived from the constants this
-	// bound actually depends on rather than an unlabeled literal, so a
-	// future change to selfSettleMaxAttempts/selfSettleRetryBackoffMax
-	// doesn't silently make this too tight (flaky) or too loose (stops
-	// proving the shrunk budget, not the real 20s default, is what fired).
-	upperBound := mirroredMaxAttempts*shrunkBudget + (mirroredMaxAttempts-1)*mirroredBackoffMaxCap + 500*time.Millisecond
+	// Every attempt's Sign call bounded by the shrunk budget, plus the real
+	// worst-case inter-attempt backoff, plus a fixed scheduling-slack
+	// margin. Both terms come from the production values themselves (see
+	// runfund_export_test.go) rather than hand-copied literals, so a change
+	// to selfSettleMaxAttempts or the backoff schedule can't silently make
+	// this too tight (flaky) or too loose. Loose-ness matters here
+	// specifically: the bound has to stay well under the real 20s
+	// signCallBudget default, or the test would still pass if the shrink
+	// were ignored entirely -- which is the whole thing it exists to prove.
+	upperBound := nodes.SelfSettleMaxAttemptsForTest*shrunkBudget +
+		nodes.WorstCaseBackoffTotalForTest() + 500*time.Millisecond
 	if elapsed > upperBound {
 		t.Fatalf("want Sign bounded by the (shrunk) signCallBudget on every attempt, took %v (want <= %v)", elapsed, upperBound)
 	}
+	if upperBound >= defaultSignCallBudgetForAssert {
+		t.Fatalf("bound %v is too loose to prove the shrunk budget fired (real default is %v)", upperBound, defaultSignCallBudgetForAssert)
+	}
 }
+
+// defaultSignCallBudgetForAssert mirrors runfund.go's real
+// defaultSignCallBudget. Only used to assert the test's own bound stays
+// meaningfully tighter than the production default -- if these ever
+// diverge the assertion just gets stricter, never wrongly passes.
+const defaultSignCallBudgetForAssert = 20 * time.Second
 
 // hangingUSDCSigner never returns from SignUSDCPaymentGroup until its ctx
 // is done or the test closes unblock -- used to prove signCallBudget
