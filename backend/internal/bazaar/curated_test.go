@@ -82,32 +82,41 @@ func TestMergeDoesNotDuplicateWhenTwoCatalogEntriesShareOneCuratedURL(t *testing
 	// curated URL and both got appended as separate Supported=true rows --
 	// the real endpoint rendered twice in the pinned section.
 	//
-	// Both catalog entries must still appear in the merged result (each
-	// keeps its own id/SettleCount/LastSeen -- a re-registered provider
-	// under a new catalog id is real data, not a duplicate to drop), but
-	// only the first one is flagged Supported.
+	// Exactly one row survives. An earlier fix kept the second entry as an
+	// unsupported row on the grounds that a re-registration is real data,
+	// but that was worse, not better: BazaarPage fetches the pinned
+	// section with supported=1 and the grid with supported=0, so the same
+	// endpoint appeared in BOTH -- pinned with the curated description and
+	// again in the grid with the publisher's own. catalog is sorted by
+	// settle count descending, so the surviving row is the most
+	// established registration.
 	curatedURL := Curated()[0].URL
 	catalog := []Resource{
-		{ID: "cat1", URL: curatedURL, Method: "GET", SettleCount: 3},
-		{ID: "cat2-reregistered", URL: curatedURL, Method: "GET", SettleCount: 5},
+		{ID: "cat1", URL: curatedURL, Method: "GET", SettleCount: 5},
+		{ID: "cat2-reregistered", URL: curatedURL, Method: "GET", SettleCount: 3},
 	}
 	got := Merge(catalog)
 
 	total, supportedCount := 0, 0
+	var kept Resource
 	for _, r := range got {
 		if r.URL != curatedURL {
 			continue
 		}
 		total++
+		kept = r
 		if r.Supported {
 			supportedCount++
 		}
 	}
-	if total != len(catalog) {
-		t.Errorf("want both catalog entries preserved, got %d rows for the shared URL", total)
+	if total != 1 {
+		t.Errorf("want exactly 1 row for the shared curated URL, got %d", total)
 	}
 	if supportedCount != 1 {
-		t.Errorf("want exactly 1 row flagged Supported for the shared URL, got %d", supportedCount)
+		t.Errorf("want the surviving row flagged Supported, got %d supported of %d", supportedCount, total)
+	}
+	if kept.ID != "cat1" {
+		t.Errorf("want the higher-settle-count registration kept, got id %q", kept.ID)
 	}
 }
 

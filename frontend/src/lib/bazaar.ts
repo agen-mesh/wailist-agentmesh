@@ -42,6 +42,16 @@ export interface BazaarPage {
 // lib/api.ts falls back to fixture data in that mode; this was the one page
 // that always hit a relative, hostless URL and rendered the "could not load
 // the catalog" error state instead.
+//
+// The two curated entries mirror backend/internal/bazaar.Curated() exactly
+// (same ids, URLs, methods, payTo). Deliberately not invented: a demo user
+// can copy an endpoint out of this page, and a fabricated URL or payment
+// address is the same hazard as fabricating a curated entry's payment
+// params server-side -- which is why Prism is absent from Curated() rather
+// than guessed at. Where the real entry has no payTo, this carries "" for
+// the same reason. Only settleCount is synthetic (the real value is live
+// telemetry with no static counterpart), and the third entry is explicitly
+// labelled as a non-real example on an example.com host.
 const MOCK_RESOURCES: BazaarResource[] = [
   {
     id: "curated:tendril-run",
@@ -69,26 +79,20 @@ const MOCK_RESOURCES: BazaarResource[] = [
     provider: "Tendril",
   },
   {
-    id: "curated:canix402-quote",
-    url: "https://api.canix402.com/v1/quote",
-    method: "GET",
-    description: "Real-time crypto price quotes across major exchanges.",
+    id: "curated:canix-quotes",
+    url: "https://canix402-api.compx.io/execution/quotes",
+    method: "POST",
+    description: "Algorand DeFi execution quotes across supported protocols.",
     merchantId: "",
     network: "algorand-mainnet",
     testnet: false,
     amountMicros: 5000,
     asset: "31566704",
-    payTo: "CANIX402PLACEHOLDERADDRESSXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-    params: [
-      {
-        name: "symbol",
-        type: "string",
-        required: true,
-        description: "Trading pair, e.g. BTC-USD.",
-      },
-    ],
+    // The real Curated() entry declares no payTo; don't invent one.
+    payTo: "",
+    params: [],
     settleCount: 94,
-    host: "api.canix402.com",
+    host: "canix402-api.compx.io",
     supported: true,
     provider: "CANIX402",
   },
@@ -102,7 +106,10 @@ const MOCK_RESOURCES: BazaarResource[] = [
     testnet: false,
     amountMicros: 1000,
     asset: "31566704",
-    payTo: "EXAMPLEPLACEHOLDERADDRESSXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    // Reserved example.com host, and no invented address: this row exists
+    // to give the community grid something to render in demo mode, not to
+    // be a payable endpoint.
+    payTo: "",
     params: [],
     settleCount: 12,
     host: "x402-weather.example.com",

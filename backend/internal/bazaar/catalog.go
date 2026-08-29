@@ -89,9 +89,9 @@ type rawResource struct {
 	} `json:"accepts"`
 	DiscoveryInfo struct {
 		Input struct {
-			Method      string            `json:"method"`
-			QueryParams map[string]any    `json:"queryParams"`
-			Body        map[string]any    `json:"body"`
+			Method      string         `json:"method"`
+			QueryParams map[string]any `json:"queryParams"`
+			Body        map[string]any `json:"body"`
 		} `json:"input"`
 		Output struct {
 			Example any `json:"example"`

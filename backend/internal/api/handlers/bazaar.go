@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -176,7 +177,15 @@ func (d *Deps) runCatalogFetch(done chan struct{}) {
 func (d *Deps) BazaarResources(w http.ResponseWriter, r *http.Request) {
 	all, err := d.catalog(r.Context())
 	if err != nil {
-		log.Printf("bazaar: catalog unavailable: %v", err)
+		// A caller that navigated away mid-request surfaces here as its own
+		// ctx.Err() (see catalog's <-ctx.Done() arm), which is a client
+		// disconnect, not an upstream catalog failure -- logging it as one
+		// misattributes the cause, and during a real outage the retry
+		// backoff returns the cached error fast enough that every single
+		// request would log a line rather than one per actual crawl.
+		if !errors.Is(err, context.Canceled) {
+			log.Printf("bazaar: catalog unavailable: %v", err)
+		}
 		respond.Error(w, http.StatusBadGateway, "could not reach the x402 catalog")
 		return
 	}

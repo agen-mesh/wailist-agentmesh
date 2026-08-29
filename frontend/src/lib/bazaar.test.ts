@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   bazaar,
   resourceToNode,
@@ -25,13 +25,22 @@ const base: BazaarResource = {
   supported: false,
 };
 
-// NEXT_PUBLIC_API_URL is unset in this test environment, so BASE (lib/api.ts)
-// is "" -- mock mode. Regression: bazaar.list() used to call fetch()
-// unconditionally with no BASE check, unlike every other resource in
-// lib/api.ts, so a mock/demo deploy (no backend configured) always hit a
-// relative, hostless URL and rendered the "could not load the catalog"
-// error state -- the one page in the app that couldn't run without a live
-// backend.
+// Regression: bazaar.list() used to call fetch() unconditionally with no
+// BASE check, unlike every other resource in lib/api.ts, so a mock/demo
+// deploy (no backend configured) always hit a relative, hostless URL and
+// rendered the "could not load the catalog" error state -- the one page in
+// the app that couldn't run without a live backend.
+//
+// BASE is mocked to "" rather than relying on NEXT_PUBLIC_API_URL happening
+// to be unset in the ambient environment: a developer with that var
+// exported in their shell (or CI setting build env vars process-wide) would
+// otherwise make BASE "/api" under jsdom and these tests would fail on an
+// unparseable URL -- or, outside jsdom, issue a real network request.
+vi.mock("./api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./api")>()),
+  BASE: "",
+}));
+
 describe("bazaar.list in mock mode", () => {
   it("resolves with fixture data instead of calling fetch", async () => {
     const page = await bazaar.list({ offset: 0, limit: 20 });

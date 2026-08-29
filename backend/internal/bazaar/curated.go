@@ -91,54 +91,48 @@ func Merge(catalog []Resource) []Resource {
 
 	out := make([]Resource, 0, len(catalog)+len(curated))
 	matched := make(map[string]bool, len(curated))
-	// Tracks curated URLs already emitted as a Supported=true row. If the
-	// upstream catalog lists two distinct entries under the same resourceUrl
-	// (re-registration under a new catalog id, for example), only the first
-	// becomes a Supported row — otherwise the same real endpoint renders
-	// twice in the pinned section.
-	emitted := make(map[string]bool, len(curated))
-	// Tracks non-curated URLs already appended. Unlike the curated case
-	// above, a plain community entry has no Supported badge at all, so
-	// without this a re-registered non-curated provider (same real
-	// resourceUrl, new catalog id) would render as two indistinguishable
-	// duplicate cards in the community grid instead of being collapsed to
-	// one. catalog is sorted by settle count descending (FetchAll), so
-	// keeping only the first occurrence keeps whichever registration is the
-	// most established.
-	seenUnsupportedURL := make(map[string]bool, len(catalog))
+	// One row per real endpoint URL, curated or not. The upstream catalog
+	// can list the same resourceUrl under two different ids (a
+	// re-registration), and emitting both puts the same endpoint on the
+	// page twice.
+	//
+	// Applied to curated matches too, not just community ones: there the
+	// duplicate is actually worse. Only the first row gets Supported=true,
+	// so the second is served under supported=0 -- and since BazaarPage
+	// fetches the pinned section with supported=1 and the grid with
+	// supported=0, one endpoint would appear in BOTH, pinned with the
+	// curated description and again in the grid with the publisher's own.
+	// That is precisely the "same card twice under contradictory copy"
+	// case this whole merge exists to prevent, so treating curated
+	// re-registrations as data worth keeping traded one duplicate for a
+	// strictly more confusing one.
+	//
+	// catalog is sorted by settle count descending (FetchAll), so keeping
+	// the first occurrence keeps the most established registration along
+	// with its own id/SettleCount/LastSeen.
+	seenURL := make(map[string]bool, len(catalog))
 	for _, r := range catalog {
 		key := normalizeURLForMatch(r.URL)
+		if seenURL[key] {
+			continue
+		}
+		seenURL[key] = true
 		if c, ok := byURL[key]; ok {
-			// !emitted[key], not a `continue` on emitted[key]: a second
-			// catalog entry under an already-emitted curated URL must still
-			// appear in out (with its own id/SettleCount/LastSeen, just not
-			// re-flagged Supported) -- curated re-registrations are real
-			// data, not a duplicate to drop.
-			if !emitted[key] {
-				emitted[key] = true
-				matched[key] = true
-				r.Supported = true
-				r.Provider = c.Provider
-				// A hand-authored description and param set are strictly
-				// better than the publisher's own, which is why the entry
-				// is curated.
-				if c.Description != "" {
-					r.Description = c.Description
-				}
-				if len(c.Params) > 0 {
-					r.Params = c.Params
-				}
-				if c.Method != "" {
-					r.Method = c.Method
-				}
+			matched[key] = true
+			r.Supported = true
+			r.Provider = c.Provider
+			// A hand-authored description and param set are strictly better
+			// than the publisher's own, which is why the entry is curated.
+			if c.Description != "" {
+				r.Description = c.Description
 			}
-			out = append(out, r)
-			continue
+			if len(c.Params) > 0 {
+				r.Params = c.Params
+			}
+			if c.Method != "" {
+				r.Method = c.Method
+			}
 		}
-		if seenUnsupportedURL[key] {
-			continue
-		}
-		seenUnsupportedURL[key] = true
 		out = append(out, r)
 	}
 	for _, c := range curated {

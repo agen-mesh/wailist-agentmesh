@@ -27,7 +27,8 @@ func IsPrivateIP(ip net.IP) bool {
 		"::1/128",        // loopback IPv6
 		"fc00::/7",       // unique local IPv6
 		"fe80::/10",      // link-local IPv6
-		"224.0.0.0/4",    // multicast
+		"224.0.0.0/4",    // multicast IPv4
+		"ff00::/8",       // multicast IPv6 (incl. link/interface-local)
 		"240.0.0.0/4",    // reserved
 		"0.0.0.0/8",      // this network
 	}
