@@ -15,3 +15,10 @@ const SelfSettleMaxAttemptsForTest = selfSettleMaxAttempts
 // schedule (not a flat max-per-gap approximation) -- see
 // worstCaseBackoffTotal.
 func WorstCaseBackoffTotalForTest() time.Duration { return worstCaseBackoffTotal() }
+
+// DefaultSignCallBudgetForTest is the real, un-overridden signCallBudget.
+// Exposed so a test asserting "my bound is tight enough to prove the
+// shrunk budget fired, not the production one" compares against the
+// actual production value rather than a hand-copied literal that would
+// stop being true if the default were ever lowered.
+const DefaultSignCallBudgetForTest = defaultSignCallBudget

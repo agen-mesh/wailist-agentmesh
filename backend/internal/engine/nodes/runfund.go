@@ -335,10 +335,19 @@ func SetSelfSettleCallBudgetsForTest(d time.Duration) {
 // any one of them could let that many attempts' worth of calls alone eat
 // enough of the ceiling that a legitimate later retry gets cut short by
 // ctx.Err() -- the exact reliability gap this whole retry mechanism exists
-// to close. Also adds the worst-case total inter-attempt backoff delay
-// (selfSettleMaxAttempts-1 gaps, each capped at selfSettleRetryBackoffMax)
-// for the same reason -- omitting it would let the backoff sleeps
-// themselves eat into the budget meant for actual sign/verify/settle work.
+// to close. Also adds worstCaseBackoffTotal() for the same reason --
+// omitting it would let the backoff sleeps themselves eat into the budget
+// meant for actual sign/verify/settle work. That term is the real
+// per-attempt schedule, not a flat (attempts-1) * backoffMax
+// approximation: see worstCaseBackoffTotal for why the flat version
+// over-provisioned.
+//
+// This is a ceiling on THIS call's own work and nothing else. A caller
+// that also does follow-up work under the same context (e.g. recording
+// the settlement in the DB) must not rely on leftover slack here --
+// there is none by construction, since the budget is sized to the worst
+// case. runner.go's compensating writes each take their own detached
+// context for exactly that reason.
 //
 // A var, computed once at package init and recomputed by
 // SetSelfSettleCallBudgetsForTest, rather than a const: it's derived from

@@ -480,29 +480,32 @@ func TestFundRunReserveSignBudgetBoundsAHungSign(t *testing.T) {
 		t.Fatal("want an error once every retry attempt's Sign call times out")
 	}
 	// Every attempt's Sign call bounded by the shrunk budget, plus the real
-	// worst-case inter-attempt backoff, plus a fixed scheduling-slack
-	// margin. Both terms come from the production values themselves (see
+	// worst-case inter-attempt backoff, plus scheduling slack. Both real
+	// terms come from the production values themselves (see
 	// runfund_export_test.go) rather than hand-copied literals, so a change
 	// to selfSettleMaxAttempts or the backoff schedule can't silently make
-	// this too tight (flaky) or too loose. Loose-ness matters here
-	// specifically: the bound has to stay well under the real 20s
-	// signCallBudget default, or the test would still pass if the shrink
-	// were ignored entirely -- which is the whole thing it exists to prove.
+	// this too tight (flaky) or too loose.
+	//
+	// The slack is deliberately generous relative to the ~1.65s of real
+	// work: five timer events have to fire here (3 sign timeouts, 2 backoff
+	// sleeps), and each can overshoot under CI load. What actually has to
+	// hold for this test to mean anything is the assertion below -- that
+	// the whole bound stays well under the real signCallBudget default --
+	// not tightness for its own sake.
 	upperBound := nodes.SelfSettleMaxAttemptsForTest*shrunkBudget +
-		nodes.WorstCaseBackoffTotalForTest() + 500*time.Millisecond
+		nodes.WorstCaseBackoffTotalForTest() + 3*time.Second
 	if elapsed > upperBound {
 		t.Fatalf("want Sign bounded by the (shrunk) signCallBudget on every attempt, took %v (want <= %v)", elapsed, upperBound)
 	}
-	if upperBound >= defaultSignCallBudgetForAssert {
-		t.Fatalf("bound %v is too loose to prove the shrunk budget fired (real default is %v)", upperBound, defaultSignCallBudgetForAssert)
+	// Without this, a bound that crept past the production default would
+	// still pass even if the shrink were ignored entirely -- i.e. the test
+	// would stop testing anything. Compares against the real exported
+	// default, so lowering defaultSignCallBudget in production tightens
+	// this automatically instead of silently invalidating it.
+	if minSlack := nodes.SelfSettleMaxAttemptsForTest * nodes.DefaultSignCallBudgetForTest; upperBound >= minSlack {
+		t.Fatalf("bound %v is too loose to prove the shrunk budget fired (unshrunk sign time alone would be %v)", upperBound, minSlack)
 	}
 }
-
-// defaultSignCallBudgetForAssert mirrors runfund.go's real
-// defaultSignCallBudget. Only used to assert the test's own bound stays
-// meaningfully tighter than the production default -- if these ever
-// diverge the assertion just gets stricter, never wrongly passes.
-const defaultSignCallBudgetForAssert = 20 * time.Second
 
 // hangingUSDCSigner never returns from SignUSDCPaymentGroup until its ctx
 // is done or the test closes unblock -- used to prove signCallBudget

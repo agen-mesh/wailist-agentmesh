@@ -369,7 +369,18 @@ func (r *Runner) settleRunTotal(ctx context.Context, wf models.Workflow, run mod
 		criticalAlert(wf, run, "run total settlement failed (run already finished, DB billing already correct -- this is a missing on-chain receipt only)", err, "amount", amount)
 		return
 	}
-	if _, err := r.store.RecordRunFunding(ctx, run.ID, txID, amount); err != nil {
+	// Detached with its own budget, like every other compensating write in
+	// this file. The settle above has already moved real money on-chain, but
+	// ctx here is bounded by SelfSettleRetryBudget -- which a worst-case
+	// retry sequence can consume in full, leaving this write no time at all
+	// and producing an on-chain payment with no DB record of it. Inheriting
+	// ctx only ever appeared to work because the budget used to be
+	// over-provisioned past its own worst case; that slack was accidental,
+	// not a guarantee, and is exactly what a compensating write must not
+	// depend on.
+	bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ledgerCompensationTimeout)
+	defer cancel()
+	if _, err := r.store.RecordRunFunding(bctx, run.ID, txID, amount); err != nil {
 		criticalAlert(wf, run, "run total settled on-chain but RecordRunFunding failed", err, "txID", txID, "amount", amount)
 	}
 }
@@ -519,7 +530,23 @@ func (r *Runner) reserveAndFundRun(ctx context.Context, wf models.Workflow, run 
 		return runFundResult{}, fmt.Errorf("x402 run funding failed: %w", err)
 	}
 
-	funding, err := r.store.RecordRunFunding(ctx, run.ID, txID, creditReserve)
+	// Detached, but for a different reason than settleRunTotal's own
+	// RecordRunFunding call: this one never inherited the settle budget
+	// (fctx above is cancelled immediately after FundRunReserve returns, and
+	// this ran on the plain ctx), so it was never at risk of being starved
+	// by a worst-case retry sequence. What it WAS exposed to is
+	// cancellation: FundRunReserve has already moved real money on-chain by
+	// this point, so a StopWorkflow landing here would fail this audit write
+	// and send us into the branch below -- failing the run over a
+	// bookkeeping gap for a payment that genuinely happened. WithoutCancel
+	// makes the record survive that, matching every other compensating
+	// write in this file.
+	//
+	// recCtx, not a second fctx: reusing that name here would silently
+	// reassign the one declared above rather than introduce a new binding.
+	recCtx, recCancel := context.WithTimeout(context.WithoutCancel(ctx), ledgerCompensationTimeout)
+	defer recCancel()
+	funding, err := r.store.RecordRunFunding(recCtx, run.ID, txID, creditReserve)
 	if err != nil {
 		// Real money already moved on-chain — this is a bookkeeping failure,
 		// not a payment failure. Do NOT release the DB reservation (the
