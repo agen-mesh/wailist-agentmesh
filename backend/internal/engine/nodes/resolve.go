@@ -161,16 +161,18 @@ func resolveTemplateJSON(s string, rc RunContexter) string {
 }
 
 // walkPath descends a dotted field path ("a.b.c", or "a.0.c" to index into an
-// array) into v, as produced by json.Unmarshal. Shared by the {{ }} template
-// resolver here (lookupRef, which only cares whether it succeeded) and the
-// JSON Extract node (compute.go's executeJSONExtract, which surfaces the
-// specific error to the user) -- one traversal implementation for both, so
-// they can never silently diverge on what path syntax each accepts. Returns
-// a descriptive error naming exactly which segment failed and why if any
-// segment is missing, an array index is out of range or non-numeric, or v
-// isn't a JSON object/array at that point; callers decide separately what to
-// do with a failure (blank it, leave the reference verbatim, or surface the
-// error as-is).
+// array) into v. v is JSON-SHAPED but not necessarily json.Unmarshal OUTPUT:
+// it may equally be a connector's own concrete Go return value (see
+// walkOneSegment for why that distinction is load-bearing rather than
+// pedantic). Shared by the {{ }} template resolver here (lookupRef, which
+// only cares whether it succeeded) and the JSON Extract node (compute.go's
+// executeJSONExtract, which surfaces the specific error to the user) -- one
+// traversal implementation for both, so they can never silently diverge on
+// what path syntax each accepts. Returns a descriptive error naming exactly
+// which segment failed and why if any segment is missing, an array index is
+// out of range or non-numeric, or v isn't an object/array at that point;
+// callers decide separately what to do with a failure (blank it, leave the
+// reference verbatim, or surface the error as-is).
 func walkPath(v any, path string) (any, error) {
 	cur := v
 	for _, key := range strings.Split(path, ".") {
@@ -196,10 +198,21 @@ func walkPath(v any, path string) (any, error) {
 //
 // Reflection rather than enumerating the concrete types connectors happen
 // to use today: a future connector returning []map[string]string, []string,
-// or a named slice type works with no further change here, and neither
+// or a named slice/map type works with no further change here, and neither
 // caller (executeJSONExtract's jsonPath or resolveTemplate's
 // {{ result.a.b }} refs) can silently diverge from the other on what it
 // accepts.
+//
+// Scope is deliberately maps (string-keyed), slices, and arrays -- NOT
+// structs or pointers. A connector returning []SomeStruct therefore gets a
+// path that half-works ("items.0" resolves, "items.0.title" then fails as
+// a scalar). That's accepted rather than fixed here because every node
+// output in this package is already JSON-shaped by construction (it has to
+// survive Set/LastOutput and, for most connectors, a real JSON round trip),
+// so struct support would be dead code today; adding it would also mean
+// picking a field-name convention (exported names vs `json` tags) with no
+// caller to validate that choice against. Revisit when a connector
+// actually returns structs.
 func walkOneSegment(cur any, path, key string) (any, error) {
 	if m, ok := cur.(map[string]any); ok {
 		next, ok := m[key]
@@ -222,6 +235,18 @@ func walkOneSegment(cur any, path, key string) (any, error) {
 		}
 		return val.Interface(), nil
 	case reflect.Slice, reflect.Array:
+		// A byte slice is JSON-shaped as a string (or a raw document, for
+		// json.RawMessage), never an indexable array of numbers. Widening
+		// from `case []any` to reflect.Slice newly matches these, so
+		// without this guard "{{ result.0 }}" against a []byte output would
+		// interpolate a byte's numeric value ('a' -> 97) instead of leaving
+		// the ref alone, and a json.RawMessage path would report the
+		// misleading "indexes an array with non-numeric segment". Elem
+		// kind, not a []byte type assertion: that would miss
+		// json.RawMessage and every other named byte-slice type.
+		if rv.Type().Elem().Kind() == reflect.Uint8 {
+			break
+		}
 		i, err := strconv.Atoi(key)
 		if err != nil {
 			return nil, fmt.Errorf("path %q indexes an array with non-numeric segment %q", path, key)

@@ -1,6 +1,7 @@
 package nodes_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/engine"
@@ -65,6 +66,33 @@ func TestResolveTemplateWalksConcreteSliceTypesFromConnectors(t *testing.T) {
 	cases := []struct{ name, in, want string }{
 		{"node ref into concrete slice", "t: {{ node.feed.items.0.title }}", "t: headline"},
 		{"result ref into concrete slice", "t: {{ result.items.0.title }}", "t: headline"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := nodes.ResolveTemplateForTest(tc.in, rc); got != tc.want {
+				t.Errorf("want %q, got %q", tc.want, got)
+			}
+		})
+	}
+}
+
+// TestResolveTemplateTreatsByteSlicesAsScalars pins the one behavior the
+// move from `case []any` to a reflect-based slice case could otherwise
+// have widened by accident: a []byte (or json.RawMessage, or any named
+// byte-slice type) is JSON-shaped as a string, not an indexable array of
+// numbers. Indexing one would interpolate a byte's numeric value -- 'h'
+// as "104" -- into a Slack message or SMS, which is worse than the ref
+// simply not resolving.
+func TestResolveTemplateTreatsByteSlicesAsScalars(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("raw", map[string]any{
+		"bytes": []byte("hello"),
+		"msg":   json.RawMessage(`{"a":1}`),
+	})
+
+	cases := []struct{ name, in, want string }{
+		{"byte slice index left verbatim", "x {{ node.raw.bytes.0 }} y", "x {{ node.raw.bytes.0 }} y"},
+		{"json.RawMessage key left verbatim", "x {{ node.raw.msg.a }} y", "x {{ node.raw.msg.a }} y"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
