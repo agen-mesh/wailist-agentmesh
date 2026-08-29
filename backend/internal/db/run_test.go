@@ -130,6 +130,46 @@ func TestCreateRunWithCooldownIsPerWorkflow(t *testing.T) {
 	}
 }
 
+// TestCreateRunWithCooldownDoesNotCollideWithOAuthCredentialLock guards
+// against the two advisory locks in this package sharing a key space.
+// CreateRunWithCooldown uses the two-key pg_advisory_xact_lock form
+// specifically so it can never contend with LockOAuthCredentialForRefresh's
+// single-key form, even when both are given the literal same identifier
+// string. If that ever regressed back to a single, string-prefixed
+// hashtext key, a workflow ID and an OAuth credential ID that happen to
+// share a value (or just hash the same) would serialize against each
+// other's unrelated locks.
+func TestCreateRunWithCooldownDoesNotCollideWithOAuthCredentialLock(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	wf, _ := store.CreateWorkflow(ctx, "CooldownVsOAuthLockTest", "dev")
+	t.Cleanup(func() { store.DeleteWorkflow(ctx, wf.ID) })
+
+	// Hold the OAuth credential lock under the exact same identifier as the
+	// workflow whose cooldown lock we're about to take.
+	release, err := store.LockOAuthCredentialForRefresh(ctx, wf.ID)
+	if err != nil {
+		t.Fatalf("lock oauth credential: %v", err)
+	}
+	defer release(ctx)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := store.CreateRunWithCooldown(ctx, wf.ID, "manual", []byte("null"), 5*time.Second)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("want the run-cooldown lock unaffected by an unrelated OAuth credential lock on the same ID, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("want CreateRunWithCooldown's try-lock to proceed without waiting on an unrelated OAuth credential lock")
+	}
+}
+
 // TestCreateRunWithCooldownConcurrentBurstAllowsExactlyOne guards the
 // atomicity this exists for: a burst of concurrent triggers for the same
 // workflow (a bot hammering the endpoint) must only ever let one through,

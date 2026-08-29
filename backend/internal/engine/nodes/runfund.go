@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"strconv"
 	"time"
 
@@ -165,6 +166,12 @@ func selfSettleWallet1ToWallet2(ctx context.Context, cfg RunPreFundConfig, publi
 			errs = append(errs, fmt.Errorf("attempt %d: context done: %w", attempt, err))
 			break
 		}
+		if attempt > 1 {
+			if err := sleepWithBackoff(ctx, attempt); err != nil {
+				errs = append(errs, fmt.Errorf("attempt %d: context done during backoff: %w", attempt, err))
+				break
+			}
+		}
 		txID, err := attemptSelfSettle(ctx, cfg, publicPath, description, errPrefix, amountUSDMicros)
 		if err == nil {
 			return txID, nil
@@ -175,6 +182,38 @@ func selfSettleWallet1ToWallet2(ctx context.Context, cfg RunPreFundConfig, publi
 		errs = append(errs, fmt.Errorf("attempt %d: %w", attempt, err))
 	}
 	return "", fmt.Errorf("%s: all attempts failed: %w", errPrefix, errors.Join(errs...))
+}
+
+// selfSettleRetryBackoffBase/Max bound the delay selfSettleWallet1ToWallet2
+// waits before each retry (not before the first attempt). Full-jitter
+// exponential backoff: during a real facilitator outage -- the scenario
+// this whole retry mechanism is meant to survive -- every in-flight run
+// across the platform hits the same failure at roughly the same time, so
+// retrying instantly with no delay would multiply the load on an already
+// struggling facilitator by selfSettleMaxAttempts instead of easing off it.
+const (
+	selfSettleRetryBackoffBase = 500 * time.Millisecond
+	selfSettleRetryBackoffMax  = 5 * time.Second
+)
+
+// sleepWithBackoff waits before retry attempt N (N>1), honoring ctx
+// cancellation -- this gap is one of the safe-to-interrupt windows
+// selfSettleWallet1ToWallet2's doc comment describes, so a StopWorkflow
+// landing here returns promptly instead of waiting out the full delay.
+func sleepWithBackoff(ctx context.Context, attempt int) error {
+	cap := selfSettleRetryBackoffBase * time.Duration(uint64(1)<<uint(attempt-2))
+	if cap > selfSettleRetryBackoffMax || cap <= 0 {
+		cap = selfSettleRetryBackoffMax
+	}
+	delay := time.Duration(rand.Int63n(int64(cap)))
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // selfSettleMaxAttempts bounds selfSettleWallet1ToWallet2's retry loop. Not
@@ -218,8 +257,11 @@ const signCallBudget = 20 * time.Second
 // any one of them could let that many attempts' worth of calls alone eat
 // enough of the ceiling that a legitimate later retry gets cut short by
 // ctx.Err() -- the exact reliability gap this whole retry mechanism exists
-// to close.
-const SelfSettleRetryBudget = selfSettleMaxAttempts * (signCallBudget + verifyCallBudget + settleCallBudget)
+// to close. Also adds the worst-case total inter-attempt backoff delay
+// (selfSettleMaxAttempts-1 gaps, each capped at selfSettleRetryBackoffMax)
+// for the same reason -- omitting it would let the backoff sleeps
+// themselves eat into the budget meant for actual sign/verify/settle work.
+const SelfSettleRetryBudget = selfSettleMaxAttempts*(signCallBudget+verifyCallBudget+settleCallBudget) + (selfSettleMaxAttempts-1)*selfSettleRetryBackoffMax
 
 func attemptSelfSettle(ctx context.Context, cfg RunPreFundConfig, publicPath, description, errPrefix string, amountUSDMicros int64) (string, error) {
 	resourceURL := cfg.FrontendURL + publicPath
@@ -256,7 +298,14 @@ func attemptSelfSettle(ctx context.Context, cfg RunPreFundConfig, publicPath, de
 		Extensions: BazaarDiscoveryExtension(BazaarDeclaration{RouteTemplate: publicPath}),
 	}
 
-	group, idx, err := cfg.USDCSigner.SignUSDCPaymentGroup(ctx, cfg.PlatformSpendEncMnemonic, cfg.PlatformWalletAddress, cfg.ExpectedAssetID, uint64(amountUSDMicros), cfg.RelayFeePayer)
+	// signCallBudget bounds this: SignUSDCPaymentGroup makes a real algod
+	// SuggestedParams round trip with no timeout of its own (see
+	// signCallBudget's doc comment) -- without this, a single hung attempt
+	// could burn the whole outer SelfSettleRetryBudget by itself, leaving
+	// no time for the retries that budget exists to make room for.
+	signCtx, signCancel := context.WithTimeout(ctx, signCallBudget)
+	group, idx, err := cfg.USDCSigner.SignUSDCPaymentGroup(signCtx, cfg.PlatformSpendEncMnemonic, cfg.PlatformWalletAddress, cfg.ExpectedAssetID, uint64(amountUSDMicros), cfg.RelayFeePayer)
+	signCancel()
 	if err != nil {
 		return "", fmt.Errorf("%s: sign failed: %w", errPrefix, err)
 	}
@@ -283,10 +332,13 @@ func attemptSelfSettle(ctx context.Context, cfg RunPreFundConfig, publicPath, de
 		Accepted: reqs.AcceptedV2(),
 	}
 
-	// Verify runs on the caller's real, cancelable ctx: nothing has been
-	// broadcast yet, so an interruption here is always safe -- it just
-	// fails this attempt cleanly, the same as any other pre-Settle error.
-	verifyResult, err := cfg.Facilitator.Verify(ctx, payload, reqs)
+	// Verify runs on the caller's real, cancelable ctx (bounded by
+	// verifyCallBudget on top of it): nothing has been broadcast yet, so an
+	// interruption here is always safe -- it just fails this attempt
+	// cleanly, the same as any other pre-Settle error.
+	verifyCtx, verifyCancel := context.WithTimeout(ctx, verifyCallBudget)
+	verifyResult, err := cfg.Facilitator.Verify(verifyCtx, payload, reqs)
+	verifyCancel()
 	if err != nil {
 		return "", fmt.Errorf("%s: facilitator verify failed: %w", errPrefix, err)
 	}

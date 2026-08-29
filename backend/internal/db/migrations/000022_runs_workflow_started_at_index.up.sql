@@ -5,4 +5,13 @@
 -- find the latest one -- an unbounded scan for a long-lived, frequently-triggered
 -- workflow, run on every single trigger while holding the lock. This composite
 -- index gives it an index-only path straight to the most recent row.
-CREATE INDEX idx_runs_workflow_id_started_at ON runs (workflow_id, started_at DESC);
+-- CONCURRENTLY: runs is a hot table and migrations run automatically on
+-- backend startup against a live database. A plain CREATE INDEX takes a
+-- lock that blocks concurrent writers (CreateRunWithCooldown/insertRun) for
+-- the whole build; CONCURRENTLY avoids that at the cost of a longer build
+-- and needing IF NOT EXISTS (a CONCURRENTLY build that fails partway can
+-- leave an invalid index behind, and this needs to be safe to retry).
+-- Safe outside a transaction block here: this migration driver
+-- (backend/internal/db/db.go) executes each single-statement migration
+-- file as one unwrapped Exec, not inside an explicit transaction.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_runs_workflow_id_started_at ON runs (workflow_id, started_at DESC);

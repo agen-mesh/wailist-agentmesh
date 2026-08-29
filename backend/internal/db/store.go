@@ -266,6 +266,14 @@ func (s *Store) CreateRun(ctx context.Context, workflowID, triggeredBy string, i
 	return insertRun(ctx, s.pool, workflowID, triggeredBy, inputContext)
 }
 
+// advisoryLockNamespaceRunCooldown is the first key of the two-key
+// pg_advisory_xact_lock CreateRunWithCooldown takes. Any int32 works here --
+// what matters is that it puts this lock in Postgres's two-key advisory
+// lock space, which never overlaps the single-key space
+// LockOAuthCredentialForRefresh uses, so the two can never collide no
+// matter what workflowID/credential id hash to.
+const advisoryLockNamespaceRunCooldown = 1
+
 // ErrRunOnCooldown is returned by CreateRunWithCooldown when workflowID
 // started a run within the last cooldown window passed to it. RetryAfter
 // is how much longer the caller must wait.
@@ -307,6 +315,15 @@ func (e *ErrRunOnCooldown) Error() string {
 // try-lock is treated as "another request for this workflow is already
 // mid-check" and answered with the same cooldown response, so a burst still
 // gets rejected, it just never blocks a connection to do it.
+//
+// Uses the two-key form of the advisory lock (advisoryLockNamespaceRunCooldown,
+// hashtext(workflowID)) rather than a string-prefixed single key. Postgres
+// guarantees the two-key lock space never overlaps the single-key space
+// LockOAuthCredentialForRefresh uses below, so this new lock can never
+// collide with it regardless of hash values -- without needing to change
+// LockOAuthCredentialForRefresh's existing key formula (see its own doc
+// comment for why that matters: it's pre-existing, and changing its key
+// shape would desync old/new replicas mid-rollout).
 func (s *Store) CreateRunWithCooldown(ctx context.Context, workflowID, triggeredBy string, inputContext []byte, cooldown time.Duration) (models.Run, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -315,7 +332,7 @@ func (s *Store) CreateRunWithCooldown(ctx context.Context, workflowID, triggered
 	defer tx.Rollback(ctx)
 
 	var locked bool
-	if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtext('run_cooldown:' || $1))`, workflowID).Scan(&locked); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1, hashtext($2))`, advisoryLockNamespaceRunCooldown, workflowID).Scan(&locked); err != nil {
 		return models.Run{}, fmt.Errorf("run cooldown: acquire advisory lock: %w", err)
 	}
 	if !locked {
@@ -1479,15 +1496,28 @@ func (s *Store) DeleteOAuthCredential(ctx context.Context, id string) error {
 // hashtext's 64-bit collision space makes two different credential UUIDs
 // hashing to the same lock key astronomically unlikely; a false-positive
 // collision would only ever cause two unrelated refreshes to serialize
-// behind each other, never a correctness issue.
+// behind each other, never a correctness issue. Collision against
+// CreateRunWithCooldown's unrelated lock isn't a concern either: that one
+// lives in Postgres's separate two-key advisory lock space (see its own
+// doc comment), so it can't collide with this single-key one regardless.
+//
+// Key formula deliberately left as plain hashtext(id) -- unchanged since
+// before CreateRunWithCooldown was introduced. Prefixing it (e.g.
+// hashtext('oauth_credential:' || id)) to "namespace" it would change what
+// every in-flight replica computes for the same credential id: during a
+// rolling deploy, an old-binary replica and a new-binary replica would
+// then use different keys for the same credential and no longer serialize
+// against each other -- exactly the race this lock exists to prevent, and
+// avoidable entirely by giving new lock users their own key space instead
+// of changing this pre-existing one's.
 //
 // release must be called (via defer) once the caller is done -- it commits
 // the underlying transaction, which is what actually releases the lock.
 //
-// Same Begin+pg_advisory_xact_lock(hashtext(...)) shape as
-// CreateRunWithCooldown, deliberately not shared: this one blocks until the
-// lock is free (a caller here wants to wait for a concurrent refresh of the
-// same credential to finish), whereas CreateRunWithCooldown uses the
+// Same Begin+pg_advisory_xact_lock shape as CreateRunWithCooldown,
+// deliberately not shared: this one blocks until the lock is free (a
+// caller here wants to wait for a concurrent refresh of the same
+// credential to finish), whereas CreateRunWithCooldown uses the
 // non-blocking pg_try_advisory_xact_lock specifically to avoid queuing
 // pooled connections under a burst -- see that function's doc comment.
 func (s *Store) LockOAuthCredentialForRefresh(ctx context.Context, id string) (release func(context.Context), err error) {
@@ -1495,7 +1525,7 @@ func (s *Store) LockOAuthCredentialForRefresh(ctx context.Context, id string) (r
 	if err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('oauth_credential:' || $1))`, id); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, id); err != nil {
 		tx.Rollback(ctx)
 		return nil, err
 	}

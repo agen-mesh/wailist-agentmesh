@@ -1484,6 +1484,20 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 		// leave the fee permanently billed in the ledger with no on-chain
 		// settlement ever attempted again, not merely delayed. SelfSettleRetryBudget
 		// still bounds how long this can run.
+		//
+		// Runs synchronously (not backgrounded) even though it's best-effort:
+		// this blocks the agent's tool-calling loop for up to
+		// SelfSettleRetryBudget on a degraded facilitator, which is a real
+		// cost, but backgrounding it would mean either dropping
+		// PlatformFeeTxID/PlatformFeeExplorerURL from the tool result
+		// entirely (LogDrawer's receipt display and platformfee_test.go both
+		// depend on it being there synchronously on success) or bolting on
+		// a callback/polling path to fill it in later. Given the fee is
+		// already committed either way, the ceiling here bounds the
+		// downside to a fixed worst case rather than an unbounded hang, and
+		// the CRITICAL alert below is the actual backstop for the failure
+		// case -- worth revisiting if p95 tool-call latency under a
+		// degraded facilitator becomes a real product problem.
 		if cfg.Facilitator != nil {
 			fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), SelfSettleRetryBudget)
 			feeTxID, feeErr := SettlePlatformFee(fctx, RunPreFundConfig{
