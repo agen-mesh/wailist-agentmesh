@@ -71,7 +71,7 @@ func TestTendrilLeaseRoundTripAndRelease(t *testing.T) {
 		LeaseID: "lease_9k2m", LeaseTokenEnc: "enc-token",
 		TendrilNodeID: "I8zY887UpE", TendrilNodeLabel: "my-laptop",
 		SSHHost: "bore.pub", SSHPort: 41823, SSHUsername: "root",
-		SSHCommand: "ssh root@bore.pub -p 41823",
+		SSHCommand:   "ssh root@bore.pub -p 41823",
 		SSHPublicKey: "ssh-ed25519 AAAA agentmesh", SSHPrivateKeyEnc: "enc-key",
 		RateUSDMicrosPerHour: 6_000_000, HoursPurchased: 2,
 		ReservedUSDMicros: 12_010_000,
