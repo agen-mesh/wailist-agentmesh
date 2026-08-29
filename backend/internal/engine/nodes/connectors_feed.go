@@ -28,7 +28,25 @@ type rssFeed struct {
 	} `xml:"channel"`
 }
 
-const rssDefaultLimit = 10
+// feedDefaultLimit is the default item cap for every feed-style connector
+// (RSS, HackerNews) that caps how many results it returns.
+const feedDefaultLimit = 10
+
+// parsePositiveLimit reads a positive-integer limit from node.Config[key],
+// falling back to def when unset. Shared by every feed-style connector that
+// caps how many results it returns, so the "must be a positive number" rule
+// and its error wording can't drift between them.
+func parsePositiveLimit(node models.WorkflowNode, key string, def int) (int, error) {
+	raw := configVal(node, key, "")
+	if raw == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("`%s` %q is not a positive number", key, raw)
+	}
+	return n, nil
+}
 
 // fetchRSS reads an RSS 2.0 feed and returns its items as structured data.
 // Unlike every other connector this returns a value rather than a sentinel —
@@ -38,13 +56,9 @@ func fetchRSS(ctx context.Context, node models.WorkflowNode, rc RunContexter) (a
 	if feedURL == "" {
 		return "rss_skipped_no_url", ErrActionSkipped
 	}
-	limit := rssDefaultLimit
-	if raw := configVal(node, "rssLimit", ""); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n <= 0 {
-			return nil, fmt.Errorf("rss: `rssLimit` %q is not a positive number", raw)
-		}
-		limit = n
+	limit, err := parsePositiveLimit(node, "rssLimit", feedDefaultLimit)
+	if err != nil {
+		return nil, fmt.Errorf("rss: %w", err)
 	}
 
 	body, err := getRaw(ctx, feedURL, map[string]string{"Accept": "application/rss+xml, application/xml, text/xml"}, "RSS")
@@ -116,13 +130,9 @@ func fetchHackerNews(ctx context.Context, node models.WorkflowNode, rc RunContex
 	}
 	hits, _ := body["hits"].([]any)
 
-	limit := rssDefaultLimit
-	if s := configVal(node, "hnLimit", ""); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil || n <= 0 {
-			return nil, fmt.Errorf("hackernews: `hnLimit` %q is not a positive number", s)
-		}
-		limit = n
+	limit, err := parsePositiveLimit(node, "hnLimit", feedDefaultLimit)
+	if err != nil {
+		return nil, fmt.Errorf("hackernews: %w", err)
 	}
 
 	items := make([]map[string]any, 0, limit)

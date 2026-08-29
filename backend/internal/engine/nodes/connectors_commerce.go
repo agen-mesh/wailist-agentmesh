@@ -2,7 +2,7 @@ package nodes
 
 import (
 	"context"
-	"net/http"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -53,12 +53,10 @@ func sendStripe(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	if name := resolveTemplate(configVal(node, "stripeName", ""), rc); name != "" {
 		form.Set("name", name)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		stripeAPIBase+"/v1/customers", strings.NewReader(form.Encode()))
+	req, err := newFormRequest(ctx, stripeAPIBase+"/v1/customers", form)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Stripe: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	return doAndCheck(req, "stripe_customer_created", "Stripe")
 }

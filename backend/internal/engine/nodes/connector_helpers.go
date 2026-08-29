@@ -75,6 +75,21 @@ func newJSONRequest(ctx context.Context, method, target string, extraHeaders map
 	return req, nil
 }
 
+// newFormRequest builds a POST request with a form-urlencoded body --
+// shared by Stripe and Twilio, the two connectors whose APIs take
+// form-encoded bodies rather than JSON, so the url.Values/Content-Type
+// sequence has one implementation instead of two independently maintained
+// copies. Auth (Bearer header, Basic auth, ...) is the caller's own concern:
+// set it on the returned request before sending, the same as newJSONRequest.
+func newFormRequest(ctx context.Context, target string, form url.Values) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return req, nil
+}
+
 // postJSON POSTs payload as JSON to target and returns sentinel on success.
 func postJSON(ctx context.Context, target string, extraHeaders map[string]string, payload any, sentinel, serviceName string) (any, error) {
 	req, err := newJSONRequest(ctx, http.MethodPost, target, extraHeaders, payload)
@@ -252,27 +267,12 @@ func ReadBoundedForTest(r io.Reader, limit int) ([]byte, error) {
 	return readBounded(r, limit)
 }
 
-// doAndDecode runs req through the SSRF guard, then decodes a JSON response
-// body instead of discarding it. This is the read-capable counterpart to
-// doAndCheck — use it for connectors that fetch rather than post.
+// doAndDecode is getJSON under the name the GraphQL/Monday.com call sites
+// already use — kept as a thin alias rather than two copies of the same
+// validate/status-check/readBounded/unmarshal sequence that could silently
+// drift apart on a future fix to either one.
 func doAndDecode(req *http.Request, serviceName string) (any, error) {
-	resp, err := doValidatedRequest(req, serviceName)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("%s API %d: %s", serviceName, resp.StatusCode, readErrorBody(resp))
-	}
-	b, err := readBounded(resp.Body, httpResponseLimit)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", serviceName, err)
-	}
-	var out any
-	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, fmt.Errorf("%s: response was not valid JSON: %w", serviceName, err)
-	}
-	return out, nil
+	return getJSON(req, serviceName)
 }
 
 // getAndDecode GETs target and returns the decoded JSON body.

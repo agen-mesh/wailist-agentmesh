@@ -111,6 +111,29 @@ func TestJSONExtractErrorsOnMissingPath(t *testing.T) {
 	}
 }
 
+// TestJSONExtractHandlesMessageEnvelopeOutput guards using rc.LastOutput()
+// instead of rc.Message(): Message()/anyToString special-cases a map output
+// carrying a "message" string field by returning just that inner string, so
+// an upstream node whose real output is {"message":"ok","data":{...}} used
+// to look like the bare, non-JSON string "ok" here and fail with "not valid
+// JSON" despite the real structure being right there in LastOutput().
+func TestJSONExtractHandlesMessageEnvelopeOutput(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", map[string]any{"message": "ok", "data": map[string]any{"city": "Kolkata"}})
+
+	node := models.WorkflowNode{
+		ID: "j1", Type: models.NodeTypeTool, Template: "json_extract",
+		Config: map[string]string{"jsonPath": "data.city"},
+	}
+	got, err := nodes.ExecuteTool(context.Background(), node, rc)
+	if err != nil {
+		t.Fatalf("want the data field extracted despite the message envelope, got error: %v", err)
+	}
+	if got != "Kolkata" {
+		t.Errorf("want %q, got %v", "Kolkata", got)
+	}
+}
+
 func TestJSONExtractErrorsOnNonJSONInput(t *testing.T) {
 	rc := engine.NewRunContext("r1", nil)
 	rc.Set("n1", "this is not json")

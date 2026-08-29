@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/agentmesh/backend/internal/models"
 )
@@ -58,13 +57,10 @@ func sendTwilio(ctx context.Context, node models.WorkflowNode, rc RunContexter) 
 	form.Set("From", from)
 	form.Set("Body", resolveMessage(node, rc))
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		twilioAPIBase+"/Accounts/"+url.PathEscape(sid)+"/Messages.json",
-		strings.NewReader(form.Encode()))
+	req, err := newFormRequest(ctx, twilioAPIBase+"/Accounts/"+url.PathEscape(sid)+"/Messages.json", form)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Twilio: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.SetBasicAuth(sid, token)
 	return doAndCheck(req, "twilio_sms_sent", "Twilio")
 }
@@ -166,7 +162,7 @@ func sendZendesk(ctx context.Context, node models.WorkflowNode, rc RunContexter)
 	}}
 	req, err := newJSONRequest(ctx, http.MethodPost, base+"/api/v2/tickets.json", nil, payload)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Zendesk: %w", err)
 	}
 	req.SetBasicAuth(email+"/token", token)
 	return doAndCheck(req, "zendesk_ticket_created", "Zendesk")

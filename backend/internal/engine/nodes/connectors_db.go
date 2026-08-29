@@ -135,6 +135,13 @@ func sendPostgres(ctx context.Context, node models.WorkflowNode, rc RunContexter
 			quotePGIdentifier(table, lower), strings.Join(cols, ", "), strings.Join(placeholders, ", "))
 	}
 
+	// A fresh connection per call, not a pool: pgConnString is per-node,
+	// user-supplied config that can point at a different Postgres instance
+	// (and different credentials) on every node in a workflow, so a shared
+	// pool would need its own per-connString pool management -- effectively
+	// a second credential-scoped pooling layer on top of pgxpool, whose
+	// eviction/lifecycle is its own real feature, not a drop-in swap here.
+	// pgConnectTimeout keeps the cost of that bounded rather than free.
 	connCtx, cancel := context.WithTimeout(ctx, pgConnectTimeout)
 	defer cancel()
 	conn, err := pgx.Connect(connCtx, connString)

@@ -70,15 +70,38 @@ func executeJSONExtract(node models.WorkflowNode, rc RunContexter) (any, error) 
 	if path == "" {
 		return nil, errors.New("json_extract: no `jsonPath` configured")
 	}
-	var doc any
-	if err := json.Unmarshal([]byte(rc.Message()), &doc); err != nil {
-		return nil, fmt.Errorf("json_extract: upstream output is not valid JSON: %w", err)
+	doc, err := jsonDocFromOutput(rc.LastOutput())
+	if err != nil {
+		return nil, fmt.Errorf("json_extract: %w", err)
 	}
 	v, err := walkPath(doc, path)
 	if err != nil {
 		return nil, fmt.Errorf("json_extract: %w", err)
 	}
 	return v, nil
+}
+
+// jsonDocFromOutput normalizes an upstream node's raw output into a document
+// walkPath can descend. rc.LastOutput() (not rc.Message()) on purpose:
+// Message()/anyToString special-cases a map output carrying a "message"
+// string field by returning just that inner string, which would make a
+// genuinely structured upstream output like {"message":"ok","data":{...}}
+// look like the bare, non-JSON string "ok" here and fail with a confusing
+// "not valid JSON" error despite the real structure being right there.
+// LastOutput() already comes back structured for anything that wasn't a raw
+// string to begin with (most connector outputs), so this only needs to
+// unmarshal in the case it's still a bare JSON-text string (e.g. an "http"
+// tool node's raw response body, or a value set via rc.Set with a string).
+func jsonDocFromOutput(v any) (any, error) {
+	s, ok := v.(string)
+	if !ok {
+		return v, nil
+	}
+	var doc any
+	if err := json.Unmarshal([]byte(s), &doc); err != nil {
+		return nil, fmt.Errorf("upstream output is not valid JSON: %w", err)
+	}
+	return doc, nil
 }
 
 // executeCrypto hashes / encodes the upstream output. Pure stdlib; no network.
