@@ -88,18 +88,33 @@ func executeJSONExtract(node models.WorkflowNode, rc RunContexter) (any, error) 
 // genuinely structured upstream output like {"message":"ok","data":{...}}
 // look like the bare, non-JSON string "ok" here and fail with a confusing
 // "not valid JSON" error despite the real structure being right there.
-// LastOutput() already comes back structured for anything that wasn't a raw
-// string to begin with (most connector outputs), so this only needs to
-// unmarshal in the case it's still a bare JSON-text string (e.g. an "http"
-// tool node's raw response body, or a value set via rc.Set with a string).
+//
+// A raw JSON-text string (e.g. an "http" tool node's raw response body, or a
+// value set via rc.Set with a string) is unmarshaled directly. Anything else
+// is round-tripped through json.Marshal/Unmarshal too, not returned as-is:
+// walkPath only knows how to descend into map[string]any/[]any, but several
+// connectors (fetchRSS, fetchHackerNews) return concrete Go types nested
+// inside their output map -- []map[string]any, for one -- which don't match
+// walkPath's type switch even though they're structurally identical to
+// []any. The old rc.Message()-based path never hit this because
+// anyToString's JSON formatting normalized every concrete type down to the
+// generic shape first; reading LastOutput() directly bypasses that, so this
+// has to do the same normalization itself.
 func jsonDocFromOutput(v any) (any, error) {
-	s, ok := v.(string)
-	if !ok {
-		return v, nil
+	if s, ok := v.(string); ok {
+		var doc any
+		if err := json.Unmarshal([]byte(s), &doc); err != nil {
+			return nil, fmt.Errorf("upstream output is not valid JSON: %w", err)
+		}
+		return doc, nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("upstream output could not be normalized to JSON: %w", err)
 	}
 	var doc any
-	if err := json.Unmarshal([]byte(s), &doc); err != nil {
-		return nil, fmt.Errorf("upstream output is not valid JSON: %w", err)
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return nil, fmt.Errorf("upstream output could not be normalized to JSON: %w", err)
 	}
 	return doc, nil
 }

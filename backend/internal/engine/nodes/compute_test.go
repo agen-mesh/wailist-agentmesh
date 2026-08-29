@@ -134,6 +134,37 @@ func TestJSONExtractHandlesMessageEnvelopeOutput(t *testing.T) {
 	}
 }
 
+// TestJSONExtractHandlesConcreteSliceOutput guards jsonDocFromOutput's
+// non-string branch: fetchRSS/fetchHackerNews return a map whose "items"
+// field is a concrete []map[string]any, not []any. walkPath's type switch
+// only matches map[string]any/[]any -- a value with dynamic type
+// []map[string]any doesn't match `case []any` in Go, so returning it as-is
+// instead of round-tripping it through JSON made every RSS/HackerNews
+// output fail with "descends past a scalar" once this walked LastOutput()
+// directly instead of Message()'s always-JSON-round-tripped string.
+func TestJSONExtractHandlesConcreteSliceOutput(t *testing.T) {
+	rc := engine.NewRunContext("r1", nil)
+	rc.Set("n1", map[string]any{
+		"title": "Example Feed",
+		"count": 1,
+		"items": []map[string]any{
+			{"title": "first post", "link": "https://example.com/1"},
+		},
+	})
+
+	node := models.WorkflowNode{
+		ID: "j1", Type: models.NodeTypeTool, Template: "json_extract",
+		Config: map[string]string{"jsonPath": "items.0.title"},
+	}
+	got, err := nodes.ExecuteTool(context.Background(), node, rc)
+	if err != nil {
+		t.Fatalf("want the nested title extracted from a concrete []map[string]any, got error: %v", err)
+	}
+	if got != "first post" {
+		t.Errorf("want %q, got %v", "first post", got)
+	}
+}
+
 func TestJSONExtractErrorsOnNonJSONInput(t *testing.T) {
 	rc := engine.NewRunContext("r1", nil)
 	rc.Set("n1", "this is not json")
