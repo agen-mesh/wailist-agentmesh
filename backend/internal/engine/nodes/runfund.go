@@ -221,6 +221,17 @@ func sleepWithBackoff(ctx context.Context, attempt int) error {
 // facilitator down) should fail loudly and quickly, not loop for minutes.
 const selfSettleMaxAttempts = 3
 
+// defaultSettleCallBudget/defaultVerifyCallBudget/defaultSignCallBudget are
+// the real per-call budgets -- named consts so SetSelfSettleCallBudgetsForTest's
+// reset branch can reference them instead of duplicating the literals a
+// second time (which previously risked silently drifting out of sync with
+// the vars' own initializers below).
+const (
+	defaultSettleCallBudget = 60 * time.Second
+	defaultVerifyCallBudget = 20 * time.Second
+	defaultSignCallBudget   = 20 * time.Second
+)
+
 // settleCallBudget bounds the detached sub-context attemptSelfSettle gives
 // ONLY the Facilitator.Settle call (see its doc comment) -- generous
 // headroom over x402.FacilitatorClient's own 20s http.Client timeout,
@@ -229,19 +240,19 @@ const selfSettleMaxAttempts = 3
 //
 // A var, not a const, like signCallBudget/verifyCallBudget below -- see
 // SetSelfSettleCallBudgetsForTest's doc comment for why.
-var settleCallBudget = 60 * time.Second
+var settleCallBudget = defaultSettleCallBudget
 
 // verifyCallBudget is generous headroom for attemptSelfSettle's Verify call,
 // same rationale as settleCallBudget: x402.FacilitatorClient's own http.Client
 // has a 20s timeout, which is what actually bounds Verify; this just needs to
 // not be tighter than that.
-var verifyCallBudget = 20 * time.Second
+var verifyCallBudget = defaultVerifyCallBudget
 
 // signCallBudget covers the signing step of a self-settle attempt, which --
 // unlike Verify/Settle above -- makes a real algod SuggestedParams network
 // round trip (wallet.SignUSDCPaymentGroup/Single) with no timeout of its
 // own from the algod client. So this is a real bound, not just a backstop.
-var signCallBudget = 20 * time.Second
+var signCallBudget = defaultSignCallBudget
 
 // SetSelfSettleCallBudgetsForTest overrides signCallBudget/verifyCallBudget/
 // settleCallBudget together and recomputes SelfSettleRetryBudget to match.
@@ -251,12 +262,19 @@ var signCallBudget = 20 * time.Second
 // to prove attemptSelfSettle's context.WithTimeout wrapping actually bounds
 // a hung Sign/Verify/Settle call, instead of only being able to test the
 // wiring indirectly (a fast transport-level error, or waiting out the real
-// 20s/60s budgets, which no existing test does either).
+// 20s/60s budgets, which no existing test does either). Safety of mutating
+// these package-level vars with no lock rests entirely on Go's default
+// sequential (non-t.Parallel) test execution within this package -- same
+// assumption every other SetXForTest override in this package/file already
+// makes (e.g. connectors_db.go's SetPostgresConnectTimeoutForTest). Not
+// reachable from any production code path; if a future test in this
+// package ever adds t.Parallel(), this function must not be called
+// concurrently with anything reading these vars.
 func SetSelfSettleCallBudgetsForTest(d time.Duration) {
 	if d <= 0 {
-		signCallBudget = 20 * time.Second
-		verifyCallBudget = 20 * time.Second
-		settleCallBudget = 60 * time.Second
+		signCallBudget = defaultSignCallBudget
+		verifyCallBudget = defaultVerifyCallBudget
+		settleCallBudget = defaultSettleCallBudget
 	} else {
 		signCallBudget = d
 		verifyCallBudget = d

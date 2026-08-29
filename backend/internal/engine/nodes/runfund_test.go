@@ -450,7 +450,18 @@ func TestFundRunReserveHonorsCancellationDuringVerify(t *testing.T) {
 // SetSelfSettleCallBudgetsForTest to shrink the budget rather than waiting
 // out the real 20s, so this stays a fast, deterministic unit test.
 func TestFundRunReserveSignBudgetBoundsAHungSign(t *testing.T) {
-	nodes.SetSelfSettleCallBudgetsForTest(50 * time.Millisecond)
+	// Mirrors selfSettleMaxAttempts/selfSettleRetryBackoffMax from
+	// runfund.go: both unexported, so this external test package can't
+	// reference them directly. Kept as named values (not inlined into the
+	// bound below) so the coupling this test's timing assertion has to
+	// those two constants stays visible instead of looking like an
+	// arbitrary literal.
+	const (
+		shrunkBudget          = 50 * time.Millisecond
+		mirroredMaxAttempts   = 3
+		mirroredBackoffMaxCap = 5 * time.Second
+	)
+	nodes.SetSelfSettleCallBudgetsForTest(shrunkBudget)
 	defer nodes.SetSelfSettleCallBudgetsForTest(0)
 
 	facilitator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -478,11 +489,16 @@ func TestFundRunReserveSignBudgetBoundsAHungSign(t *testing.T) {
 	if err == nil {
 		t.Fatal("want an error once every retry attempt's Sign call times out")
 	}
-	// 3 attempts * 50ms signCallBudget, plus backoff gaps -- generous upper
-	// bound well short of the real 20s default, proving the shrunk budget
-	// (not some other, larger timeout) is what actually fired.
-	if elapsed > 2*time.Second {
-		t.Fatalf("want Sign bounded by the (shrunk) signCallBudget on every attempt, took %v", elapsed)
+	// mirroredMaxAttempts attempts at shrunkBudget each, plus
+	// (mirroredMaxAttempts-1) worst-case backoff gaps between them, plus a
+	// fixed scheduling-slack margin -- derived from the constants this
+	// bound actually depends on rather than an unlabeled literal, so a
+	// future change to selfSettleMaxAttempts/selfSettleRetryBackoffMax
+	// doesn't silently make this too tight (flaky) or too loose (stops
+	// proving the shrunk budget, not the real 20s default, is what fired).
+	upperBound := mirroredMaxAttempts*shrunkBudget + (mirroredMaxAttempts-1)*mirroredBackoffMaxCap + 500*time.Millisecond
+	if elapsed > upperBound {
+		t.Fatalf("want Sign bounded by the (shrunk) signCallBudget on every attempt, took %v (want <= %v)", elapsed, upperBound)
 	}
 }
 
