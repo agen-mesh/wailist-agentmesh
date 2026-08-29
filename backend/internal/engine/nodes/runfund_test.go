@@ -442,6 +442,68 @@ func TestFundRunReserveHonorsCancellationDuringVerify(t *testing.T) {
 	}
 }
 
+// TestFundRunReserveSignBudgetBoundsAHungSign guards signCallBudget
+// actually being applied via context.WithTimeout to the Sign call, not
+// just declared and left unused: a signer that hangs forever must still
+// return within signCallBudget, not run out the clock on
+// SelfSettleRetryBudget (or hang forever) instead. Uses
+// SetSelfSettleCallBudgetsForTest to shrink the budget rather than waiting
+// out the real 20s, so this stays a fast, deterministic unit test.
+func TestFundRunReserveSignBudgetBoundsAHungSign(t *testing.T) {
+	nodes.SetSelfSettleCallBudgetsForTest(50 * time.Millisecond)
+	defer nodes.SetSelfSettleCallBudgetsForTest(0)
+
+	facilitator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("want the facilitator never reached -- Sign should time out first")
+	}))
+	defer facilitator.Close()
+
+	signer := &hangingUSDCSigner{unblock: make(chan struct{})}
+	defer close(signer.unblock)
+	cfg := nodes.RunPreFundConfig{
+		USDCSigner:               signer,
+		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
+		Facilitator:              x402.NewFacilitatorClient(facilitator.URL),
+		PlatformWalletAddress:    "PLATFORMADDR",
+		RelayNetwork:             "algorand:testnet",
+		RelayFeePayer:            "FEEPAYERADDR",
+		ExpectedAssetID:          10458941,
+		FrontendURL:              "https://example.test",
+	}
+
+	start := time.Now()
+	_, err := nodes.FundRunReserve(context.Background(), cfg, "run-1", 500000)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("want an error once every retry attempt's Sign call times out")
+	}
+	// 3 attempts * 50ms signCallBudget, plus backoff gaps -- generous upper
+	// bound well short of the real 20s default, proving the shrunk budget
+	// (not some other, larger timeout) is what actually fired.
+	if elapsed > 2*time.Second {
+		t.Fatalf("want Sign bounded by the (shrunk) signCallBudget on every attempt, took %v", elapsed)
+	}
+}
+
+// hangingUSDCSigner never returns from SignUSDCPaymentGroup until its ctx
+// is done or the test closes unblock -- used to prove signCallBudget
+// actually bounds the call rather than being wired to a no-op timeout.
+type hangingUSDCSigner struct{ unblock chan struct{} }
+
+func (s *hangingUSDCSigner) SignUSDCPaymentGroup(ctx context.Context, _, _ string, _, _ uint64, _ string) ([]string, int, error) {
+	select {
+	case <-ctx.Done():
+		return nil, 0, ctx.Err()
+	case <-s.unblock:
+		return nil, 0, errors.New("unblocked without a real result")
+	}
+}
+
+func (s *hangingUSDCSigner) SignUSDCPaymentSingle(ctx context.Context, _, _ string, _, _ uint64) ([]string, int, error) {
+	return s.SignUSDCPaymentGroup(ctx, "", "", 0, 0, "")
+}
+
 // TestFundRunReserveDoesNotInterruptInFlightSettle guards the other half:
 // once Settle has actually been dispatched, a cancellation landing mid-call
 // must NOT cut it off -- doing so would risk treating a real,

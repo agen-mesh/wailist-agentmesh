@@ -201,11 +201,11 @@ const (
 // selfSettleWallet1ToWallet2's doc comment describes, so a StopWorkflow
 // landing here returns promptly instead of waiting out the full delay.
 func sleepWithBackoff(ctx context.Context, attempt int) error {
-	cap := selfSettleRetryBackoffBase * time.Duration(uint64(1)<<uint(attempt-2))
-	if cap > selfSettleRetryBackoffMax || cap <= 0 {
-		cap = selfSettleRetryBackoffMax
+	backoffCap := selfSettleRetryBackoffBase * time.Duration(uint64(1)<<uint(attempt-2))
+	if backoffCap > selfSettleRetryBackoffMax || backoffCap <= 0 {
+		backoffCap = selfSettleRetryBackoffMax
 	}
-	delay := time.Duration(rand.Int63n(int64(cap)))
+	delay := time.Duration(rand.Int63n(int64(backoffCap)))
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {
@@ -226,19 +226,44 @@ const selfSettleMaxAttempts = 3
 // headroom over x402.FacilitatorClient's own 20s http.Client timeout,
 // which is what actually bounds how long that call can block; this is a
 // backstop, not the real limiter, so it never needs to be tight.
-const settleCallBudget = 60 * time.Second
+//
+// A var, not a const, like signCallBudget/verifyCallBudget below -- see
+// SetSelfSettleCallBudgetsForTest's doc comment for why.
+var settleCallBudget = 60 * time.Second
 
 // verifyCallBudget is generous headroom for attemptSelfSettle's Verify call,
 // same rationale as settleCallBudget: x402.FacilitatorClient's own http.Client
 // has a 20s timeout, which is what actually bounds Verify; this just needs to
 // not be tighter than that.
-const verifyCallBudget = 20 * time.Second
+var verifyCallBudget = 20 * time.Second
 
 // signCallBudget covers the signing step of a self-settle attempt, which --
 // unlike Verify/Settle above -- makes a real algod SuggestedParams network
 // round trip (wallet.SignUSDCPaymentGroup/Single) with no timeout of its
 // own from the algod client. So this is a real bound, not just a backstop.
-const signCallBudget = 20 * time.Second
+var signCallBudget = 20 * time.Second
+
+// SetSelfSettleCallBudgetsForTest overrides signCallBudget/verifyCallBudget/
+// settleCallBudget together and recomputes SelfSettleRetryBudget to match.
+// Call only from tests. Pass 0 to reset all three to their real defaults.
+//
+// These are vars rather than consts specifically so a test can shrink them
+// to prove attemptSelfSettle's context.WithTimeout wrapping actually bounds
+// a hung Sign/Verify/Settle call, instead of only being able to test the
+// wiring indirectly (a fast transport-level error, or waiting out the real
+// 20s/60s budgets, which no existing test does either).
+func SetSelfSettleCallBudgetsForTest(d time.Duration) {
+	if d <= 0 {
+		signCallBudget = 20 * time.Second
+		verifyCallBudget = 20 * time.Second
+		settleCallBudget = 60 * time.Second
+	} else {
+		signCallBudget = d
+		verifyCallBudget = d
+		settleCallBudget = d
+	}
+	SelfSettleRetryBudget = computeSelfSettleRetryBudget()
+}
 
 // SelfSettleRetryBudget is a sane ceiling a caller MAY wrap around
 // SettlePlatformFee/FundRunReserve with (context.WithTimeout(ctx,
@@ -261,7 +286,16 @@ const signCallBudget = 20 * time.Second
 // (selfSettleMaxAttempts-1 gaps, each capped at selfSettleRetryBackoffMax)
 // for the same reason -- omitting it would let the backoff sleeps
 // themselves eat into the budget meant for actual sign/verify/settle work.
-const SelfSettleRetryBudget = selfSettleMaxAttempts*(signCallBudget+verifyCallBudget+settleCallBudget) + (selfSettleMaxAttempts-1)*selfSettleRetryBackoffMax
+//
+// A var, computed once at package init and recomputed by
+// SetSelfSettleCallBudgetsForTest, rather than a const: it's derived from
+// signCallBudget/verifyCallBudget/settleCallBudget, which are themselves
+// vars (see there for why).
+var SelfSettleRetryBudget = computeSelfSettleRetryBudget()
+
+func computeSelfSettleRetryBudget() time.Duration {
+	return selfSettleMaxAttempts*(signCallBudget+verifyCallBudget+settleCallBudget) + (selfSettleMaxAttempts-1)*selfSettleRetryBackoffMax
+}
 
 func attemptSelfSettle(ctx context.Context, cfg RunPreFundConfig, publicPath, description, errPrefix string, amountUSDMicros int64) (string, error) {
 	resourceURL := cfg.FrontendURL + publicPath

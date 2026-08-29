@@ -8,10 +8,21 @@
 -- CONCURRENTLY: runs is a hot table and migrations run automatically on
 -- backend startup against a live database. A plain CREATE INDEX takes a
 -- lock that blocks concurrent writers (CreateRunWithCooldown/insertRun) for
--- the whole build; CONCURRENTLY avoids that at the cost of a longer build
--- and needing IF NOT EXISTS (a CONCURRENTLY build that fails partway can
--- leave an invalid index behind, and this needs to be safe to retry).
+-- the whole build; CONCURRENTLY avoids that at the cost of a longer build.
 -- Safe outside a transaction block here: this migration driver
 -- (backend/internal/db/db.go) executes each single-statement migration
 -- file as one unwrapped Exec, not inside an explicit transaction.
+--
+-- IF NOT EXISTS is NOT a full retry-safety guarantee, despite appearances:
+-- if a CONCURRENTLY build is interrupted partway (deploy restart, lock
+-- timeout), Postgres leaves an INVALID index under this name. A later run
+-- of this migration then sees the name already taken, skips silently via
+-- IF NOT EXISTS, and reports success -- the index stays permanently
+-- invalid and never delivers the index-only scan this migration exists
+-- for, with no error surfaced again. golang-migrate also marks this
+-- migration version "dirty" on the failed run itself, which blocks every
+-- subsequent app startup until an operator manually intervenes regardless.
+-- Recovery after a failure: `DROP INDEX CONCURRENTLY IF EXISTS
+-- idx_runs_workflow_id_started_at;`, clear golang-migrate's dirty flag for
+-- this version, then let it re-run.
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_runs_workflow_id_started_at ON runs (workflow_id, started_at DESC);

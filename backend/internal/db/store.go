@@ -1493,13 +1493,19 @@ func (s *Store) DeleteOAuthCredential(ctx context.Context, id string) error {
 // exchange for correctness under the pooler this project actually runs
 // behind.
 //
-// hashtext's 64-bit collision space makes two different credential UUIDs
-// hashing to the same lock key astronomically unlikely; a false-positive
-// collision would only ever cause two unrelated refreshes to serialize
-// behind each other, never a correctness issue. Collision against
-// CreateRunWithCooldown's unrelated lock isn't a concern either: that one
-// lives in Postgres's separate two-key advisory lock space (see its own
-// doc comment), so it can't collide with this single-key one regardless.
+// hashtext() returns a 32-bit int4, so this has a 32-bit collision space --
+// not the 64-bit space pg_advisory_xact_lock's bigint argument might
+// suggest. A false-positive collision between two different credential
+// UUIDs would only ever cause two unrelated refreshes to serialize behind
+// each other, never a correctness issue, so this is an acceptable
+// consequence at this scale rather than a negligible one -- worth
+// revisiting (e.g. hashing into a wider key, or the two-key form) if the
+// number of distinct OAuth credentials ever refreshed concurrently grows
+// large enough for that to matter in practice. Collision against
+// CreateRunWithCooldown's unrelated lock isn't a concern either way: that
+// one lives in Postgres's separate two-key advisory lock space (see its
+// own doc comment), so it can't collide with this single-key one
+// regardless of either one's actual key width.
 //
 // Key formula deliberately left as plain hashtext(id) -- unchanged since
 // before CreateRunWithCooldown was introduced. Prefixing it (e.g.
