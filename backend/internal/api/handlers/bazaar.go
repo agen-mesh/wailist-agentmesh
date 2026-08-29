@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -175,6 +176,7 @@ func (d *Deps) runCatalogFetch(done chan struct{}) {
 func (d *Deps) BazaarResources(w http.ResponseWriter, r *http.Request) {
 	all, err := d.catalog(r.Context())
 	if err != nil {
+		log.Printf("bazaar: catalog unavailable: %v", err)
 		respond.Error(w, http.StatusBadGateway, "could not reach the x402 catalog")
 		return
 	}

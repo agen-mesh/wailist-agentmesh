@@ -215,3 +215,47 @@ func TestFetchAllUpstreamErrorIsReturned(t *testing.T) {
 		t.Fatal("want an error when upstream fails, got nil")
 	}
 }
+
+// TestFetchAllDropsCGNATResource guards keepResource sharing
+// netutil.IsPrivateIP rather than a narrower, independently maintained
+// range list. Before this, a literal IP in the CGNAT range (100.64.0.0/10)
+// passed keepResource and showed as pickable in the Bazaar UI, but the real
+// payment path's dial-time check (which does use IsPrivateIP) would reject
+// it once added -- a confusing dead end.
+func TestFetchAllDropsCGNATResource(t *testing.T) {
+	srv := fakeUpstream(t, []map[string]any{
+		upstreamItem("keep-main", "https://good.example/api", mainnet),
+		upstreamItem("drop-cgnat", "https://100.64.0.5/api", mainnet),
+	})
+	defer srv.Close()
+
+	got, err := FetchAll(context.Background(), srv.Client(), srv.URL)
+	if err != nil {
+		t.Fatalf("FetchAll: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "keep-main" {
+		t.Fatalf("want only the non-CGNAT resource kept, got %+v", got)
+	}
+}
+
+// TestFetchAllDropsIPv6Unspecified guards against a regression uncovered
+// while moving IsPrivateIP into netutil: the original hand-rolled CIDR list
+// here (and in engine/nodes) had no entry matching "::" (IPv6 unspecified),
+// unlike the narrower per-package check it replaced (net.IP.IsUnspecified),
+// so a catalog entry literally hosted at "::" would have passed keepResource
+// despite being exactly as unreachable as its IPv4 counterpart 0.0.0.0.
+func TestFetchAllDropsIPv6Unspecified(t *testing.T) {
+	srv := fakeUpstream(t, []map[string]any{
+		upstreamItem("keep-main", "https://good.example/api", mainnet),
+		upstreamItem("drop-unspecified", "https://[::]/api", mainnet),
+	})
+	defer srv.Close()
+
+	got, err := FetchAll(context.Background(), srv.Client(), srv.URL)
+	if err != nil {
+		t.Fatalf("FetchAll: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "keep-main" {
+		t.Fatalf("want only the non-unspecified resource kept, got %+v", got)
+	}
+}

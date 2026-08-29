@@ -19,6 +19,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/agentmesh/backend/internal/netutil"
 )
 
 // AlgorandMainnet and AlgorandTestnet are the CAIP-2 network ids the catalog
@@ -120,11 +122,11 @@ func FetchAll(ctx context.Context, client *http.Client, baseURL string) ([]Resou
 			strings.TrimRight(baseURL, "/"), pageLimit, page*pageLimit)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("bazaar: build request: %w", err)
 		}
 		resp, err := client.Do(req)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("bazaar: request page %d: %w", page, err)
 		}
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 		resp.Body.Close()
@@ -132,13 +134,13 @@ func FetchAll(ctx context.Context, client *http.Client, baseURL string) ([]Resou
 			return nil, fmt.Errorf("bazaar: upstream returned %d", resp.StatusCode)
 		}
 		if readErr != nil {
-			return nil, readErr
+			return nil, fmt.Errorf("bazaar: read page %d body: %w", page, readErr)
 		}
 		var envelope struct {
 			Items []rawResource `json:"items"`
 		}
 		if err := json.Unmarshal(body, &envelope); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("bazaar: unmarshal page %d: %w", page, err)
 		}
 		for _, raw := range envelope.Items {
 			r, ok := normalise(raw)
@@ -277,8 +279,13 @@ func keepResource(u *url.URL, network string) bool {
 	if host == "" || host == "localhost" || strings.HasSuffix(host, ".local") {
 		return false
 	}
+	// Shares netutil.IsPrivateIP (the same check the real payment dial
+	// enforces at connect time) rather than a narrower, independently
+	// maintained list -- a catalog entry that passes this but would be
+	// rejected at dial time is a confusing dead end: it looks pickable in
+	// the Bazaar UI but always fails once added.
 	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() {
+		if netutil.IsPrivateIP(ip) {
 			return false
 		}
 	}

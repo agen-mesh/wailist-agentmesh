@@ -707,6 +707,8 @@ export const usage = {
 };
 
 // -- Helpers --------------------------------------------------------------
-function delay(ms: number) {
+// Exported for the same reason BASE is: lib/bazaar.ts needs the identical
+// mock-mode delay rather than a second copy that can drift out of sync.
+export function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }

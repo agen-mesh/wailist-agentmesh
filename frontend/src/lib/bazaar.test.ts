@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  bazaar,
   resourceToNode,
   formatPrice,
   encodePendingNode,
@@ -23,6 +24,27 @@ const base: BazaarResource = {
   host: "api.example.com",
   supported: false,
 };
+
+// NEXT_PUBLIC_API_URL is unset in this test environment, so BASE (lib/api.ts)
+// is "" -- mock mode. Regression: bazaar.list() used to call fetch()
+// unconditionally with no BASE check, unlike every other resource in
+// lib/api.ts, so a mock/demo deploy (no backend configured) always hit a
+// relative, hostless URL and rendered the "could not load the catalog"
+// error state -- the one page in the app that couldn't run without a live
+// backend.
+describe("bazaar.list in mock mode", () => {
+  it("resolves with fixture data instead of calling fetch", async () => {
+    const page = await bazaar.list({ offset: 0, limit: 20 });
+    expect(page.items.length).toBeGreaterThan(0);
+    expect(page.total).toBe(page.items.length);
+  });
+
+  it("still honors the supported filter against fixture data", async () => {
+    const page = await bazaar.list({ offset: 0, limit: 20, supported: true });
+    expect(page.items.length).toBeGreaterThan(0);
+    expect(page.items.every((r) => r.supported)).toBe(true);
+  });
+});
 
 describe("formatPrice", () => {
   it("renders atomic USDC as dollars", () => {

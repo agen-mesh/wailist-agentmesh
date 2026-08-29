@@ -97,31 +97,48 @@ func Merge(catalog []Resource) []Resource {
 	// becomes a Supported row — otherwise the same real endpoint renders
 	// twice in the pinned section.
 	emitted := make(map[string]bool, len(curated))
+	// Tracks non-curated URLs already appended. Unlike the curated case
+	// above, a plain community entry has no Supported badge to de-duplicate
+	// against, so without this a re-registered non-curated provider (same
+	// real resourceUrl, new catalog id) would render as two indistinguishable
+	// duplicate cards in the community grid rather than one row with a
+	// double-flagged badge. catalog is sorted by settle count descending
+	// (FetchAll), so keeping only the first occurrence keeps whichever
+	// registration is the most established.
+	seenUnsupportedURL := make(map[string]bool, len(catalog))
 	for _, r := range catalog {
 		key := normalizeURLForMatch(r.URL)
-		// !emitted[key], not a `continue` on emitted[key]: a second catalog
-		// entry under an already-emitted curated URL must still appear in
-		// out (with its own id/SettleCount/LastSeen, just not re-flagged
-		// Supported) -- a `continue` here would skip the unconditional
-		// append below too, dropping the entry from the merged catalog
-		// entirely instead of merely not re-pinning it.
-		if c, ok := byURL[key]; ok && !emitted[key] {
-			emitted[key] = true
-			matched[key] = true
-			r.Supported = true
-			r.Provider = c.Provider
-			// A hand-authored description and param set are strictly better
-			// than the publisher's own, which is why the entry is curated.
-			if c.Description != "" {
-				r.Description = c.Description
+		if c, ok := byURL[key]; ok {
+			// !emitted[key], not a `continue` on emitted[key]: a second
+			// catalog entry under an already-emitted curated URL must still
+			// appear in out (with its own id/SettleCount/LastSeen, just not
+			// re-flagged Supported) -- curated re-registrations are real
+			// data, not a duplicate to drop.
+			if !emitted[key] {
+				emitted[key] = true
+				matched[key] = true
+				r.Supported = true
+				r.Provider = c.Provider
+				// A hand-authored description and param set are strictly
+				// better than the publisher's own, which is why the entry
+				// is curated.
+				if c.Description != "" {
+					r.Description = c.Description
+				}
+				if len(c.Params) > 0 {
+					r.Params = c.Params
+				}
+				if c.Method != "" {
+					r.Method = c.Method
+				}
 			}
-			if len(c.Params) > 0 {
-				r.Params = c.Params
-			}
-			if c.Method != "" {
-				r.Method = c.Method
-			}
+			out = append(out, r)
+			continue
 		}
+		if seenUnsupportedURL[key] {
+			continue
+		}
+		seenUnsupportedURL[key] = true
 		out = append(out, r)
 	}
 	for _, c := range curated {

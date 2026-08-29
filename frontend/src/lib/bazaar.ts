@@ -1,4 +1,4 @@
-import { BASE } from "./api";
+import { BASE, delay } from "./api";
 import type { WorkflowNode } from "./types";
 
 // Mirrors backend/internal/bazaar.Resource. amountMicros is integer atomic
@@ -37,6 +37,79 @@ export interface BazaarPage {
   supportedCount: number;
 }
 
+// MOCK_RESOURCES backs list() when NEXT_PUBLIC_API_URL is unset (mock/demo
+// mode, e.g. a frontend-only preview deploy) -- every other resource in
+// lib/api.ts falls back to fixture data in that mode; this was the one page
+// that always hit a relative, hostless URL and rendered the "could not load
+// the catalog" error state instead.
+const MOCK_RESOURCES: BazaarResource[] = [
+  {
+    id: "curated:tendril-run",
+    url: "https://tendrilregister.007575.xyz/x402/run",
+    method: "POST",
+    description:
+      "Run a Python script on rented compute and get its stdout back. No lease needed — Tendril picks the machine, runs the job in a throwaway sandbox, and destroys it.",
+    merchantId: "",
+    network: "algorand-mainnet",
+    testnet: false,
+    amountMicros: 10000,
+    asset: "31566704",
+    payTo: "ZIK7QQE7ZX446TW3PN7PQ5UDZNTY7JI5RYNTIU3LPEYBOSTVWI6PTNSWKI",
+    params: [
+      {
+        name: "payload",
+        type: "string",
+        required: true,
+        description: "Python source to execute. Its stdout is returned as `result`.",
+      },
+    ],
+    settleCount: 128,
+    host: "tendrilregister.007575.xyz",
+    supported: true,
+    provider: "Tendril",
+  },
+  {
+    id: "curated:canix402-quote",
+    url: "https://api.canix402.com/v1/quote",
+    method: "GET",
+    description: "Real-time crypto price quotes across major exchanges.",
+    merchantId: "",
+    network: "algorand-mainnet",
+    testnet: false,
+    amountMicros: 5000,
+    asset: "31566704",
+    payTo: "CANIX402PLACEHOLDERADDRESSXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    params: [
+      {
+        name: "symbol",
+        type: "string",
+        required: true,
+        description: "Trading pair, e.g. BTC-USD.",
+      },
+    ],
+    settleCount: 94,
+    host: "api.canix402.com",
+    supported: true,
+    provider: "CANIX402",
+  },
+  {
+    id: "community:example-weather",
+    url: "https://x402-weather.example.com/forecast",
+    method: "GET",
+    description: "Example community-listed weather forecast endpoint (mock data).",
+    merchantId: "",
+    network: "algorand-mainnet",
+    testnet: false,
+    amountMicros: 1000,
+    asset: "31566704",
+    payTo: "EXAMPLEPLACEHOLDERADDRESSXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    params: [],
+    settleCount: 12,
+    host: "x402-weather.example.com",
+    supported: false,
+  },
+];
+
 export const bazaar = {
   list: async (opts: {
     offset: number;
@@ -44,20 +117,44 @@ export const bazaar = {
     q?: string;
     supported?: boolean;
   }): Promise<BazaarPage> => {
-    const qs = new URLSearchParams({
-      offset: String(opts.offset),
-      limit: String(opts.limit),
-    });
-    if (opts.q) qs.set("q", opts.q);
-    if (opts.supported !== undefined) {
-      qs.set("supported", opts.supported ? "1" : "0");
+    if (BASE) {
+      const qs = new URLSearchParams({
+        offset: String(opts.offset),
+        limit: String(opts.limit),
+      });
+      if (opts.q) qs.set("q", opts.q);
+      if (opts.supported !== undefined) {
+        qs.set("supported", opts.supported ? "1" : "0");
+      }
+      const res = await fetch(`${BASE}/bazaar/resources?${qs}`, {
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "could not load the catalog");
+      return data as BazaarPage;
     }
-    const res = await fetch(`${BASE}/bazaar/resources?${qs}`, {
-      credentials: "include",
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error ?? "could not load the catalog");
-    return data as BazaarPage;
+    await delay(300);
+    let items = MOCK_RESOURCES;
+    if (opts.q) {
+      const q = opts.q.toLowerCase();
+      items = items.filter((r) =>
+        `${r.url} ${r.description} ${r.provider ?? ""} ${r.host}`
+          .toLowerCase()
+          .includes(q),
+      );
+    }
+    if (opts.supported !== undefined) {
+      items = items.filter((r) => r.supported === opts.supported);
+    }
+    const supportedCount = MOCK_RESOURCES.filter((r) => r.supported).length;
+    const page = items.slice(opts.offset, opts.offset + opts.limit);
+    return {
+      items: page,
+      total: items.length,
+      offset: opts.offset,
+      limit: opts.limit,
+      supportedCount,
+    };
   },
 };
 

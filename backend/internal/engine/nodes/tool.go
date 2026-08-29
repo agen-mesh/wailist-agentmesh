@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/agentmesh/backend/internal/models"
+	"github.com/agentmesh/backend/internal/netutil"
 )
 
 // dialAndValidate resolves host, blocks private IPs, then dials the validated address.
@@ -34,7 +35,7 @@ func dialAndValidate(ctx context.Context, network, addr string) (net.Conn, error
 		return nil, fmt.Errorf("no addresses resolved for %s", host)
 	}
 	for _, ia := range ips {
-		if isPrivateIP(ia.IP) {
+		if netutil.IsPrivateIP(ia.IP) {
 			return nil, fmt.Errorf("requests to private/internal addresses are not allowed")
 		}
 	}
@@ -301,32 +302,6 @@ func validateURL(raw string) error {
 	return nil
 }
 
-func isPrivateIP(ip net.IP) bool {
-	private := []string{
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
-		"127.0.0.0/8",
-		"169.254.0.0/16", // link-local
-		"100.64.0.0/10",  // CGNAT
-		"::1/128",        // loopback IPv6
-		"fc00::/7",       // unique local IPv6
-		"fe80::/10",      // link-local IPv6
-		"224.0.0.0/4",    // multicast
-		"240.0.0.0/4",    // reserved
-		"0.0.0.0/8",      // this network
-	}
-	for _, cidr := range private {
-		_, network, err := net.ParseCIDR(cidr)
-		if err != nil {
-			continue
-		}
-		if network.Contains(ip) {
-			return true
-		}
-	}
-	return false
-}
 
 // evalMath evaluates a simple arithmetic expression using the go/constant package.
 // Expression length is capped and evaluation runs with panic recovery.

@@ -111,6 +111,41 @@ func TestMergeDoesNotDuplicateWhenTwoCatalogEntriesShareOneCuratedURL(t *testing
 	}
 }
 
+// TestMergeDedupesNonCuratedCatalogEntriesSharingOneURL guards the
+// non-curated counterpart of TestMergeDoesNotDuplicateWhenTwoCatalogEntriesShareOneCuratedURL:
+// two catalog entries under different ids that share a real resourceUrl
+// which ISN'T a curated one. Unlike the curated case, a plain community
+// entry has no Supported badge to de-duplicate against, so without this
+// fix both would render as indistinguishable duplicate cards in the
+// community grid. Only the first (higher settle count -- FetchAll's own
+// sort order) is kept.
+func TestMergeDedupesNonCuratedCatalogEntriesSharingOneURL(t *testing.T) {
+	const sharedURL = "https://re-registered.example.com/api"
+	catalog := []Resource{
+		{ID: "cat1", URL: sharedURL, Method: "GET", SettleCount: 9},
+		{ID: "cat2-reregistered", URL: sharedURL, Method: "GET", SettleCount: 2},
+	}
+	got := Merge(catalog)
+
+	count := 0
+	var kept Resource
+	for _, r := range got {
+		if r.URL == sharedURL {
+			count++
+			kept = r
+		}
+	}
+	if count != 1 {
+		t.Fatalf("want exactly 1 row for the shared non-curated URL, got %d", count)
+	}
+	if kept.ID != "cat1" {
+		t.Errorf("want the higher-settle-count entry kept, got id %q", kept.ID)
+	}
+	if kept.Supported {
+		t.Errorf("want a non-curated URL to stay unsupported, got Supported=true")
+	}
+}
+
 func TestMergeMatchesURLWithTrailingSlashVariant(t *testing.T) {
 	curatedURL := Curated()[0].URL
 	catalog := []Resource{
