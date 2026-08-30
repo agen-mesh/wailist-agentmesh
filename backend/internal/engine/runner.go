@@ -653,6 +653,35 @@ func (r *Runner) executeNode(
 	run models.Run,
 	wf models.Workflow,
 ) (any, error) {
+	// Resolve {{state.x}} references against this run's snapshot of the
+	// workflow's persisted variables. Applied to a fixed, explicit set of
+	// user-authored fields; ExpandState is the identity function on any
+	// string without a literal "{{state." in it, so a workflow that does
+	// not use state produces byte-identical requests to before.
+	//
+	// Deliberately NOT expanded: APIKey, EmailAPIKey, Secrets and Config —
+	// a credential must never be assembled out of mutable state.
+	//
+	// node is a value copy (executeNode takes models.WorkflowNode by
+	// value), so mutating it here cannot affect wf.Nodes or any other
+	// node's view of the graph.
+	if state := rc.State(); len(state) > 0 {
+		node.URL = nodes.ExpandState(node.URL, state)
+		node.Endpoint = nodes.ExpandState(node.Endpoint, state)
+		node.SystemPrompt = nodes.ExpandState(node.SystemPrompt, state)
+		node.BodyTemplate = nodes.ExpandState(node.BodyTemplate, state)
+		node.EmailTo = nodes.ExpandState(node.EmailTo, state)
+		node.EmailSubject = nodes.ExpandState(node.EmailSubject, state)
+		node.EmailBody = nodes.ExpandState(node.EmailBody, state)
+		if len(node.ParamDefaults) > 0 {
+			expanded := make(map[string]string, len(node.ParamDefaults))
+			for k, v := range node.ParamDefaults {
+				expanded[k] = nodes.ExpandState(v, state)
+			}
+			node.ParamDefaults = expanded
+		}
+	}
+
 	switch node.Type {
 	case models.NodeTypeTrigger:
 		return rc.input, nil
