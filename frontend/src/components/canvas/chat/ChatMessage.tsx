@@ -1,5 +1,6 @@
 "use client";
 import type { ChatMessage as Message } from "./useChatSession";
+import { MarkdownContent } from "./MarkdownContent";
 
 // One turn in the conversation.
 //
@@ -95,8 +96,7 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
                 : "var(--fg)",
             fontSize: 13,
             lineHeight: 1.6,
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
+            overflowWrap: "anywhere",
           }}
         >
           {/* "interrupted" is not "failed": the run may have succeeded, this
@@ -117,7 +117,7 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
               {message.isError ? "run failed" : "interrupted"}
             </span>
           )}
-          {message.text}
+          <MarkdownContent text={message.text} />
         </div>
       )}
 
