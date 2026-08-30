@@ -526,6 +526,15 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run) {
 	}
 	rc := NewRunContext(run.ID, inputJSON)
 
+	// Workflow variables are loaded once per run. A workflow with none
+	// gets an empty map, and ExpandState is a no-op on every field, so
+	// this costs one query and changes nothing else.
+	if vars, err := r.store.GetWorkflowVariables(ctx, wf.ID); err == nil {
+		rc.SetState(vars)
+	} else {
+		log.Printf("load workflow variables: workflow=%s run=%s: %v", wf.ID, run.ID, err)
+	}
+
 	var failed int32
 
 	for stepIdx, level := range levels {
@@ -649,6 +658,22 @@ func (r *Runner) executeNode(
 		return rc.input, nil
 	case models.NodeTypeEnd:
 		return rc.Message(), nil
+	case models.NodeTypeState:
+		result, err := nodes.ExecuteState(ctx, node, wf.ID, r.store, rc, rc.State())
+		if err != nil {
+			return nil, err
+		}
+		// Reflect the write into this run's snapshot so a later node in
+		// the same run reads what this one just stored, without a second
+		// round-trip to the database.
+		if sr, ok := result.(nodes.StateResult); ok {
+			if sr.Op == "delete" {
+				rc.setStateKey(sr.Key, nil)
+			} else {
+				rc.setStateKey(sr.Key, sr.Value)
+			}
+		}
+		return result, nil
 	case models.NodeTypeAgent:
 		provider := attachMap[node.ID].Provider
 		platformMode := provider != nil && provider.KeyMode == "platform"
