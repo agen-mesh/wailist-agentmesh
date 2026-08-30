@@ -663,11 +663,19 @@ func (s *Store) MarkCreditTransactionStatus(ctx context.Context, provider, provi
 // longer one to avoid expiring payments still working through block confirmations. Keeps
 // 'pending' meaningful as "still in progress" rather than accumulating dead rows.
 func (s *Store) ExpireStalePendingTransactions(ctx context.Context, provider string, olderThan time.Duration) (int64, error) {
-	cutoff := time.Now().Add(-olderThan)
+	// The cutoff is computed by the database, not by this process.
+	// created_at is written by Postgres NOW(), so comparing it against an
+	// app-computed time.Now() straddles two clocks: any skew between them
+	// (a containerised Postgres on a macOS VM routinely runs a fraction of
+	// a second ahead of the host) shifts the effective window by that skew,
+	// and a row created moments ago can be newer than a cutoff that was
+	// supposed to already include it. Evaluating both sides in the DB makes
+	// the window exactly olderThan, whatever either clock says.
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE credit_ledger SET status = 'expired'
-		WHERE status = 'pending' AND provider = $1 AND created_at < $2
-	`, provider, cutoff)
+		WHERE status = 'pending' AND provider = $1
+		  AND created_at < NOW() - make_interval(secs => $2)
+	`, provider, olderThan.Seconds())
 	if err != nil {
 		return 0, err
 	}
