@@ -325,11 +325,13 @@ Each run has a channel in the in-process SSE broker (`internal/sse`). The runner
 
 ```bash
 cd backend
-go test ./...           # run all tests
-go test ./... -cover    # with coverage percentages
-go test ./... -v        # verbose — see each test name pass/fail
+go test -p 1 ./...           # run all tests
+go test -p 1 ./... -cover    # with coverage percentages
+go test -p 1 ./... -v        # verbose — see each test name pass/fail
 go test ./internal/engine/nodes/... -run TestX402  # run a specific test or pattern
 ```
+
+`-p 1` matters whenever `TEST_DATABASE_URL` is set (see below): every DB-touching package independently runs golang-migrate's `Up()` against the same database at test-setup time, and Go's default package parallelism can start several of those at once, occasionally deadlocking on `pg_advisory_lock` (`SQLSTATE 40P01`). Running a single package (like the `-run TestX402` example above) never hits this, so it's fine without `-p 1`. CI only applies `-p 1` to the packages that actually touch the database (`internal/api/handlers`, `internal/db`, `internal/engine`, `internal/scheduler`) so everything else still runs in parallel — `-p 1 ./...` here is just the simpler one-command version for local runs.
 
 ### Current coverage by package
 
@@ -388,7 +390,7 @@ go test ./internal/engine/nodes/... -run TestX402  # run a specific test or patt
 Tests in `internal/db` and several handler/runner tests are skipped unless `TEST_DATABASE_URL` is set:
 
 ```bash
-TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/agentmesh_test go test ./...
+TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/agentmesh_test go test -p 1 ./...
 ```
 
 These tests create and tear down their own schema, so they're safe to run against a throwaway local database. Do **not** point them at a production database.
@@ -437,7 +439,7 @@ Two low-effort PRs flagged as spam earn a Hacktoberfest disqualification for the
 2. **Fork and branch** — name your branch something descriptive (`feat/memory-node`, `fix/sse-timeout`).
 3. **Keep PRs focused** — one thing per PR. A bug fix doesn't need a refactor alongside it.
 4. **Match the existing style** — no formatter changes, no linting rule updates, no unrelated file edits.
-5. **Test what you touch** — add or update `_test.go` files for whatever you change. Run `go test ./...` before opening a PR.
+5. **Test what you touch** — add or update `_test.go` files for whatever you change. Run `go test -p 1 ./...` before opening a PR.
 6. **Open the PR against `master`**.
 
 For bugs: include what you expected, what happened, and how to reproduce it.
