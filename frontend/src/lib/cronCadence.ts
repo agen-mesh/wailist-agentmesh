@@ -64,12 +64,30 @@ export function cadenceToCron(
   if (value.cadence === "weekly") {
     return `${minute} ${hour} * * ${local.getUTCDay()}`;
   }
-  // Monthly. Cap 1-28: the picker (Task 8) already restricts input to this
-  // range specifically so a plain cron day-of-month field can never silently
-  // skip a short month -- a rollover across the UTC day boundary could
-  // otherwise push a chosen day 28 to UTC day 29, reopening that exact gap
-  // in a non-leap February. Clamped back into range instead.
-  const dom = Math.min(28, Math.max(1, local.getUTCDate()));
+  // Monthly: use the day the UTC rollover actually lands on -- like
+  // weekly's local.getUTCDay() above, which never clamps -- so a chosen
+  // local day near the UTC boundary maps to the correct instant instead of
+  // silently drifting by a day for the common case. The picker (Task 8)
+  // only offers 1-28, so a rollover here can only ever move the day by at
+  // most one: to dayOfMonth-1 (or, only when dayOfMonth was 1, into the
+  // PREVIOUS month's last day -- a different month's day entirely, not a
+  // same-month rollover), or to dayOfMonth+1 (at most 29, only reachable
+  // when dayOfMonth was 28). Cron's day-of-month field has no "nearest
+  // valid day" fallback -- day 29 simply never fires in a non-leap
+  // February -- so only THOSE two specific cases still fall back to the
+  // originally-picked day; every other rollover (the vast majority of
+  // timezone/time combinations) keeps the day the user actually selected.
+  // Reaching here means cadence === "monthly", which the monthly branch
+  // above only entered (and thus only set `local` off) when dayOfMonth was
+  // defined -- the fallback below just satisfies the type, it never
+  // actually changes behavior for a well-formed CadenceValue.
+  const dayOfMonth = value.dayOfMonth ?? local.getDate();
+  let dom = local.getUTCDate();
+  const rolledPast28 = dom === dayOfMonth + 1 && dom > 28;
+  const rolledIntoPreviousMonth = dayOfMonth === 1 && dom > 2;
+  if (rolledPast28 || rolledIntoPreviousMonth) {
+    dom = dayOfMonth;
+  }
   return `${minute} ${hour} ${dom} * *`;
 }
 

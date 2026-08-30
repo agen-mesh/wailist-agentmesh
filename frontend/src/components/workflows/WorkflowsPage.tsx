@@ -759,12 +759,15 @@ function RowMenu({
                   setFreshSchedule(null);
                   setScheduleFetchError(null);
                   setScheduleLoading(true);
-                  // Captured now: if the popover is closed/reopened (or this
-                  // row is deleted) before this resolves, resetSchedule/
-                  // unmount will have bumped the ref past this value, and
-                  // every branch below becomes a no-op instead of clobbering
-                  // whatever's current with a stale response.
-                  const fetchId = scheduleFetchIdRef.current;
+                  // Bumped (not just read) on every open, not only by
+                  // resetSchedule/unmount: the "back" button returns to the
+                  // menu view without calling resetSchedule, so two Schedule
+                  // opens in the same popover session (open -> back -> open
+                  // again) would otherwise capture the SAME fetchId and a
+                  // stale first response could still clobber the second
+                  // fetch's state. Bumping here guarantees every open gets
+                  // an id no earlier in-flight request can match.
+                  const fetchId = ++scheduleFetchIdRef.current;
                   workflowsApi
                     .get(workflowId)
                     .then((wf) => {

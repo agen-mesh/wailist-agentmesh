@@ -210,6 +210,16 @@ export function useRunTranscript({
     elapsedRef.current = elapsed ?? 0;
   }, [elapsed]);
 
+  // Captured once, at mount only (a lazy useState initializer, like
+  // `cached` above, runs exactly once) -- the cached transcript's own run
+  // id, if this hook mounted with no live run at all (a page reload; by
+  // the time the render-time block below runs, `cached` itself has already
+  // gone back to null because `runId` is no longer null on that render). A
+  // ref would read identically here, but reading ref.current during render
+  // is exactly what react-hooks/refs exists to flag -- state is the
+  // sanctioned way to read a render-time value that must not change again.
+  const [cachedRunIdOnMount] = useState(() => cached?.runId ?? null);
+
   // Reset the transcript the moment a new run starts. This host used to be
   // remounted on key={runId} for exactly this reset, which also tore down
   // and rebuilt everything nested inside it -- including CanvasGraph, wiping
@@ -225,12 +235,23 @@ export function useRunTranscript({
   // return` below.
   const [transcriptRunId, setTranscriptRunId] = useState(runId);
   if (runId && runId !== transcriptRunId) {
+    // Resuming a dead-letter restored from the cache (no live run existed
+    // in this session until CanvasPage's handleResume fell back to the
+    // dead-letter's own runId) is NOT a new run starting -- it's the same
+    // run this hook already has a transcript for, from `cached` above.
+    // Wiping logs/deadLetters here would blank the console for the whole
+    // resumed run's duration, exactly the "wiping already-completed steps"
+    // behavior this hook exists to avoid. done/stopped still reset: the
+    // run is genuinely back in progress, cached or not.
+    const resumingCachedRun = runId === cachedRunIdOnMount;
     setTranscriptRunId(runId);
-    setLogs([]);
-    setElapsed(null);
     setDone(false);
     setStopped(false);
-    setDeadLetters([]);
+    if (!resumingCachedRun) {
+      setLogs([]);
+      setElapsed(null);
+      setDeadLetters([]);
+    }
   }
 
   // onRunComplete is invoked from inside the SSE effect, which must stay keyed
@@ -311,12 +332,19 @@ export function useRunTranscript({
     const mergeDBLogs = (dbLogs: RunLogRecord[]) => {
       setLogs((prev) => {
         // Merge, never replace: a stream-delivered entry carries the node's
-        // full output, so it always wins over the stored row.
-        const seen = new Set(prev.map((l) => l.nodeId));
+        // full output, so it always wins over the stored row. Deduped by
+        // (nodeId, status), not nodeId alone: a resumed node re-executes and
+        // can log a SECOND entry for the same nodeId with a DIFFERENT status
+        // (e.g. failed, then success) -- dedup-by-nodeId-only would see the
+        // node already present from the first attempt and drop the second
+        // attempt's row entirely, permanently hiding a resumed node's
+        // success (and its dead-letter pill) whenever the live SSE
+        // connection missed that event (see the drop-window note above).
+        const seen = new Set(prev.map((l) => `${l.nodeId}:${l.status}`));
         const missing = dbLogs
           .filter(
             (l) =>
-              !seen.has(l.nodeId) &&
+              !seen.has(`${l.nodeId}:${l.status}`) &&
               (l.status === "success" || l.status === "failed"),
           )
           .map((l) => ({

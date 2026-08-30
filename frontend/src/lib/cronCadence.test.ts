@@ -60,6 +60,16 @@ describe("cadenceToCron", () => {
     expect(dom).toBeLessThanOrEqual(28);
     expect(dom).toBeGreaterThanOrEqual(1);
   });
+
+  it("preserves the exact day picked for a non-edge rollover, not just the 1-28 range", () => {
+    // day 15, 21:00 EST rolls to day 16 UTC -- must stay 16. The clamp above
+    // exists ONLY to stop day 28 rolling into the nonexistent Feb 29; every
+    // other day's rollover must round-trip to the day it actually landed on,
+    // not silently snap back to the originally-picked day.
+    expect(
+      cadenceToCron({ cadence: "monthly", time: "21:00", dayOfMonth: 15 }, NOW),
+    ).toBe("0 2 16 * *");
+  });
 });
 
 describe("cronToCadence", () => {
