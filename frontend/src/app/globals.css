@@ -25,6 +25,8 @@
   --warm-soft: rgba(255, 181, 71, 0.12);
 
   --danger: #ff5c5c;
+  --danger-soft: rgba(255, 92, 92, 0.1);
+  --danger-line: rgba(255, 92, 92, 0.35);
   --info: #6ea8ff;
 
   --r-1: 4px;

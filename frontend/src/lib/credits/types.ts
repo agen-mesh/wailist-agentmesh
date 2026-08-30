@@ -1,10 +1,15 @@
 import type { PaymentMethod } from "@/components/checkout/types";
 
-// Frontend-only credit wallet model. This is a mock persisted to localStorage --
-// there is no backend, so balances and history are per-browser until a real API
-// lands. Amounts paid are INR; credits are denominated in USD (via a mock FX).
+// Credit wallet model. With a backend configured, the balance comes from
+// GET /credits/balance and history from GET /credits/history, so both are
+// per-account rather than per-browser, and only the auto-recharge preference
+// stays in localStorage. Without one, history and preferences fall back to a
+// per-browser localStorage mock. Amounts paid are INR; credits are denominated
+// in USD (via a mock FX in mock mode).
 
-export type PurchaseStatus = "paid";
+// "paid" is a completed, credited purchase. Real DB-backed history can also be
+// pending (awaiting confirmation), failed/expired, or refunded.
+export type PurchaseStatus = "paid" | "pending" | "failed" | "refunded";
 
 export interface Purchase {
   id: string;

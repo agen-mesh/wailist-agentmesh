@@ -4,8 +4,13 @@ import { useCredits } from "@/lib/credits/store";
 // Reactive low-balance warning driven by the mock wallet: shows when the balance
 // drops below the auto-recharge threshold. Mock only -- no real recharge occurs.
 export function LowBalanceBanner({ onTopUp }: { onTopUp: () => void }) {
-  const { balanceUSD, autoRecharge, hydrated } = useCredits();
+  const { balanceUSD, autoRecharge, hydrated, loadError } = useCredits();
 
+  // A failed load leaves balanceUSD at its 0 default, which sits below every
+  // threshold — without this guard the banner tells the user they're nearly out
+  // of credits when we simply couldn't reach the API. The billing page owns the
+  // error message; here the honest move is to say nothing.
+  if (loadError) return null;
   if (!hydrated || balanceUSD >= autoRecharge.thresholdUSD) return null;
 
   return (
