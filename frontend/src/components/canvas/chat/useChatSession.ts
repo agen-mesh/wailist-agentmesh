@@ -58,6 +58,11 @@ export interface ChatSession {
     id: string,
     patch: Omit<ChatMessage, "id" | "sender" | "ts">,
   ) => void;
+  /**
+   * Re-opens the turn bound to this run so a resumed attempt's eventual
+   * outcome can settle it again. See reopenTurnForRunIn's doc comment.
+   */
+  reopenTurnForRun: (runId: string) => void;
   /** Clears the transcript and starts a new session id. */
   reset: () => void;
   hydrated: boolean;
@@ -131,6 +136,32 @@ export function attachRunIn(
       runId,
     },
   ];
+}
+
+/**
+ * Re-open the turn bound to `runId` so a later completion can settle it
+ * again, undoing settleIn's `pending: false`.
+ *
+ * A resumed run reaches a terminal state a SECOND time for the same run id
+ * (useRunTranscript resets its done/stopped state when the caller bumps
+ * `attempt` after a successful resume, then flips `done` true again once the
+ * resumed attempt finishes). Without this, completeTurnForRun's second call
+ * for that run id is a silent no-op -- settleIn only ever touches a `pending`
+ * turn, and the first attempt's completion already cleared that flag -- so
+ * the chat bubble stays frozen on the pre-resume outcome (e.g. "run failed")
+ * even after the resumed attempt goes on to succeed.
+ *
+ * Exported for tests, same as settleIn/attachRunIn.
+ */
+export function reopenTurnForRunIn(
+  messages: ChatMessage[],
+  runId: string,
+): ChatMessage[] {
+  const idx = messages.findIndex((m) => m.runId === runId);
+  if (idx < 0 || messages[idx].pending) return messages;
+  const next = [...messages];
+  next[idx] = { ...next[idx], pending: true };
+  return next;
 }
 
 /**
@@ -287,6 +318,10 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
     [settle],
   );
 
+  const reopenTurnForRun = useCallback((runId: string) => {
+    setMessages((prev) => reopenTurnForRunIn(prev, runId));
+  }, []);
+
   const reset = useCallback(() => {
     setMessages([]);
     setSessionId(newSessionId());
@@ -299,6 +334,7 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
     attachRun,
     completeTurnForRun,
     completeTurnById,
+    reopenTurnForRun,
     reset,
     hydrated,
   };

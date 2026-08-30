@@ -17,7 +17,11 @@ interface ConsolePanelProps {
   elapsed: number | null;
   done: boolean;
   deadLetters: DeadLetterRun[];
-  onResume: () => void;
+  // Takes the dead-letter's own runId rather than relying solely on the
+  // caller's live session state: a dead-letter row restored from
+  // useRunTranscript's cache (see CachedRun.deadLetters) can render with no
+  // live runId in this session at all -- see CanvasPage's handleResume.
+  onResume: (runId: string) => void;
 }
 
 const HEIGHT_KEY = "agentmesh_console_height";
@@ -385,7 +389,7 @@ function DeadLetterRow({
   onResume,
 }: {
   dl: DeadLetterRun;
-  onResume: () => void;
+  onResume: (runId: string) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   return (
@@ -416,7 +420,7 @@ function DeadLetterRow({
               return;
             }
             setConfirming(false);
-            onResume();
+            onResume(dl.runId);
           }}
           onBlur={() => setConfirming(false)}
           style={{

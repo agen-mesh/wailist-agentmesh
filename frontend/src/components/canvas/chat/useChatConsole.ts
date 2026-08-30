@@ -62,11 +62,33 @@ export function useChatConsole({
   // This effect has no access to the id startTurn returned to handleSend's
   // caller, so it binds by predicate via attachRun instead (see
   // useChatSession's attachRun for why that's still correct).
-  const { attachRun, completeTurnForRun, completeTurnById, hydrated } = session;
+  const {
+    attachRun,
+    completeTurnForRun,
+    completeTurnById,
+    reopenTurnForRun,
+    hydrated,
+  } = session;
   useEffect(() => {
     if (!runId || !hydrated) return;
     attachRun(runId);
   }, [runId, hydrated, attachRun]);
+
+  // A resume bumps `attempt` on the SAME runId (see CanvasPage's
+  // handleResume / useRunTranscript's attempt-keyed reconnect), which takes
+  // the transcript's `done` from true back to false and eventually true
+  // again. But the chat turn this runId is bound to already settled
+  // (pending: false) from the FIRST attempt's completion -- without
+  // reopening it here, the "fill that turn in" effect below calls
+  // completeTurnForRun a second time and it silently no-ops (settleIn only
+  // ever touches a pending turn), leaving the bubble frozen on the
+  // pre-resume outcome even after the resumed attempt succeeds.
+  const prevAttemptRef = useRef(attempt);
+  useEffect(() => {
+    if (attempt === undefined || attempt === prevAttemptRef.current) return;
+    prevAttemptRef.current = attempt;
+    if (runId) reopenTurnForRun(runId);
+  }, [attempt, runId, reopenTurnForRun]);
 
   // Fill that turn in once the run reaches a terminal state. Guarded on runId
   // so a transcript restored from cache (which arrives already `done`) can't

@@ -101,6 +101,26 @@ function totalSpend(logs: LogEvent[]): number {
   return total;
 }
 
+/**
+ * Collapse `logs` to each node's most recent entry, in original (chronological)
+ * order.
+ *
+ * A resumed run re-executes any node that previously dead-lettered, which
+ * logs a SECOND entry for that same node id rather than replacing the first
+ * (see engine.Runner.execute -> InsertRunLog: every attempt gets its own
+ * row, GetRunLogs returns the full history). Without this collapse, a node
+ * that failed on attempt 1 and then succeeded on the resumed attempt still
+ * has a "failed" entry sitting in `logs` -- and the headline/answer search
+ * below, which only cares about the FINAL outcome per node, would find that
+ * stale failure and report the whole run as failed even though it went on
+ * to succeed.
+ */
+function latestPerNode(logs: LogEvent[]): LogEvent[] {
+  const lastIndexOfNode = new Map<string, number>();
+  logs.forEach((l, i) => lastIndexOfNode.set(l.nodeId, i));
+  return logs.filter((l, i) => lastIndexOfNode.get(l.nodeId) === i);
+}
+
 export function resolveReply(logs: LogEvent[]): RunSummary {
   const toolCount = logs.filter(
     (l) =>
@@ -110,9 +130,14 @@ export function resolveReply(logs: LogEvent[]): RunSummary {
   ).length;
   const spendUSD = totalSpend(logs);
 
+  // Only each node's final outcome decides the headline/answer -- see
+  // latestPerNode's doc comment for why a raw scan over `logs` is wrong once
+  // a resumed run can log the same node twice.
+  const final = latestPerNode(logs);
+
   // A failure is the headline: showing an earlier node's partial output as if
   // it were the answer would be a lie about what happened.
-  const failed = [...logs].reverse().find((l) => l.status === "failed");
+  const failed = [...final].reverse().find((l) => l.status === "failed");
   if (failed) {
     return {
       text: errorFromOutput(failed.output),
@@ -124,7 +149,7 @@ export function resolveReply(logs: LogEvent[]): RunSummary {
 
   // The agent's answer is the reply whenever there is one. Search backwards:
   // a workflow with several agents ends on the last one to speak.
-  const agent = [...logs]
+  const agent = [...final]
     .reverse()
     .find((l) => l.nodeType === "agent" && l.status === "success");
   if (agent) {
@@ -137,7 +162,7 @@ export function resolveReply(logs: LogEvent[]): RunSummary {
   // No agent ran (or it answered with nothing) -- fall back to whatever the
   // last successful step produced, so a non-agent workflow still says
   // something rather than rendering an empty bubble.
-  const last = [...logs].reverse().find((l) => l.status === "success");
+  const last = [...final].reverse().find((l) => l.status === "success");
   const fallback = last ? textFromOutput(last.output) : "";
   return {
     text: fallback.trim() === "" ? "The run finished." : fallback,

@@ -283,26 +283,34 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     setTimeout(() => setToast(null), 2400);
   }, []);
 
-  const handleResume = useCallback(async () => {
-    // Reachable now that a dead-letter row can be restored from a cached
-    // transcript (see useRunTranscript's CachedRun.deadLetters) with no
-    // live runId in this session -- give real feedback instead of a silent
-    // no-op, since the button looks clickable either way.
-    if (!runId) {
-      showToast("Nothing to resume — start the workflow again to retry it.");
-      return;
-    }
-    try {
-      await runsApi.resume(runId);
-      setRunning(true);
-      setResumeAttempt((a) => a + 1);
-      showToast("Run resumed");
-    } catch (err) {
-      showToast(
-        `Resume failed · ${err instanceof Error ? err.message : "unknown error"}`,
-      );
-    }
-  }, [runId, showToast]);
+  const handleResume = useCallback(
+    async (deadLetterRunId: string) => {
+      // A dead-letter row can be restored from a cached transcript (see
+      // useRunTranscript's CachedRun.deadLetters) with no live runId in this
+      // session -- `runId` state is reset to null on every page load and
+      // only ever set by starting a fresh run. deadLetterRunId (the row's
+      // own runId, always populated by the backend) is the fallback so
+      // resuming after a reload actually resumes the right run instead of
+      // silently no-opping while the button still looks clickable.
+      const targetRunId = runId ?? deadLetterRunId;
+      if (!targetRunId) {
+        showToast("Nothing to resume — start the workflow again to retry it.");
+        return;
+      }
+      try {
+        await runsApi.resume(targetRunId);
+        setRunId(targetRunId);
+        setRunning(true);
+        setResumeAttempt((a) => a + 1);
+        showToast("Run resumed");
+      } catch (err) {
+        showToast(
+          `Resume failed · ${err instanceof Error ? err.message : "unknown error"}`,
+        );
+      }
+    },
+    [runId, showToast],
+  );
 
   const onUpdate = useCallback((n: WorkflowNode) => {
     setWorkflow((wf) =>

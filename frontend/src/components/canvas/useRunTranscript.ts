@@ -529,14 +529,20 @@ export function useRunTranscript({
   // live Resume button, right alongside its own "success" row. The node's
   // own execution history in `logs` is the authoritative signal here, not
   // the never-cleared backend table.
-  const visibleDeadLetters = useMemo(
-    () =>
-      deadLetters.filter(
-        (dl) =>
-          !logs.some((l) => l.nodeId === dl.nodeId && l.status === "success"),
-      ),
-    [deadLetters, logs],
-  );
+  //
+  // A node can also dead-letter more than once (resumed, failed again) --
+  // GetDeadLetterRuns returns every one of those rows too (ordered oldest
+  // first), so without collapsing to one-per-node here a still-failing node
+  // would render two "dead-lettered" pills with two live Resume buttons
+  // instead of just its latest attempt.
+  const visibleDeadLetters = useMemo(() => {
+    const latestByNode = new Map<string, DeadLetterRun>();
+    for (const dl of deadLetters) latestByNode.set(dl.nodeId, dl);
+    return Array.from(latestByNode.values()).filter(
+      (dl) =>
+        !logs.some((l) => l.nodeId === dl.nodeId && l.status === "success"),
+    );
+  }, [deadLetters, logs]);
 
   // Cache the finished transcript for this workflow, including its
   // (already-resolved) dead-letters -- otherwise a reload mid-dead-letter
