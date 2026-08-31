@@ -133,7 +133,8 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
           everything technical about the turn, compressed to one dim line that
           opens the full logs -- the speaker button sits beside it rather than
           in its own row so it doesn't read as a third, separate control. */}
-      {!message.pending && (parts.length > 0 || canShowLogs || canSpeak) && (
+      {!message.pending &&
+        (parts.length > 0 || canShowLogs || (canSpeak && playback.supported)) && (
         <div
           style={{
             alignSelf: "flex-start",

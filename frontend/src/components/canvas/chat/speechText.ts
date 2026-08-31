@@ -10,7 +10,11 @@
 const FENCED_CODE = /```[\s\S]*?```/g;
 const INLINE_CODE = /`([^`]+)`/g;
 const LATEX_BLOCK = /\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]/g;
-const LATEX_INLINE = /\$[^$\n]+\$|\\\([\s\S]*?\\\)/g;
+// A closing `$` immediately followed by a digit is almost always a second,
+// unrelated currency amount rather than the end of the same LaTeX span (e.g.
+// "Gold is $2,640, silver is $30." has no math in it at all) — this is the
+// same heuristic Pandoc uses to disambiguate inline math from prices.
+const LATEX_INLINE = /\$[^$\n]+\$(?!\d)|\\\([\s\S]*?\\\)/g;
 const IMAGE = /!\[([^\]]*)\]\([^)]*\)/g;
 const LINK = /\[([^\]]*)\]\([^)]*\)/g;
 const HEADING = /^ {0,3}#{1,6}\s+/gm;

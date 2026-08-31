@@ -8,6 +8,12 @@ describe("toSpeechText", () => {
     );
   });
 
+  it("leaves two separate dollar amounts alone instead of reading them as one equation", () => {
+    expect(toSpeechText("Gold is $2,640, silver is $30.")).toBe(
+      "Gold is $2,640, silver is $30.",
+    );
+  });
+
   it("replaces a fenced code block with a spoken placeholder", () => {
     const raw = "Here you go:\n```js\nconst x = 1;\n```\nThat's it.";
     expect(toSpeechText(raw)).toBe("Here you go:\n(code omitted)\nThat's it.");
