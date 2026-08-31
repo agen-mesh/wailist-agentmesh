@@ -1,6 +1,6 @@
 # Plan — Chat rail voice input (STT) and response playback (TTS)
 
-Status: proposed, nothing implemented yet.
+Status: reviewed, ready to implement.
 Branch base: `master` @ `ed8d69d`.
 Closes: #108.
 
@@ -75,13 +75,29 @@ Key implementation calls, each with the reasoning:
   `speechSynthesis.cancel()` so switching workflows doesn't leave an old reply talking over the
   new page. Recognition sessions are already one-shot and self-terminate; no equivalent cleanup
   needed there, but the hook still cancels any in-flight session on unmount for safety.
+- **Stop dictation on send.** `ChatPane`'s `submit()` (lines 30-35) clears `draft` to `""` and
+  sends. Without an explicit stop, a `SpeechRecognition` session left running past a Send tap
+  would deliver its next `onresult` into the now-empty `draft` after the message is already
+  gone — the transcribed tail reappears in the box with nothing to attach it to. `submit()` must
+  call the STT hook's `stop()` before clearing `draft`, so any in-flight session is torn down as
+  part of sending. (Found in review; not in the original issue text, but a direct consequence of
+  the composer's existing clear-on-submit behavior once dictation shares the same `draft`.)
 - **No new TypeScript deps for `SpeechRecognition` types.** `speechSynthesis`/
   `SpeechSynthesisUtterance` are already in `lib.dom.d.ts` (`tsconfig.json` has `"lib": ["dom",
   ...]`), so TTS needs no ambient types. `SpeechRecognition` is *not* in the standard DOM lib —
-  declare a minimal local ambient interface (just the members actually used: `continuous`,
-  `interimResults`, `lang`, `start`, `stop`, `onresult`, `onerror`, `onend`, plus the result
-  event shapes) in the hook file rather than pulling in a `@types/dom-speech-recognition`
-  package, since only a handful of members are touched.
+  declare a minimal ambient interface (just the members actually used: `continuous`,
+  `interimResults`, `lang`, `start`, `stop`, `onresult`, `onerror`, `onend`, plus the result event
+  shapes) rather than pulling in a `@types/dom-speech-recognition` package, since only a handful
+  of members are touched. Put it in its own `frontend/src/types/speech-recognition.d.ts`, matching
+  the repo's one existing ambient-type precedent (`frontend/src/types/cashfree-js.d.ts`), instead
+  of inlining it in the hook file.
+- **Accepted edge case: `busy` flipping true mid-dictation.** The mic button is disabled by the
+  same `busy` condition the textarea already uses (lines 132-133), which blocks *starting* a new
+  recording while a run is in flight, but doesn't stop a session already recording if `busy`
+  flips true underneath it (e.g. a stranded turn recovering from a reload). Low-probability and
+  self-resolving (the session still ends and appends to `draft` normally, it's just not sendable
+  until `busy` clears) — left unhandled deliberately rather than adding a `busy`-triggered
+  `stop()` for a case this narrow.
 
 ## Files
 
@@ -101,9 +117,10 @@ logic out of components into small `.ts`/`.ts` hook modules with co-located test
 - **`speechText.test.ts`** — vitest, same style as `resolveReply.test.ts`: cases for fenced code,
   inline code, bold/italic, links, headers, lists, LaTeX, and a "plain sentence passes through
   unchanged" baseline.
-- **`useSpeechRecognition.ts`** — hook wrapping `SpeechRecognition`. Local ambient
-  `SpeechRecognition`/`SpeechRecognitionEvent`/`SpeechRecognitionErrorEvent` interfaces at the
-  top (only the members used). Returns `{ supported, listening, error, start, stop }`; takes an
+- **`useSpeechRecognition.ts`** — hook wrapping `SpeechRecognition`, typed against the ambient
+  `SpeechRecognition`/`SpeechRecognitionEvent`/`SpeechRecognitionErrorEvent` interfaces declared
+  in `frontend/src/types/speech-recognition.d.ts` (new — see Files/edited below). Returns
+  `{ supported, listening, error, start, stop }`; takes an
   `onResult: (finalText: string) => void` callback the caller uses to append into its draft
   state. Internals: construct one recognition instance per `start()` call (Web Speech
   `SpeechRecognition` objects are typically single-use per session in practice), `continuous =
@@ -124,6 +141,13 @@ logic out of components into small `.ts`/`.ts` hook modules with co-located test
   ends up trivial enough not to earn its own file — decide during implementation once the actual
   line count is visible.)
 
+New (elsewhere):
+
+- **`frontend/src/types/speech-recognition.d.ts`** — ambient `SpeechRecognition` /
+  `SpeechRecognitionEvent` / `SpeechRecognitionErrorEvent` interfaces and the
+  `Window.SpeechRecognition`/`Window.webkitSpeechRecognition` augmentation, following the
+  existing `frontend/src/types/cashfree-js.d.ts` precedent rather than a package.
+
 Edited:
 
 - **`frontend/src/components/ui/index.tsx`** — add `IconMic` (mic body + stand, following the
@@ -139,7 +163,9 @@ Edited:
   the button's presence on `supported`, show a recording indicator (new `.chat-mic--recording`
   class reusing the `pulse` keyframe, mirroring `.chat-thinking-dot`) while `listening`, and
   render the inline permission-error line when `error` is set. Disable the mic button under the
-  same `busy` condition the textarea already uses.
+  same `busy` condition the textarea already uses. `submit()` (lines 30-35) also calls the STT
+  hook's `stop()` before `setDraft("")`, so a Send tap during dictation can't have a stray final
+  result land in the box after the message is already gone (the fix from plan review).
 - **`frontend/src/components/canvas/chat/ChatMessage.tsx`** — assistant branch (lines 65-153).
   Add a speaker `<button>` as a sibling to the existing activity-strip button (lines 127-151),
   gated on `!message.pending && message.text.trim() !== ""`. On click, call
@@ -177,8 +203,9 @@ coverage and needs no browser to verify.
 
 ### M3 — STT mic input in the composer
 
-`useSpeechRecognition.ts`, `IconMic`, `ChatPane.tsx` button + recording state + permission-error
-line, `.chat-mic`/`.chat-mic--recording` CSS. Independent of M1/M2.
+`frontend/src/types/speech-recognition.d.ts`, `useSpeechRecognition.ts`, `IconMic`,
+`ChatPane.tsx` button + recording state + permission-error line + the `submit()` stop-on-send
+fix, `.chat-mic`/`.chat-mic--recording` CSS. Independent of M1/M2.
 
 ## Verification
 
@@ -218,3 +245,15 @@ a real browser pass:
 - Should there be a per-message rate/voice preference, or a global mute? Out of scope for this
   pass per the issue's "zero-dependency first pass" framing; flag as a natural follow-up if
   requested later.
+
+## Review log
+
+Reviewed against the live repo before implementation: every file/line citation re-checked
+(composer, message render, rail mount, `CanvasPage.tsx:665-667` wiring, `globals.css` chat
+section, `vitest.config.ts`'s `.test.ts`-only include, `IconStop`'s existing use at
+`CanvasPage.tsx:877`, absence of any existing speech-related code/types/deps). One real
+correctness gap found and fixed above: `submit()` didn't stop an in-flight dictation session,
+which would have leaked a stray transcript into the box after a message was already sent. Two
+nits folded in: the ambient `SpeechRecognition` types moved to their own `frontend/src/types/`
+file to match the repo's existing convention, and the `busy`-mid-dictation edge case is now
+explicitly called out as an accepted, deliberately-unhandled risk rather than a silent gap.
