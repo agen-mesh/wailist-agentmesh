@@ -602,7 +602,6 @@ function RowMenu({
   onDelete,
   deployed,
   scheduleCron,
-  scheduleNextRunAt,
   onSetSchedule,
   onClearSchedule,
 }: {
@@ -610,7 +609,6 @@ function RowMenu({
   onDelete: () => void;
   deployed: boolean;
   scheduleCron?: string;
-  scheduleNextRunAt?: string;
   onSetSchedule: (cron: string) => Promise<void>;
   onClearSchedule: () => Promise<void>;
 }) {
@@ -650,6 +648,43 @@ function RowMenu({
     setScheduleLoading(false);
     setScheduleFetchError(null);
   }, []);
+
+  // Shared by the "Schedule" menu item and the error state's Retry button
+  // below: the row's own scheduleCron/scheduleNextRunAt props come from
+  // workflowsApi.list(), which the backend never populates, so this is the
+  // only way to ever actually get the real schedule.
+  const fetchSchedule = useCallback(() => {
+    setFreshSchedule(null);
+    setScheduleFetchError(null);
+    setScheduleLoading(true);
+    // Bumped (not just read) on every open, not only by resetSchedule/
+    // unmount: the "back" button returns to the menu view without calling
+    // resetSchedule, so two Schedule opens in the same popover session
+    // (open -> back -> open again) would otherwise capture the SAME
+    // fetchId and a stale first response could still clobber the second
+    // fetch's state. Bumping here guarantees every open gets an id no
+    // earlier in-flight request can match.
+    const fetchId = ++scheduleFetchIdRef.current;
+    workflowsApi
+      .get(workflowId)
+      .then((wf) => {
+        if (scheduleFetchIdRef.current !== fetchId) return;
+        setFreshSchedule({
+          cron: wf.scheduleCron,
+          nextRunAt: wf.scheduleNextRunAt,
+        });
+      })
+      .catch((e) => {
+        if (scheduleFetchIdRef.current !== fetchId) return;
+        setScheduleFetchError(
+          e instanceof Error ? e.message : "could not load schedule",
+        );
+      })
+      .finally(() => {
+        if (scheduleFetchIdRef.current !== fetchId) return;
+        setScheduleLoading(false);
+      });
+  }, [workflowId]);
 
   // Invalidate any in-flight fetch on unmount too (e.g. this row's workflow
   // was deleted while its schedule request was still pending).
@@ -751,44 +786,7 @@ function RowMenu({
                 onClick={() => {
                   if (!deployed) return;
                   setView("schedule");
-                  // The row's scheduleCron/scheduleNextRunAt props come from
-                  // workflowsApi.list(), which the backend never populates --
-                  // always fetch the authoritative single-workflow record so
-                  // the popover doesn't show stale defaults (or silently
-                  // overwrite a real schedule on Save).
-                  setFreshSchedule(null);
-                  setScheduleFetchError(null);
-                  setScheduleLoading(true);
-                  // Bumped (not just read) on every open, not only by
-                  // resetSchedule/unmount: the "back" button returns to the
-                  // menu view without calling resetSchedule, so two Schedule
-                  // opens in the same popover session (open -> back -> open
-                  // again) would otherwise capture the SAME fetchId and a
-                  // stale first response could still clobber the second
-                  // fetch's state. Bumping here guarantees every open gets
-                  // an id no earlier in-flight request can match.
-                  const fetchId = ++scheduleFetchIdRef.current;
-                  workflowsApi
-                    .get(workflowId)
-                    .then((wf) => {
-                      if (scheduleFetchIdRef.current !== fetchId) return;
-                      setFreshSchedule({
-                        cron: wf.scheduleCron,
-                        nextRunAt: wf.scheduleNextRunAt,
-                      });
-                    })
-                    .catch((e) => {
-                      if (scheduleFetchIdRef.current !== fetchId) return;
-                      setScheduleFetchError(
-                        e instanceof Error
-                          ? e.message
-                          : "could not load schedule",
-                      );
-                    })
-                    .finally(() => {
-                      if (scheduleFetchIdRef.current !== fetchId) return;
-                      setScheduleLoading(false);
-                    });
+                  fetchSchedule();
                 }}
                 style={{
                   display: "block",
@@ -902,19 +900,50 @@ function RowMenu({
               </div>
             </div>
           )}
-          {view === "schedule" && !scheduleLoading && (
+          {view === "schedule" && !scheduleLoading && scheduleFetchError && (
+            // The row's own scheduleCron/scheduleNextRunAt props come from
+            // workflowsApi.list(), which the backend never populates --
+            // falling back to them on a fetch error would always show "no
+            // schedule" for a workflow that actually has one, and Save
+            // would then silently overwrite the real schedule with the
+            // popover's defaults. Surface the error and let the user retry
+            // instead of rendering a form seeded with data we know is wrong.
+            <div style={{ padding: 10, width: 220 }}>
+              <button
+                onClick={() => setView("menu")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--fg-muted)",
+                  cursor: "pointer",
+                  fontSize: 11,
+                  padding: 0,
+                  marginBottom: 8,
+                }}
+              >
+                ← back
+              </button>
+              <div
+                style={{ fontSize: 11, color: "var(--danger)", marginBottom: 8 }}
+              >
+                Couldn&apos;t load the schedule: {scheduleFetchError}
+              </div>
+              <button
+                onClick={fetchSchedule}
+                style={{
+                  ...ghostBtnSm,
+                  width: "100%",
+                  justifyContent: "center",
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {view === "schedule" && !scheduleLoading && !scheduleFetchError && (
             <SchedulePopover
-              // scheduleFetchError falls back to the stale row props rather
-              // than blocking the popover -- a degraded-but-usable state
-              // instead of a dead end when the fresh fetch fails.
-              scheduleCron={
-                scheduleFetchError ? scheduleCron : freshSchedule?.cron
-              }
-              scheduleNextRunAt={
-                scheduleFetchError
-                  ? scheduleNextRunAt
-                  : freshSchedule?.nextRunAt
-              }
+              scheduleCron={freshSchedule?.cron}
+              scheduleNextRunAt={freshSchedule?.nextRunAt}
               onBack={() => setView("menu")}
               onSave={async (cron) => {
                 await onSetSchedule(cron);
@@ -964,6 +993,11 @@ function SchedulePopover({
   const [dayOfMonth, setDayOfMonth] = useState(initial.dayOfMonth ?? 1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Click-to-arm, click-again-to-confirm -- same pattern as RowMenu's
+  // delete-workflow button, since Remove here is just as irreversible
+  // (deletes the live cron schedule) and shouldn't fire on a single
+  // misclick the way it did before.
+  const [removeConfirming, setRemoveConfirming] = useState(false);
 
   const DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const selectStyle: React.CSSProperties = {
@@ -1122,6 +1156,10 @@ function SchedulePopover({
           <button
             disabled={saving}
             onClick={async () => {
+              if (!removeConfirming) {
+                setRemoveConfirming(true);
+                return;
+              }
               setSaving(true);
               setError(null);
               try {
@@ -1131,19 +1169,24 @@ function SchedulePopover({
                   e instanceof Error ? e.message : "could not remove schedule",
                 );
                 setSaving(false);
+                setRemoveConfirming(false);
               }
             }}
+            onBlur={() => setRemoveConfirming(false)}
             style={{
               padding: "6px 10px",
               fontSize: 11.5,
               borderRadius: 4,
               border: "1px solid var(--border-strong)",
-              background: "transparent",
+              background: removeConfirming
+                ? "var(--danger-soft, transparent)"
+                : "transparent",
               color: "var(--danger)",
+              fontWeight: removeConfirming ? 600 : 500,
               cursor: saving ? "default" : "pointer",
             }}
           >
-            Remove
+            {removeConfirming ? "Remove permanently?" : "Remove"}
           </button>
         )}
       </div>
@@ -1309,7 +1352,6 @@ function WorkflowRows({
               onDelete={() => onDelete(wf.id)}
               deployed={wf.status === "deployed"}
               scheduleCron={wf.scheduleCron}
-              scheduleNextRunAt={wf.scheduleNextRunAt}
               onSetSchedule={(cron) => onSetSchedule(wf.id, cron)}
               onClearSchedule={() => onClearSchedule(wf.id)}
             />

@@ -49,16 +49,14 @@ describe("cadenceToCron", () => {
     ).toBe("0 14 15 * *");
   });
 
-  it("clamps a monthly day-of-month rollover back into 1-28", () => {
-    // day 28, 21:00 EST rolls to day 29 UTC -- must clamp to 28, not emit 29
-    // (a plain cron day-of-month=29 silently never fires in a non-leap Feb).
-    const cron = cadenceToCron(
-      { cadence: "monthly", time: "21:00", dayOfMonth: 28 },
-      NOW,
-    );
-    const dom = Number(cron.split(" ")[2]);
-    expect(dom).toBeLessThanOrEqual(28);
-    expect(dom).toBeGreaterThanOrEqual(1);
+  it("keeps day 29 when the rollover stays within the same (31-day) month", () => {
+    // day 28, 21:00 EST rolls to day 29 UTC, but NOW is January -- day 29
+    // always exists in January, so no fallback is needed here at all. Only
+    // a rollover that actually crosses INTO a shorter next month (see the
+    // February test below) needs the originally-picked day preserved.
+    expect(
+      cadenceToCron({ cadence: "monthly", time: "21:00", dayOfMonth: 28 }, NOW),
+    ).toBe("0 2 29 * *");
   });
 
   it("preserves the exact day picked for a non-edge rollover, not just the 1-28 range", () => {
@@ -69,6 +67,19 @@ describe("cadenceToCron", () => {
     expect(
       cadenceToCron({ cadence: "monthly", time: "21:00", dayOfMonth: 15 }, NOW),
     ).toBe("0 2 16 * *");
+  });
+
+  it("falls back to the picked day when a rollover crosses into a different month, not just past day 28", () => {
+    // day 28, 21:00 EST, in a non-leap February (2026) -- rolls into March 1
+    // UTC, not day 29. A fallback that only recognized "landed on 29" would
+    // miss this and silently emit day 1, firing on the wrong day every month.
+    const febNow = new Date(2026, 1, 10, 12, 0, 0);
+    expect(
+      cadenceToCron(
+        { cadence: "monthly", time: "21:00", dayOfMonth: 28 },
+        febNow,
+      ),
+    ).toBe("0 2 28 * *");
   });
 });
 
@@ -111,5 +122,12 @@ describe("cronToCadence", () => {
 
   it("returns null for a malformed expression", () => {
     expect(cronToCadence("not a cron", NOW)).toBeNull();
+  });
+
+  it("returns null for a day-of-month outside 1-28, rather than clamping to a fabricated day", () => {
+    // day 30, 12:00 UTC -> 07:00 EST, same calendar day -- a real day-30
+    // schedule this UI could never have set (the picker only offers 1-28),
+    // so it must be rejected, not silently reported as some other day.
+    expect(cronToCadence("0 12 30 * *", NOW)).toBeNull();
   });
 });

@@ -114,8 +114,13 @@ function totalSpend(logs: LogEvent[]): number {
  * below, which only cares about the FINAL outcome per node, would find that
  * stale failure and report the whole run as failed even though it went on
  * to succeed.
+ *
+ * Exported for any other consumer that computes a run-level summary from
+ * the same `logs` array (e.g. ConsolePanel's own terminal banner) -- a
+ * second, un-collapsed scan over `logs` would reintroduce exactly this bug
+ * for that consumer alone.
  */
-function latestPerNode(logs: LogEvent[]): LogEvent[] {
+export function latestPerNode(logs: LogEvent[]): LogEvent[] {
   const lastIndexOfNode = new Map<string, number>();
   logs.forEach((l, i) => lastIndexOfNode.set(l.nodeId, i));
   return logs.filter((l, i) => lastIndexOfNode.get(l.nodeId) === i);

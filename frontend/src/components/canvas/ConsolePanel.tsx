@@ -7,6 +7,7 @@ import {
   type LogEvent,
   type X402Payment,
 } from "./useRunTranscript";
+import { latestPerNode } from "./chat/resolveReply";
 
 interface ConsolePanelProps {
   open: boolean;
@@ -355,10 +356,17 @@ export function ConsolePanel({
           ))}
           {done &&
             (() => {
-              const succeeded = logs.filter(
+              // Each node's FINAL attempt decides this, not a raw scan over
+              // `logs`: a resumed node that failed then succeeded still has
+              // its stale "failed" row sitting in `logs` (see
+              // latestPerNode's doc comment), and a raw scan would still
+              // report the run as failed for that node even though it went
+              // on to succeed.
+              const final = latestPerNode(logs);
+              const succeeded = final.filter(
                 (l) => l.status === "success",
               ).length;
-              const hasFailure = logs.some((l) => l.status === "failed");
+              const hasFailure = final.some((l) => l.status === "failed");
               return (
                 <div
                   style={{
@@ -368,7 +376,7 @@ export function ConsolePanel({
                   }}
                 >
                   {hasFailure ? "✕ run failed" : "✓ run complete"} ·{" "}
-                  {(elapsed ?? 0).toFixed(1)}s · {succeeded}/{logs.length} nodes
+                  {(elapsed ?? 0).toFixed(1)}s · {succeeded}/{final.length} nodes
                   succeeded
                 </div>
               );

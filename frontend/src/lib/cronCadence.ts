@@ -67,27 +67,28 @@ export function cadenceToCron(
   // Monthly: use the day the UTC rollover actually lands on -- like
   // weekly's local.getUTCDay() above, which never clamps -- so a chosen
   // local day near the UTC boundary maps to the correct instant instead of
-  // silently drifting by a day for the common case. The picker (Task 8)
-  // only offers 1-28, so a rollover here can only ever move the day by at
-  // most one: to dayOfMonth-1 (or, only when dayOfMonth was 1, into the
-  // PREVIOUS month's last day -- a different month's day entirely, not a
-  // same-month rollover), or to dayOfMonth+1 (at most 29, only reachable
-  // when dayOfMonth was 28). Cron's day-of-month field has no "nearest
-  // valid day" fallback -- day 29 simply never fires in a non-leap
-  // February -- so only THOSE two specific cases still fall back to the
-  // originally-picked day; every other rollover (the vast majority of
-  // timezone/time combinations) keeps the day the user actually selected.
-  // Reaching here means cadence === "monthly", which the monthly branch
-  // above only entered (and thus only set `local` off) when dayOfMonth was
-  // defined -- the fallback below just satisfies the type, it never
-  // actually changes behavior for a well-formed CadenceValue.
+  // silently drifting by a day for the common case. Reaching here means
+  // cadence === "monthly", which the monthly branch above only entered
+  // (and thus only set `local` off) when dayOfMonth was defined -- the
+  // fallback below just satisfies the type, it never actually changes
+  // behavior for a well-formed CadenceValue.
   const dayOfMonth = value.dayOfMonth ?? local.getDate();
-  let dom = local.getUTCDate();
-  const rolledPast28 = dom === dayOfMonth + 1 && dom > 28;
-  const rolledIntoPreviousMonth = dayOfMonth === 1 && dom > 2;
-  if (rolledPast28 || rolledIntoPreviousMonth) {
-    dom = dayOfMonth;
-  }
+  // A rollover that crosses an actual MONTH (or year) boundary means
+  // local.getUTCDate() belongs to a DIFFERENT month than the one the user
+  // picked -- e.g. day 28 in a non-leap February rolling forward lands on
+  // March 1, not "day 29". Propagating that day number would silently
+  // point the schedule at the wrong month's day 1/29/30/31 entirely, and
+  // cron's day-of-month field has no way to express "this month's day 28,
+  // but nonexistent in February" either -- so whenever a month boundary
+  // was actually crossed, fall back to the originally-picked day, which is
+  // always valid in every month by construction (the picker only offers
+  // 1-28). A same-month rollover (the vast majority of timezone/time
+  // combinations, since the picker's range makes crossing TWO days in one
+  // direction impossible) keeps the day the user actually selected.
+  const crossedMonthBoundary =
+    local.getUTCMonth() !== local.getMonth() ||
+    local.getUTCFullYear() !== local.getFullYear();
+  const dom = crossedMonthBoundary ? dayOfMonth : local.getUTCDate();
   return `${minute} ${hour} ${dom} * *`;
 }
 
@@ -159,10 +160,19 @@ export function cronToCadence(
         utcMinute,
       ),
     );
+    // A day outside 1-28 here means this cron wasn't produced by
+    // cadenceToCron (which only ever emits a day it can prove round-trips
+    // to one of 1-28) -- possibly set by another tool, per this function's
+    // own docstring. Clamping into range would silently misreport a real
+    // stored day-29/30/31 schedule as a materially different day instead
+    // of returning null as promised, letting a subsequent Save silently
+    // overwrite it with the fabricated value.
+    const localDom = base.getDate();
+    if (localDom < 1 || localDom > 28) return null;
     return {
       cadence: "monthly",
       time: toLocalTimeString(base),
-      dayOfMonth: Math.min(28, Math.max(1, base.getDate())),
+      dayOfMonth: localDom,
     };
   }
   return null;

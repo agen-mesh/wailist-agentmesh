@@ -331,23 +331,36 @@ export function useRunTranscript({
 
     const mergeDBLogs = (dbLogs: RunLogRecord[]) => {
       setLogs((prev) => {
-        // Merge, never replace: a stream-delivered entry carries the node's
-        // full output, so it always wins over the stored row. Deduped by
-        // (nodeId, status), not nodeId alone: a resumed node re-executes and
-        // can log a SECOND entry for the same nodeId with a DIFFERENT status
-        // (e.g. failed, then success) -- dedup-by-nodeId-only would see the
-        // node already present from the first attempt and drop the second
-        // attempt's row entirely, permanently hiding a resumed node's
-        // success (and its dead-letter pill) whenever the live SSE
-        // connection missed that event (see the drop-window note above).
-        const seen = new Set(prev.map((l) => `${l.nodeId}:${l.status}`));
-        const missing = dbLogs
-          .filter(
-            (l) =>
-              !seen.has(`${l.nodeId}:${l.status}`) &&
-              (l.status === "success" || l.status === "failed"),
-          )
-          .map((l) => ({
+        // Mirrors the live "log" event handler's own replace-if-running-
+        // else-append rule (below), applied to the DB-reconciliation path
+        // too: `logs` intentionally holds one row per ATTEMPT, not one row
+        // per node (resolveReply's latestPerNode collapses that down for
+        // display) -- a resumed node that fails, then fails or succeeds
+        // again, must get its own new row, not have the earlier attempt's
+        // row silently reused or dropped as a "duplicate."
+        //
+        // A DB row replaces an existing entry only when that entry is the
+        // still-open "running" placeholder for the SAME node (its terminal
+        // SSE event was dropped -- this is that same attempt finally
+        // resolving, not a new one). Otherwise it's appended as a new
+        // attempt, unless it exactly matches an already-recorded terminal
+        // row (same nodeId, status, AND ts) -- that's just a repeat poll of
+        // the same unchanged state, not a real new attempt.
+        let next = prev;
+        let mutated = false;
+        for (const l of dbLogs) {
+          if (l.status !== "success" && l.status !== "failed") continue;
+          if (
+            next.some(
+              (e) =>
+                e.nodeId === l.nodeId &&
+                e.status === l.status &&
+                e.ts === l.ts,
+            )
+          ) {
+            continue;
+          }
+          const entry = {
             stepIndex: l.stepIndex,
             nodeId: l.nodeId,
             nodeType: l.nodeType,
@@ -355,9 +368,20 @@ export function useRunTranscript({
             output: l.output,
             durationMs: l.durationMs ?? 0,
             ts: l.ts,
-          }));
-        if (missing.length === 0) return prev;
-        return [...prev, ...missing].sort((a, b) => a.stepIndex - b.stepIndex);
+          };
+          const runningIdx = next.findIndex(
+            (e) => e.nodeId === l.nodeId && e.status === "running",
+          );
+          if (!mutated) next = [...next];
+          if (runningIdx >= 0) {
+            next[runningIdx] = entry;
+          } else {
+            next.push(entry);
+          }
+          mutated = true;
+        }
+        if (!mutated) return prev;
+        return next.sort((a, b) => a.stepIndex - b.stepIndex);
       });
     };
 
@@ -381,7 +405,22 @@ export function useRunTranscript({
           } = await runsApi.get(runId);
           if (cancelled) return;
           if (dbLogs.length > 0) mergeDBLogs(dbLogs);
-          setDeadLetters(dl ?? []);
+          // Preserve the existing reference when nothing actually changed:
+          // this poll runs every 2s for up to 30 minutes, and a fresh array
+          // reference on every tick (even an unchanged one) re-fires
+          // ConsolePanel's auto-scroll effect (keyed on deadLetters) every
+          // single poll, repeatedly yanking the view back down even if the
+          // user manually scrolled up to reread an earlier entry.
+          setDeadLetters((prev) => {
+            const next = dl ?? [];
+            if (
+              prev.length === next.length &&
+              prev.every((p, i) => p.id === next[i].id)
+            ) {
+              return prev;
+            }
+            return next;
+          });
           if (TERMINAL.has(run.status)) {
             // The run itself is finished — this, not a dropped stream, is
             // what "complete" means.
