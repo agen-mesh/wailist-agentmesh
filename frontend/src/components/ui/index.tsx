@@ -363,6 +363,44 @@ export const IconGrid = ({ size = 14 }: { size?: number }) => (
   </svg>
 );
 
+export const IconSpeaker = ({ size = 12 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    aria-hidden="true"
+    style={{ display: "block" }}
+  >
+    <path d="M2 6h2.5L8.5 3v10L4.5 10H2z" fill="currentColor" />
+    <path
+      d="M10.5 5.3a4 4 0 0 1 0 5.4M12.3 3.7a6.5 6.5 0 0 1 0 8.6"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+export const IconMic = ({ size = 12 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    aria-hidden="true"
+    style={{ display: "block" }}
+  >
+    <rect x="5.5" y="1.5" width="5" height="8" rx="2.5" stroke="currentColor" strokeWidth="1.3" />
+    <path
+      d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
 export const IconWallet = ({ size = 14 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
     <rect

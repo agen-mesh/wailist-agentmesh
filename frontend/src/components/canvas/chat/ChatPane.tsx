@@ -1,6 +1,9 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { IconMic } from "@/components/ui";
 import { ChatMessage } from "./ChatMessage";
+import { stop as stopSpeaking } from "./speechPlayback";
+import { useSpeechRecognition } from "./useSpeechRecognition";
 import type { ChatSession } from "./useChatSession";
 
 // The human half of the console: transcript above, composer below.
@@ -21,17 +24,49 @@ interface ChatPaneProps {
 export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
   const [draft, setDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  // What `draft` held before the current dictation session started, so a
+  // dictated segment replaces itself as it's revised (interim results
+  // repeat the whole growing utterance, not deltas) without touching
+  // anything the user typed or a previous dictation pass already committed.
+  const dictationBaseRef = useRef("");
+
+  const stt = useSpeechRecognition((text, isFinal) => {
+    const base = dictationBaseRef.current;
+    const merged = base + (base.trim() && text ? " " : "") + text;
+    setDraft(merged);
+    if (isFinal) dictationBaseRef.current = merged;
+  });
 
   // Follow the conversation as it grows, the same way the log list does.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [session.messages]);
 
+  // ChatPane stays mounted across a Chat/Inspect/Term tab switch (see
+  // ChatRail) but unmounts when the whole rail does, i.e. when the user
+  // leaves this workflow's canvas -- stop an in-progress reply readout so it
+  // doesn't keep talking over whatever page comes next.
+  useEffect(() => stopSpeaking, []);
+
   const submit = () => {
     const text = draft.trim();
     if (!text || busy) return;
+    // Stop any in-flight dictation first: without this, a Send tap mid
+    // sentence would clear `draft` here and then have the session's next
+    // (now stray) result callback write the tail of what was just said back
+    // into the box, after the message it belonged with had already sent.
+    stt.stop();
     setDraft("");
     onSend(text);
+  };
+
+  const toggleDictation = () => {
+    if (stt.listening) {
+      stt.stop();
+      return;
+    }
+    dictationBaseRef.current = draft;
+    stt.start();
   };
 
   return (
@@ -106,17 +141,30 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
       </div>
 
       {/* Composer */}
-      <div
-        style={{
-          flexShrink: 0,
-          minWidth: 0,
-          borderTop: "1px solid var(--border)",
-          padding: 10,
-          display: "flex",
-          gap: 8,
-          alignItems: "flex-end",
-        }}
-      >
+      <div style={{ flexShrink: 0, minWidth: 0 }}>
+        {stt.error && (
+          <div
+            role="alert"
+            style={{
+              padding: "6px 10px 0",
+              fontSize: 11,
+              lineHeight: 1.5,
+              color: "var(--danger)",
+            }}
+          >
+            {stt.error}
+          </div>
+        )}
+        <div
+          style={{
+            minWidth: 0,
+            borderTop: "1px solid var(--border)",
+            padding: 10,
+            display: "flex",
+            gap: 8,
+            alignItems: "flex-end",
+          }}
+        >
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -151,6 +199,33 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
             opacity: busy ? 0.6 : 1,
           }}
         />
+        {stt.supported && (
+          <button
+            type="button"
+            className={`chat-mic${stt.listening ? " chat-mic--recording" : ""}`}
+            onClick={toggleDictation}
+            disabled={busy}
+            aria-label={stt.listening ? "Stop dictation" : "Dictate a message"}
+            aria-pressed={stt.listening}
+            title={stt.listening ? "Stop dictation" : "Dictate a message"}
+            style={{
+              height: 38,
+              width: 38,
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "var(--bg)",
+              border: `1px solid ${stt.listening ? "var(--danger)" : "var(--border)"}`,
+              borderRadius: "var(--r-2)",
+              color: stt.listening ? "var(--danger)" : "var(--fg-dim)",
+              cursor: busy ? "default" : "pointer",
+              opacity: busy ? 0.6 : 1,
+            }}
+          >
+            <IconMic size={14} />
+          </button>
+        )}
         <button
           type="button"
           className="chat-send"
@@ -176,6 +251,7 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
         >
           Send
         </button>
+        </div>
       </div>
     </div>
   );

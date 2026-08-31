@@ -1,4 +1,7 @@
 "use client";
+import { IconSpeaker, IconStop } from "@/components/ui";
+import { toSpeechText } from "./speechText";
+import { useSpeechPlayback } from "./useSpeechPlayback";
 import type { ChatMessage as Message } from "./useChatSession";
 
 // One turn in the conversation.
@@ -32,6 +35,9 @@ function activityParts(m: Message): string[] {
 
 export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
   const isUser = message.sender === "user";
+  // Called unconditionally -- Rules of Hooks -- even on the user branch,
+  // which never renders the speaker button and so never uses the result.
+  const playback = useSpeechPlayback(message.id);
 
   if (isUser) {
     return (
@@ -61,6 +67,7 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
 
   const parts = activityParts(message);
   const canShowLogs = !!onShowLogs;
+  const canSpeak = !message.pending && message.text.trim() !== "";
 
   return (
     <div
@@ -121,33 +128,67 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
         </div>
       )}
 
-      {/* The activity strip. This is the bridge between the two audiences:
+      {/* The activity strip, plus the speaker button when there's something
+          to read aloud. This is the bridge between the two audiences:
           everything technical about the turn, compressed to one dim line that
-          opens the full logs. */}
-      {!message.pending && (parts.length > 0 || canShowLogs) && (
-        <button
-          type="button"
-          className="chat-activity"
-          disabled={!canShowLogs}
-          onClick={() => onShowLogs?.()}
-          title={canShowLogs ? "Show the run logs" : undefined}
+          opens the full logs -- the speaker button sits beside it rather than
+          in its own row so it doesn't read as a third, separate control. */}
+      {!message.pending && (parts.length > 0 || canShowLogs || canSpeak) && (
+        <div
           style={{
             alignSelf: "flex-start",
             marginTop: 5,
-            padding: "3px 0",
-            background: "none",
-            border: "none",
-            fontFamily: "var(--font-mono)",
-            fontSize: 10,
-            fontVariantNumeric: "tabular-nums",
-            color: "var(--fg-dim)",
-            cursor: canShowLogs ? "pointer" : "default",
-            letterSpacing: "0.02em",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
           }}
         >
-          {parts.length > 0 ? parts.join(" · ") : "details"}
-          {canShowLogs && <span aria-hidden> ›</span>}
-        </button>
+          {canSpeak && playback.supported && (
+            <button
+              type="button"
+              className="chat-speak"
+              onClick={() => playback.toggle(toSpeechText(message.text))}
+              aria-label={
+                playback.speaking ? "Stop reading reply aloud" : "Read reply aloud"
+              }
+              title={playback.speaking ? "Stop reading aloud" : "Read aloud"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                padding: "3px 2px",
+                background: "none",
+                border: "none",
+                color: playback.speaking ? "var(--accent)" : "var(--fg-dim)",
+                cursor: "pointer",
+              }}
+            >
+              {playback.speaking ? <IconStop size={9} /> : <IconSpeaker size={12} />}
+            </button>
+          )}
+          {(parts.length > 0 || canShowLogs) && (
+            <button
+              type="button"
+              className="chat-activity"
+              disabled={!canShowLogs}
+              onClick={() => onShowLogs?.()}
+              title={canShowLogs ? "Show the run logs" : undefined}
+              style={{
+                padding: "3px 0",
+                background: "none",
+                border: "none",
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                fontVariantNumeric: "tabular-nums",
+                color: "var(--fg-dim)",
+                cursor: canShowLogs ? "pointer" : "default",
+                letterSpacing: "0.02em",
+              }}
+            >
+              {parts.length > 0 ? parts.join(" · ") : "details"}
+              {canShowLogs && <span aria-hidden> ›</span>}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

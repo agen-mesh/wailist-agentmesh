@@ -980,6 +980,24 @@ body {
   border-radius: var(--r-1);
 }
 
+/* The speaker button beside the activity strip: same subdued-until-touched
+   treatment as .chat-activity, with the accent color driven inline by
+   whether this message is the one currently speaking. */
+.chat-speak {
+  transition: color 0.12s var(--ease);
+}
+.chat-speak:hover {
+  color: var(--accent);
+}
+.chat-speak:active {
+  transform: scale(0.9);
+}
+.chat-speak:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-1);
+}
+
 .chat-send {
   transition:
     background 0.12s var(--ease),
@@ -997,6 +1015,29 @@ body {
   outline-offset: 2px;
 }
 
+.chat-mic {
+  transition:
+    color 0.12s var(--ease),
+    border-color 0.12s var(--ease),
+    transform 0.12s var(--ease);
+}
+.chat-mic:not(:disabled):hover {
+  color: var(--fg);
+  border-color: var(--border-strong);
+}
+.chat-mic:not(:disabled):active {
+  transform: scale(0.94);
+}
+.chat-mic:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Recording state pulses the same way the "working…" dot does, reusing the
+   shared `pulse` keyframe rather than introducing another one. */
+.chat-mic--recording {
+  animation: pulse 1.2s var(--ease) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chat-msg {
     animation: none;
@@ -1005,12 +1046,19 @@ body {
     animation: none;
   }
   .chat-activity,
-  .chat-send {
+  .chat-send,
+  .chat-speak,
+  .chat-mic {
     transition: none;
   }
   .chat-activity:not(:disabled):active,
-  .chat-send:not(:disabled):active {
+  .chat-send:not(:disabled):active,
+  .chat-speak:active,
+  .chat-mic:not(:disabled):active {
     transform: none;
+  }
+  .chat-mic--recording {
+    animation: none;
   }
 }
 
