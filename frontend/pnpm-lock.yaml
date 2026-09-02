@@ -39,8 +39,8 @@ importers:
         specifier: 19.2.4
         version: 19.2.4(react@19.2.4)
       simple-icons:
-        specifier: ^16.27.1
-        version: 16.27.1
+        specifier: ^16.29.0
+        version: 16.29.0
     devDependencies:
       '@tailwindcss/postcss':
         specifier: ^4
@@ -2179,8 +2179,8 @@ packages:
   siginfo@2.0.0:
     resolution: {integrity: sha512-ybx0WO1/8bSBLEWXZvEd7gMW3Sn3JFlW3TvX1nREbDLRNQNaeNN8WK0meBwPdAaOI7TtRRRJn/Es1zhrrCHu7g==}
 
-  simple-icons@16.27.1:
-    resolution: {integrity: sha512-slZF8iKxkv7Lb9SF3L1AcIl5iYLNvDrKKm8yV69cG66XvxJ12SX+bYTgxRwCY4bXSmklGXoXaKEyVmEypOCeqw==}
+  simple-icons@16.29.0:
+    resolution: {integrity: sha512-4H94f5ZgcCcgJroc902TFlFdgPu2IU2eD7+WebN2Z14xKYrKHeJ4UQcZwzgSuH4Rgzw+jp7sbHl40NefuIEYsg==}
     engines: {node: '>=0.12.18'}
 
   source-map-js@1.2.1:
@@ -4723,7 +4723,7 @@ snapshots:
 
   siginfo@2.0.0: {}
 
-  simple-icons@16.27.1: {}
+  simple-icons@16.29.0: {}
 
   source-map-js@1.2.1: {}
 
