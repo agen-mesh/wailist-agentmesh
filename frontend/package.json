@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@capacitor/core": "^7.6.8",
+    "@capacitor/core": "^8.5.0",
     "@capacitor/network": "^7.0.4",
     "@capacitor/preferences": "^7.0.4",
     "@cashfreepayments/cashfree-js": "^1.0.7",
