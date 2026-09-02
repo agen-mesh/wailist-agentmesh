@@ -289,12 +289,17 @@ interface PalettePanelProps {
    *  onto the canvas; it also makes the palette keyboard-operable. */
   onAddNode?: (meta: Partial<WorkflowNode>) => void;
   width?: number | string;
+  /** Collapses the palette column. Omitted where the palette is not in a
+   *  column of its own (the compact bottom sheet), which has its own
+   *  open/close control and would end up with two. */
+  onCollapse?: () => void;
 }
 
 export function PalettePanel({
   onDragNodeStart,
   onAddNode,
   width = 280,
+  onCollapse,
 }: PalettePanelProps) {
   const [tab, setTab] = useState<TabId>("triggers");
   const [q, setQ] = useState("");
@@ -474,15 +479,49 @@ export function PalettePanel({
       <div style={{ padding: "14px 14px 8px" }}>
         <div
           style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 10,
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-            color: "var(--fg-dim)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
             marginBottom: 10,
           }}
         >
-          library
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              color: "var(--fg-dim)",
+            }}
+          >
+            library
+          </span>
+          {onCollapse && (
+            <button
+              type="button"
+              onClick={onCollapse}
+              title="Collapse the library"
+              aria-label="Collapse the library"
+              style={{
+                width: 22,
+                height: 22,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                background: "transparent",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r-1)",
+                color: "var(--fg-muted)",
+                cursor: "pointer",
+                fontSize: 12,
+                lineHeight: 1,
+              }}
+            >
+              ‹
+            </button>
+          )}
         </div>
         <div
           style={{

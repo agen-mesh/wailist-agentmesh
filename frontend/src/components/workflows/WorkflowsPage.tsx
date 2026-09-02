@@ -1357,8 +1357,7 @@ function WorkflowRows({
               color: "var(--accent)",
             }}
           >
-            {wf.spend ?? "-"}
-            {wf.spend && <span style={{ color: "var(--fg-dim)" }}> ALGO</span>}
+            {wf.spend ? `$${wf.spend}` : "-"}
           </span>
           <span
             data-label="Updated"

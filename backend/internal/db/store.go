@@ -410,7 +410,94 @@ func (s *Store) ListWorkflows(ctx context.Context, userID string) ([]models.Work
 		}
 		wfs = append(wfs, w)
 	}
-	return wfs, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.attachWorkflowStats(ctx, userID, wfs); err != nil {
+		return nil, err
+	}
+	return wfs, nil
+}
+
+// workflowStatsWindow is the trailing period the Runs/Spend columns on the
+// workflows list summarise. The UI labels those columns "· 30d", so the two
+// have to agree; changing one means changing the other.
+const workflowStatsWindow = 30 * 24 * time.Hour
+
+// attachWorkflowStats fills in the Runs and Spend fields that ListWorkflows'
+// own SELECT cannot produce -- they are aggregates over `runs` and
+// `debit_ledger`, not columns on `workflows`. Kept as a separate pass rather
+// than a join so workflowColumns/scanWorkflowRow stay the single shared
+// read path for a workflow row.
+//
+// Both queries are scoped by user_id, not just by the workflow ids in hand,
+// so a row belonging to someone else can never be counted into this user's
+// totals even if a workflow id were somehow reused.
+func (s *Store) attachWorkflowStats(ctx context.Context, userID string, wfs []models.Workflow) error {
+	if len(wfs) == 0 {
+		return nil
+	}
+	since := time.Now().Add(-workflowStatsWindow)
+
+	runCounts := map[string]int{}
+	rows, err := s.pool.Query(ctx, `
+		SELECT r.workflow_id, COUNT(*)
+		FROM runs r
+		JOIN workflows w ON w.id = r.workflow_id
+		WHERE w.user_id = $1 AND r.started_at >= $2
+		GROUP BY r.workflow_id
+	`, userID, since)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			rows.Close()
+			return err
+		}
+		runCounts[id] = n
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	spendMicros := map[string]int64{}
+	rows, err = s.pool.Query(ctx, `
+		SELECT workflow_id, COALESCE(SUM(amount_usd_micros), 0)
+		FROM debit_ledger
+		WHERE user_id = $1 AND created_at >= $2
+		GROUP BY workflow_id
+	`, userID, since)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id string
+		var micros int64
+		if err := rows.Scan(&id, &micros); err != nil {
+			rows.Close()
+			return err
+		}
+		spendMicros[id] = micros
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for i := range wfs {
+		wfs[i].Runs = runCounts[wfs[i].ID]
+		// Spend is a display string in USD. Left empty when nothing settled
+		// so the UI renders its "no data" dash rather than a misleading
+		// "$0.00" on a workflow that has simply never run.
+		if micros, ok := spendMicros[wfs[i].ID]; ok && micros > 0 {
+			wfs[i].Spend = fmt.Sprintf("%.2f", float64(micros)/1e6)
+		}
+	}
+	return nil
 }
 
 func (s *Store) UpdateWorkflow(ctx context.Context, id, name string, graph models.WorkflowGraph) (models.Workflow, error) {

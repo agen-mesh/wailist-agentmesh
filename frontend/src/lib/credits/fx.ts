@@ -7,6 +7,17 @@ export const USD_PER_INR = 1 / 83;
 export const BONUS_THRESHOLD_INR = 1000;
 export const BONUS_RATE = 0.05;
 
+// Ceiling on a single top-up. Pegged in USD rather than rupees so the limit
+// means the same thing in credits regardless of where the FX rate moves — the
+// rupee ceiling is derived from it, not stored alongside it.
+export const MAX_TOPUP_USD = 1000;
+
+// The USD ceiling expressed in whole rupees, rounded down so converting the
+// result back can never exceed MAX_TOPUP_USD.
+export function maxTopupINR(): number {
+  return Math.floor(MAX_TOPUP_USD / USD_PER_INR);
+}
+
 // Base USD credits for an INR top-up (excludes any bonus).
 export function inrToCreditsUSD(amountINR: number): number {
   return amountINR * USD_PER_INR;

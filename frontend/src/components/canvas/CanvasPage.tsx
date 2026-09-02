@@ -104,6 +104,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   // mount effect loads any persisted values. The row is measured via a ref so
   // clamping can reserve MIN_CANVAS and the opposite panel's width.
   const [paletteW, setPaletteW] = useState(PALETTE.default);
+  const [paletteCollapsed, setPaletteCollapsed] = useState(false);
   const [inspectorW, setInspectorW] = useState(INSPECTOR.default);
   const panelRowRef = useRef<HTMLDivElement | null>(null);
   const rowObserver = useRef<ResizeObserver | null>(null);
@@ -683,12 +684,38 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
             paletteNode below). Rendering it here while the row is stacked
             gave it a full-height column of its own and squeezed the canvas
             to zero. */}
-        {!compact && can("workflow.editGraph", readOnly) && (
+        {/* Collapsed: the column and its resize handle give way to a thin
+            rail, so the canvas gets the full ~280px back without the palette
+            disappearing with no way to bring it back. */}
+        {!compact && can("workflow.editGraph", readOnly) && paletteCollapsed && (
+          <button
+            type="button"
+            onClick={() => setPaletteCollapsed(false)}
+            title="Expand the library"
+            aria-label="Expand the library"
+            style={{
+              flexShrink: 0,
+              width: 26,
+              alignSelf: "stretch",
+              background: "var(--bg-elev-1)",
+              border: "none",
+              borderRight: "1px solid var(--border)",
+              color: "var(--fg-muted)",
+              cursor: "pointer",
+              fontSize: 12,
+            }}
+          >
+            ›
+          </button>
+        )}
+
+        {!compact && can("workflow.editGraph", readOnly) && !paletteCollapsed && (
           <>
             <PalettePanel
               onDragNodeStart={onDragNodeStart}
               onAddNode={(meta) => addAtCentre.current?.(meta)}
               width={paletteW}
+              onCollapse={() => setPaletteCollapsed(true)}
             />
             <ResizeHandle
               side="left"

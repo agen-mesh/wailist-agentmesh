@@ -9,14 +9,22 @@ type PayStatus = "idle" | "processing" | "success";
 
 const PHONE_STORAGE_KEY = "agentmesh_checkout_phone";
 
-// normalizePhone mirrors the backend's normalizeIndianPhone (payments.go) —
-// strips formatting and an optional country code down to the bare 10 digits
-// Cashfree expects. This copy only gates the Pay button early and shows a
-// friendly hint; the server validates again and is the actual authority.
-function normalizePhone(raw: string): string | null {
+// toLocalDigits reduces anything a user can type or paste to at most the 10
+// local digits. Formatting is dropped, and a leading 0 or +91 country code is
+// peeled off BEFORE the truncation so pasting "+91 98765 43210" keeps the
+// subscriber number rather than being cut down to "9198765432".
+function toLocalDigits(raw: string): string {
   let digits = raw.replace(/\D/g, "");
-  digits = digits.replace(/^0/, "");
-  if (digits.length === 12 && digits.startsWith("91")) digits = digits.slice(2);
+  digits = digits.replace(/^0+/, "");
+  if (digits.length > 10 && digits.startsWith("91")) digits = digits.slice(2);
+  return digits.slice(0, 10);
+}
+
+// normalizePhone mirrors the backend's normalizeIndianPhone (payments.go).
+// The field now only ever holds 10 bare digits, so this just checks the
+// mobile prefix. The server validates again and is the actual authority.
+function normalizePhone(raw: string): string | null {
+  const digits = toLocalDigits(raw);
   return /^[6-9]\d{9}$/.test(digits) ? digits : null;
 }
 
@@ -62,17 +70,17 @@ export function PaymentInfoPanel({
   const [phone, setPhone] = useState(() =>
     typeof window === "undefined"
       ? ""
-      : (window.localStorage.getItem(PHONE_STORAGE_KEY) ?? ""),
+      : toLocalDigits(window.localStorage.getItem(PHONE_STORAGE_KEY) ?? ""),
   );
   const [phoneTouched, setPhoneTouched] = useState(false);
   const normalizedPhone = normalizePhone(phone);
   const phoneValid = normalizedPhone !== null;
 
   const handlePhoneChange = (value: string) => {
-    setPhone(value);
-    if (typeof window !== "undefined") {
-      const n = normalizePhone(value);
-      if (n) window.localStorage.setItem(PHONE_STORAGE_KEY, value);
+    const digits = toLocalDigits(value);
+    setPhone(digits);
+    if (typeof window !== "undefined" && normalizePhone(digits)) {
+      window.localStorage.setItem(PHONE_STORAGE_KEY, digits);
     }
   };
 
@@ -226,7 +234,8 @@ export function PaymentInfoPanel({
             type="tel"
             inputMode="numeric"
             autoComplete="tel"
-            placeholder="98765 43210"
+            maxLength={10}
+            placeholder="9876543210"
             value={phone}
             onChange={(e) => handlePhoneChange(e.target.value)}
             onBlur={() => setPhoneTouched(true)}

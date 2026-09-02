@@ -8,11 +8,6 @@ import { APP_NAV_ITEMS, type NavItem } from "@/lib/nav";
 import { can } from "@/lib/readonly";
 import { useReadOnly } from "@/hooks/useReadOnly";
 
-// Which chain settlements actually run on. Mainnet is the default because
-// that is what the platform runs; overridable so a genuine testnet
-// deployment doesn't have to lie in the other direction.
-const ALGORAND_NETWORK = process.env.NEXT_PUBLIC_ALGORAND_NETWORK ?? "mainnet";
-
 // Shared application top bar. Rendered identically on every authed page so the
 // brand cluster, primary navigation, and account menu never drift between routes.
 export function Topbar() {
@@ -119,9 +114,6 @@ export function Topbar() {
               <button className="hide-md" style={ghostBtnSm}>
                 {orgName} ▾
               </button>
-              <Pill mono dot tone="warm">
-                {ALGORAND_NETWORK}
-              </Pill>
             </div>
             {/* Deliberately OUTSIDE the context cluster above. This pill is not
               context -- it is the explanation for why the create/deploy

@@ -5,10 +5,16 @@ import { Topbar } from "@/components/Topbar";
 import { PurchaseHistory } from "@/components/billing/PurchaseHistory";
 import { CheckoutModal } from "@/components/checkout/CheckoutModal";
 import { useCredits } from "@/lib/credits/store";
-import { bonusRate, creditsForTopup } from "@/lib/credits/fx";
+import {
+  bonusRate,
+  creditsForTopup,
+  maxTopupINR,
+  MAX_TOPUP_USD,
+} from "@/lib/credits/fx";
 import { credits as creditsApi } from "@/lib/api";
 
-const PRESETS_INR = [100, 500, 1000, 2000];
+const PRESETS_INR = [1000, 5000, 10000, 20000];
+const MAX_INR = maxTopupINR();
 const LOW_BALANCE_USD = 5;
 
 const HOW_IT_WORKS = [
@@ -95,7 +101,9 @@ export default function BillingPage() {
       ? parsedCustom
       : 0
     : amountINR;
-  const checkoutAmountINR = effectiveINR >= 1 ? effectiveINR : 0;
+  const overMax = effectiveINR > MAX_INR;
+  const checkoutAmountINR =
+    effectiveINR >= 1 && !overMax ? effectiveINR : 0;
   const canCheckout = checkoutAmountINR > 0;
   const credits = creditsForTopup(checkoutAmountINR);
   // Only call a balance "low" once we've actually read it — before the first
@@ -417,10 +425,12 @@ export default function BillingPage() {
                     style={{
                       margin: "8px 2px 0",
                       fontSize: 11,
-                      color: "var(--fg-dim)",
+                      color: overMax ? "var(--danger)" : "var(--fg-dim)",
                     }}
                   >
-                    Get 5% bonus credits on top-ups of ₹1000 or more.
+                    {overMax
+                      ? `Maximum top-up is $${MAX_TOPUP_USD} (about ₹${MAX_INR.toLocaleString("en-IN")}).`
+                      : "Get 5% bonus credits on top-ups of ₹1000 or more."}
                   </p>
                 </div>
 
