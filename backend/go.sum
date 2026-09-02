@@ -6,8 +6,8 @@ github.com/PuerkitoBio/goquery v1.12.0 h1:pAcL4g3WRXekcB9AU/y1mbKez2dbY2AajVhtkO
 github.com/PuerkitoBio/goquery v1.12.0/go.mod h1:802ej+gV2y7bbIhOIoPY5sT183ZW0YFofScC4q/hIpQ=
 github.com/algorand/avm-abi v0.2.0 h1:bkjsG+BOEcxUcnGSALLosmltE0JZdg+ZisXKx0UDX2k=
 github.com/algorand/avm-abi v0.2.0/go.mod h1:+CgwM46dithy850bpTeHh9MC99zpn2Snirb3QTl2O/g=
-github.com/algorand/go-algorand-sdk/v2 v2.11.1 h1:vOEQxGTCV0O6fgwItNpvv5AQwQQ5aba8PLilGYLkMF4=
-github.com/algorand/go-algorand-sdk/v2 v2.11.1/go.mod h1:D6iKT87/N6ajNpN7uMYPC9/RsOo2BbxnDfvh81E3hOM=
+github.com/algorand/go-algorand-sdk/v2 v2.12.0 h1:xGj5KUdNdxidNHH1dS0mFwuFR5mshsenD3iY8Y51e6U=
+github.com/algorand/go-algorand-sdk/v2 v2.12.0/go.mod h1:+AY/uVX/X60O9Ok9HtPWA6DqFRuPl9QWm4scQDmOcFc=
 github.com/algorand/go-codec/codec v1.1.10 h1:zmWYU1cp64jQVTOG8Tw8wa+k0VfwgXIPbnDfiVa+5QA=
 github.com/algorand/go-codec/codec v1.1.10/go.mod h1:YkEx5nmr/zuCeaDYOIhlDg92Lxju8tj2d2NrYqP7g7k=
 github.com/andybalholm/cascadia v1.3.4 h1:vM2lgh0Vru9Vwyfm4cQqWP2HHMW0u0+2PAW7Q38Qufg=

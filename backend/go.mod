@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/PuerkitoBio/goquery v1.12.0
-	github.com/algorand/go-algorand-sdk/v2 v2.11.1
+	github.com/algorand/go-algorand-sdk/v2 v2.12.0
 	github.com/andybalholm/cascadia v1.3.4
 	github.com/coder/websocket v1.8.15
 	github.com/go-chi/chi/v5 v5.3.0
