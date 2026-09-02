@@ -20,7 +20,7 @@
     "@capacitor/push-notifications": "^7.0.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^7.0.0",
+    "@capacitor/cli": "^8.5.0",
     "cross-env": "^10.1.0",
     "typescript": "^5"
   }
