@@ -8,14 +8,18 @@
 //
 // Coordination glue over a browser singleton, not pure logic -- same
 // boundary the codebase already draws around ChatMessage/ChatPane
-// themselves, so this has no test file (see speechText.ts for the pure,
-// tested half of TTS).
+// themselves, so this has no test file beyond the cancel/speak race covered
+// below (see speechText.ts for the pure, tested half of TTS).
 
 type Listener = () => void;
 
 let speakingId: string | null = null;
 const listeners = new Set<Listener>();
 let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
+// The id of the speak() call still owed a real speechSynthesis.speak() --
+// see the comment in speak() for why this is deferred a tick rather than
+// called inline.
+let pendingId: string | null = null;
 
 function notify() {
   for (const l of listeners) l();
@@ -65,6 +69,7 @@ export function subscribe(cb: Listener): () => void {
 
 /** Stops whatever is currently speaking, if anything. */
 export function stop(): void {
+  pendingId = null;
   if (!ttsSupported()) return;
   clearKeepAlive();
   window.speechSynthesis.cancel();
@@ -95,5 +100,18 @@ export function speak(id: string, text: string): void {
   utterance.onend = clearIfCurrent;
   utterance.onerror = clearIfCurrent;
 
-  window.speechSynthesis.speak(utterance);
+  // Chrome has a documented cancel()/speak() same-tick bug: calling speak()
+  // in the same synchronous block as a preceding cancel() can silently
+  // no-op -- cancel() tears the engine down asynchronously, and a speak()
+  // that lands before that finishes is dropped with no error, no onerror,
+  // nothing. Deferring one tick lets the cancel() above actually settle
+  // first. pendingId is a supersede guard: if stop() or another speak()
+  // runs before this fires, it either clears pendingId (stop) or moves it
+  // to a different id (a newer speak()), and this callback becomes a no-op
+  // either way rather than starting an utterance nothing asked for anymore.
+  pendingId = id;
+  setTimeout(() => {
+    if (pendingId !== id) return;
+    window.speechSynthesis.speak(utterance);
+  }, 0);
 }
