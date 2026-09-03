@@ -18,7 +18,7 @@ func TestCryptoCreditTransactionLifecycle(t *testing.T) {
 	}
 
 	orderID := fmt.Sprintf("order_crypto_%d", time.Now().UnixNano())
-	txn, err := store.CreateCryptoCreditTransaction(ctx, user.ID, "nowpayments", orderID, 1999)
+	txn, err := store.CreateUSDCreditTransaction(ctx, user.ID, "nowpayments", orderID, 1999)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestCryptoAndRazorpayOrderIDsDoNotCollideAcrossProviders(t *testing.T) {
 	if _, err := store.CreateCreditTransaction(ctx, user.ID, sharedOrderID, 50000, 0.012); err != nil {
 		t.Fatalf("razorpay create: %v", err)
 	}
-	if _, err := store.CreateCryptoCreditTransaction(ctx, user.ID, "nowpayments", sharedOrderID, 1999); err != nil {
+	if _, err := store.CreateUSDCreditTransaction(ctx, user.ID, "nowpayments", sharedOrderID, 1999); err != nil {
 		t.Fatalf("crypto create with same order_id but different provider should succeed: %v", err)
 	}
 }
@@ -82,7 +82,7 @@ func TestMarkCreditTransactionStatusDoesNotTouchBalance(t *testing.T) {
 	}
 
 	orderID := fmt.Sprintf("order_failed_%d", time.Now().UnixNano())
-	if _, err := store.CreateCryptoCreditTransaction(ctx, user.ID, "nowpayments", orderID, 1999); err != nil {
+	if _, err := store.CreateUSDCreditTransaction(ctx, user.ID, "nowpayments", orderID, 1999); err != nil {
 		t.Fatal(err)
 	}
 

@@ -101,3 +101,6 @@ frontend/next-env.d.ts
 
 # root-level plans folder: scratch planning docs, not part of shipped project
 /plans/
+
+# Local docker-compose overrides (tunnel URLs, real API keys)
+docker-compose.override.yml

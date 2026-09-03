@@ -32,6 +32,13 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	// Called by NOWPayments' servers, not the browser — authenticated via HMAC signature
 	// (x-nowpayments-sig), not a session cookie, so it must sit outside the JWT group.
 	r.Post("/payments/nowpayments/webhook", d.NOWPaymentsWebhook)
+	// Called by Stripe's servers — authenticated via the HMAC-SHA256 signature in
+	// the Stripe-Signature header, so it must sit outside the JWT group.
+	r.Post("/payments/stripe/webhook", d.StripeWebhook)
+	// Called by PayPal's servers. PayPal signs with a rotating certificate rather
+	// than a shared secret, so verification is a call back to PayPal — but the
+	// route is public for the same reason as the others.
+	r.Post("/payments/paypal/webhook", d.PayPalWebhook)
 	// Called by arbitrary x402 clients (agents, other endpoints), not our own frontend —
 	// no JWT session applies, so it must sit outside the JWT group.
 	r.Handle("/x402/relay", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -89,6 +96,11 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Post("/payments/cashfree/order", d.CreateCashfreeOrder)
 		r.Post("/payments/cashfree/verify", d.VerifyCashfreePayment)
 		r.Post("/payments/nowpayments/invoice", d.CreateCryptoInvoice)
+		r.Get("/payments/providers", d.PaymentProviders)
+		r.Post("/payments/stripe/checkout", d.CreateStripeCheckout)
+		r.Post("/payments/stripe/verify", d.VerifyStripePayment)
+		r.Post("/payments/paypal/order", d.CreatePayPalOrder)
+		r.Post("/payments/paypal/capture", d.CapturePayPalOrder)
 		r.Get("/credits/balance", d.GetCreditBalance)
 		r.Post("/credits/redeem-coupon", d.RedeemCoupon)
 

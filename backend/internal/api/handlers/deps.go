@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"net/http"
+	"time"
 
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine"
@@ -29,6 +31,22 @@ type CashfreeClient interface {
 type NOWPaymentsClient interface {
 	CreateInvoice(ctx context.Context, amountUSDCents int64, orderID, ipnCallbackURL, successURL, cancelURL string) (payments.Invoice, error)
 	VerifyIPNSignature(body []byte, signature string) bool
+}
+
+// StripeClient is the subset of *payments.StripeClient the handlers need.
+// Defined here so tests can inject a fake without hitting the real API.
+type StripeClient interface {
+	CreateCheckoutSession(ctx context.Context, amountUSDCents int64, orderID, customerEmail, successURL, cancelURL string) (payments.CheckoutSession, error)
+	GetCheckoutSessionStatus(ctx context.Context, sessionID string) (paymentStatus, paymentIntentID, clientReferenceID string, err error)
+	VerifyWebhookSignature(body []byte, header string, now time.Time) bool
+}
+
+// PayPalClient is the subset of *payments.PayPalClient the handlers need.
+// Defined here so tests can inject a fake without hitting the real API.
+type PayPalClient interface {
+	CreateOrder(ctx context.Context, amountUSDCents int64, orderID, returnURL, cancelURL string) (payments.PayPalOrder, error)
+	CaptureOrder(ctx context.Context, payPalOrderID string) (status, captureID, customID string, err error)
+	VerifyWebhookSignature(ctx context.Context, body []byte, h http.Header) bool
 }
 
 // USDCSigner builds a gasless USDC atomic-payment group for the X-Payment
@@ -73,6 +91,13 @@ type Deps struct {
 	CashfreeAppID string
 
 	NOWPayments NOWPaymentsClient
+
+	// Stripe and PayPal are optional: both are nil when their env vars are
+	// unset, and the handlers below fail closed with a clear error rather
+	// than panicking. A deployment that only sells through Cashfree should
+	// not be forced to hold credentials for gateways it never enables.
+	Stripe StripeClient
+	PayPal PayPalClient
 
 	PlatformWalletAddress     string
 	PlatformWalletEncMnemonic string

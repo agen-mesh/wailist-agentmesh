@@ -102,6 +102,34 @@ func main() {
 		nowPaymentsClient.UseSandbox()
 	}
 
+	// Stripe and PayPal are optional, unlike Cashfree and NOWPayments above:
+	// leaving their credentials unset disables those checkout options rather
+	// than refusing to boot. Their handlers fail closed with a clear message,
+	// and the frontend reads /payments/providers to know which to offer.
+	// Making them mustEnv would break every existing deployment on upgrade.
+	//
+	// Declared as the handler interface types, not the concrete pointers: a
+	// nil *payments.StripeClient stored in a non-nil interface would make
+	// d.Stripe != nil and defeat the nil checks the handlers rely on.
+	var stripeClient handlers.StripeClient
+	if key := os.Getenv("STRIPE_SECRET_KEY"); key != "" {
+		// Stripe has no separate sandbox host -- a sk_test_ key IS test mode.
+		stripeClient = payments.NewStripeClient(key, mustEnv("STRIPE_WEBHOOK_SECRET"))
+	} else {
+		log.Printf("STRIPE_SECRET_KEY not set — stripe checkout is disabled")
+	}
+
+	var payPalClient handlers.PayPalClient
+	if id := os.Getenv("PAYPAL_CLIENT_ID"); id != "" {
+		pp := payments.NewPayPalClient(id, mustEnv("PAYPAL_CLIENT_SECRET"), mustEnv("PAYPAL_WEBHOOK_ID"))
+		if envOr("PAYPAL_SANDBOX", "false") == "true" {
+			pp.UseSandbox()
+		}
+		payPalClient = pp
+	} else {
+		log.Printf("PAYPAL_CLIENT_ID not set — paypal checkout is disabled")
+	}
+
 	// $20.00 default, up from $5.00: Tendril's cheapest online machine is
 	// $6.00/hour and a 2-hour rent tops the shared pool up by $12.00 in one
 	// call, which the old ceiling rejected outright.
@@ -191,6 +219,8 @@ func main() {
 		Cashfree:      cashfreeClient,
 		CashfreeAppID: cashfreeClient.AppID,
 		NOWPayments:   nowPaymentsClient,
+		Stripe:        stripeClient,
+		PayPal:        payPalClient,
 
 		PlatformWalletAddress:          platformWalletAddr,
 		PlatformWalletEncMnemonic:      platformWalletEncMnemonic,
@@ -272,27 +302,46 @@ func envInt64Or(key string, fallback int64) int64 {
 // expireStalePendingTransactionsLoop marks abandoned checkouts (order/invoice created,
 // never completed) as 'expired' so they stop being reported as in-progress. Runs on a
 // fixed interval for the life of the process; errors are logged, not fatal. Sweeps each
-// payment provider with its own staleness window: Cashfree checkouts are fast, so 30
-// minutes of no completion means abandoned; NOWPayments crypto invoices settle on-chain
-// and routinely take longer, so they get a generous 24-hour window.
+// payment provider with its own staleness window, since what counts as "abandoned"
+// differs by how the provider settles -- see the constants below.
 func expireStalePendingTransactionsLoop(ctx context.Context, store *db.Store) {
 	const (
-		checkInterval         = 5 * time.Minute
-		razorpayStaleAfter    = 30 * time.Minute
+		checkInterval = 5 * time.Minute
+		// Hosted card checkouts are fast; 30 minutes without completion means
+		// the payer walked away.
+		cardStaleAfter = 30 * time.Minute
+		// Stripe is NOT just a card checkout: its delayed-notification methods
+		// (ACH, SEPA debit, Boleto, OXXO, Konbini) complete the session
+		// immediately as 'unpaid' and only settle hours or days later, via
+		// async_payment_succeeded. A 30-minute window stamped those rows
+		// 'expired' while they were still legitimately in flight. No credit was
+		// lost (CompleteCreditTransaction only refuses rows marked 'failed'),
+		// but the row went expired -> completed and misreported itself in
+		// purchase history for the whole gap.
+		stripeStaleAfter = 7 * 24 * time.Hour
+		// Crypto invoices settle on-chain and routinely take longer.
 		nowPaymentsStaleAfter = 24 * time.Hour
+		// PayPal orders can sit approved-but-uncaptured while a payer finishes
+		// on another device, so they get more room than a card checkout.
+		payPalStaleAfter = 3 * time.Hour
 	)
 	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
 	for range ticker.C {
-		if n, err := store.ExpireStalePendingTransactions(ctx, "cashfree", razorpayStaleAfter); err != nil {
-			log.Printf("expire stale cashfree transactions: %v", err)
-		} else if n > 0 {
-			log.Printf("expired %d stale cashfree transactions", n)
-		}
-		if n, err := store.ExpireStalePendingTransactions(ctx, "nowpayments", nowPaymentsStaleAfter); err != nil {
-			log.Printf("expire stale nowpayments transactions: %v", err)
-		} else if n > 0 {
-			log.Printf("expired %d stale nowpayments transactions", n)
+		for _, p := range []struct {
+			provider string
+			after    time.Duration
+		}{
+			{"cashfree", cardStaleAfter},
+			{"stripe", stripeStaleAfter},
+			{"paypal", payPalStaleAfter},
+			{"nowpayments", nowPaymentsStaleAfter},
+		} {
+			if n, err := store.ExpireStalePendingTransactions(ctx, p.provider, p.after); err != nil {
+				log.Printf("expire stale %s transactions: %v", p.provider, err)
+			} else if n > 0 {
+				log.Printf("expired %d stale %s transactions", n, p.provider)
+			}
 		}
 	}
 }

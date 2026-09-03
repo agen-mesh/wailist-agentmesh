@@ -351,7 +351,7 @@ func TestExpireStalePendingTransactionsScopesToProvider(t *testing.T) {
 	}
 
 	cryptoOrderID := fmt.Sprintf("order_expire_crypto_%d", time.Now().UnixNano())
-	if _, err := store.CreateCryptoCreditTransaction(ctx, user.ID, sweepProvider, cryptoOrderID, 1999); err != nil {
+	if _, err := store.CreateUSDCreditTransaction(ctx, user.ID, sweepProvider, cryptoOrderID, 1999); err != nil {
 		t.Fatal(err)
 	}
 

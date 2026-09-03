@@ -994,10 +994,12 @@ func (s *Store) CreateCreditTransactionForProvider(ctx context.Context, provider
 	return txn, err
 }
 
-// CreateCryptoCreditTransaction records a pending ledger row for a hosted crypto invoice
-// (NOWPayments or any future crypto gateway sharing this shape). Unlike the Razorpay path,
-// the amount is already USD-denominated by the gateway, so there is no FX rate to store.
-func (s *Store) CreateCryptoCreditTransaction(ctx context.Context, userID, provider, providerOrderID string, amountUSDCents int64) (models.CreditTransaction, error) {
+// CreateUSDCreditTransaction records a pending ledger row for a checkout the provider
+// already quotes in USD -- NOWPayments' crypto invoices, Stripe Checkout, and PayPal
+// Orders all share this shape. Unlike the Cashfree path, which charges in INR and has to
+// pin the FX rate it converted at, there is no rate to store here: the amount charged is
+// already the amount credited.
+func (s *Store) CreateUSDCreditTransaction(ctx context.Context, userID, provider, providerOrderID string, amountUSDCents int64) (models.CreditTransaction, error) {
 	creditUSDMicros := amountUSDCents * 10_000
 	var txn models.CreditTransaction
 	err := s.pool.QueryRow(ctx, `

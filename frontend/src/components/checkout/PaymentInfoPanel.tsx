@@ -2,7 +2,9 @@
 import { useState } from "react";
 import { Pill } from "@/components/ui";
 import type { PaymentMethod } from "./types";
-import { PAYMENT_PROVIDERS } from "./paymentProviders";
+import { USD_PROVIDERS } from "./paymentProviders";
+import { usePaymentProviders } from "./usePaymentProviders";
+import { payments } from "@/lib/api";
 import { useCashfreeCheckout } from "./useCashfreeCheckout";
 
 type PayStatus = "idle" | "processing" | "success";
@@ -90,8 +92,18 @@ export function PaymentInfoPanel({
     onDismiss: () => setStatus("idle"),
   });
 
-  const selected = PAYMENT_PROVIDERS.find((p) => p.id === method);
-  const busy = status === "processing" || cashfree.loading;
+  const { providers, usdPerINR, loading: providersLoading } =
+    usePaymentProviders();
+  const selected = providers.find((p) => p.id === method);
+
+  // The USD gateways charge in dollars while this panel is denominated in
+  // rupees, so the amount is converted at the server's live rate -- never at
+  // lib/credits/fx.ts's mock constant, which would quote a price that differs
+  // from what actually gets charged.
+  const amountUSDCents =
+    usdPerINR > 0 ? Math.round(amountINR * usdPerINR * 100) : 0;
+  const isUSD = USD_PROVIDERS.has(method);
+  const busy = status === "processing" || cashfree.loading || providersLoading;
   const isSuccess = status === "success";
   // Cashfree specifically needs a real phone; other providers don't ask for
   // one, so this gate only applies when that method is selected.
@@ -101,11 +113,18 @@ export function PaymentInfoPanel({
     !busy &&
     !isSuccess &&
     agreed &&
-    (method !== "cashfree" || phoneValid);
+    (method !== "cashfree" || phoneValid) &&
+    // A USD gateway with no rate cannot be priced, so it cannot be paid.
+    (!isUSD || amountUSDCents > 0);
 
-  const handlePay = () => {
+  // Stripe, PayPal and NOWPayments are all redirect flows: the browser leaves
+  // for the provider's hosted page and returns to /billing, where the query
+  // param is picked up and the payment finalised. Only Cashfree completes
+  // in-page, via its own JS SDK.
+  const handlePay = async () => {
     if (!canPay) return;
     setError(null);
+
     if (method === "cashfree") {
       if (!normalizedPhone) {
         setPhoneTouched(true);
@@ -114,6 +133,30 @@ export function PaymentInfoPanel({
       // useCashfreeCheckout owns loading/dismiss; leave status idle so the
       // button reflects the hook's state, not a stuck "processing".
       cashfree.pay(Math.round(amountINR * 100), normalizedPhone);
+      return;
+    }
+
+    setStatus("processing");
+    try {
+      let redirectTo: string;
+      if (method === "stripe") {
+        const res = await payments.createStripeCheckout(amountUSDCents);
+        // The session id has to survive the round trip: the return URL only
+        // carries our order id, and verify needs both.
+        window.sessionStorage.setItem("agentmesh_stripe_session", res.session_id);
+        redirectTo = res.checkout_url;
+      } else if (method === "paypal") {
+        const res = await payments.createPayPalOrder(amountUSDCents);
+        window.sessionStorage.setItem("agentmesh_paypal_order", res.paypal_order_id);
+        redirectTo = res.approve_url;
+      } else {
+        const res = await payments.createCryptoInvoice(amountUSDCents);
+        redirectTo = res.invoice_url;
+      }
+      window.location.assign(redirectTo);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "could not start checkout");
+      setStatus("idle");
     }
   };
 
@@ -121,11 +164,13 @@ export function PaymentInfoPanel({
     ? "✓ Payment successful"
     : busy
       ? "Processing…"
-      : payable
-        ? `Pay ₹${amountINR.toFixed(2)}`
-        : "Add an amount to continue";
+      : !payable
+        ? "Add an amount to continue"
+        : isUSD
+          ? `Pay $${(amountUSDCents / 100).toFixed(2)}`
+          : `Pay ₹${amountINR.toFixed(2)}`;
 
-  const trust = "Secured by Cashfree · details are encrypted";
+  const trust = `Secured by ${selected?.label ?? "our payment provider"} · details are encrypted`;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -140,7 +185,7 @@ export function PaymentInfoPanel({
         aria-label="Payment method"
         style={{ display: "flex", flexDirection: "column", gap: 10 }}
       >
-        {PAYMENT_PROVIDERS.map((p) => {
+        {providers.map((p) => {
           const active = method === p.id;
           const disabled = !p.enabled;
           return (

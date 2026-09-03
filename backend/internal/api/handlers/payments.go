@@ -320,7 +320,7 @@ func (d *Deps) CreateCryptoInvoice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	orderID := uuid.New().String()
-	if _, err := d.Store.CreateCryptoCreditTransaction(r.Context(), userID, "nowpayments", orderID, body.AmountUSDCents); err != nil {
+	if _, err := d.Store.CreateUSDCreditTransaction(r.Context(), userID, "nowpayments", orderID, body.AmountUSDCents); err != nil {
 		log.Printf("nowpayments invoice: create ledger row: %v", err)
 		respond.Error(w, http.StatusInternalServerError, "internal error")
 		return
@@ -416,4 +416,41 @@ func (d *Deps) NOWPaymentsWebhook(w http.ResponseWriter, r *http.Request) {
 	default:
 		respond.JSON(w, http.StatusOK, map[string]string{"status": "ignored"})
 	}
+}
+
+// PaymentProviders reports which checkout providers this deployment can
+// actually take money through.
+//
+// The frontend used to hardcode this, which meant enabling a provider was a
+// two-repo change and a deployment missing credentials still advertised a
+// button that could only fail. Cashfree and NOWPayments are required at boot
+// (mustEnv in main.go) so they are always on; Stripe and PayPal are optional
+// and report whatever they were configured with.
+func (d *Deps) PaymentProviders(w http.ResponseWriter, r *http.Request) {
+	// The USD gateways charge in USD while the top-up UI is denominated in
+	// rupees, so the frontend has to convert. Serving the same live rate the
+	// Cashfree path pins into its ledger row keeps the two from disagreeing --
+	// the frontend's own fx.ts constant is a mock (a fixed 1/83) and would
+	// quote a price that drifts from what is actually charged.
+	//
+	// A rate fetch failure is not fatal here: it only means the USD options
+	// cannot be priced, so they are reported disabled rather than offered at
+	// a made-up rate.
+	rate, stale, err := payments.CachedINRToUSDRate(r.Context())
+	if err != nil {
+		log.Printf("payment providers: fx rate: %v", err)
+	} else if stale {
+		log.Printf("payment providers: serving a stale fx rate (%v) — refresh is failing", rate)
+	}
+	usdPriceable := err == nil && rate > 0
+
+	respond.JSON(w, http.StatusOK, map[string]any{
+		"usd_per_inr": rate,
+		"providers": []map[string]any{
+			{"id": "cashfree", "enabled": true, "currency": "INR"},
+			{"id": "nowpayments", "enabled": usdPriceable, "currency": "USD"},
+			{"id": "stripe", "enabled": d.Stripe != nil && usdPriceable, "currency": "USD"},
+			{"id": "paypal", "enabled": d.PayPal != nil && usdPriceable, "currency": "USD"},
+		},
+	})
 }

@@ -6,7 +6,7 @@ import { PurchaseHistory } from "@/components/billing/PurchaseHistory";
 import { CheckoutModal } from "@/components/checkout/CheckoutModal";
 import { useCredits } from "@/lib/credits/store";
 import { bonusRate, creditsForTopup } from "@/lib/credits/fx";
-import { credits as creditsApi } from "@/lib/api";
+import { credits as creditsApi, payments as paymentsApi } from "@/lib/api";
 
 const PRESETS_INR = [100, 500, 1000, 2000];
 const LOW_BALANCE_USD = 5;
@@ -54,6 +54,95 @@ export default function BillingPage() {
   // page where the number has to be right.
   useEffect(() => {
     void refreshBalance();
+  }, [refreshBalance]);
+
+  // Redirect-flow return handling. Stripe, PayPal and NOWPayments all send the
+  // browser away and back with a query param; this is where that round trip is
+  // closed out. Each provider's webhook is the independent backstop, so a
+  // failure here (closed tab, dropped connection) delays the credit rather
+  // than losing it.
+  const [returnState, setReturnState] = useState<{
+    tone: "success" | "pending" | "error";
+    message: string;
+  } | null>(null);
+
+  // Finalising a redirect return is one asynchronous routine, not a set of
+  // synchronous branches: every outcome resolves inside the async body so the
+  // effect never sets state during its own render pass.
+  useEffect(() => {
+    void (async () => {
+      const params = new URLSearchParams(window.location.search);
+      const orderID = params.get("order_id");
+
+      const provider = (["stripe", "paypal", "crypto"] as const).find((p) =>
+        params.has(p),
+      );
+      if (!provider) return;
+      const outcome = params.get(provider);
+
+      // Strip the payment params so a refresh doesn't re-run this, and so a
+      // shared URL doesn't carry someone else's order id around.
+      const url = new URL(window.location.href);
+      for (const k of ["stripe", "paypal", "crypto", "order_id"]) {
+        url.searchParams.delete(k);
+      }
+      window.history.replaceState({}, "", url.toString());
+
+      if (outcome === "cancelled" || outcome === "canceled") {
+        setReturnState({ tone: "error", message: "Checkout was cancelled." });
+        return;
+      }
+      if (outcome !== "success") return;
+
+      // Crypto has no client-side completion step at all: the IPN webhook is
+      // the only path that credits it, and on-chain confirmation takes time.
+      if (provider === "crypto") {
+        setReturnState({
+          tone: "pending",
+          message:
+            "Payment submitted. Crypto settles on-chain, so your balance will update once it confirms.",
+        });
+        return;
+      }
+
+      // The provider's own id has to survive the round trip: the return URL
+      // carries only our order id, and finalising needs both.
+      const storageKey =
+        provider === "stripe"
+          ? "agentmesh_stripe_session"
+          : "agentmesh_paypal_order";
+      const providerRef = window.sessionStorage.getItem(storageKey);
+
+      if (!orderID || !providerRef) {
+        // Nothing to finalise with -- the webhook still credits it.
+        setReturnState({
+          tone: "pending",
+          message: "Payment received. Your balance will update shortly.",
+        });
+        return;
+      }
+
+      try {
+        const res =
+          provider === "stripe"
+            ? await paymentsApi.verifyStripePayment(orderID, providerRef)
+            : await paymentsApi.capturePayPalOrder(orderID, providerRef);
+        window.sessionStorage.removeItem(storageKey);
+        await refreshBalance();
+        setReturnState({
+          tone: "success",
+          message: `Payment successful — ${fmtUSD(res.credited_usd_micros / 1e6)} added to your balance.`,
+        });
+      } catch {
+        // The webhook is the independent backstop, so a failure here delays
+        // the credit rather than losing it -- say so instead of "failed".
+        setReturnState({
+          tone: "pending",
+          message:
+            "We could not confirm the payment just now. If it went through, your balance will update shortly.",
+        });
+      }
+    })();
   }, [refreshBalance]);
 
   const [couponCode, setCouponCode] = useState("");
@@ -152,6 +241,39 @@ export default function BillingPage() {
               up anytime; testnet usage stays free.
             </p>
           </div>
+
+          {/* Outcome of a redirect checkout, above the fold: the payer has just
+              come back from another site and the first thing they need is
+              whether it worked. */}
+          {returnState && (
+            <div
+              role="status"
+              style={{
+                marginTop: 18,
+                padding: "12px 14px",
+                borderRadius: "var(--r-2)",
+                fontSize: 13,
+                lineHeight: 1.5,
+                border: `1px solid ${
+                  returnState.tone === "success"
+                    ? "var(--accent-line)"
+                    : returnState.tone === "error"
+                      ? "var(--danger)"
+                      : "var(--border)"
+                }`,
+                background:
+                  returnState.tone === "success"
+                    ? "var(--accent-soft)"
+                    : "var(--bg-elev-1)",
+                color:
+                  returnState.tone === "error"
+                    ? "var(--danger)"
+                    : "var(--fg-muted)",
+              }}
+            >
+              {returnState.message}
+            </div>
+          )}
 
           <div className="bill-grid">
             {/* MAIN column */}

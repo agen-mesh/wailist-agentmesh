@@ -462,7 +462,7 @@ func TestNOWPaymentsWebhookCreditsOnFinished(t *testing.T) {
 		t.Fatal(err)
 	}
 	orderID := fmt.Sprintf("order_wh_%d", time.Now().UnixNano())
-	if _, err := d.Store.CreateCryptoCreditTransaction(context.Background(), user.ID, "nowpayments", orderID, 1999); err != nil {
+	if _, err := d.Store.CreateUSDCreditTransaction(context.Background(), user.ID, "nowpayments", orderID, 1999); err != nil {
 		t.Fatal(err)
 	}
 
@@ -495,7 +495,7 @@ func TestNOWPaymentsWebhookDoesNotCreditOnConfirmed(t *testing.T) {
 		t.Fatal(err)
 	}
 	orderID := fmt.Sprintf("order_wh_confirmed_%d", time.Now().UnixNano())
-	if _, err := d.Store.CreateCryptoCreditTransaction(context.Background(), user.ID, "nowpayments", orderID, 1999); err != nil {
+	if _, err := d.Store.CreateUSDCreditTransaction(context.Background(), user.ID, "nowpayments", orderID, 1999); err != nil {
 		t.Fatal(err)
 	}
 
@@ -525,7 +525,7 @@ func TestNOWPaymentsWebhookMarksPartialWithoutCrediting(t *testing.T) {
 		t.Fatal(err)
 	}
 	orderID := fmt.Sprintf("order_wh_partial_%d", time.Now().UnixNano())
-	if _, err := d.Store.CreateCryptoCreditTransaction(context.Background(), user.ID, "nowpayments", orderID, 1999); err != nil {
+	if _, err := d.Store.CreateUSDCreditTransaction(context.Background(), user.ID, "nowpayments", orderID, 1999); err != nil {
 		t.Fatal(err)
 	}
 
