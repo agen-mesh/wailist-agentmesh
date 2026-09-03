@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { auth, AuthUser } from "@/lib/api";
+import { IS_NATIVE, setAuthToken, authReady } from "@/lib/nativeAuth";
 
 const UI_COOKIE = "agentmesh_ui";
 const TTL = 60 * 60 * 24 * 7; // 7 days -- matches backend JWT TTL
@@ -19,8 +20,12 @@ export function useAuth() {
   const [user, setUser] = useState<AuthUser | null>(null);
 
   useEffect(() => {
-    auth
-      .me()
+    // On native, wait for NativeBoot to finish restoring (or fail to
+    // restore) the persisted token before asking who's signed in -- calling
+    // auth.me() first would race it and 401 with no Authorization header
+    // attached yet.
+    authReady
+      .then(() => auth.me())
       .then((u) => {
         setUICookie();
         setSignedIn(true);
@@ -35,14 +40,34 @@ export function useAuth() {
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    await auth.signIn(email, password);
+    const token = await auth.signIn(email, password);
+    // Hand the session to the native shell so it survives the app being
+    // closed. Inert on the web, where the token is null and the HttpOnly
+    // cookie is the session. Dynamic and IS_NATIVE-guarded for the same
+    // reason as NativeBoot: a browser build must not pull Capacitor in.
+    if (token && IS_NATIVE) {
+      setAuthToken(token);
+      // Logged, not swallowed: a failed native persist (e.g. a Keystore
+      // write error) would otherwise leave the UI showing signed-in while
+      // the shell never actually saved the token, silently failing to
+      // survive the app being killed.
+      void import("@/native")
+        .then(({ shell }) => shell.onSignedIn(token))
+        .catch((err) => console.error("native shell failed to persist sign-in", err));
+    }
     setUICookie();
     setSignedIn(true);
   }, []);
 
   const signUp = useCallback(
     async (email: string, password: string, name: string, org: string) => {
-      await auth.signUp(email, password, name, org);
+      const token = await auth.signUp(email, password, name, org);
+      if (token && IS_NATIVE) {
+        setAuthToken(token);
+        void import("@/native")
+          .then(({ shell }) => shell.onSignedIn(token))
+          .catch((err) => console.error("native shell failed to persist sign-in", err));
+      }
       setUICookie();
       setSignedIn(true);
     },
@@ -51,6 +76,15 @@ export function useAuth() {
 
   const signOut = useCallback(async () => {
     await auth.signOut();
+    if (IS_NATIVE) {
+      setAuthToken(null);
+      // Logged for the mirror-image reason: a shared device that fails to
+      // clear the persisted token would otherwise silently keep the old
+      // user's session live in Keystore after the UI has already moved on.
+      void import("@/native")
+        .then(({ shell }) => shell.onSignedOut())
+        .catch((err) => console.error("native shell failed to clear sign-out", err));
+    }
     clearUICookie();
     setSignedIn(false);
     setUser(null);

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./responsive.css";
 
 /* ── Design tokens ────────────────────────────────────────────────────── */
 :root {
@@ -187,6 +188,16 @@ body {
     transparent
   );
   mask: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+
+/* The track scrolls forever, so it is exactly the kind of ambient motion that
+   has to stop when the reader has asked for less of it. Halting it simply
+   leaves the first copy of the logo set parked in place, which is legible --
+   the track renders the set twice so the loop can be seamless. */
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+  }
 }
 
 /* ── Liquid glass ─────────────────────────────────────────────────────── */
@@ -1205,6 +1216,15 @@ body {
 
 /* Static chrome only; the moving values (transform + opacity) are set inline
    by ChatRail, matching how the rest of this codebase styles stateful bits. */
+/* Three segments when the palette joins the rail -- a narrow window on a
+   computer, where the palette has no column of its own to live in. */
+.rail-switch[data-segments="3"] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.rail-switch[data-segments="3"] .rail-switch__thumb {
+  width: calc(33.333% - 2px);
+}
+
 .rail-switch__thumb {
   position: absolute;
   top: 2px;
@@ -1229,8 +1249,10 @@ body {
   justify-content: center;
   gap: 5px;
   /* 26px matches this toolbar's existing dense pills and ghostBtnSm's 28px.
-     The 44px touch minimum is deliberately not met: the studio rail header is
-     desktop-only chrome and a 44px control would double its height. */
+     The 44px touch minimum is not met here on purpose: in its own column the
+     rail header is pointer-driven chrome, and a 44px control would double its
+     height. Inside the bottom sheet it IS thumb-driven, and the override
+     below restores the full target. */
   min-height: 26px;
   padding: 0 9px;
   border: none;

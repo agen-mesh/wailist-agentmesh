@@ -5,6 +5,8 @@ import { Logo, Pill, Hairline, ghostBtnSm } from "@/components/ui";
 import { useAuth } from "@/hooks/useAuth";
 import { AppNav } from "@/components/nav/AppNav";
 import { APP_NAV_ITEMS, type NavItem } from "@/lib/nav";
+import { can } from "@/lib/readonly";
+import { useReadOnly } from "@/hooks/useReadOnly";
 
 // Which chain settlements actually run on. Mainnet is the default because
 // that is what the platform runs; overridable so a genuine testnet
@@ -17,6 +19,7 @@ export function Topbar() {
   const router = useRouter();
   const pathname = usePathname();
   const { signOut, user, completeOnboarding } = useAuth();
+  const readOnly = useReadOnly();
 
   // Avatar shows the first letter of the signed-in user's name, falling back
   // to the email local part while auth is still loading or for an OAuth
@@ -120,6 +123,18 @@ export function Topbar() {
                 {ALGORAND_NETWORK}
               </Pill>
             </div>
+            {/* Deliberately OUTSIDE the context cluster above. This pill is not
+              context -- it is the explanation for why the create/deploy
+              controls are missing, and a phone is where it is needed most.
+              Collapsing it with the workspace switcher left a viewer on a
+              narrow screen with the controls gone and nothing saying why. */}
+            {!can("workflow.editGraph", readOnly) && (
+              <span title="Editing happens in the AgentMesh desktop app.">
+                <Pill mono dot tone="warm">
+                  viewing only
+                </Pill>
+              </span>
+            )}
           </div>
         }
         actions={
@@ -375,6 +390,7 @@ function NavLink({
 }) {
   return (
     <button
+      className="am-nav-link"
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       onMouseEnter={(e) => {
@@ -384,8 +400,6 @@ function NavLink({
         if (!active) e.currentTarget.style.background = "transparent";
       }}
       style={{
-        height: 28,
-        padding: "0 12px",
         fontSize: 12.5,
         fontWeight: 500,
         background: active ? "var(--bg-elev-3)" : "transparent",

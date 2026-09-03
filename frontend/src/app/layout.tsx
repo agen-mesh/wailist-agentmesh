@@ -1,15 +1,32 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { NativeBoot } from "@/components/native/NativeBoot";
+import localFont from "next/font/local";
 import "./globals.css";
 
-const geistSans = Geist({
+// Self-hosted rather than next/font/google, which fetches from
+// fonts.gstatic.com at BUILD time. Two reasons, and the second is the real one:
+//
+//  1. The build stops depending on network reachability. A CDN outage or an
+//     offline machine currently fails `next build` outright.
+//  2. This bundle is also served from inside the native Android shell, off the
+//     device, with no server in front of it. An app whose typography depends on
+//     reaching Google is an app that renders wrong on a train.
+//
+// These are the same Geist files -- the `geist` package is already a
+// dependency, and the variable faces cover every weight in one file each, just
+// as the Google-hosted versions do.
+const geistSans = localFont({
+  src: "../../node_modules/geist/dist/fonts/geist-sans/Geist-Variable.woff2",
   variable: "--font-sans",
-  subsets: ["latin"],
+  weight: "100 900",
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
+const geistMono = localFont({
+  src: "../../node_modules/geist/dist/fonts/geist-mono/GeistMono-Variable.woff2",
   variable: "--font-mono",
-  subsets: ["latin"],
+  weight: "100 900",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -69,6 +86,7 @@ export default function RootLayout({
           minHeight: "100dvh",
         }}
       >
+        <NativeBoot />
         {children}
       </body>
     </html>

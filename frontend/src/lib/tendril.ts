@@ -1,4 +1,5 @@
-import { BASE } from "@/lib/api";
+import { BASE, apiFetch } from "@/lib/api";
+import { assertWritable } from "@/lib/readonly";
 
 // Tendril charges a flat 0.01 USDC to open a lease; the hours themselves meter
 // against credit at the machine's hourly rate. Kept in sync with the backend's
@@ -93,7 +94,7 @@ export interface TendrilTopupResult {
 }
 
 async function postJSON<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await apiFetch(`${BASE}${path}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -111,7 +112,8 @@ export const tendril = {
   // minting a fresh duplicate one every time -- workflowsApi.create would
   // do the latter, since it always inserts.
   async console(): Promise<string> {
-    const res = await fetch(`${BASE}/tendril/console`, {
+    assertWritable("GET", "/tendril/console");
+    const res = await apiFetch(`${BASE}/tendril/console`, {
       credentials: "include",
     });
     if (!res.ok) throw new Error(`console: ${res.status}`);
@@ -127,7 +129,7 @@ export const tendril = {
   // row for every user the instant they open any of their own, entirely
   // unrelated workflows.
   async consoleWorkflowIdIfExists(): Promise<string | null> {
-    const res = await fetch(`${BASE}/tendril/console/exists`, {
+    const res = await apiFetch(`${BASE}/tendril/console/exists`, {
       credentials: "include",
     });
     if (!res.ok) throw new Error(`console/exists: ${res.status}`);
@@ -139,7 +141,7 @@ export const tendril = {
   },
 
   async machines(): Promise<TendrilMachine[]> {
-    const res = await fetch(`${BASE}/tendril/machines`, {
+    const res = await apiFetch(`${BASE}/tendril/machines`, {
       credentials: "include",
     });
     if (!res.ok) throw new Error(`machines: ${res.status}`);
@@ -148,7 +150,7 @@ export const tendril = {
   },
 
   async credit(): Promise<number> {
-    const res = await fetch(`${BASE}/tendril/credits`, {
+    const res = await apiFetch(`${BASE}/tendril/credits`, {
       credentials: "include",
     });
     if (!res.ok) throw new Error(`credits: ${res.status}`);
@@ -157,7 +159,7 @@ export const tendril = {
   },
 
   async leases(): Promise<TendrilLeaseSummary[]> {
-    const res = await fetch(`${BASE}/leases`, { credentials: "include" });
+    const res = await apiFetch(`${BASE}/leases`, { credentials: "include" });
     if (!res.ok) throw new Error(`leases: ${res.status}`);
     const body = (await res.json()) as { leases: TendrilLeaseSummary[] };
     return body.leases ?? [];

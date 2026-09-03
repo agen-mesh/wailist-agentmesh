@@ -6,6 +6,12 @@ import { WAITLIST_COUNT } from "@/lib/data";
 import { waitlist } from "@/lib/api";
 import { AppNav } from "@/components/nav/AppNav";
 import { LANDING_NAV_ITEMS } from "@/lib/nav";
+import { siGithub } from "simple-icons";
+import {
+  SimpleIconMark,
+  SlackMark,
+  TendrilMark,
+} from "@/components/brand/marks";
 
 interface LandingPageProps {
   signedIn: boolean;
@@ -406,10 +412,16 @@ function LogoMarquee() {
   // functioning connector behind them (invented x402 hostnames / no case
   // in ExecuteAction). Tendril is a genuine live x402 compute-rental
   // integration; Slack and GitHub are real connectors in the Actions tab.
+  //
+  // Each mark is imported on its own rather than through the canvas node's
+  // template->icon table: that table statically pulls in ~23 simple-icons so
+  // the bundler can drop the rest, and this page draws exactly one of them.
+  // Slack is hand-drawn because simple-icons no longer ships it, and Tendril
+  // because it publishes no icon to any package -- see components/brand/marks.
   const logos = [
-    { letter: "T", name: "Tendril" },
-    { letter: "S", name: "Slack" },
-    { letter: "G", name: "GitHub" },
+    { name: "Tendril", mark: <TendrilMark size={13} /> },
+    { name: "Slack", mark: <SlackMark size={13} /> },
+    { name: "GitHub", mark: <SimpleIconMark icon={siGithub} size={13} /> },
   ];
   const doubled = [...logos, ...logos];
 
@@ -450,13 +462,10 @@ function LogoMarquee() {
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 12,
-                    fontWeight: 600,
                     color: "rgba(242, 240, 247, 0.95)",
                   }}
                 >
-                  {l.letter}
+                  {l.mark}
                 </span>
                 <span
                   style={{

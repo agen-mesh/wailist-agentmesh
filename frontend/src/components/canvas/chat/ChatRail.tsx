@@ -1,8 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ChatPane } from "./ChatPane";
 import { TerminalTab } from "../TerminalTab";
-import { IconChat, IconInspect } from "@/components/ui";
+import { IconChat, IconInspect, IconGrid } from "@/components/ui";
 import type { ChatSession } from "./useChatSession";
 
 // The studio's right-hand column: one tall panel that toggles between the
@@ -10,14 +10,14 @@ import type { ChatSession } from "./useChatSession";
 // Width/resize mechanics are owned by CanvasPage; the bottom dock is purely a
 // log viewer and holds none of these.
 
-export type RailTab = "chat" | "inspector" | "terminal";
+export type RailTab = "chat" | "inspector" | "terminal" | "palette";
 
 interface ChatRailProps {
   session: ChatSession;
   onSend: (text: string) => void;
   busy: boolean;
   onShowLogs?: () => void;
-  width?: number;
+  width?: number | string;
   // Build mode edits the graph instead of running the deployed agent.
   // canToggleBuildMode is false until a provider node exists -- before
   // that, build mode is forced on and there's nothing to toggle.
@@ -32,6 +32,18 @@ interface ChatRailProps {
   hasSelection: boolean;
   /** Non-null only while the run holds a Tendril lease; gates the TERM pill. */
   leaseId: string | null;
+  /** The node palette, supplied only when the studio is stacked AND the
+   *  client may edit -- a narrow window on a computer. The palette panel is
+   *  280px wide and full height, so in a stacked column it would swallow the
+   *  canvas; as a pane in here it keeps its drag-and-drop while the graph
+   *  stays visible above. Absent on a desktop (the palette has its own
+   *  column) and on a handheld (nothing to author with). */
+  paletteNode?: React.ReactNode;
+  /** Switches the visible pane when it changes. The rail still owns its own
+   *  tab state -- this only nudges it, so tapping a pill afterwards still
+   *  wins. Used by the compact bottom sheet to open on the node the reader
+   *  just selected. */
+  forceTab?: RailTab | null;
 }
 
 export function ChatRail({
@@ -46,14 +58,30 @@ export function ChatRail({
   inspectorNode,
   hasSelection,
   leaseId,
+  forceTab = null,
+  paletteNode,
 }: ChatRailProps) {
   const [tab, setTab] = useState<RailTab>("chat");
+
+  // Only on a *change* of forceTab, so the reader can switch away from the
+  // inspector while the same node stays selected.
+  const lastForced = useRef<RailTab | null>(null);
+  useEffect(() => {
+    if (forceTab && forceTab !== lastForced.current) setTab(forceTab);
+    lastForced.current = forceTab;
+  }, [forceTab]);
   // A lease that ends mid-run must not leave the rail stuck on a dead
   // terminal. Derived at render rather than synced through an effect: an
   // effect fires a second render pass and can lose a race with a pill click
   // in the same tick. "inspector" needs no fallback -- inspectorNode is
   // unconditional and renders its own empty state.
-  const effectiveTab: RailTab = tab === "terminal" && !leaseId ? "chat" : tab;
+  // A tab whose pane is not currently offered falls back to chat rather than
+  // showing nothing: the terminal exists only while a lease does, and the
+  // palette only while the studio is stacked -- widening the window mid-session
+  // takes the palette back to its own column.
+  const unavailable =
+    (tab === "terminal" && !leaseId) || (tab === "palette" && !paletteNode);
+  const effectiveTab: RailTab = unavailable ? "chat" : tab;
 
   return (
     <div
@@ -88,6 +116,7 @@ export function ChatRail({
             tab={effectiveTab}
             onSelect={setTab}
             hasSelection={hasSelection}
+            showPalette={!!paletteNode}
           />
           {/* Terminal stays its own pill rather than becoming a third
               segment: it is a transient machine session that only exists
@@ -178,6 +207,22 @@ export function ChatRail({
           {inspectorNode}
         </div>
 
+        {/* Palette -- mounted with the sheet so a drag can start the moment
+            the pane is shown. */}
+        {paletteNode && (
+          <div
+            style={{
+              display: effectiveTab === "palette" ? "flex" : "none",
+              flex: 1,
+              minHeight: 0,
+              minWidth: 0,
+              flexDirection: "column",
+            }}
+          >
+            {paletteNode}
+          </div>
+        )}
+
         {/* Terminal -- mounted only while selected: it owns a live WebSocket
             + SSH session, unlike the two above which are cheap to keep
             alive. */}
@@ -200,25 +245,54 @@ function RailSwitch({
   tab,
   onSelect,
   hasSelection,
+  showPalette,
 }: {
   tab: RailTab;
   onSelect: (tab: RailTab) => void;
   hasSelection: boolean;
+  showPalette: boolean;
 }) {
+  // Segment order, which is also the thumb's index space. Build must come
+  // first: it is where a stacked-layout edit starts, and putting it after
+  // Inspect would shift Chat and Inspect out from under the reader's thumb
+  // every time the window crossed the breakpoint.
+  const segments: RailTab[] = showPalette
+    ? ["palette", "chat", "inspector"]
+    : ["chat", "inspector"];
+  const index = Math.max(0, segments.indexOf(tab));
+
   return (
-    <div className="rail-switch" role="tablist" aria-label="Rail panel">
+    <div
+      className="rail-switch"
+      data-segments={segments.length}
+      role="tablist"
+      aria-label="Rail panel"
+    >
       <span
         className="rail-switch__thumb"
         aria-hidden="true"
         style={{
-          // The thumb is exactly one segment wide, so a 100% translate lands
-          // it precisely on the second segment.
-          transform: tab === "inspector" ? "translateX(100%)" : "translateX(0)",
-          // Terminal is live, so neither of these two panes is: fade the
-          // thumb rather than parking it on a segment that is not showing.
+          // The thumb is exactly one segment wide (CSS sizes it from
+          // data-segments), so translating by whole multiples of 100% lands
+          // it on each in turn.
+          transform: `translateX(${index * 100}%)`,
+          // Terminal is live, so none of these panes is: fade the thumb
+          // rather than parking it on a segment that is not showing.
           opacity: tab === "terminal" ? 0.35 : 1,
         }}
       />
+      {showPalette && (
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "palette"}
+          className="rail-switch__seg"
+          onClick={() => onSelect("palette")}
+        >
+          <IconGrid size={11} />
+          Build
+        </button>
+      )}
       <button
         type="button"
         role="tab"

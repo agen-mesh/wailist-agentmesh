@@ -105,6 +105,7 @@ export default function BillingPage() {
 
   return (
     <div
+      className="am-viewport"
       style={{
         height: "100dvh",
         display: "flex",
@@ -271,6 +272,7 @@ export default function BillingPage() {
 
                 {/* Preset cards */}
                 <div
+                  className="am-grid-4"
                   style={{
                     display: "grid",
                     gridTemplateColumns: "var(--wf-kpi-cols)",

@@ -1,6 +1,11 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { runs as runsApi, auth as authApi, type RunLogRecord } from "@/lib/api";
+import {
+  runs as runsApi,
+  auth as authApi,
+  type RunLogRecord,
+  type DeadLetterRun,
+} from "@/lib/api";
 import { recordSettlements } from "@/lib/settlements";
 
 // This hook owns everything about *what happened in a run*: the live SSE
@@ -85,6 +90,12 @@ interface CachedRun {
   runId: string;
   logs: LogEvent[];
   elapsed: number | null;
+  // Optional: cached blobs written before this field existed won't have it,
+  // and readCachedRun must still accept those. Caches the already-resolved
+  // (visibleDeadLetters) view, not the raw backend list, so a dead-letter
+  // that was fixed by a resume before the cache write doesn't come back
+  // from the dead on the next reload.
+  deadLetters?: DeadLetterRun[];
 }
 
 function readCachedRun(workflowId: string | undefined): CachedRun | null {
@@ -93,7 +104,11 @@ function readCachedRun(workflowId: string | undefined): CachedRun | null {
     const raw = window.localStorage.getItem(RUN_CACHE_PREFIX + workflowId);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CachedRun;
-    return Array.isArray(parsed.logs) ? parsed : null;
+    if (!Array.isArray(parsed.logs)) return null;
+    // deadLetters is a newer field -- an older cached blob won't have it,
+    // and a corrupt one shouldn't crash the filter this feeds into.
+    if (!Array.isArray(parsed.deadLetters)) parsed.deadLetters = [];
+    return parsed;
   } catch {
     return null;
   }
@@ -146,6 +161,10 @@ interface UseRunTranscriptArgs {
   // Scopes the cached last-run transcript, so reopening a workflow shows that
   // workflow's own last result rather than whatever ran most recently.
   workflowId?: string;
+  /** Bumped by the caller after a successful resume, on the SAME runId, to
+   *  force the SSE-connect effect below to tear down and reconnect -- it's
+   *  keyed on runId alone, which doesn't change across a resume. */
+  attempt?: number;
 }
 
 export interface RunTranscript {
@@ -156,6 +175,7 @@ export interface RunTranscript {
   leaseId: string | null;
   /** The run was stopped from the UI rather than reaching its own end. */
   stopped: boolean;
+  deadLetters: DeadLetterRun[];
 }
 
 export function useRunTranscript({
@@ -163,6 +183,7 @@ export function useRunTranscript({
   running,
   onRunComplete,
   workflowId,
+  attempt = 0,
 }: UseRunTranscriptArgs): RunTranscript {
   // With no live run, start from this workflow's cached last transcript so
   // reopening it still shows what happened, instead of an empty console.
@@ -173,9 +194,31 @@ export function useRunTranscript({
   );
   const [done, setDone] = useState(!!cached);
   const [stopped, setStopped] = useState(false);
+  const [deadLetters, setDeadLetters] = useState<DeadLetterRun[]>(
+    cached?.deadLetters ?? [],
+  );
   const esRef = useRef<EventSource | null>(null);
   const startRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Mirrors `elapsed` without joining the SSE effect's dependency array --
+  // read inside that effect (below) to continue the clock across a resume
+  // instead of re-basing it to zero. Kept in sync via its own effect (right
+  // below) rather than written during render: refs can't be safely written
+  // during render, only in effects/event handlers.
+  const elapsedRef = useRef(0);
+  useEffect(() => {
+    elapsedRef.current = elapsed ?? 0;
+  }, [elapsed]);
+
+  // Captured once, at mount only (a lazy useState initializer, like
+  // `cached` above, runs exactly once) -- the cached transcript's own run
+  // id, if this hook mounted with no live run at all (a page reload; by
+  // the time the render-time block below runs, `cached` itself has already
+  // gone back to null because `runId` is no longer null on that render). A
+  // ref would read identically here, but reading ref.current during render
+  // is exactly what react-hooks/refs exists to flag -- state is the
+  // sanctioned way to read a render-time value that must not change again.
+  const [cachedRunIdOnMount] = useState(() => cached?.runId ?? null);
 
   // Reset the transcript the moment a new run starts. This host used to be
   // remounted on key={runId} for exactly this reset, which also tore down
@@ -192,11 +235,23 @@ export function useRunTranscript({
   // return` below.
   const [transcriptRunId, setTranscriptRunId] = useState(runId);
   if (runId && runId !== transcriptRunId) {
+    // Resuming a dead-letter restored from the cache (no live run existed
+    // in this session until CanvasPage's handleResume fell back to the
+    // dead-letter's own runId) is NOT a new run starting -- it's the same
+    // run this hook already has a transcript for, from `cached` above.
+    // Wiping logs/deadLetters here would blank the console for the whole
+    // resumed run's duration, exactly the "wiping already-completed steps"
+    // behavior this hook exists to avoid. done/stopped still reset: the
+    // run is genuinely back in progress, cached or not.
+    const resumingCachedRun = runId === cachedRunIdOnMount;
     setTranscriptRunId(runId);
-    setLogs([]);
-    setElapsed(null);
     setDone(false);
     setStopped(false);
+    if (!resumingCachedRun) {
+      setLogs([]);
+      setElapsed(null);
+      setDeadLetters([]);
+    }
   }
 
   // onRunComplete is invoked from inside the SSE effect, which must stay keyed
@@ -228,7 +283,25 @@ export function useRunTranscript({
   useEffect(() => {
     if (!runId) return;
     completedRef.current = false;
-    startRef.current = Date.now();
+    // Continue the elapsed clock across a resume (same runId, attempt bumped)
+    // rather than re-basing to zero -- a fresh run already has elapsed/
+    // elapsedRef at 0 here (reset by the render-time block above), so this
+    // resolves correctly to Date.now() for a new run and continues in-place
+    // for a resume.
+    startRef.current = Date.now() - elapsedRef.current * 1000;
+    // A resume (attempt bumped, same runId) re-enters this effect with the
+    // run's prior terminal state still in `done`/`stopped` from before --
+    // clear it so the dock shows "in progress" again instead of a stale
+    // "run stopped"/"run complete" state while the resumed attempt runs.
+    // logs/elapsed are deliberately left alone: completed steps stay visible.
+    // Intentional synchronous reset, not the derived-state-cascade pattern
+    // this lint rule exists to catch: it must land in the one render this
+    // effect fires on, not a render later.
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setDone(false);
+    setStopped(false);
+    setDeadLetters([]);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     // Start elapsed timer
     timerRef.current = setInterval(() => {
@@ -258,16 +331,36 @@ export function useRunTranscript({
 
     const mergeDBLogs = (dbLogs: RunLogRecord[]) => {
       setLogs((prev) => {
-        // Merge, never replace: a stream-delivered entry carries the node's
-        // full output, so it always wins over the stored row.
-        const seen = new Set(prev.map((l) => l.nodeId));
-        const missing = dbLogs
-          .filter(
-            (l) =>
-              !seen.has(l.nodeId) &&
-              (l.status === "success" || l.status === "failed"),
-          )
-          .map((l) => ({
+        // Mirrors the live "log" event handler's own replace-if-running-
+        // else-append rule (below), applied to the DB-reconciliation path
+        // too: `logs` intentionally holds one row per ATTEMPT, not one row
+        // per node (resolveReply's latestPerNode collapses that down for
+        // display) -- a resumed node that fails, then fails or succeeds
+        // again, must get its own new row, not have the earlier attempt's
+        // row silently reused or dropped as a "duplicate."
+        //
+        // A DB row replaces an existing entry only when that entry is the
+        // still-open "running" placeholder for the SAME node (its terminal
+        // SSE event was dropped -- this is that same attempt finally
+        // resolving, not a new one). Otherwise it's appended as a new
+        // attempt, unless it exactly matches an already-recorded terminal
+        // row (same nodeId, status, AND ts) -- that's just a repeat poll of
+        // the same unchanged state, not a real new attempt.
+        let next = prev;
+        let mutated = false;
+        for (const l of dbLogs) {
+          if (l.status !== "success" && l.status !== "failed") continue;
+          if (
+            next.some(
+              (e) =>
+                e.nodeId === l.nodeId &&
+                e.status === l.status &&
+                e.ts === l.ts,
+            )
+          ) {
+            continue;
+          }
+          const entry = {
             stepIndex: l.stepIndex,
             nodeId: l.nodeId,
             nodeType: l.nodeType,
@@ -275,9 +368,20 @@ export function useRunTranscript({
             output: l.output,
             durationMs: l.durationMs ?? 0,
             ts: l.ts,
-          }));
-        if (missing.length === 0) return prev;
-        return [...prev, ...missing].sort((a, b) => a.stepIndex - b.stepIndex);
+          };
+          const runningIdx = next.findIndex(
+            (e) => e.nodeId === l.nodeId && e.status === "running",
+          );
+          if (!mutated) next = [...next];
+          if (runningIdx >= 0) {
+            next[runningIdx] = entry;
+          } else {
+            next.push(entry);
+          }
+          mutated = true;
+        }
+        if (!mutated) return prev;
+        return next.sort((a, b) => a.stepIndex - b.stepIndex);
       });
     };
 
@@ -292,11 +396,31 @@ export function useRunTranscript({
       // failure this polling exists to prevent. 900 attempts * 2s = 30
       // minutes, well past any observed run length, with real headroom for
       // an agent that chains many tool iterations.
-      for (let attempt = 0; attempt < 900 && !cancelled; attempt++) {
+      for (let poll = 0; poll < 900 && !cancelled; poll++) {
         try {
-          const { run, logs: dbLogs } = await runsApi.get(runId);
+          const {
+            run,
+            logs: dbLogs,
+            deadLetters: dl,
+          } = await runsApi.get(runId);
           if (cancelled) return;
           if (dbLogs.length > 0) mergeDBLogs(dbLogs);
+          // Preserve the existing reference when nothing actually changed:
+          // this poll runs every 2s for up to 30 minutes, and a fresh array
+          // reference on every tick (even an unchanged one) re-fires
+          // ConsolePanel's auto-scroll effect (keyed on deadLetters) every
+          // single poll, repeatedly yanking the view back down even if the
+          // user manually scrolled up to reread an earlier entry.
+          setDeadLetters((prev) => {
+            const next = dl ?? [];
+            if (
+              prev.length === next.length &&
+              prev.every((p, i) => p.id === next[i].id)
+            ) {
+              return prev;
+            }
+            return next;
+          });
           if (TERMINAL.has(run.status)) {
             // The run itself is finished — this, not a dropped stream, is
             // what "complete" means.
@@ -387,8 +511,9 @@ export function useRunTranscript({
     };
     // completeOnce is a stable useCallback([]), so listing it keeps the
     // linter happy without re-running this effect -- which must stay keyed on
-    // runId alone, per the note above.
-  }, [runId, completeOnce]);
+    // runId and attempt (bumped by the caller to force a resume's
+    // reconnect), per the note above.
+  }, [runId, attempt, completeOnce]);
 
   // Stopped externally (the Run button's stop branch). Closing the stream is
   // not enough: the run is over, so the transcript has to say so. Leaving
@@ -444,14 +569,6 @@ export function useRunTranscript({
     };
   }, [done, logs, workflowId]);
 
-  // Cache the finished transcript for this workflow. Runs after `done` so it
-  // captures the reconciled set (including any steps the live stream missed),
-  // not a partial mid-run snapshot.
-  useEffect(() => {
-    if (!done || !runId || logs.length === 0) return;
-    writeCachedRun(workflowId, { runId, logs, elapsed });
-  }, [done, runId, logs, elapsed, workflowId]);
-
   // Detect the lease a Tendril rent step in this run opened, so the console
   // can offer a Terminal tab into it. Takes the most recent one — a run
   // renting two machines would need explicit lease-id wiring between nodes,
@@ -472,5 +589,50 @@ export function useRunTranscript({
     return null;
   }, [logs]);
 
-  return { logs, elapsed, done, leaseId, stopped };
+  // The backend's dead_letter_runs table is insert-only -- GetDeadLetterRuns
+  // returns every row for a run id forever, even after that node has since
+  // succeeded on a resumed attempt. Without this filter, a resumed node that
+  // has since succeeded would still show a stale "dead-lettered" pill with a
+  // live Resume button, right alongside its own "success" row. The node's
+  // own execution history in `logs` is the authoritative signal here, not
+  // the never-cleared backend table.
+  //
+  // A node can also dead-letter more than once (resumed, failed again) --
+  // GetDeadLetterRuns returns every one of those rows too (ordered oldest
+  // first), so without collapsing to one-per-node here a still-failing node
+  // would render two "dead-lettered" pills with two live Resume buttons
+  // instead of just its latest attempt.
+  const visibleDeadLetters = useMemo(() => {
+    const latestByNode = new Map<string, DeadLetterRun>();
+    for (const dl of deadLetters) latestByNode.set(dl.nodeId, dl);
+    return Array.from(latestByNode.values()).filter(
+      (dl) =>
+        !logs.some((l) => l.nodeId === dl.nodeId && l.status === "success"),
+    );
+  }, [deadLetters, logs]);
+
+  // Cache the finished transcript for this workflow, including its
+  // (already-resolved) dead-letters -- otherwise a reload mid-dead-letter
+  // loses the pill and the Resume action entirely, even though the run is
+  // still resumable server-side. Runs after `done` so it captures the
+  // reconciled set (including any steps the live stream missed), not a
+  // partial mid-run snapshot.
+  useEffect(() => {
+    if (!done || !runId || logs.length === 0) return;
+    writeCachedRun(workflowId, {
+      runId,
+      logs,
+      elapsed,
+      deadLetters: visibleDeadLetters,
+    });
+  }, [done, runId, logs, elapsed, workflowId, visibleDeadLetters]);
+
+  return {
+    logs,
+    elapsed,
+    done,
+    leaseId,
+    stopped,
+    deadLetters: visibleDeadLetters,
+  };
 }

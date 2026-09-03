@@ -1,4 +1,4 @@
-import { BASE, delay } from "./api";
+import { BASE, apiFetch, delay } from "./api";
 import type { WorkflowNode } from "./types";
 
 // Mirrors backend/internal/bazaar.Resource. amountMicros is integer atomic
@@ -133,7 +133,7 @@ export const bazaar = {
       if (opts.supported !== undefined) {
         qs.set("supported", opts.supported ? "1" : "0");
       }
-      const res = await fetch(`${BASE}/bazaar/resources?${qs}`, {
+      const res = await apiFetch(`${BASE}/bazaar/resources?${qs}`, {
         credentials: "include",
       });
       const data = await res.json().catch(() => ({}));

@@ -215,6 +215,20 @@ type Workflow struct {
 	// so two server replicas polling concurrently can't both fire the same
 	// tick.
 	ScheduleNextRunAt *time.Time `json:"scheduleNextRunAt,omitempty"`
+	// Geofence centre and radius. All three are set or all three are nil --
+	// a partially configured zone is meaningless, so the store writes and
+	// clears them together and the handler validates them as one unit.
+	GeofenceLat     *float64 `json:"geofenceLat,omitempty"`
+	GeofenceLng     *float64 `json:"geofenceLng,omitempty"`
+	GeofenceRadiusM *float64 `json:"geofenceRadiusM,omitempty"`
+	// GeofenceInside is tri-state: nil means no fix has been recorded yet.
+	// That is deliberately distinct from false -- see migration 000029. Only
+	// a change from a known state counts as a crossing.
+	GeofenceInside *bool `json:"geofenceInside,omitempty"`
+	// GeofenceLastFixAt is the CLIENT's timestamp for the last fix acted on,
+	// not the server's receive time. Offline pings flush in a burst, so the
+	// only ordering that means anything is the one the device observed.
+	GeofenceLastFixAt *time.Time `json:"geofenceLastFixAt,omitempty"`
 }
 
 type RunStatus string

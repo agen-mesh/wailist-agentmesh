@@ -43,6 +43,7 @@ export function WorkflowRoute({ workflowId }: { workflowId: string }) {
   if (isTendrilConsole === null) {
     return (
       <div
+        className="am-viewport"
         style={{
           height: "100dvh",
           display: "flex",

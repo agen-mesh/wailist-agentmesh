@@ -114,6 +114,7 @@ export function UsagePage() {
 
   return (
     <div
+      className="am-viewport"
       style={{
         height: "100dvh",
         display: "flex",
@@ -716,86 +717,88 @@ function UsageBody({
             </span>
           }
         />
-        <div
-          className="hide-md"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "var(--us-settle-cols)",
-            gap: 14,
-            padding: "8px 10px",
-            background: "var(--bg-elev-2)",
-            borderRadius: "var(--r-2)",
-            marginTop: 4,
-            alignItems: "center",
-          }}
-        >
-          <span style={hcell}>Endpoint</span>
-          <span style={hcell}>Hash</span>
-          <span style={hcell}>Workflow</span>
-          <span style={{ ...hcell, textAlign: "right" }}>Amount</span>
-          <span style={{ ...hcell, textAlign: "right" }}>Time</span>
-        </div>
-        <div style={{ padding: "2px 0" }}>
-          {settlements.map((s, i) => (
-            <div
-              key={s.txId}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "var(--us-settle-cols)",
-                gap: 14,
-                alignItems: "center",
-                padding: "11px 10px",
-                borderBottom:
-                  i < settlements.length - 1
-                    ? "1px solid var(--border-soft)"
-                    : "none",
-                fontFamily: "var(--font-mono)",
-                fontSize: 11,
-              }}
-            >
-              <span
+        <div className="am-usage-table">
+          <div
+            style={{
+              minWidth: 720,
+              display: "grid",
+              gridTemplateColumns: SETTLE_GRID,
+              gap: 14,
+              padding: "8px 10px",
+              background: "var(--bg-elev-2)",
+              borderRadius: "var(--r-2)",
+              marginTop: 4,
+              alignItems: "center",
+            }}
+          >
+            <span style={hcell}>Endpoint</span>
+            <span style={hcell}>Hash</span>
+            <span style={hcell}>Workflow</span>
+            <span style={{ ...hcell, textAlign: "right" }}>Amount</span>
+            <span style={{ ...hcell, textAlign: "right" }}>Time</span>
+          </div>
+          <div style={{ minWidth: 720, padding: "2px 0" }}>
+            {settlements.map((s, i) => (
+              <div
+                key={s.txId}
                 style={{
-                  color: "var(--fg-muted)",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
+                  display: "grid",
+                  gridTemplateColumns: SETTLE_GRID,
+                  gap: 14,
+                  alignItems: "center",
+                  padding: "11px 10px",
+                  borderBottom:
+                    i < settlements.length - 1
+                      ? "1px solid var(--border-soft)"
+                      : "none",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 11,
                 }}
               >
-                {s.endpoint}
-              </span>
-              <a
-                href={s.explorerURL}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  color: "#E879F9",
-                  textDecoration: "underline",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {s.txId.slice(0, 13)}…
-              </a>
-              <span
-                style={{
-                  color: "var(--fg-dim)",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {s.workflowId || "—"}
-              </span>
-              <span style={{ color: "var(--fg)", textAlign: "right" }}>
-                {s.amountAlgo.toFixed(6)}{" "}
-                <span style={{ color: "var(--fg-dim)" }}>ALGO</span>
-              </span>
-              <span style={{ color: "var(--fg-dim)", textAlign: "right" }}>
-                {relTime(s.ts)}
-              </span>
-            </div>
-          ))}
+                <span
+                  style={{
+                    color: "var(--fg-muted)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {s.endpoint}
+                </span>
+                <a
+                  href={s.explorerURL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    color: "#E879F9",
+                    textDecoration: "underline",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {s.txId.slice(0, 13)}…
+                </a>
+                <span
+                  style={{
+                    color: "var(--fg-dim)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {s.workflowId || "—"}
+                </span>
+                <span style={{ color: "var(--fg)", textAlign: "right" }}>
+                  {s.amountAlgo.toFixed(6)}{" "}
+                  <span style={{ color: "var(--fg-dim)" }}>ALGO</span>
+                </span>
+                <span style={{ color: "var(--fg-dim)", textAlign: "right" }}>
+                  {relTime(s.ts)}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </Card>
 
@@ -839,6 +842,7 @@ const ASC_FIRST: readonly SortKey[] = ["endpoint", "type"];
 
 // Unit price gets 120px so "26*/1M" fits on one line (cell is nowrap).
 const EP_GRID = "1.9fr 1.15fr 66px 66px 120px 108px 116px 78px 92px";
+const SETTLE_GRID = "minmax(0,1.9fr) minmax(0,1.15fr) 140px 114px 108px"; // Endpoint · Hash · Workflow · Amount · Time
 
 function EndpointTable({
   rows,

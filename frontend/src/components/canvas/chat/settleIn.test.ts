@@ -3,6 +3,7 @@ import {
   settleIn,
   lastUnboundPendingIndex,
   attachRunIn,
+  reopenTurnForRunIn,
   serialiseForStorage,
   type ChatMessage,
 } from "./useChatSession";
@@ -116,6 +117,26 @@ describe("attachRunIn", () => {
     const seeded = attachRunIn([], "r-1");
     const out = attachRunIn(seeded, "r-1");
     expect(out).toBe(seeded);
+  });
+});
+
+describe("reopenTurnForRunIn", () => {
+  it("reopens a settled turn bound to the given run", () => {
+    const out = reopenTurnForRunIn(
+      [msg({ id: "a-1", pending: false, runId: "r-1", text: "failed" })],
+      "r-1",
+    );
+    expect(out[0]).toMatchObject({ pending: true });
+  });
+
+  it("leaves an already-pending turn untouched", () => {
+    const input = [msg({ id: "a-1", pending: true, runId: "r-1" })];
+    expect(reopenTurnForRunIn(input, "r-1")).toBe(input);
+  });
+
+  it("returns the same array when no turn matches the run", () => {
+    const input = [msg({ id: "a-1", pending: false, runId: "r-1" })];
+    expect(reopenTurnForRunIn(input, "r-999")).toBe(input);
   });
 });
 

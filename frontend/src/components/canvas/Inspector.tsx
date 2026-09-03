@@ -15,6 +15,9 @@ import {
 } from "@/lib/data";
 import { IconClose, StatusDot } from "@/components/ui";
 import { BrandLogo } from "./nodes/brandLogos";
+import { can } from "@/lib/readonly";
+import { iconBtn } from "@/components/ui/buttons";
+import { useReadOnly } from "@/hooks/useReadOnly";
 import { tools as toolsApi, oauth2, OAuthCredentialSummary } from "@/lib/api";
 import { ConnectorOAuthButton } from "./ConnectorOAuthButton";
 import {
@@ -45,7 +48,25 @@ export function Inspector({
   width = 320,
   embedded = false,
 }: InspectorProps) {
+  // Above the early return: a hook after a conditional return is a hook
+  // that does not always run.
+  const readOnly = useReadOnly();
+
   if (!selected) return <EmptyInspector width={width} embedded={embedded} />;
+
+  // A viewer gets a description of the node, not its editor -- see
+  // ReadOnlyInspector below for why that is a separate component rather
+  // than this one with every input disabled.
+  if (!can("workflow.editGraph", readOnly)) {
+    return (
+      <ReadOnlyInspector
+        selected={selected}
+        onClose={onClose}
+        width={width}
+        embedded={embedded}
+      />
+    );
+  }
 
   const meta = nodeMeta(selected);
 
@@ -214,6 +235,232 @@ export function Inspector({
           </svg>
           Delete node
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Read-only inspector ───────────────────────────────────────────────────
+// What a node's config looks like when the client cannot change it. Not the
+// editor with its inputs disabled: a disabled field still renders as a field,
+// which reads as "you may type here, later" rather than "this is what it is".
+// Values are shown as text, so the panel describes the node instead.
+
+// Secrets are acknowledged, never rendered. The backend already returns a
+// "__enc__" sentinel rather than ciphertext, but a plaintext key left on an
+// older row must not reach the DOM either.
+const SECRET_PLACEHOLDER = "••••••••";
+
+interface ReadOnlyRow {
+  label: string;
+  value: string;
+  multiline?: boolean;
+}
+
+function readOnlyRows(n: WorkflowNode): ReadOnlyRow[] {
+  const rows: ReadOnlyRow[] = [];
+  const push = (label: string, value?: string | null, multiline?: boolean) => {
+    const v = (value ?? "").trim();
+    if (v) rows.push({ label, value: v, multiline });
+  };
+
+  push("Model", n.model);
+  push("Key", n.apiKey ? SECRET_PLACEHOLDER : undefined);
+  push("Key mode", n.keyMode);
+  push("System prompt", n.systemPrompt, true);
+  push("URL", n.url);
+  push("Method", n.method);
+  push("Endpoint", n.endpoint);
+  push("Description", n.description, true);
+  if (n.price) {
+    push("Price", [n.price, n.unit, n.asset].filter(Boolean).join(" "));
+  }
+  push("Provider", n.provider);
+  push("Source", n.source);
+  push("To", n.emailTo);
+  push("Subject", n.emailSubject);
+  push("Action", n.tendrilAction);
+  push("Hours", n.tendrilHours);
+  push("Amount", n.tendrilAmount);
+
+  for (const [k, v] of Object.entries(n.config ?? {})) push(k, v);
+  // Keys only: that a credential is configured is part of understanding the
+  // node; what it is is not.
+  for (const k of Object.keys(n.secrets ?? {})) {
+    rows.push({ label: k, value: SECRET_PLACEHOLDER });
+  }
+  return rows;
+}
+
+function ReadOnlyInspector({
+  selected,
+  onClose,
+  width = 320,
+  embedded = false,
+}: {
+  selected: WorkflowNode;
+  onClose: () => void;
+  width?: number | string;
+  embedded?: boolean;
+}) {
+  const meta = nodeMeta(selected);
+  const rows = readOnlyRows(selected);
+
+  return (
+    <div
+      style={{
+        width,
+        flexShrink: 0,
+        borderLeft: embedded ? undefined : "1px solid var(--border)",
+        background: "var(--bg-elev-1)",
+        overflow: "auto",
+        height: "100%",
+      }}
+    >
+      <div
+        style={{
+          padding: "14px 16px",
+          borderBottom: "1px solid var(--border)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            minWidth: 0,
+          }}
+        >
+          <span
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: 6,
+              background: meta.bg,
+              color: meta.fg,
+              border: "1px solid var(--border-strong)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 12,
+              flexShrink: 0,
+            }}
+          >
+            <BrandLogo template={selected.template} fallback={meta.icon} />
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {meta.title}
+            </div>
+            <div
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                color: "var(--fg-dim)",
+              }}
+            >
+              {selected.type} · {selected.id}
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          aria-label="Close inspector"
+          title="Close"
+          style={{
+            width: 32,
+            height: 32,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            background: "transparent",
+            border: "none",
+            color: "var(--fg-dim)",
+            cursor: "pointer",
+            borderRadius: "var(--r-2)",
+          }}
+        >
+          <IconClose size={13} />
+        </button>
+      </div>
+
+      <div
+        style={{
+          padding: 16,
+          display: "flex",
+          flexDirection: "column",
+          gap: 18,
+        }}
+      >
+        {rows.length > 0 ? (
+          <Section label="config">
+            {rows.map((r) => (
+              <div
+                key={r.label}
+                style={{ display: "flex", flexDirection: "column", gap: 4 }}
+              >
+                <div
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                    color: "var(--fg-dim)",
+                  }}
+                >
+                  {r.label}
+                </div>
+                <div
+                  style={{
+                    fontSize: 12.5,
+                    lineHeight: 1.55,
+                    color: "var(--fg)",
+                    fontFamily: r.multiline
+                      ? "var(--font-sans)"
+                      : "var(--font-mono)",
+                    whiteSpace: r.multiline ? "pre-wrap" : "normal",
+                    wordBreak: "break-word",
+                    // Prose wants a readable measure; a lone value does not.
+                    maxWidth: r.multiline ? "60ch" : undefined,
+                  }}
+                >
+                  {r.value}
+                </div>
+              </div>
+            ))}
+          </Section>
+        ) : (
+          <div
+            style={{ fontSize: 12, lineHeight: 1.6, color: "var(--fg-dim)" }}
+          >
+            This node has no configuration of its own.
+          </div>
+        )}
+
+        <div
+          style={{
+            fontSize: 11.5,
+            lineHeight: 1.6,
+            color: "var(--fg-dim)",
+            borderTop: "1px solid var(--border-soft)",
+            paddingTop: 14,
+          }}
+        >
+          Editing happens in the AgentMesh desktop app.
+        </div>
       </div>
     </div>
   );
@@ -500,22 +747,6 @@ function ConfigField({
   );
 }
 
-const iconBtnStyle: React.CSSProperties = {
-  width: 28,
-  height: 28,
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  background: "transparent",
-  border: "1px solid var(--border-strong)",
-  borderRadius: "var(--r-2)",
-  color: "var(--fg-muted)",
-  cursor: "pointer",
-  fontSize: 12,
-  fontFamily: "var(--font-mono)",
-  flexShrink: 0,
-};
-
 const inputStyle: React.CSSProperties = {
   height: 36,
   padding: "0 10px",
@@ -630,9 +861,7 @@ function HttpHeadersField({
   return (
     <Field label="Custom headers" hint="encrypted at rest">
       {isEncrypted && (
-        <div
-          style={{ fontSize: 11, color: "var(--fg-dim)", marginBottom: 6 }}
-        >
+        <div style={{ fontSize: 11, color: "var(--fg-dim)", marginBottom: 6 }}>
           Headers set. Add a row below to replace them.
         </div>
       )}
@@ -664,7 +893,7 @@ function HttpHeadersField({
             />
             <button
               type="button"
-              style={iconBtnStyle}
+              style={iconBtn}
               onClick={() => removeRow(i)}
               title="Remove header"
             >
@@ -675,7 +904,7 @@ function HttpHeadersField({
         <button
           type="button"
           style={{
-            ...iconBtnStyle,
+            ...iconBtn,
             width: "auto",
             padding: "0 10px",
             alignSelf: "flex-start",
@@ -1133,7 +1362,8 @@ function validateBodyTemplate(
   const missing = new Set<string>();
   for (const m of template.matchAll(BODY_PLACEHOLDER)) {
     const name = m[2].trim();
-    const isDiscoveredValue = m[1] === "param" && paramDefaults?.[name] !== undefined;
+    const isDiscoveredValue =
+      m[1] === "param" && paramDefaults?.[name] !== undefined;
     if (!known.has(name) && !isDiscoveredValue) missing.add(m[0]);
   }
   if (missing.size > 0) {
@@ -1164,7 +1394,6 @@ function bodySkeleton(fields: CustomParam[]): string {
   );
   return `{\n${lines.join(",\n")}\n}`;
 }
-
 
 function formatFileSize(base64: string): string {
   const bytes = Math.floor((base64.length * 3) / 4);
@@ -1241,7 +1470,11 @@ function Tool402Inspector({
   const bodyMode = node.bodyMode === "json" ? "json" : "params";
   const bodyTemplate = node.bodyTemplate ?? "";
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
-  const bodyError = validateBodyTemplate(bodyTemplate, custom, node.paramDefaults);
+  const bodyError = validateBodyTemplate(
+    bodyTemplate,
+    custom,
+    node.paramDefaults,
+  );
   // How the configured values will actually reach the endpoint — worth
   // stating outright, since it changes with the mode, the method, and
   // whether a file is attached (a file forces multipart, a body forces POST).
@@ -1833,7 +2066,9 @@ function Tool402Inspector({
                   <>
                     <span style={{ color: "var(--accent)" }}>✓ valid JSON</span>
                     {" — keys must match what the endpoint documents; field"}
-                    {" names are yours, they only appear inside {{…}}. A file's"}
+                    {
+                      " names are yours, they only appear inside {{…}}. A file's"
+                    }
                     {" bytes are filled in at call time, never pasted here."}
                   </>
                 ) : (
@@ -3189,7 +3424,8 @@ const CONNECTOR_AUTH: Record<
   },
   shopify: {
     needsLogin: true,
-    docUrl: "https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens",
+    docUrl:
+      "https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens",
     linkLabel: "Get access token",
   },
   shopify_customer: {
@@ -3574,19 +3810,13 @@ function GoogleInspector({
           />
         </Field>
         <Field label="Operation">
-          <input
-            style={inputStyle}
-            value={tpl?.name ?? template}
-            readOnly
-          />
+          <input style={inputStyle} value={tpl?.name ?? template} readOnly />
         </Field>
       </Section>
 
       <Section label="Connected account">
         {loadingCreds ? (
-          <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
-            Loading…
-          </div>
+          <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>Loading…</div>
         ) : (
           <>
             {credentials.length === 0 ? (
@@ -3608,7 +3838,10 @@ function GoogleInspector({
                   onChange={(e) =>
                     onUpdate({
                       ...node,
-                      config: { ...node.config, oauthCredentialID: e.target.value },
+                      config: {
+                        ...node.config,
+                        oauthCredentialID: e.target.value,
+                      },
                     })
                   }
                 >
@@ -3649,8 +3882,7 @@ function GoogleInspector({
                 lineHeight: 1.5,
               }}
             >
-              One connection covers Gmail, Sheets, Calendar, and Drive
-              together.
+              One connection covers Gmail, Sheets, Calendar, and Drive together.
             </div>
           </>
         )}
@@ -3871,12 +4103,18 @@ function TendrilInspector({
   const action = node.tendrilAction ?? "rent";
 
   useEffect(() => {
-    tendrilApi.credit().then(setCredit).catch(() => setCredit(null));
+    tendrilApi
+      .credit()
+      .then(setCredit)
+      .catch(() => setCredit(null));
   }, []);
 
   useEffect(() => {
     if (action !== "rent") return;
-    tendrilApi.machines().then(setMachines).catch(() => setMachines([]));
+    tendrilApi
+      .machines()
+      .then(setMachines)
+      .catch(() => setMachines([]));
   }, [action]);
 
   const selectedMachine =
@@ -3907,8 +4145,8 @@ function TendrilInspector({
         {selectedMachine && (
           <>
             {" "}
-            — about {(creditVal / selectedMachine.pricePerHourUsd).toFixed(1)}{" "}
-            h on {selectedMachine.label || selectedMachine.id}
+            — about {(creditVal / selectedMachine.pricePerHourUsd).toFixed(1)} h
+            on {selectedMachine.label || selectedMachine.id}
           </>
         )}
         <div style={{ opacity: 0.6, marginTop: 2 }}>
@@ -3924,8 +4162,7 @@ function TendrilInspector({
             onChange={(e) =>
               onUpdate({
                 ...node,
-                tendrilAction: e.target
-                  .value as WorkflowNode["tendrilAction"],
+                tendrilAction: e.target.value as WorkflowNode["tendrilAction"],
               })
             }
           >
