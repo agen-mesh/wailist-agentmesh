@@ -1,13 +1,22 @@
 "use client";
-import React, { CSSProperties } from "react";
+import React from "react";
 
 // ── Logo ──────────────────────────────────────────────────────────────────
+// /logo-mark.png is a 64x64 downscale of /logo.png (the actual brand mark --
+// also what layout.tsx points the favicon/apple-touch icon at,
+// metadata.icons) -- so the wordmark badge matches the tab icon instead of
+// the hand-drawn mesh glyph this used to render on its own. The full-size
+// /logo.png is ~220KB; every call site here renders at 14-20px, so this
+// component uses the small pre-shrunk copy (~7KB) rather than shipping a
+// favicon-resolution PNG to display an icon this size -- regenerate it with
+// `magick public/logo.png -resize 64x64 -strip public/logo-mark.png` if
+// /logo.png itself ever changes.
 export function Logo({ size = 18 }: { size?: number }) {
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src="/logo.png"
+        src="/logo-mark.png"
         alt=""
         width={size}
         height={size}
@@ -123,32 +132,10 @@ export function Card({ style, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
     />
   );
 }
-
-// ── Shared button styles ─────────────────────────────────────────────────
-// Small ghost button used in topbars and row actions on the workflows and
-// usage pages. A style const (not a component) so callers can spread-extend
-// it: { ...ghostBtnSm, width: 28 }.
-// `whiteSpace: nowrap` + `flexShrink: 0` are load-bearing, not cosmetic: the
-// height is fixed, so a label allowed to wrap in a narrow flex row renders two
-// lines inside a 28px box and spills over the border. Buttons keep their
-// intrinsic width and let the row wrap instead.
-export const ghostBtnSm: CSSProperties = {
-  height: 28,
-  padding: "0 10px",
-  fontSize: 12,
-  fontWeight: 500,
-  background: "transparent",
-  border: "1px solid var(--border-strong)",
-  borderRadius: "var(--r-2)",
-  color: "var(--fg-muted)",
-  cursor: "pointer",
-  fontFamily: "var(--font-sans)",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 4,
-  whiteSpace: "nowrap",
-  flexShrink: 0,
-};
+// Shared button styles live in ./buttons, which holds every one of them
+// together with the contract that keeps a label inside its box. Re-exported
+// here because this barrel is what most of the app imports from.
+export { ghostBtnSm } from "./buttons";
 
 // ── Tag ──────────────────────────────────────────────────────────────────
 export function Tag({ children }: { children: React.ReactNode }) {

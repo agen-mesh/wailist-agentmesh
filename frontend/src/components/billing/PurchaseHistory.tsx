@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Card, Pill } from "@/components/ui";
+import { rowBtn } from "@/components/ui/buttons";
 import { useCredits } from "@/lib/credits/store";
 import { Receipt } from "./Receipt";
 import type { Purchase } from "@/lib/credits/types";
@@ -17,19 +18,6 @@ const dateFmt = new Intl.DateTimeFormat("en", {
   dateStyle: "medium",
   timeStyle: "short",
 });
-
-const rowBtnStyle: React.CSSProperties = {
-  height: 28,
-  padding: "0 12px",
-  borderRadius: "var(--r-2)",
-  border: "1px solid var(--border-strong)",
-  background: "transparent",
-  color: "var(--fg-muted)",
-  fontSize: 12,
-  fontWeight: 500,
-  cursor: "pointer",
-  whiteSpace: "nowrap",
-};
 
 // Mock billing history sourced from the local credits store. Newest first.
 export function PurchaseHistory({
@@ -133,14 +121,14 @@ export function PurchaseHistory({
                   <button
                     type="button"
                     onClick={() => setReceipt(p)}
-                    style={rowBtnStyle}
+                    style={rowBtn}
                   >
                     Receipt
                   </button>
                   <button
                     type="button"
                     onClick={() => onBuyAgain(p.amountINR)}
-                    style={rowBtnStyle}
+                    style={rowBtn}
                   >
                     Buy again
                   </button>

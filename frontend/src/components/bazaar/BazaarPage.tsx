@@ -169,15 +169,24 @@ const BAZAAR_CSS = `
   background: var(--bg-elev-2);
 }
 .bz-supported-card {
+  /* The wrapper owns the hover shadow, so it has to match the card's own
+     radius -- otherwise the glow is cast by a square box sitting behind a
+     rounded one and reads as a lopsided smear at the corners. */
+  border-radius: var(--r-2);
+  /* Fill the grid cell. Grid stretches this wrapper to the tallest card in
+     the row, but the card inside was intrinsically sized, so a short
+     description left a visible gap under it and the row looked ragged. */
+  height: 100%;
   transition:
     transform 0.15s var(--ease),
-    box-shadow 0.15s var(--ease),
-    border-color 0.15s var(--ease);
+    box-shadow 0.15s var(--ease);
+}
+.bz-supported-card > * {
+  height: 100%;
 }
 .bz-supported-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  border-color: var(--accent-line);
 }
 @media (prefers-reduced-motion: reduce) {
   .bz-row,
@@ -379,13 +388,16 @@ export function BazaarPage() {
         </h1>
         <p style={{ margin: "6px 0 0", fontSize: 13, color: "var(--fg-muted)", lineHeight: 1.6 }}>
           Every paid endpoint listed in GoPlausible&apos;s Algorand catalog. Add
-          any of them to a workflow — supported ones are verified by
+          any of them to a workflow. Our official partners are verified by
           AgentMesh, and arrive with hand-authored fields where we have them.
         </p>
 
         {supported.length > 0 && (
           <section style={{ marginTop: 24 }}>
-            <SectionHeading title="Supported" note="Verified by AgentMesh." />
+            <SectionHeading
+              title="Official AgentMesh partners"
+              note="Verified by AgentMesh."
+            />
             <div style={GRID}>
               {supported.map((r) => (
                 <div key={r.id} className="bz-supported-card">
@@ -409,7 +421,7 @@ export function BazaarPage() {
           >
             <SectionHeading
               title="All endpoints"
-              note="Community listings — you configure the fields yourself."
+              note="Community listings. You configure the fields yourself."
             />
             <input
               value={query}
@@ -485,6 +497,27 @@ export function BazaarPage() {
             <p style={{ marginTop: 16, fontSize: 12, color: "var(--fg-dim)" }}>
               That&apos;s all {total} endpoints.
             </p>
+          )}
+
+          {!exhausted && !loading && !error && items.length > 0 && (
+            <button
+              type="button"
+              onClick={loadMore}
+              style={{
+                marginTop: 16,
+                width: "100%",
+                height: 36,
+                background: "var(--bg-elev-1)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r-2)",
+                color: "var(--fg-muted)",
+                fontFamily: "var(--font-sans)",
+                fontSize: 12.5,
+                cursor: "pointer",
+              }}
+            >
+              Load more{total > 0 ? ` · ${items.length} of ${total}` : ""}
+            </button>
           )}
 
           <div ref={sentinelRef} style={{ height: 1 }} />

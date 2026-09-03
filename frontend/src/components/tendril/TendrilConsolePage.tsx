@@ -282,6 +282,7 @@ export function TendrilConsolePage() {
 
   return (
     <div
+      className="am-viewport"
       style={{
         height: "100dvh",
         display: "flex",

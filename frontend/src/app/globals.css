@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./responsive.css";
 
 /* ── Design tokens ────────────────────────────────────────────────────── */
 :root {
@@ -187,6 +188,16 @@ body {
     transparent
   );
   mask: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+
+/* The track scrolls forever, so it is exactly the kind of ambient motion that
+   has to stop when the reader has asked for less of it. Halting it simply
+   leaves the first copy of the logo set parked in place, which is legible --
+   the track renders the set twice so the loop can be seamless. */
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+  }
 }
 
 /* ── Liquid glass ─────────────────────────────────────────────────────── */
@@ -1038,6 +1049,173 @@ body {
   animation: pulse 1.2s var(--ease) infinite;
 }
 
+/* Markdown rendering of an assistant turn's answer -- headers, lists,
+   tables, inline code and KaTeX math. Block spacing is set explicitly
+   because the browser defaults (large, inconsistent margins) don't fit a
+   ~62ch chat bubble; the last-child rule keeps the bubble from carrying a
+   trailing gap the way a plain <p> would. */
+.chat-markdown > *:first-child {
+  margin-top: 0;
+}
+.chat-markdown > *:last-child {
+  margin-bottom: 0;
+}
+.chat-markdown p {
+  margin: 0 0 8px;
+}
+.chat-markdown ul,
+.chat-markdown ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+.chat-markdown li {
+  margin: 2px 0;
+}
+.chat-markdown li > p {
+  margin: 0;
+}
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3,
+.chat-markdown h4,
+.chat-markdown h5,
+.chat-markdown h6 {
+  margin: 14px 0 6px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.chat-markdown h1 {
+  font-size: 15px;
+}
+.chat-markdown h2 {
+  font-size: 14px;
+}
+.chat-markdown h3,
+.chat-markdown h4,
+.chat-markdown h5,
+.chat-markdown h6 {
+  font-size: 13px;
+}
+.chat-markdown blockquote {
+  margin: 0 0 8px;
+  padding: 2px 10px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--fg-muted);
+}
+.chat-markdown hr {
+  margin: 10px 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+.chat-markdown a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.chat-markdown a:hover {
+  color: var(--accent-strong);
+}
+.chat-markdown img {
+  max-width: 100%;
+  border-radius: var(--r-1);
+}
+/* Inline `code`, i.e. anything not swapped for a CodeBlock by the `pre`
+   override in MarkdownContent. */
+.chat-markdown code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-elev-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.chat-markdown .chat-table-wrap {
+  overflow-x: auto;
+  margin: 0 0 8px;
+}
+.chat-markdown table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.chat-markdown th,
+.chat-markdown td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  text-align: left;
+}
+.chat-markdown th {
+  background: var(--bg-elev-3);
+  font-weight: 600;
+}
+.chat-markdown .katex-display {
+  margin: 8px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.chat-markdown .katex {
+  font-size: 1em;
+}
+
+/* Fenced code blocks -- the CodeBlock component rendered in place of the
+   `pre > code` the markdown parser produced. */
+.chat-code-block {
+  margin: 0 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--bg-elev-2);
+  overflow: hidden;
+}
+.chat-code-block__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev-3);
+}
+.chat-code-block__lang {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+.chat-code-block__copy {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  transition: color 0.12s var(--ease);
+}
+.chat-code-block__copy:hover {
+  color: var(--accent);
+}
+.chat-code-block__copy:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-1);
+}
+.chat-code-block__body {
+  overflow-x: auto;
+}
+.chat-code-block__plain {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg);
+  white-space: pre;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-code-block__copy {
+    transition: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chat-msg {
     animation: none;
@@ -1086,6 +1264,15 @@ body {
 
 /* Static chrome only; the moving values (transform + opacity) are set inline
    by ChatRail, matching how the rest of this codebase styles stateful bits. */
+/* Three segments when the palette joins the rail -- a narrow window on a
+   computer, where the palette has no column of its own to live in. */
+.rail-switch[data-segments="3"] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.rail-switch[data-segments="3"] .rail-switch__thumb {
+  width: calc(33.333% - 2px);
+}
+
 .rail-switch__thumb {
   position: absolute;
   top: 2px;
@@ -1110,8 +1297,10 @@ body {
   justify-content: center;
   gap: 5px;
   /* 26px matches this toolbar's existing dense pills and ghostBtnSm's 28px.
-     The 44px touch minimum is deliberately not met: the studio rail header is
-     desktop-only chrome and a 44px control would double its height. */
+     The 44px touch minimum is not met here on purpose: in its own column the
+     rail header is pointer-driven chrome, and a 44px control would double its
+     height. Inside the bottom sheet it IS thumb-driven, and the override
+     below restores the full target. */
   min-height: 26px;
   padding: 0 9px;
   border: none;

@@ -1,11 +1,13 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pill } from "@/components/ui";
+import type { DeadLetterRun } from "@/lib/api";
 import {
   isX402Payment,
   type LogEvent,
   type X402Payment,
 } from "./useRunTranscript";
+import { latestPerNode } from "./chat/resolveReply";
 
 interface ConsolePanelProps {
   open: boolean;
@@ -15,6 +17,12 @@ interface ConsolePanelProps {
   logs: LogEvent[];
   elapsed: number | null;
   done: boolean;
+  deadLetters: DeadLetterRun[];
+  // Takes the dead-letter's own runId rather than relying solely on the
+  // caller's live session state: a dead-letter row restored from
+  // useRunTranscript's cache (see CachedRun.deadLetters) can render with no
+  // live runId in this session at all -- see CanvasPage's handleResume.
+  onResume: (runId: string) => void;
 }
 
 const HEIGHT_KEY = "agentmesh_console_height";
@@ -37,6 +45,8 @@ export function ConsolePanel({
   logs,
   elapsed,
   done,
+  deadLetters,
+  onResume,
 }: ConsolePanelProps) {
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [resizing, setResizing] = useState(false);
@@ -113,7 +123,7 @@ export function ConsolePanel({
   // Auto-scroll to bottom on new logs
   useEffect(() => {
     if (open) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logs, open]);
+  }, [logs, deadLetters, open]);
 
   const statusColor = (s: LogEvent["status"]) => {
     if (s === "success") return "var(--accent)";
@@ -341,12 +351,22 @@ export function ConsolePanel({
               <OutputCell output={l.output} />
             </div>
           ))}
+          {deadLetters.map((dl) => (
+            <DeadLetterRow key={dl.id} dl={dl} onResume={onResume} />
+          ))}
           {done &&
             (() => {
-              const succeeded = logs.filter(
+              // Each node's FINAL attempt decides this, not a raw scan over
+              // `logs`: a resumed node that failed then succeeded still has
+              // its stale "failed" row sitting in `logs` (see
+              // latestPerNode's doc comment), and a raw scan would still
+              // report the run as failed for that node even though it went
+              // on to succeed.
+              const final = latestPerNode(logs);
+              const succeeded = final.filter(
                 (l) => l.status === "success",
               ).length;
-              const hasFailure = logs.some((l) => l.status === "failed");
+              const hasFailure = final.some((l) => l.status === "failed");
               return (
                 <div
                   style={{
@@ -356,7 +376,7 @@ export function ConsolePanel({
                   }}
                 >
                   {hasFailure ? "✕ run failed" : "✓ run complete"} ·{" "}
-                  {(elapsed ?? 0).toFixed(1)}s · {succeeded}/{logs.length} nodes
+                  {(elapsed ?? 0).toFixed(1)}s · {succeeded}/{final.length} nodes
                   succeeded
                 </div>
               );
@@ -364,6 +384,71 @@ export function ConsolePanel({
           <div ref={bottomRef} />
         </div>
       )}
+    </div>
+  );
+}
+
+// DeadLetterRow renders one node that exhausted retry or hit a
+// non-retryable error. Resume is a two-click confirm in place, matching
+// RowMenu's delete pattern -- this codebase deliberately avoids
+// window.confirm() (see RowMenu.tsx's comment on why).
+function DeadLetterRow({
+  dl,
+  onResume,
+}: {
+  dl: DeadLetterRun;
+  onResume: (runId: string) => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <div
+      style={{
+        padding: "6px 0",
+        borderBottom: "1px solid var(--border-soft)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        <Pill mono tone="danger" dot>
+          dead-lettered
+        </Pill>
+        <span style={{ color: "var(--fg-muted)", fontSize: 10.5 }}>
+          {dl.nodeId} · attempt {dl.attemptCount}
+        </span>
+        <button
+          onClick={() => {
+            if (!confirming) {
+              setConfirming(true);
+              return;
+            }
+            setConfirming(false);
+            onResume(dl.runId);
+          }}
+          onBlur={() => setConfirming(false)}
+          style={{
+            marginLeft: "auto",
+            fontFamily: "var(--font-mono)",
+            fontSize: 10.5,
+            padding: "3px 8px",
+            borderRadius: 4,
+            border: "1px solid var(--border-strong)",
+            background: confirming ? "var(--accent-soft)" : "var(--bg-elev-2)",
+            color: confirming ? "var(--accent)" : "var(--fg)",
+            cursor: "pointer",
+          }}
+        >
+          {confirming ? "Confirm — completed steps won't re-run" : "Resume"}
+        </button>
+      </div>
+      <div style={{ color: "var(--fg-dim)", fontSize: 10, paddingTop: 2 }}>
+        {dl.error}
+      </div>
     </div>
   );
 }

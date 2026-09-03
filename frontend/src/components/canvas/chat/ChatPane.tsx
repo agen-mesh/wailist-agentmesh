@@ -6,6 +6,12 @@ import { stop as stopSpeaking } from "./speechPlayback";
 import { useSpeechRecognition } from "./useSpeechRecognition";
 import type { ChatSession } from "./useChatSession";
 
+// Composer sizing. Three lines at rest so a typical prompt is visible as a
+// whole rather than through a one-line slot, growing to roughly ten before it
+// starts scrolling.
+const COMPOSER_MIN_H = 76;
+const COMPOSER_MAX_H = 220;
+
 // The human half of the console: transcript above, composer below.
 //
 // Deliberately self-sufficient. Someone who never opens the Logs pane should
@@ -36,6 +42,22 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
     setDraft(merged);
     if (isFinal) dictationBaseRef.current = merged;
   });
+
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // The composer starts three lines tall and grows with the draft up to
+  // COMPOSER_MAX_H, after which it scrolls. Height has to be reset to "auto"
+  // before each measurement -- scrollHeight never shrinks below the element's
+  // current height, so without the reset the box could only ever grow.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(
+      Math.max(el.scrollHeight, COMPOSER_MIN_H),
+      COMPOSER_MAX_H,
+    )}px`;
+  }, [draft]);
 
   // Follow the conversation as it grows, the same way the log list does.
   useEffect(() => {
@@ -176,7 +198,8 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
               submit();
             }
           }}
-          rows={1}
+          ref={inputRef}
+          rows={3}
           placeholder={busy ? "Running…" : "Ask something…"}
           disabled={busy}
           style={{
@@ -185,8 +208,8 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
             // hard floor and the Send button gets pushed out of the rail.
             minWidth: 0,
             resize: "none",
-            minHeight: 38,
-            maxHeight: 120,
+            minHeight: COMPOSER_MIN_H,
+            maxHeight: COMPOSER_MAX_H,
             padding: "9px 11px",
             background: "var(--bg)",
             border: "1px solid var(--border)",

@@ -47,7 +47,7 @@ func (s *Store) Close() {
 // sites, and one was missed. A future column now only needs to be added
 // here and in scanWorkflowRow's Scan call, once, for every caller to pick
 // it up automatically.
-const workflowColumns = `id, user_id, name, status, graph, deployed_at, run_endpoint, created_at, updated_at, schedule_cron, schedule_next_run_at`
+const workflowColumns = `id, user_id, name, status, graph, deployed_at, run_endpoint, created_at, updated_at, schedule_cron, schedule_next_run_at, geofence_lat, geofence_lng, geofence_radius_m, geofence_inside, geofence_last_fix_at`
 
 // rowScanner is satisfied by both pgx.Row (QueryRow) and *pgx.Rows
 // (Query's per-row iteration) -- scanWorkflowRow works with either, so a
@@ -67,6 +67,8 @@ func scanWorkflowRow(row rowScanner) (models.Workflow, error) {
 		&w.ID, &w.UserID, &w.Name, &w.Status, &graphJSON,
 		&w.DeployedAt, &runEndpoint, &w.CreatedAt, &w.UpdatedAt,
 		&w.ScheduleCron, &w.ScheduleNextRunAt,
+		&w.GeofenceLat, &w.GeofenceLng, &w.GeofenceRadiusM,
+		&w.GeofenceInside, &w.GeofenceLastFixAt,
 	); err != nil {
 		return models.Workflow{}, err
 	}
@@ -162,6 +164,115 @@ func (s *Store) ClearWorkflowSchedule(ctx context.Context, workflowID string) er
 		UPDATE workflows SET schedule_cron=NULL, schedule_next_run_at=NULL WHERE id=$1
 	`, workflowID)
 	return err
+}
+
+// SetWorkflowGeofence configures the zone. All three values move together --
+// a half-set zone cannot be evaluated -- and the recorded state is reset so a
+// moved fence does not inherit an inside/outside answer that was true of the
+// OLD location. After this the next fix re-establishes the baseline silently.
+func (s *Store) SetWorkflowGeofence(ctx context.Context, workflowID string, lat, lng, radiusM float64) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE workflows
+		   SET geofence_lat=$2, geofence_lng=$3, geofence_radius_m=$4,
+		       geofence_inside=NULL, geofence_last_fix_at=NULL
+		 WHERE id=$1
+	`, workflowID, lat, lng, radiusM)
+	return err
+}
+
+// ClearWorkflowGeofence disables the geofence trigger. Idempotent, matching
+// ClearWorkflowSchedule: clearing an unfenced workflow is a no-op.
+func (s *Store) ClearWorkflowGeofence(ctx context.Context, workflowID string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE workflows
+		   SET geofence_lat=NULL, geofence_lng=NULL, geofence_radius_m=NULL,
+		       geofence_inside=NULL, geofence_last_fix_at=NULL
+		 WHERE id=$1
+	`, workflowID)
+	return err
+}
+
+// GeofenceCrossing is what RecordGeofenceFix decided about one location fix.
+type GeofenceCrossing struct {
+	// Fired is true only for an actual transition between two KNOWN states.
+	Fired bool
+	// Entered distinguishes the direction of a fired crossing.
+	Entered bool
+	// Stale is true when the fix was older than the last one already acted
+	// on, so it was ignored entirely. Reported rather than silently swallowed
+	// because a client flushing a queue deserves to know its ping was a
+	// replay, not a failure.
+	Stale bool
+}
+
+// RecordGeofenceFix records one location fix and reports whether it crossed
+// the boundary.
+//
+// The whole point is that this is ATOMIC. The Android client pushes a fix
+// every 30-60s while a session is active and flushes a queued burst after
+// reconnecting, so two pings for the same workflow can easily be in flight at
+// once. Read-compare-write outside a transaction would let both observe the
+// same prior state and both fire, double-charging the user for one crossing.
+// SELECT ... FOR UPDATE serialises them, exactly as ClaimDueSchedules does for
+// the cron path.
+//
+// Three things are deliberately NOT a crossing:
+//   - the first fix ever (geofence_inside IS NULL) -- it establishes the
+//     baseline, because an unknown position is not the same as an outside one;
+//   - a fix at the same state as the last one (the common case: parked inside
+//     the zone, pinging every minute);
+//   - a fix older than the last one acted on -- a replayed queue must not
+//     re-fire a crossing that has already been handled.
+func (s *Store) RecordGeofenceFix(
+	ctx context.Context, workflowID string, inside bool, fixAt time.Time,
+) (GeofenceCrossing, error) {
+	// Postgres TIMESTAMPTZ stores microseconds; Go's time.Time carries
+	// nanoseconds. Without truncating here, a value does not survive its own
+	// round trip: what is written is compared on the next call against a
+	// version of itself that has lost sub-microsecond digits, so
+	// fixAt.After(prevAt) is TRUE for the very same instant and a resent fix
+	// looks new rather than replayed. That defeats the replay guard this
+	// column exists for, at exactly the boundary an offline flush hits --
+	// clients resend identical timestamps, they do not invent fresh ones.
+	fixAt = fixAt.UTC().Truncate(time.Microsecond)
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return GeofenceCrossing{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var prevInside *bool
+	var prevAt *time.Time
+	err = tx.QueryRow(ctx, `
+		SELECT geofence_inside, geofence_last_fix_at
+		  FROM workflows
+		 WHERE id=$1 AND geofence_lat IS NOT NULL
+		 FOR UPDATE
+	`, workflowID).Scan(&prevInside, &prevAt)
+	if err != nil {
+		return GeofenceCrossing{}, err
+	}
+
+	// Out-of-order replay: leave the recorded state exactly as it is. Writing
+	// an older fix over a newer one would move the baseline backwards and let
+	// the NEXT live fix look like a crossing it is not.
+	if prevAt != nil && !fixAt.After(*prevAt) {
+		return GeofenceCrossing{Stale: true}, tx.Commit(ctx)
+	}
+
+	crossing := GeofenceCrossing{}
+	if prevInside != nil && *prevInside != inside {
+		crossing.Fired = true
+		crossing.Entered = inside
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE workflows SET geofence_inside=$2, geofence_last_fix_at=$3 WHERE id=$1
+	`, workflowID, inside, fixAt); err != nil {
+		return GeofenceCrossing{}, err
+	}
+	return crossing, tx.Commit(ctx)
 }
 
 // maxScheduleCatchUpIterations bounds ClaimDueSchedules' per-workflow
@@ -299,7 +410,98 @@ func (s *Store) ListWorkflows(ctx context.Context, userID string) ([]models.Work
 		}
 		wfs = append(wfs, w)
 	}
-	return wfs, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.attachWorkflowStats(ctx, userID, wfs); err != nil {
+		// The Runs/Spend columns are decoration over `runs` and
+		// `debit_ledger`. A problem aggregating them must not turn "show me
+		// my workflows" into a 500 -- log it and return the list with those
+		// fields left at their zero values.
+		log.Printf("db: list workflows for user %s: stats aggregation failed: %v", userID, err)
+	}
+	return wfs, nil
+}
+
+// workflowStatsWindow is the trailing period the Runs/Spend columns on the
+// workflows list summarise. The UI labels those columns "· 30d", so the two
+// have to agree; changing one means changing the other.
+const workflowStatsWindow = 30 * 24 * time.Hour
+
+// attachWorkflowStats fills in the Runs and Spend fields that ListWorkflows'
+// own SELECT cannot produce -- they are aggregates over `runs` and
+// `debit_ledger`, not columns on `workflows`. Kept as a separate pass rather
+// than a join so workflowColumns/scanWorkflowRow stay the single shared
+// read path for a workflow row.
+//
+// Both queries are scoped by user_id, not just by the workflow ids in hand,
+// so a row belonging to someone else can never be counted into this user's
+// totals even if a workflow id were somehow reused.
+func (s *Store) attachWorkflowStats(ctx context.Context, userID string, wfs []models.Workflow) error {
+	if len(wfs) == 0 {
+		return nil
+	}
+	since := time.Now().Add(-workflowStatsWindow)
+
+	runCounts := map[string]int{}
+	rows, err := s.pool.Query(ctx, `
+		SELECT r.workflow_id, COUNT(*)
+		FROM runs r
+		JOIN workflows w ON w.id = r.workflow_id
+		WHERE w.user_id = $1 AND r.started_at >= $2
+		GROUP BY r.workflow_id
+	`, userID, since)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			rows.Close()
+			return err
+		}
+		runCounts[id] = n
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	spendMicros := map[string]int64{}
+	rows, err = s.pool.Query(ctx, `
+		SELECT workflow_id, COALESCE(SUM(amount_usd_micros), 0)
+		FROM debit_ledger
+		WHERE user_id = $1 AND created_at >= $2
+		GROUP BY workflow_id
+	`, userID, since)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id string
+		var micros int64
+		if err := rows.Scan(&id, &micros); err != nil {
+			rows.Close()
+			return err
+		}
+		spendMicros[id] = micros
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for i := range wfs {
+		wfs[i].Runs = runCounts[wfs[i].ID]
+		// Spend is a display string in USD. Left empty when nothing settled
+		// so the UI renders its "no data" dash rather than a misleading
+		// "$0.00" on a workflow that has simply never run.
+		if micros, ok := spendMicros[wfs[i].ID]; ok && micros > 0 {
+			wfs[i].Spend = fmt.Sprintf("%.2f", float64(micros)/1e6)
+		}
+	}
+	return nil
 }
 
 func (s *Store) UpdateWorkflow(ctx context.Context, id, name string, graph models.WorkflowGraph) (models.Workflow, error) {

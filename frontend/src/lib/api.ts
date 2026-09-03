@@ -11,14 +11,60 @@ import {
   Settlement,
 } from "./types";
 import { WORKFLOWS, SAMPLE_WORKFLOW, buildUsage } from "./data";
+import { assertWritable } from "./readonly";
+import { IS_NATIVE, authHeaders } from "./nativeAuth";
 
 // In the browser, always route through /api so the cookie stays same-site.
 // NEXT_PUBLIC_API_URL still controls mock vs real (empty = mock data).
 // Exported so other modules (e.g. lib/bazaar.ts) share this one definition
 // instead of re-deriving it and silently drifting out of sync.
 const _CONFIGURED = process.env.NEXT_PUBLIC_API_URL ?? "";
+// The browser routes through /api so the auth cookie stays same-site. The
+// native shell cannot: its bundle is a static export served from the device,
+// with no Next server behind it to proxy /api anywhere, and no same-site
+// cookie to protect. It calls the backend's absolute URL and authenticates
+// with a bearer token instead (see nativeAuth.ts).
 export const BASE =
-  _CONFIGURED && typeof window !== "undefined" ? "/api" : _CONFIGURED;
+  !IS_NATIVE && _CONFIGURED && typeof window !== "undefined"
+    ? "/api"
+    : _CONFIGURED;
+
+// apiFetch is the single place that knows how this client authenticates.
+//
+// Before this existed every call site spelled out `credentials: "include"`
+// and nothing else, which was correct for exactly one kind of client. Routing
+// them all through here means the native shell's bearer header is added once
+// rather than at thirty call sites, and the web request is unchanged --
+// authHeaders() returns nothing at all off-device.
+// Exported so any module making its own calls to this backend -- lib/tendril.ts
+// is the only one today -- goes through the same auth path instead of
+// hand-rolling `fetch(..., { credentials: "include" })`, which silently drops
+// the native bearer header and 401s on every native-app call.
+export async function apiFetch(
+  input: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const extra = authHeaders();
+  const headers = {
+    ...(init.headers as Record<string, string> | undefined),
+    ...extra,
+  };
+  return fetch(input, {
+    ...init,
+    // Deliberately AFTER `...init`, not before: every call site in this file
+    // and lib/tendril.ts still passes its own `credentials: "include"` (predating
+    // this native-aware default), which would otherwise silently win and
+    // override this decision for every native call. apiFetch's whole reason to
+    // exist is being the one place that knows how this client authenticates --
+    // a caller's own guess must never be able to outrank it. The native client
+    // authenticates with Authorization: Bearer and has no cookie to send;
+    // asking for credentials anyway would oblige the server to answer a
+    // non-wildcard Allow-Origin plus Allow-Credentials for no benefit, an extra
+    // CORS constraint to get wrong, guarding nothing.
+    credentials: IS_NATIVE ? "omit" : "include",
+    ...(Object.keys(headers).length ? { headers } : {}),
+  });
+}
 
 // -- Auth ------------------------------------------------------------------
 export interface AuthUser {
@@ -32,9 +78,13 @@ export interface AuthUser {
 }
 
 export const auth = {
-  signIn: async (email: string, password: string): Promise<void> => {
+  // Returns the bearer token when the caller is a native client, null
+  // otherwise. The web app authenticates with the HttpOnly cookie the same
+  // response sets and simply ignores this -- see nativeAuth.ts for why a
+  // browser is deliberately not handed a readable token.
+  signIn: async (email: string, password: string): Promise<string | null> => {
     if (BASE) {
-      const res = await fetch(`${BASE}/auth/signin`, {
+      const res = await apiFetch(`${BASE}/auth/signin`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -42,11 +92,12 @@ export const auth = {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "sign in failed");
-      return;
+      return data.token ?? null;
     }
     void email;
     void password;
     await delay(400);
+    return null;
   },
 
   signUp: async (
@@ -54,9 +105,9 @@ export const auth = {
     password: string,
     name: string,
     org: string,
-  ): Promise<void> => {
+  ): Promise<string | null> => {
     if (BASE) {
-      const res = await fetch(`${BASE}/auth/signup`, {
+      const res = await apiFetch(`${BASE}/auth/signup`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -64,18 +115,19 @@ export const auth = {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "sign up failed");
-      return;
+      return data.token ?? null;
     }
     void email;
     void password;
     void name;
     void org;
     await delay(500);
+    return null;
   },
 
   me: async (): Promise<AuthUser> => {
     if (BASE) {
-      const res = await fetch(`${BASE}/auth/me`, { credentials: "include" });
+      const res = await apiFetch(`${BASE}/auth/me`, { credentials: "include" });
       if (!res.ok) throw new Error("unauthorized");
       return res.json();
     }
@@ -93,7 +145,7 @@ export const auth = {
   // general profile edit.
   updateProfile: async (name: string, orgName: string): Promise<AuthUser> => {
     if (BASE) {
-      const res = await fetch(`${BASE}/auth/me`, {
+      const res = await apiFetch(`${BASE}/auth/me`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -114,7 +166,7 @@ export const auth = {
 
   signOut: async (): Promise<void> => {
     if (BASE) {
-      await fetch(`${BASE}/auth/signout`, {
+      await apiFetch(`${BASE}/auth/signout`, {
         method: "POST",
         credentials: "include",
       });
@@ -134,7 +186,9 @@ export const workflows = {
   // TODO: GET /workflows
   list: async (): Promise<Workflow[]> => {
     if (BASE) {
-      const res = await fetch(`${BASE}/workflows`, { credentials: "include" });
+      const res = await apiFetch(`${BASE}/workflows`, {
+        credentials: "include",
+      });
       if (!res.ok) throw new Error("workflows fetch failed");
       return res.json();
     }
@@ -145,7 +199,7 @@ export const workflows = {
   // TODO: GET /workflows/:id
   get: async (id: string): Promise<Workflow> => {
     if (BASE) {
-      const res = await fetch(`${BASE}/workflows/${id}`, {
+      const res = await apiFetch(`${BASE}/workflows/${id}`, {
         credentials: "include",
       });
       const data = await res.json().catch(() => ({}));
@@ -160,8 +214,9 @@ export const workflows = {
 
   // TODO: POST /workflows
   create: async (name: string): Promise<Workflow> => {
+    assertWritable("POST", "/workflows");
     if (BASE) {
-      const res = await fetch(`${BASE}/workflows`, {
+      const res = await apiFetch(`${BASE}/workflows`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -177,8 +232,9 @@ export const workflows = {
 
   // TODO: PUT /workflows/:id
   update: async (id: string, wf: Partial<Workflow>): Promise<Workflow> => {
+    assertWritable("PUT", `/workflows/${id}`);
     if (BASE) {
-      const res = await fetch(`${BASE}/workflows/${id}`, {
+      const res = await apiFetch(`${BASE}/workflows/${id}`, {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -202,8 +258,9 @@ export const workflows = {
   // the only copy of an active lease's encrypted credentials; that message is
   // surfaced to the caller rather than swallowed.
   remove: async (id: string): Promise<void> => {
+    assertWritable("DELETE", `/workflows/${id}`);
     if (BASE) {
-      const res = await fetch(`${BASE}/workflows/${id}`, {
+      const res = await apiFetch(`${BASE}/workflows/${id}`, {
         method: "DELETE",
         credentials: "include",
       });
@@ -222,8 +279,9 @@ export const workflows = {
   ): Promise<{
     agents: { nodeId: string; address: string; network: string }[];
   }> => {
+    assertWritable("POST", `/workflows/${id}/deploy`);
     if (BASE) {
-      const res = await fetch(`${BASE}/workflows/${id}/deploy`, {
+      const res = await apiFetch(`${BASE}/workflows/${id}/deploy`, {
         method: "POST",
         credentials: "include",
       });
@@ -241,7 +299,7 @@ export const workflows = {
     input?: Record<string, unknown>,
   ): Promise<{ runId: string }> => {
     if (BASE) {
-      const res = await fetch(`${BASE}/workflows/${id}/run`, {
+      const res = await apiFetch(`${BASE}/workflows/${id}/run`, {
         method: "POST",
         credentials: "include",
         headers: input ? { "Content-Type": "application/json" } : {},
@@ -260,8 +318,9 @@ export const workflows = {
     id: string,
     message: string,
   ): Promise<{ reply: string; workflow: Workflow }> => {
+    assertWritable("POST", `/workflows/${id}/build`);
     if (BASE) {
-      const res = await fetch(`${BASE}/workflows/${id}/build`, {
+      const res = await apiFetch(`${BASE}/workflows/${id}/build`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -286,13 +345,54 @@ export const workflows = {
   // TODO: POST /workflows/:id/stop
   stop: async (id: string): Promise<void> => {
     if (BASE) {
-      await fetch(`${BASE}/workflows/${id}/stop`, {
+      await apiFetch(`${BASE}/workflows/${id}/stop`, {
         method: "POST",
         credentials: "include",
       });
       return;
     }
     await delay(100);
+  },
+
+  // PUT /workflows/:id/schedule
+  setSchedule: async (
+    id: string,
+    cron: string,
+  ): Promise<{ cron: string; nextRunAt: string }> => {
+    assertWritable("PUT", `/workflows/${id}/schedule`);
+    if (BASE) {
+      const res = await apiFetch(`${BASE}/workflows/${id}/schedule`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cron }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "could not set schedule");
+      return data;
+    }
+    await delay(200);
+    return {
+      cron,
+      nextRunAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    };
+  },
+
+  // DELETE /workflows/:id/schedule
+  clearSchedule: async (id: string): Promise<void> => {
+    assertWritable("DELETE", `/workflows/${id}/schedule`);
+    if (BASE) {
+      const res = await apiFetch(`${BASE}/workflows/${id}/schedule`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "could not remove schedule");
+      }
+      return;
+    }
+    await delay(150);
   },
 };
 
@@ -303,7 +403,7 @@ export const credits = {
   // from another source is a guess that drifts the moment a run spends money.
   balance: async (): Promise<number> => {
     if (BASE) {
-      const res = await fetch(`${BASE}/credits/balance`, {
+      const res = await apiFetch(`${BASE}/credits/balance`, {
         credentials: "include",
       });
       const data = await res.json().catch(() => ({}));
@@ -324,7 +424,7 @@ export const credits = {
     code: string,
   ): Promise<{ balanceUSD: number; creditedUSD: number }> => {
     if (BASE) {
-      const res = await fetch(`${BASE}/credits/redeem-coupon`, {
+      const res = await apiFetch(`${BASE}/credits/redeem-coupon`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -355,6 +455,15 @@ export interface RunLogRecord {
   ts: string;
 }
 
+export interface DeadLetterRun {
+  id: string;
+  runId: string;
+  nodeId: string;
+  error: string;
+  attemptCount: number;
+  createdAt: string;
+}
+
 export const runs = {
   // The DB-backed source of truth for a run's logs — used as a reconciliation
   // fallback once the live SSE stream ends, since the stream's broker only
@@ -367,9 +476,13 @@ export const runs = {
   // happened to deliver live.
   get: async (
     runId: string,
-  ): Promise<{ run: { status: string }; logs: RunLogRecord[] }> => {
+  ): Promise<{
+    run: { status: string };
+    logs: RunLogRecord[];
+    deadLetters: DeadLetterRun[];
+  }> => {
     if (BASE) {
-      const res = await fetch(`${BASE}/runs/${runId}`, {
+      const res = await apiFetch(`${BASE}/runs/${runId}`, {
         credentials: "include",
       });
       const data = await res.json().catch(() => ({}));
@@ -390,6 +503,7 @@ export const runs = {
       "7F2AC9D1E4B8A6350C1D9E2F4A7B8C3D5E6F1A2B3C4D5E6F7A8B9C0D1E2F3A4B";
     return {
       run: { status: "success" },
+      deadLetters: [],
       logs: [
         {
           id: "rl-1",
@@ -434,6 +548,20 @@ export const runs = {
       ],
     };
   },
+
+  resume: async (runId: string): Promise<{ runId: string }> => {
+    if (BASE) {
+      const res = await apiFetch(`${BASE}/runs/${runId}/resume`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "resume failed");
+      return data;
+    }
+    await delay(200);
+    return { runId };
+  },
 };
 
 // -- Agents ---------------------------------------------------------------
@@ -444,7 +572,7 @@ export const agents = {
     agentId: string,
   ): Promise<{ address: string; balance: string; network: string }> => {
     if (BASE) {
-      const res = await fetch(
+      const res = await apiFetch(
         `${BASE}/workflows/${wfId}/agents/${agentId}/balance`,
         { credentials: "include" },
       );
@@ -463,7 +591,7 @@ export const agents = {
     amount: number,
   ): Promise<{ txHash: string; balance: string }> => {
     if (BASE) {
-      const res = await fetch(
+      const res = await apiFetch(
         `${BASE}/workflows/${wfId}/agents/${agentId}/fund`,
         {
           method: "POST",
@@ -511,7 +639,7 @@ export const tools = {
     }>;
   }> => {
     if (BASE) {
-      const res = await fetch(`${BASE}/tools/x402/quote`, {
+      const res = await apiFetch(`${BASE}/tools/x402/quote`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -550,9 +678,11 @@ export const oauth2 = {
   // async request.
   connectURL: (provider: string): string => `${BASE}/oauth2/${provider}/start`,
 
-  listCredentials: async (provider: string): Promise<OAuthCredentialSummary[]> => {
+  listCredentials: async (
+    provider: string,
+  ): Promise<OAuthCredentialSummary[]> => {
     if (!BASE) return []; // No connected-account concept in mock mode.
-    const res = await fetch(
+    const res = await apiFetch(
       `${BASE}/oauth2/credentials?provider=${encodeURIComponent(provider)}`,
       { credentials: "include" },
     );
@@ -562,7 +692,7 @@ export const oauth2 = {
 
   deleteCredential: async (id: string): Promise<void> => {
     if (!BASE) return;
-    await fetch(`${BASE}/oauth2/credentials/${encodeURIComponent(id)}`, {
+    await apiFetch(`${BASE}/oauth2/credentials/${encodeURIComponent(id)}`, {
       method: "DELETE",
       credentials: "include",
     });
@@ -574,6 +704,11 @@ export const waitlist = {
   // TODO: POST /waitlist
   join: async (email: string): Promise<void> => {
     if (BASE) {
+      // Plain fetch, not apiFetch: this is the one genuinely public endpoint
+      // here, and it must not send credentials. A credentialed cross-origin
+      // request fails outright when CORS_ORIGIN is unset (the wildcard case,
+      // where the server cannot send Allow-Credentials), which would break the
+      // landing page's signup for a deployment where nothing else is wrong.
       await fetch(`${BASE}/waitlist`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -599,7 +734,7 @@ export const payments = {
     app_id: string;
   }> => {
     if (!BASE) throw new Error("payments require a configured backend");
-    const res = await fetch(`${BASE}/payments/cashfree/order`, {
+    const res = await apiFetch(`${BASE}/payments/cashfree/order`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -614,7 +749,7 @@ export const payments = {
     orderId: string,
   ): Promise<{ status: string; credited_usd_micros: number }> => {
     if (!BASE) throw new Error("payments require a configured backend");
-    const res = await fetch(`${BASE}/payments/cashfree/verify`, {
+    const res = await apiFetch(`${BASE}/payments/cashfree/verify`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -654,7 +789,7 @@ function bucketFor(range: UsageRange): "hour" | "day" {
 // summary did, and the other four threw fixed strings that discarded detail.
 async function usageFetch<T>(path: string, mock: () => T): Promise<T> {
   if (BASE) {
-    const res = await fetch(`${BASE}${path}`, { credentials: "include" });
+    const res = await apiFetch(`${BASE}${path}`, { credentials: "include" });
     const data = await res.json().catch(() => ({}));
     if (!res.ok)
       throw new Error(

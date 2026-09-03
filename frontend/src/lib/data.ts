@@ -822,7 +822,7 @@ export const WORKFLOWS: Workflow[] = [
   {
     id: "wf-triage",
     name: "Customer Support Triage",
-    status: "active",
+    status: "deployed",
     updated: "2m ago",
     agents: 1,
     runs: 1842,
@@ -834,7 +834,7 @@ export const WORKFLOWS: Workflow[] = [
   {
     id: "wf-brief",
     name: "Daily Market Brief",
-    status: "active",
+    status: "deployed",
     updated: "1h ago",
     agents: 4,
     runs: 38,
@@ -870,7 +870,7 @@ export const WORKFLOWS: Workflow[] = [
   {
     id: "wf-onchain",
     name: "On-chain Compliance Watch",
-    status: "active",
+    status: "deployed",
     updated: "5h ago",
     agents: 2,
     runs: 642,
@@ -1055,21 +1055,21 @@ const WF_SEEDS = [
   {
     workflowId: "wf-triage",
     name: "Customer Support Triage",
-    status: "active",
+    status: "deployed",
     share: 0.34,
     calls30: 4200,
   },
   {
     workflowId: "wf-onchain",
     name: "On-chain Compliance Watch",
-    status: "active",
+    status: "deployed",
     share: 0.24,
     calls30: 3100,
   },
   {
     workflowId: "wf-brief",
     name: "Daily Market Brief",
-    status: "active",
+    status: "deployed",
     share: 0.18,
     calls30: 1400,
   },

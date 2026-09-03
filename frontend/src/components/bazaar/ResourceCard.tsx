@@ -41,6 +41,11 @@ export function ResourceCard({
         flexDirection: "column",
         gap: 10,
         minWidth: 0,
+        // Fills the grid cell the wrapper stretches to, so cards in a row
+        // end at the same baseline instead of each stopping at its own
+        // content height.
+        height: "100%",
+        boxSizing: "border-box",
       }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
@@ -67,9 +72,9 @@ export function ResourceCard({
               fontSize: 13,
               fontWeight: 600,
               color: "var(--fg)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
+              // Wraps instead of truncating. overflowWrap handles the long
+              // unbroken host names that have no space to break at.
+              overflowWrap: "anywhere",
             }}
           >
             {resource.provider ?? resource.host}
@@ -79,9 +84,7 @@ export function ResourceCard({
               fontFamily: "var(--font-mono)",
               fontSize: 10.5,
               color: "var(--fg-dim)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
+              overflowWrap: "anywhere",
             }}
             title={resource.url}
           >
@@ -97,10 +100,10 @@ export function ResourceCard({
           fontSize: 12,
           lineHeight: 1.55,
           color: "var(--fg-muted)",
-          display: "-webkit-box",
-          WebkitLineClamp: 3,
-          WebkitBoxOrient: "vertical",
-          overflow: "hidden",
+          // Grows into whatever height the tallest card in the row sets, so
+          // the price/meta footer and Add button line up across the row.
+          flex: 1,
+          overflowWrap: "anywhere",
         }}
       >
         {resource.description || "No description published."}

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Logo, IconArrow, Tag } from "@/components/ui";
 import { useAuth } from "@/hooks/useAuth";
 import { auth } from "@/lib/api";
+import { authBtn } from "@/components/ui/buttons";
 
 const OAUTH_ERRORS: Record<string, string> = {
   invalid_state: "Login session expired. Please try again.",
@@ -343,7 +344,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
               <button
                 type="button"
                 onClick={() => handleOAuth("github")}
-                style={ghostBtnStyle}
+                style={authBtn}
               >
                 <span style={{ fontFamily: "var(--font-mono)" }}>⌘</span>{" "}
                 Continue with GitHub
@@ -351,7 +352,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
               <button
                 type="button"
                 onClick={() => handleOAuth("google")}
-                style={ghostBtnStyle}
+                style={authBtn}
               >
                 <span style={{ color: "var(--accent)" }}>⬡</span> Continue with
                 Google
@@ -616,24 +617,4 @@ const inputStyle: React.CSSProperties = {
   fontSize: 13,
   fontFamily: "var(--font-sans)",
   outline: "none",
-};
-
-// nowrap + no-shrink: fixed height, so a wrapped label spills out of the box.
-// See the note on ghostBtnSm in components/ui.
-const ghostBtnStyle: React.CSSProperties = {
-  height: 40,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 8,
-  background: "var(--bg-elev-1)",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--r-2)",
-  color: "var(--fg)",
-  fontSize: 13,
-  fontWeight: 500,
-  fontFamily: "var(--font-sans)",
-  cursor: "pointer",
-  whiteSpace: "nowrap",
-  flexShrink: 0,
 };

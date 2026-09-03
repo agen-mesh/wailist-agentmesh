@@ -1,5 +1,12 @@
 "use client";
-import { useState, useRef, useLayoutEffect, useMemo } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useCallback,
+} from "react";
 import { WorkflowNode } from "@/lib/types";
 import { BrandLogo } from "./nodes/brandLogos";
 import { PALETTE_TWO_COL_MIN } from "./panelSizing";
@@ -277,15 +284,59 @@ const CREATE_META: Record<string, Partial<WorkflowNode>> = {
 
 interface PalettePanelProps {
   onDragNodeStart: (e: React.DragEvent, meta: Partial<WorkflowNode>) => void;
-  width?: number;
+  /** Adds the item without a drag -- a tap, Enter, or Space. Drag is a
+   *  mouse-only API, so on a touch device it is the ONLY way to get a node
+   *  onto the canvas; it also makes the palette keyboard-operable. */
+  onAddNode?: (meta: Partial<WorkflowNode>) => void;
+  width?: number | string;
+  /** Collapses the palette column. Omitted where the palette is not in a
+   *  column of its own (the compact bottom sheet), which has its own
+   *  open/close control and would end up with two. */
+  onCollapse?: () => void;
 }
 
 export function PalettePanel({
   onDragNodeStart,
+  onAddNode,
   width = 280,
+  onCollapse,
 }: PalettePanelProps) {
   const [tab, setTab] = useState<TabId>("triggers");
   const [q, setQ] = useState("");
+
+  // Only consulted when `width` is not a number. Starts null, and one column
+  // is the pre-measurement default: narrow is the failing case, so erring
+  // that way costs a single reflow instead of a frame of squeezed rows.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
+
+  // A zero width is not a measurement, it is a hidden element. The rail keeps
+  // every pane mounted and toggles `display`, so the palette measures 0x0
+  // while its tab is inactive -- latching that would peg the list to one
+  // column for the rest of the session.
+  const syncWidth = useCallback(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const w = el.getBoundingClientRect().width;
+    if (w > 0) setMeasuredWidth((prev) => (prev === w ? prev : w));
+  }, []);
+
+  // Runs after every render, which is what catches display:none -> visible
+  // when the Build tab is selected. Cheap (one rect read) and self-limiting:
+  // it only sets state when the number actually changed.
+  useLayoutEffect(() => {
+    if (typeof width !== "number") syncWidth();
+  });
+
+  // And this catches the window being resized while the tab is already open.
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof width === "number") return;
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(syncWidth);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [width, syncWidth]);
 
   const tabDef = PALETTE_TABS.find((t) => t.id === tab)!;
   const items = tabDef.items() as unknown[];
@@ -352,8 +403,26 @@ export function PalettePanel({
     return groups;
   }, [actionEntries]);
 
-  // Reflow the item list into two columns once the panel is dragged wide.
-  const cols = width >= PALETTE_TWO_COL_MIN ? 2 : 1;
+  // Reflow the item list into two columns once the panel is wide enough.
+  //
+  // A numeric width is authoritative -- the resizable desktop column knows
+  // exactly how wide it is, so it needs no measuring and never flashes.
+  //
+  // A non-numeric width means the panel is filling its container (the bottom
+  // sheet), and that has to be MEASURED rather than assumed. An earlier
+  // version hardcoded two columns here on the reasoning that no desktop
+  // window gets near PALETTE_TWO_COL_MIN -- which stopped being true once
+  // read-only became device-based: a laptop with a 400px-wide window is now
+  // an editor whose palette renders in the sheet at 400px, and two columns
+  // there squeezes every row.
+  const cols =
+    typeof width === "number"
+      ? width >= PALETTE_TWO_COL_MIN
+        ? 2
+        : 1
+      : measuredWidth !== null && measuredWidth >= PALETTE_TWO_COL_MIN
+        ? 2
+        : 1;
 
   // FLIP: when the column count changes, glide each item from its old position
   // to its new one instead of letting the grid snap. Rects are captured every
@@ -395,6 +464,7 @@ export function PalettePanel({
 
   return (
     <div
+      ref={rootRef}
       style={{
         width,
         flexShrink: 0,
@@ -409,15 +479,49 @@ export function PalettePanel({
       <div style={{ padding: "14px 14px 8px" }}>
         <div
           style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 10,
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-            color: "var(--fg-dim)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
             marginBottom: 10,
           }}
         >
-          library
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              color: "var(--fg-dim)",
+            }}
+          >
+            library
+          </span>
+          {onCollapse && (
+            <button
+              type="button"
+              onClick={onCollapse}
+              title="Collapse the library"
+              aria-label="Collapse the library"
+              style={{
+                width: 22,
+                height: 22,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                background: "transparent",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r-1)",
+                color: "var(--fg-muted)",
+                cursor: "pointer",
+                fontSize: 12,
+                lineHeight: 1,
+              }}
+            >
+              ‹
+            </button>
+          )}
         </div>
         <div
           style={{
@@ -517,91 +621,101 @@ export function PalettePanel({
           <CreateRow
             meta={CREATE_META[tab]}
             onDragStart={(e) => onDragNodeStart(e, CREATE_META[tab])}
+            onActivate={
+              onAddNode ? () => onAddNode(CREATE_META[tab]) : undefined
+            }
+            label={(CREATE_META[tab].label ?? "node") as string}
             isX402={tab === "x402"}
           />
         </div>
 
-        {isActions ? (
-          q_ ? (
-            // Searching: flat, ranked, matched text highlighted.
-            actionSearched.map((e, i) => {
-              const title = (e.meta.name ?? e.meta.label ?? "") as string;
-              const sub = (e.meta.sub ?? "") as string;
-              return (
-                <DraggableRow
-                  key={i}
-                  icon={(e.meta.icon ?? "") as string}
-                  template={(e.meta.template ?? "") as string}
-                  title={title}
-                  titleNode={highlightMatch(title, q_)}
-                  sub={sub}
-                  subNode={highlightMatch(sub, q_)}
-                  dotColor={tabDef.dotColor}
-                  onDragStart={(e2) => onDragNodeStart(e2, e.meta)}
-                />
-              );
-            })
-          ) : (
-            // Browsing: grouped under category headers, mirroring the
-            // backend's own connectors_{messaging,productivity,...}.go split.
-            // Note: each group renders as one grid-spanning wrapper so its
-            // header never breaks the column flow -- as a side effect, the
-            // column-reflow FLIP animation above glides per-group rather
-            // than per-row while this view is showing (every other tab, and
-            // the searching view above, keep the original per-row glide).
-            ACTION_CATEGORIES.map((cat) => {
-              const group = actionsByCategory.get(cat) ?? [];
-              if (group.length === 0) return null;
-              return (
-                <div key={cat} style={{ gridColumn: "1 / -1" }}>
-                  <div
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 10,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.08em",
-                      color: "var(--fg-dim)",
-                      padding: "10px 2px 6px",
-                    }}
-                  >
-                    {cat} · {group.length}
+        {isActions
+          ? q_
+            ? // Searching: flat, ranked, matched text highlighted.
+              actionSearched.map((e, i) => {
+                const title = (e.meta.name ?? e.meta.label ?? "") as string;
+                const sub = (e.meta.sub ?? "") as string;
+                return (
+                  <DraggableRow
+                    key={i}
+                    icon={(e.meta.icon ?? "") as string}
+                    template={(e.meta.template ?? "") as string}
+                    title={title}
+                    titleNode={highlightMatch(title, q_)}
+                    sub={sub}
+                    subNode={highlightMatch(sub, q_)}
+                    dotColor={tabDef.dotColor}
+                    onDragStart={(e2) => onDragNodeStart(e2, e.meta)}
+                    onActivate={onAddNode ? () => onAddNode(e.meta) : undefined}
+                    label={(e.meta.name ?? e.meta.label ?? "node") as string}
+                  />
+                );
+              })
+            : // Browsing: grouped under category headers, mirroring the
+              // backend's own connectors_{messaging,productivity,...}.go split.
+              // Note: each group renders as one grid-spanning wrapper so its
+              // header never breaks the column flow -- as a side effect, the
+              // column-reflow FLIP animation above glides per-group rather
+              // than per-row while this view is showing (every other tab, and
+              // the searching view above, keep the original per-row glide).
+              ACTION_CATEGORIES.map((cat) => {
+                const group = actionsByCategory.get(cat) ?? [];
+                if (group.length === 0) return null;
+                return (
+                  <div key={cat} style={{ gridColumn: "1 / -1" }}>
+                    <div
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 10,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.08em",
+                        color: "var(--fg-dim)",
+                        padding: "10px 2px 6px",
+                      }}
+                    >
+                      {cat} · {group.length}
+                    </div>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+                        gap: 6,
+                      }}
+                    >
+                      {group.map((e, i) => (
+                        <DraggableRow
+                          key={i}
+                          icon={(e.meta.icon ?? "") as string}
+                          template={(e.meta.template ?? "") as string}
+                          title={(e.meta.name ?? e.meta.label ?? "") as string}
+                          sub={(e.meta.sub ?? "") as string}
+                          dotColor={tabDef.dotColor}
+                          onDragStart={(e2) => onDragNodeStart(e2, e.meta)}
+                          onActivate={
+                            onAddNode ? () => onAddNode(e.meta) : undefined
+                          }
+                          label={
+                            (e.meta.name ?? e.meta.label ?? "node") as string
+                          }
+                        />
+                      ))}
+                    </div>
                   </div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-                      gap: 6,
-                    }}
-                  >
-                    {group.map((e, i) => (
-                      <DraggableRow
-                        key={i}
-                        icon={(e.meta.icon ?? "") as string}
-                        template={(e.meta.template ?? "") as string}
-                        title={(e.meta.name ?? e.meta.label ?? "") as string}
-                        sub={(e.meta.sub ?? "") as string}
-                        dotColor={tabDef.dotColor}
-                        onDragStart={(e2) => onDragNodeStart(e2, e.meta)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              );
-            })
-          )
-        ) : (
-          filtered.map((it, i) => (
-            <DraggableRow
-              key={i}
-              icon={(it.icon ?? "") as string}
-              template={(it.template ?? "") as string}
-              title={(it.name ?? it.label ?? "") as string}
-              sub={(it.sub ?? "") as string}
-              dotColor={tabDef.dotColor}
-              onDragStart={(e) => onDragNodeStart(e, it)}
-            />
-          ))
-        )}
+                );
+              })
+          : filtered.map((it, i) => (
+              <DraggableRow
+                key={i}
+                icon={(it.icon ?? "") as string}
+                template={(it.template ?? "") as string}
+                title={(it.name ?? it.label ?? "") as string}
+                sub={(it.sub ?? "") as string}
+                dotColor={tabDef.dotColor}
+                onDragStart={(e) => onDragNodeStart(e, it)}
+                onActivate={onAddNode ? () => onAddNode(it) : undefined}
+                label={(it.name ?? it.label ?? "node") as string}
+              />
+            ))}
 
         {((isActions && q_ && actionSearched.length === 0) ||
           (!isActions && filtered.length === 0)) && (
@@ -641,10 +755,14 @@ export function PalettePanel({
 function CreateRow({
   meta,
   onDragStart,
+  onActivate,
+  label,
   isX402,
 }: {
   meta: Partial<WorkflowNode>;
   onDragStart: (e: React.DragEvent) => void;
+  onActivate?: () => void;
+  label?: string;
   isX402: boolean;
 }) {
   const accent = isX402 ? "#E879F9" : "var(--accent)";
@@ -655,6 +773,17 @@ function CreateRow({
     <div
       draggable
       onDragStart={onDragStart}
+      role={onActivate ? "button" : undefined}
+      tabIndex={onActivate ? 0 : undefined}
+      aria-label={onActivate && label ? `Add ${label}` : undefined}
+      onClick={onActivate}
+      onKeyDown={(e) => {
+        if (!onActivate) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onActivate();
+        }
+      }}
       style={{
         display: "flex",
         alignItems: "center",
@@ -720,6 +849,8 @@ function DraggableRow({
   subNode,
   dotColor,
   onDragStart,
+  onActivate,
+  label,
 }: {
   icon: string;
   template?: string;
@@ -732,6 +863,8 @@ function DraggableRow({
   subNode?: React.ReactNode;
   dotColor: "mute" | "accent" | "magenta";
   onDragStart: (e: React.DragEvent) => void;
+  onActivate?: () => void;
+  label?: string;
 }) {
   const dotBg =
     dotColor === "magenta"
@@ -750,6 +883,17 @@ function DraggableRow({
     <div
       draggable
       onDragStart={onDragStart}
+      role={onActivate ? "button" : undefined}
+      tabIndex={onActivate ? 0 : undefined}
+      aria-label={onActivate && label ? `Add ${label}` : undefined}
+      onClick={onActivate}
+      onKeyDown={(e) => {
+        if (!onActivate) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onActivate();
+        }
+      }}
       style={{
         display: "flex",
         alignItems: "center",

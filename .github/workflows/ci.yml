@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -73,7 +73,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -81,6 +81,25 @@ jobs:
 
       - name: npm ci
         run: npm ci
+
+      # Vercel auto-detects pnpm-lock.yaml and builds from it, while CI/local
+      # dev use npm (package-lock.json) -- npm ci above only ever validates
+      # the latter. This step catches the case where package.json moved but
+      # pnpm-lock.yaml didn't (exactly what broke the Vercel build after the
+      # PR #118 merge): regenerate it and fail if that produces a diff.
+      # Pinned to a commit SHA, not a mutable @v4 tag -- same convention as
+      # android.yml's action-gh-release pin.
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          version: 10
+
+      - name: verify pnpm-lock.yaml is in sync with package.json
+        run: |
+          pnpm install --lockfile-only
+          if ! git diff --exit-code pnpm-lock.yaml; then
+            echo "::error::pnpm-lock.yaml is out of sync with package.json. Run 'pnpm install --lockfile-only' in frontend/ and commit the result." >&2
+            exit 1
+          fi
 
       - name: lint
         run: npm run lint

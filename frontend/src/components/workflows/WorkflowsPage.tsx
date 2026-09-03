@@ -16,9 +16,19 @@ import { workflows as workflowsApi } from "@/lib/api";
 import { useCredits } from "@/lib/credits/store";
 import { tendril } from "@/lib/tendril";
 import { DEMO_WORKFLOW } from "@/lib/data";
+import { can } from "@/lib/readonly";
+import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
+import { useReadOnly } from "@/hooks/useReadOnly";
+import {
+  cadenceToCron,
+  cronToCadence,
+  type Cadence,
+  type CadenceValue,
+} from "@/lib/cronCadence";
 
 export function WorkflowsPage() {
   const router = useRouter();
+  const readOnly = useReadOnly();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
   const [view, setView] = useState<"rows" | "grid">("rows");
@@ -33,7 +43,7 @@ export function WorkflowsPage() {
   // other. A success only clears the error if it's the one that owns it,
   // so it never wipes an unrelated action's still-relevant error.
   const [pageError, setPageError] = useState<{
-    source: "demo" | "delete";
+    source: "demo" | "delete" | "tendril" | "schedule";
     message: string;
   } | null>(null);
   const { balanceUSD, balanceKnown, refreshBalance } = useCredits();
@@ -80,16 +90,33 @@ export function WorkflowsPage() {
   // workflow that backs every user's console, so repeated clicks always
   // open the same row instead of workflowsApi.create minting a fresh
   // duplicate one every time.
+  // tendril.console() finds-OR-CREATES the console row. Creating one is
+  // authoring even though it is a GET; isWriteBlocked's WRITE_RULES lists it
+  // explicitly for that reason. This branch picks the non-creating variant up
+  // front so a viewer never issues the blocked call at all, and has nowhere
+  // to go if the desktop app has not opened this user's console yet.
   const handleLoadTendrilWorkflow = useCallback(async () => {
     if (creatingTendril) return;
     setCreatingTendril(true);
+    setPageError((prev) => (prev?.source === "tendril" ? null : prev));
     try {
-      const workflowId = await tendril.console();
+      const workflowId = can("workflow.create", readOnly)
+        ? await tendril.console()
+        : await tendril.consoleWorkflowIdIfExists();
+      if (!workflowId) {
+        setPageError({
+          source: "tendril",
+          message:
+            "No Tendril console yet — open one from the AgentMesh desktop app first.",
+        });
+        setCreatingTendril(false);
+        return;
+      }
       router.push(`/workflows/${workflowId}`);
     } catch {
       setCreatingTendril(false);
     }
-  }, [creatingTendril, router]);
+  }, [creatingTendril, router, readOnly]);
 
   // Loads DEMO_WORKFLOW (lib/data.ts) into a brand-new workflow row every
   // click -- unlike handleLoadTendrilWorkflow's find-or-create console, a
@@ -144,8 +171,57 @@ export function WorkflowsPage() {
     }
   }, []);
 
+  // Schedule set/clear mirror handleDelete's pattern: optimistic local list
+  // update on success, tagged pageError on failure. Both re-throw so
+  // SchedulePopover's own inline error state (right next to the button the
+  // user just clicked) shows the same message rather than only the
+  // page-level banner.
+  const handleSetSchedule = useCallback(async (id: string, cron: string) => {
+    setPageError((prev) => (prev?.source === "schedule" ? null : prev));
+    try {
+      const { cron: savedCron, nextRunAt } = await workflowsApi.setSchedule(
+        id,
+        cron,
+      );
+      setWfList((prev) =>
+        prev.map((w) =>
+          w.id === id
+            ? { ...w, scheduleCron: savedCron, scheduleNextRunAt: nextRunAt }
+            : w,
+        ),
+      );
+    } catch (e) {
+      setPageError({
+        source: "schedule",
+        message: e instanceof Error ? e.message : "could not save schedule",
+      });
+      throw e;
+    }
+  }, []);
+
+  const handleClearSchedule = useCallback(async (id: string) => {
+    setPageError((prev) => (prev?.source === "schedule" ? null : prev));
+    try {
+      await workflowsApi.clearSchedule(id);
+      setWfList((prev) =>
+        prev.map((w) =>
+          w.id === id
+            ? { ...w, scheduleCron: undefined, scheduleNextRunAt: undefined }
+            : w,
+        ),
+      );
+    } catch (e) {
+      setPageError({
+        source: "schedule",
+        message: e instanceof Error ? e.message : "could not remove schedule",
+      });
+      throw e;
+    }
+  }, []);
+
   return (
     <div
+      className="am-viewport"
       style={{
         height: "100dvh",
         display: "flex",
@@ -184,24 +260,28 @@ export function WorkflowsPage() {
               </p>
             </div>
             <div className="wf-actions">
-              <button style={ghostBtn}>Import</button>
-              <button
-                onClick={handleLoadDemoWorkflow}
-                disabled={creatingDemo}
-                style={{
-                  ...ghostBtn,
-                  opacity: creatingDemo ? 0.6 : 1,
-                  position: "relative",
-                }}
-                title="Two Gemini 2.5 Flash agents + an HTTP tool + a Telegram step (no-ops until you add your own bot token/chat ID) + up to 3 real CANIX402 x402 calls (Algorand mainnet) -- only 1 of those 3 is guaranteed, the other 2 fire only if the agent's LLM chooses to call them (and can fire more than once). $2.07 guaranteed floor, ~$5.09 typical, no fixed ceiling."
-              >
-                {creatingDemo ? "Loading…" : "Load demo workflow"}
-                <span style={{ marginLeft: 6 }}>
-                  <Pill tone="accent" mono>
-                    $2.07+/run
-                  </Pill>
-                </span>
-              </button>
+              {can("workflow.create", readOnly) && (
+                <button style={ghostBtn}>Import</button>
+              )}
+              {can("workflow.create", readOnly) && (
+                <button
+                  onClick={handleLoadDemoWorkflow}
+                  disabled={creatingDemo}
+                  style={{
+                    ...ghostBtn,
+                    opacity: creatingDemo ? 0.6 : 1,
+                    position: "relative",
+                  }}
+                  title="Two Gemini 2.5 Flash agents + an HTTP tool + a Telegram step (no-ops until you add your own bot token/chat ID) + up to 3 real CANIX402 x402 calls (Algorand mainnet) -- only 1 of those 3 is guaranteed, the other 2 fire only if the agent's LLM chooses to call them (and can fire more than once). $2.07 guaranteed floor, ~$5.09 typical, no fixed ceiling."
+                >
+                  {creatingDemo ? "Loading…" : "Load demo workflow"}
+                  <span style={{ marginLeft: 6 }}>
+                    <Pill tone="accent" mono>
+                      $2.07+/run
+                    </Pill>
+                  </span>
+                </button>
+              )}
               <button
                 onClick={handleLoadTendrilWorkflow}
                 disabled={creatingTendril}
@@ -229,13 +309,15 @@ export function WorkflowsPage() {
                   Official
                 </span>
               </button>
-              <button
-                onClick={handleNewWorkflow}
-                disabled={creating}
-                style={{ ...primaryBtn, opacity: creating ? 0.6 : 1 }}
-              >
-                {creating ? "Creating…" : "+ New workflow"}
-              </button>
+              {can("workflow.create", readOnly) && (
+                <button
+                  onClick={handleNewWorkflow}
+                  disabled={creating}
+                  style={{ ...primaryBtn, opacity: creating ? 0.6 : 1 }}
+                >
+                  {creating ? "Creating…" : "+ New workflow"}
+                </button>
+              )}
             </div>
           </div>
 
@@ -431,6 +513,8 @@ export function WorkflowsPage() {
               items={filtered}
               onOpen={(id) => router.push(`/workflows/${id}`)}
               onDelete={handleDelete}
+              onSetSchedule={handleSetSchedule}
+              onClearSchedule={handleClearSchedule}
             />
           ) : (
             <WorkflowGrid
@@ -465,11 +549,18 @@ export function WorkflowsPage() {
 function StatusBadge({ status }: { status?: string }) {
   const map: Record<
     string,
-    { tone: "ok" | "warm" | "default"; label: string }
+    { tone: "ok" | "warm" | "default" | "danger"; label: string }
   > = {
     active: { tone: "ok", label: "Active" },
     paused: { tone: "warm", label: "Paused" },
     draft: { tone: "default", label: "Draft" },
+    // The real backend enum (models.WorkflowStatus) is draft/deployed/error --
+    // "active"/"paused" above predate that and don't match anything the
+    // backend actually stores. These two were missing entirely, so every
+    // real deployed (or errored) workflow silently fell through to the
+    // "draft" default and showed the wrong badge.
+    deployed: { tone: "ok", label: "Deployed" },
+    error: { tone: "danger", label: "Error" },
   };
   const s = map[status ?? "draft"] ?? map.draft;
   return (
@@ -534,9 +625,36 @@ function WorkflowIcon({ name }: { name: string }) {
 // a second click ("Delete permanently?") in place rather than firing on the
 // first — and rather than a browser confirm() dialog, which the rest of the app
 // doesn't use.
-function RowMenu({ onDelete }: { onDelete: () => void }) {
+function RowMenu({
+  workflowId,
+  onDelete,
+  deployed,
+  scheduleCron,
+  onSetSchedule,
+  onClearSchedule,
+}: {
+  workflowId: string;
+  onDelete: () => void;
+  deployed: boolean;
+  scheduleCron?: string;
+  onSetSchedule: (cron: string) => Promise<void>;
+  onClearSchedule: () => Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [view, setView] = useState<"menu" | "schedule">("menu");
+  // workflowsApi.list() doesn't return scheduleCron/scheduleNextRunAt (only
+  // the single-workflow GET does), so the row's props are always stale --
+  // fetched fresh every time the Schedule item is opened, rather than
+  // trusted from the list hydration.
+  const [freshSchedule, setFreshSchedule] = useState<{
+    cron?: string;
+    nextRunAt?: string;
+  } | null>(null);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [scheduleFetchError, setScheduleFetchError] = useState<string | null>(
+    null,
+  );
   // The rows list scrolls horizontally (overflow-x: auto), which clips absolutely
   // positioned children in both axes — so the menu is position:fixed, anchored to
   // the button's viewport rect, and closes on scroll/resize rather than drifting.
@@ -545,11 +663,71 @@ function RowMenu({ onDelete }: { onDelete: () => void }) {
   );
   const ref = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+  // Guards the schedule fetch below against a stale response landing after
+  // the popover was closed/reopened (or this row was deleted) before it
+  // resolved -- resetSchedule bumps this so a resolved-but-stale request's
+  // setState calls are dropped rather than clobbering newer state or firing
+  // after unmount.
+  const scheduleFetchIdRef = useRef(0);
+
+  const resetSchedule = useCallback(() => {
+    scheduleFetchIdRef.current += 1;
+    setFreshSchedule(null);
+    setScheduleLoading(false);
+    setScheduleFetchError(null);
+  }, []);
+
+  // Shared by the "Schedule" menu item and the error state's Retry button
+  // below: the row's own scheduleCron/scheduleNextRunAt props come from
+  // workflowsApi.list(), which the backend never populates, so this is the
+  // only way to ever actually get the real schedule.
+  const fetchSchedule = useCallback(() => {
+    setFreshSchedule(null);
+    setScheduleFetchError(null);
+    setScheduleLoading(true);
+    // Bumped (not just read) on every open, not only by resetSchedule/
+    // unmount: the "back" button returns to the menu view without calling
+    // resetSchedule, so two Schedule opens in the same popover session
+    // (open -> back -> open again) would otherwise capture the SAME
+    // fetchId and a stale first response could still clobber the second
+    // fetch's state. Bumping here guarantees every open gets an id no
+    // earlier in-flight request can match.
+    const fetchId = ++scheduleFetchIdRef.current;
+    workflowsApi
+      .get(workflowId)
+      .then((wf) => {
+        if (scheduleFetchIdRef.current !== fetchId) return;
+        setFreshSchedule({
+          cron: wf.scheduleCron,
+          nextRunAt: wf.scheduleNextRunAt,
+        });
+      })
+      .catch((e) => {
+        if (scheduleFetchIdRef.current !== fetchId) return;
+        setScheduleFetchError(
+          e instanceof Error ? e.message : "could not load schedule",
+        );
+      })
+      .finally(() => {
+        if (scheduleFetchIdRef.current !== fetchId) return;
+        setScheduleLoading(false);
+      });
+  }, [workflowId]);
+
+  // Invalidate any in-flight fetch on unmount too (e.g. this row's workflow
+  // was deleted while its schedule request was still pending).
+  useEffect(() => {
+    return () => {
+      scheduleFetchIdRef.current += 1;
+    };
+  }, []);
 
   const close = useCallback(() => {
     setOpen(false);
     setConfirming(false);
-  }, []);
+    setView("menu");
+    resetSchedule();
+  }, [resetSchedule]);
 
   // Close on any click outside, so an open menu can't be left hanging over a
   // row the user has moved on from.
@@ -604,6 +782,8 @@ function RowMenu({ onDelete }: { onDelete: () => void }) {
             });
           }
           setConfirming(false);
+          setView("menu");
+          resetSchedule();
           setOpen(true);
         }}
       >
@@ -625,66 +805,423 @@ function RowMenu({ onDelete }: { onDelete: () => void }) {
             boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
           }}
         >
-          <button
-            role="menuitem"
-            onClick={() => {
-              if (!confirming) {
-                setConfirming(true);
-                return;
-              }
-              close();
-              onDelete();
-            }}
-            style={{
-              display: "block",
-              width: "100%",
-              textAlign: "left",
-              padding: "8px 10px",
-              border: "none",
-              borderRadius: 5,
-              background: confirming
-                ? "var(--danger-soft, transparent)"
-                : "transparent",
-              color: "var(--danger)",
-              fontSize: 12.5,
-              fontWeight: confirming ? 600 : 500,
-              fontFamily: "var(--font-sans)",
-              cursor: "pointer",
-            }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.background = "var(--bg-elev-3)")
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.background = confirming
-                ? "var(--danger-soft, transparent)"
-                : "transparent")
-            }
-          >
-            {confirming ? "Delete permanently?" : "Delete workflow"}
-          </button>
-          {confirming && (
-            <button
-              role="menuitem"
-              onClick={() => setConfirming(false)}
-              style={{
-                display: "block",
-                width: "100%",
-                textAlign: "left",
-                padding: "8px 10px",
-                border: "none",
-                borderRadius: 5,
-                background: "transparent",
-                color: "var(--fg-muted)",
-                fontSize: 12.5,
-                fontFamily: "var(--font-sans)",
-                cursor: "pointer",
+          {view === "menu" && (
+            <>
+              <button
+                role="menuitem"
+                disabled={!deployed}
+                title={deployed ? undefined : "Deploy this workflow first"}
+                onClick={() => {
+                  if (!deployed) return;
+                  setView("schedule");
+                  fetchSchedule();
+                }}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "8px 10px",
+                  border: "none",
+                  borderRadius: 5,
+                  background: "transparent",
+                  color: deployed ? "var(--fg)" : "var(--fg-dim)",
+                  fontSize: 12.5,
+                  fontWeight: 500,
+                  fontFamily: "var(--font-sans)",
+                  cursor: deployed ? "pointer" : "not-allowed",
+                }}
+                onMouseEnter={(e) => {
+                  if (deployed)
+                    e.currentTarget.style.background = "var(--bg-elev-3)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                }}
+              >
+                {scheduleCron ? "Edit schedule" : "Schedule"}
+              </button>
+              <div
+                style={{
+                  height: 1,
+                  background: "var(--border)",
+                  margin: "4px 0",
+                }}
+              />
+              <button
+                role="menuitem"
+                onClick={() => {
+                  if (!confirming) {
+                    setConfirming(true);
+                    return;
+                  }
+                  close();
+                  onDelete();
+                }}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "8px 10px",
+                  border: "none",
+                  borderRadius: 5,
+                  background: confirming
+                    ? "var(--danger-soft, transparent)"
+                    : "transparent",
+                  color: "var(--danger)",
+                  fontSize: 12.5,
+                  fontWeight: confirming ? 600 : 500,
+                  fontFamily: "var(--font-sans)",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = "var(--bg-elev-3)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = confirming
+                    ? "var(--danger-soft, transparent)"
+                    : "transparent")
+                }
+              >
+                {confirming ? "Delete permanently?" : "Delete workflow"}
+              </button>
+              {confirming && (
+                <button
+                  role="menuitem"
+                  onClick={() => setConfirming(false)}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    textAlign: "left",
+                    padding: "8px 10px",
+                    border: "none",
+                    borderRadius: 5,
+                    background: "transparent",
+                    color: "var(--fg-muted)",
+                    fontSize: 12.5,
+                    fontFamily: "var(--font-sans)",
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+            </>
+          )}
+          {view === "schedule" && scheduleLoading && (
+            <div style={{ padding: 10, width: 220 }}>
+              <button
+                onClick={() => setView("menu")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--fg-muted)",
+                  cursor: "pointer",
+                  fontSize: 11,
+                  padding: 0,
+                  marginBottom: 8,
+                }}
+              >
+                ← back
+              </button>
+              <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+                Loading…
+              </div>
+            </div>
+          )}
+          {view === "schedule" && !scheduleLoading && scheduleFetchError && (
+            // The row's own scheduleCron/scheduleNextRunAt props come from
+            // workflowsApi.list(), which the backend never populates --
+            // falling back to them on a fetch error would always show "no
+            // schedule" for a workflow that actually has one, and Save
+            // would then silently overwrite the real schedule with the
+            // popover's defaults. Surface the error and let the user retry
+            // instead of rendering a form seeded with data we know is wrong.
+            <div style={{ padding: 10, width: 220 }}>
+              <button
+                onClick={() => setView("menu")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--fg-muted)",
+                  cursor: "pointer",
+                  fontSize: 11,
+                  padding: 0,
+                  marginBottom: 8,
+                }}
+              >
+                ← back
+              </button>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "var(--danger)",
+                  marginBottom: 8,
+                }}
+              >
+                Couldn&apos;t load the schedule: {scheduleFetchError}
+              </div>
+              <button
+                onClick={fetchSchedule}
+                style={{
+                  ...ghostBtnSm,
+                  width: "100%",
+                  justifyContent: "center",
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {view === "schedule" && !scheduleLoading && !scheduleFetchError && (
+            <SchedulePopover
+              scheduleCron={freshSchedule?.cron}
+              scheduleNextRunAt={freshSchedule?.nextRunAt}
+              onBack={() => setView("menu")}
+              onSave={async (cron) => {
+                await onSetSchedule(cron);
+                close();
               }}
-            >
-              Cancel
-            </button>
+              onRemove={async () => {
+                await onClearSchedule();
+                close();
+              }}
+            />
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// SchedulePopover renders inside RowMenu's existing anchored floating
+// panel (view === "schedule") rather than opening a second popover, so
+// there's one open/close/outside-click state machine, not two.
+function SchedulePopover({
+  scheduleCron,
+  scheduleNextRunAt,
+  onBack,
+  onSave,
+  onRemove,
+}: {
+  scheduleCron?: string;
+  scheduleNextRunAt?: string;
+  onBack: () => void;
+  onSave: (cron: string) => Promise<void>;
+  onRemove: () => Promise<void>;
+}) {
+  const initial = useMemo<CadenceValue>(
+    () =>
+      (scheduleCron ? cronToCadence(scheduleCron) : null) ?? {
+        cadence: "daily",
+        time: "09:00",
+        dayOfWeek: 1,
+        dayOfMonth: 1,
+      },
+    [scheduleCron],
+  );
+  const [cadence, setCadence] = useState<Cadence>(initial.cadence);
+  const [time, setTime] = useState(initial.time);
+  const [dayOfWeek, setDayOfWeek] = useState(initial.dayOfWeek ?? 1);
+  const [dayOfMonth, setDayOfMonth] = useState(initial.dayOfMonth ?? 1);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Click-to-arm, click-again-to-confirm -- same pattern as RowMenu's
+  // delete-workflow button, since Remove here is just as irreversible
+  // (deletes the live cron schedule) and shouldn't fire on a single
+  // misclick the way it did before.
+  const [removeConfirming, setRemoveConfirming] = useState(false);
+
+  const DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const selectStyle: React.CSSProperties = {
+    width: "100%",
+    padding: "5px 6px",
+    marginBottom: 8,
+    fontSize: 12,
+    fontFamily: "var(--font-mono)",
+    background: "var(--bg-elev-1)",
+    border: "1px solid var(--border)",
+    borderRadius: 4,
+    color: "var(--fg)",
+  };
+  const labelStyle: React.CSSProperties = {
+    display: "block",
+    fontSize: 10,
+    color: "var(--fg-dim)",
+    marginBottom: 3,
+  };
+
+  return (
+    <div style={{ padding: 10, width: 220 }}>
+      <button
+        onClick={onBack}
+        style={{
+          background: "none",
+          border: "none",
+          color: "var(--fg-muted)",
+          cursor: "pointer",
+          fontSize: 11,
+          padding: 0,
+          marginBottom: 8,
+        }}
+      >
+        ← back
+      </button>
+      <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+        {(["daily", "weekly", "monthly"] as Cadence[]).map((c) => (
+          <button
+            key={c}
+            onClick={() => setCadence(c)}
+            style={{
+              flex: 1,
+              padding: "5px 0",
+              fontSize: 11,
+              fontFamily: "var(--font-sans)",
+              borderRadius: 4,
+              border: "1px solid var(--border)",
+              background: cadence === c ? "var(--accent-soft)" : "transparent",
+              color: cadence === c ? "var(--accent)" : "var(--fg-muted)",
+              cursor: "pointer",
+              textTransform: "capitalize",
+            }}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+      <label style={labelStyle}>Time (your timezone)</label>
+      <input
+        type="time"
+        value={time}
+        onChange={(e) => setTime(e.target.value)}
+        style={{
+          width: "100%",
+          padding: "5px 6px",
+          marginBottom: 8,
+          fontSize: 12,
+          fontFamily: "var(--font-mono)",
+          background: "var(--bg-elev-1)",
+          border: "1px solid var(--border)",
+          borderRadius: 4,
+          color: "var(--fg)",
+        }}
+      />
+      <div style={{ fontSize: 9.5, color: "var(--fg-dim)", marginBottom: 8 }}>
+        Stored in UTC — may shift by an hour across daylight saving.
+      </div>
+      {cadence === "weekly" && (
+        <>
+          <label style={labelStyle}>Day of week</label>
+          <select
+            value={dayOfWeek}
+            onChange={(e) => setDayOfWeek(Number(e.target.value))}
+            style={selectStyle}
+          >
+            {DOW_LABELS.map((label, i) => (
+              <option key={i} value={i}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+      {cadence === "monthly" && (
+        <>
+          <label style={labelStyle}>Day of month</label>
+          <select
+            value={dayOfMonth}
+            onChange={(e) => setDayOfMonth(Number(e.target.value))}
+            style={selectStyle}
+          >
+            {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+      {scheduleNextRunAt && (
+        <div style={{ fontSize: 10, color: "var(--fg-dim)", marginBottom: 8 }}>
+          Next run: {new Date(scheduleNextRunAt).toLocaleString()}
+        </div>
+      )}
+      {error && (
+        <div
+          style={{ fontSize: 10.5, color: "var(--danger)", marginBottom: 8 }}
+        >
+          {error}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 6 }}>
+        <button
+          disabled={saving}
+          onClick={async () => {
+            setSaving(true);
+            setError(null);
+            try {
+              await onSave(
+                cadenceToCron({ cadence, time, dayOfWeek, dayOfMonth }),
+              );
+            } catch (e) {
+              setError(
+                e instanceof Error ? e.message : "could not save schedule",
+              );
+              setSaving(false);
+            }
+          }}
+          style={{
+            flex: 1,
+            padding: "6px 0",
+            fontSize: 11.5,
+            fontWeight: 600,
+            borderRadius: 4,
+            border: "none",
+            background: "var(--accent)",
+            color: "var(--bg)",
+            cursor: saving ? "default" : "pointer",
+            opacity: saving ? 0.6 : 1,
+          }}
+        >
+          Save
+        </button>
+        {scheduleCron && (
+          <button
+            disabled={saving}
+            onClick={async () => {
+              if (!removeConfirming) {
+                setRemoveConfirming(true);
+                return;
+              }
+              setSaving(true);
+              setError(null);
+              try {
+                await onRemove();
+              } catch (e) {
+                setError(
+                  e instanceof Error ? e.message : "could not remove schedule",
+                );
+                setSaving(false);
+                setRemoveConfirming(false);
+              }
+            }}
+            onBlur={() => setRemoveConfirming(false)}
+            style={{
+              padding: "6px 10px",
+              fontSize: 11.5,
+              borderRadius: 4,
+              border: "1px solid var(--border-strong)",
+              background: removeConfirming
+                ? "var(--danger-soft, transparent)"
+                : "transparent",
+              color: "var(--danger)",
+              fontWeight: removeConfirming ? 600 : 500,
+              cursor: saving ? "default" : "pointer",
+            }}
+          >
+            {removeConfirming ? "Remove permanently?" : "Remove"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -693,11 +1230,16 @@ function WorkflowRows({
   items,
   onOpen,
   onDelete,
+  onSetSchedule,
+  onClearSchedule,
 }: {
   items: Workflow[];
   onOpen: (id: string) => void;
   onDelete: (id: string) => void;
+  onSetSchedule: (id: string, cron: string) => Promise<void>;
+  onClearSchedule: (id: string) => Promise<void>;
 }) {
+  const readOnly = useReadOnly();
   return (
     <Card style={{ padding: 0, overflowX: "auto" }}>
       <div
@@ -815,8 +1357,7 @@ function WorkflowRows({
               color: "var(--accent)",
             }}
           >
-            {wf.spend ?? "-"}
-            {wf.spend && <span style={{ color: "var(--fg-dim)" }}> ALGO</span>}
+            {wf.spend ? `$${wf.spend}` : "-"}
           </span>
           <span
             data-label="Updated"
@@ -838,7 +1379,16 @@ function WorkflowRows({
             >
               Open
             </button>
-            <RowMenu onDelete={() => onDelete(wf.id)} />
+            {can("workflow.delete", readOnly) && (
+              <RowMenu
+                workflowId={wf.id}
+                onDelete={() => onDelete(wf.id)}
+                deployed={wf.status === "deployed"}
+                scheduleCron={wf.scheduleCron}
+                onSetSchedule={(cron) => onSetSchedule(wf.id, cron)}
+                onClearSchedule={() => onClearSchedule(wf.id)}
+              />
+            )}
           </div>
         </div>
       ))}
@@ -984,39 +1534,3 @@ function fmtDate(iso?: string): string {
 }
 
 // Shared styles
-// nowrap + no-shrink: fixed height, so a wrapped label spills out of the box.
-// See the note on ghostBtnSm in components/ui.
-const ghostBtn: React.CSSProperties = {
-  height: 36,
-  padding: "0 14px",
-  fontSize: 13,
-  fontWeight: 500,
-  background: "var(--bg-elev-2)",
-  border: "1px solid var(--border-strong)",
-  borderRadius: "var(--r-2)",
-  color: "var(--fg)",
-  cursor: "pointer",
-  fontFamily: "var(--font-sans)",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  whiteSpace: "nowrap",
-  flexShrink: 0,
-};
-const primaryBtn: React.CSSProperties = {
-  height: 36,
-  padding: "0 14px",
-  fontSize: 13,
-  fontWeight: 600,
-  background: "var(--accent)",
-  border: "1px solid var(--accent)",
-  borderRadius: "var(--r-2)",
-  color: "var(--accent-fg)",
-  cursor: "pointer",
-  fontFamily: "var(--font-sans)",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  whiteSpace: "nowrap",
-  flexShrink: 0,
-};
