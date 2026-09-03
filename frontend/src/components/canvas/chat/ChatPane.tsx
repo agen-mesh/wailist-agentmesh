@@ -200,8 +200,16 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
           }}
           ref={inputRef}
           rows={3}
-          placeholder={busy ? "Running…" : "Ask something…"}
-          disabled={busy}
+          placeholder={busy ? "Running…" : stt.listening ? "Listening…" : "Ask something…"}
+          // Disabled while listening, not just while busy: onText's merge
+          // (`dictationBaseRef.current + new interim text`) overwrites `draft`
+          // wholesale on every speech chunk, so a manual edit typed mid-session
+          // would get silently clobbered by the next interim result with no
+          // sign anything was lost. Locking the box for the session's duration
+          // is simpler and safer than trying to reconcile the two input
+          // sources; toggleDictation re-captures `draft` as the new base the
+          // next time dictation starts, so nothing already typed is lost.
+          disabled={busy || stt.listening}
           style={{
             flex: 1,
             // Without this the textarea's intrinsic column width becomes a

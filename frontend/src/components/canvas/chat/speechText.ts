@@ -1,10 +1,13 @@
 // Turns an assistant reply's raw text into something worth reading aloud.
 //
-// #107 (markdown/code/LaTeX rendering) isn't implemented — ChatMessage renders
-// message.text as plain text — so there's no AST to strip. This is a
-// regex-based best-effort cleanup instead: strip syntax that would otherwise
-// be read character-by-character ("asterisk asterisk bold asterisk asterisk"),
-// and drop code/math to a short spoken placeholder rather than reading either
+// ChatMessage renders message.text through MarkdownContent's react-markdown
+// AST (#107), but that AST is a rendering pipeline, not a text one -- there's
+// no ready-made "flatten this to spoken words" walk over hast/mdast nodes to
+// reuse, and building one would still need its own rules for what a heading,
+// a fence, or a LaTeX span sounds like. Simpler to work from the same raw
+// markdown string via regex: strip syntax that would otherwise be read
+// character-by-character ("asterisk asterisk bold asterisk asterisk"), and
+// drop code/math to a short spoken placeholder rather than reading either
 // verbatim.
 
 const FENCED_CODE = /```[\s\S]*?```/g;
