@@ -414,7 +414,11 @@ func (s *Store) ListWorkflows(ctx context.Context, userID string) ([]models.Work
 		return nil, err
 	}
 	if err := s.attachWorkflowStats(ctx, userID, wfs); err != nil {
-		return nil, err
+		// The Runs/Spend columns are decoration over `runs` and
+		// `debit_ledger`. A problem aggregating them must not turn "show me
+		// my workflows" into a 500 -- log it and return the list with those
+		// fields left at their zero values.
+		log.Printf("db: list workflows for user %s: stats aggregation failed: %v", userID, err)
 	}
 	return wfs, nil
 }
