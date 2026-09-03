@@ -25,12 +25,17 @@ const HR = /^ {0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/gm;
 // Underscore emphasis follows CommonMark's intraword rule: `_` doesn't open
 // or close emphasis in the middle of a word, so `user_id` and
 // `snake_case_name` — common in an agent's replies — pass through untouched.
-// Asterisk emphasis has no such rule, so it needs no boundary guard.
-const BOLD_ITALIC_STAR = /\*\*\*(.+?)\*\*\*/g;
+//
+// Asterisk emphasis instead follows CommonMark's whitespace-flanking rule: a
+// `*` cannot open a span when followed by whitespace, nor close one when
+// preceded by it. The `(?!\s)` / `(?<!\s)` guards enforce that, so spaced-out
+// multiplication like "5 * 3 and 2 * 4" is left alone rather than collapsed to
+// "5  3 and 2  4".
+const BOLD_ITALIC_STAR = /\*\*\*(?!\s)(.+?)(?<!\s)\*\*\*/g;
 const BOLD_ITALIC_USCORE = /(?<!\w)___(.+?)___(?!\w)/g;
-const BOLD_STAR = /\*\*(.+?)\*\*/g;
+const BOLD_STAR = /\*\*(?!\s)(.+?)(?<!\s)\*\*/g;
 const BOLD_USCORE = /(?<!\w)__(.+?)__(?!\w)/g;
-const ITALIC_STAR = /\*(.+?)\*/g;
+const ITALIC_STAR = /\*(?!\s)([^*\n]+?)(?<!\s)\*/g;
 const ITALIC_USCORE = /(?<!\w)_(.+?)_(?!\w)/g;
 const STRIKETHROUGH = /~~(.+?)~~/g;
 

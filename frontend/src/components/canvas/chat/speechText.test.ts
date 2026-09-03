@@ -43,6 +43,16 @@ describe("toSpeechText", () => {
     );
   });
 
+  it("leaves spaced-out asterisks alone (multiplication, not emphasis)", () => {
+    expect(toSpeechText("So 5 * 3 and 2 * 4 = 8, roughly.")).toBe(
+      "So 5 * 3 and 2 * 4 = 8, roughly.",
+    );
+    // A real emphasis span next to arithmetic still unwraps.
+    expect(toSpeechText("Result is *exactly* 5 * 3.")).toBe(
+      "Result is exactly 5 * 3.",
+    );
+  });
+
   it("unwraps a markdown link to its label", () => {
     expect(toSpeechText("See [the docs](https://example.com) for more.")).toBe(
       "See the docs for more.",
