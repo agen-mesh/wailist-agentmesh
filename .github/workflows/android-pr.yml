@@ -1,0 +1,89 @@
+name: Android PR
+
+# The signed pipeline in android.yml runs only on a release tag or a manual
+# dispatch, so nothing ever compiles the Android manifest or the native plugin
+# on a pull request. That gap is not theoretical: an XML comment containing
+# `--` reached this repo, the manifest merger rejected it outright, and no APK
+# could be built at all -- while every PR check stayed green.
+#
+# This job closes that gap. Debug only: no signing, no secrets, so it works
+# unchanged on pull requests from forks.
+on:
+  pull_request:
+    paths:
+      # frontend/src/native is the WebView TypeScript -- it lives under the
+      # Next project because Turbopack will not compile source outside it, but
+      # it is shipped by this app and nothing else.
+      - "mobile/**"
+      - "frontend/src/native/**"
+      # A Capacitor plugin can be added or bumped without touching a line
+      # under frontend/src/native, and it still changes what the APK
+      # bundles -- so the frontend manifest and both lockfiles trigger this
+      # too. mobile/package.json and its lockfile are already covered by
+      # mobile/**.
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "frontend/pnpm-lock.yaml"
+      - ".github/workflows/android-pr.yml"
+
+concurrency:
+  group: android-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  debug:
+    name: android / debug build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22, not 20: Capacitor 8's CLI hard-fails on anything older
+          # ("The Capacitor CLI requires NodeJS >=22.0.0"), and it fails
+          # after the web bundle is built, so the job burns two minutes
+          # before saying so.
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            mobile/package-lock.json
+
+      # 21, not 17: Capacitor 7's capacitor-android module sets its source
+      # release to 21, and javac rejects it outright on an older JDK
+      # ("invalid source release: 21"). A local build can pass on a newer JDK
+      # and hide this -- CI is the thing that pins it.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install shell dependencies
+        working-directory: mobile
+        run: npm ci
+
+      # The full sync, not a stub: www/ is gitignored, `cap sync` needs it to
+      # exist, and a break in the export or the copy step is itself a reason no
+      # APK can be produced. Building it here is what makes this job mean
+      # "the app can be built".
+      #
+      # The API URL is baked in at build time and there is no secret to read on
+      # a fork PR, so it is a placeholder. Nothing installs this APK -- and no
+      # trailing slash, because lib/api.ts composes `${BASE}/workflows`.
+      - name: Build the web bundle and sync
+        working-directory: mobile
+        env:
+          NEXT_PUBLIC_API_URL: https://ci.invalid
+        run: npm run sync
+
+      # assembleDebug rather than a lint or a compile task: the manifest merge
+      # and the packaging step are exactly where the failure this job exists
+      # for shows up.
+      - name: assembleDebug
+        working-directory: mobile/android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
