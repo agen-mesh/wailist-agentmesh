@@ -202,17 +202,78 @@ describe("resetCredits", () => {
   it("drops balance, history and the known flags", async () => {
     purchasesMock.mockResolvedValue([ledgerRow()]);
     balanceMock.mockResolvedValue(42);
-    const { refreshPurchases, refreshBalance, resetCredits, readCredits } =
-      await freshStore();
+    const {
+      refreshPurchases,
+      refreshBalance,
+      resetCredits,
+      readCredits,
+      readCreditsFlags,
+    } = await freshStore();
     await refreshPurchases();
     await refreshBalance();
     expect(readCredits().purchases).toHaveLength(1);
     expect(readCredits().balanceUSD).toBe(42);
+    expect(readCreditsFlags()).toEqual({
+      balanceKnown: true,
+      purchasesKnown: true,
+      purchasesFailed: false,
+    });
 
     resetCredits();
 
     expect(readCredits().purchases).toEqual([]);
     expect(readCredits().balanceUSD).toBe(0);
+    // The flags matter as much as the data: leaving purchasesKnown true makes
+    // the next account's empty store render as "this account has no
+    // purchases" rather than as still loading.
+    expect(readCreditsFlags()).toEqual({
+      balanceKnown: false,
+      purchasesKnown: false,
+      purchasesFailed: false,
+    });
+  });
+
+  // resetCredits alone does not stop a request already in flight. Without an
+  // epoch guard the in-flight response lands afterwards and writes the signed
+  // -out account's rows straight back, with purchasesKnown set.
+  it("discards a refresh that was already in flight when it ran", async () => {
+    let release!: (rows: unknown[]) => void;
+    purchasesMock.mockReturnValueOnce(
+      new Promise((res) => {
+        release = res as (rows: unknown[]) => void;
+      }),
+    );
+
+    const { refreshPurchases, resetCredits, readCredits, readCreditsFlags } =
+      await freshStore();
+
+    const inFlight = refreshPurchases();
+    resetCredits(); // user signs out mid-request
+    release([ledgerRow()]); // account A's rows arrive too late
+    await inFlight;
+
+    expect(readCredits().purchases).toEqual([]);
+    expect(readCreditsFlags().purchasesKnown).toBe(false);
+  });
+
+  it("discards an in-flight balance the same way", async () => {
+    let release!: (v: number) => void;
+    balanceMock.mockReturnValueOnce(
+      new Promise((res) => {
+        release = res as (v: number) => void;
+      }),
+    );
+
+    const { refreshBalance, resetCredits, readCredits, readCreditsFlags } =
+      await freshStore();
+
+    const inFlight = refreshBalance();
+    resetCredits();
+    release(99);
+    await inFlight;
+
+    expect(readCredits().balanceUSD).toBe(0);
+    expect(readCreditsFlags().balanceKnown).toBe(false);
   });
 });
 
@@ -225,12 +286,21 @@ describe("refreshPurchases failure handling", () => {
     const store = await freshStore();
     await store.refreshPurchases();
 
-    // Nothing loaded, but the store can now say why.
     expect(store.readCredits().purchases).toEqual([]);
+    // The assertion that carries the behaviour: without purchasesFailed, a
+    // panel gated on purchasesKnown renders nothing at all and a backend blip
+    // is indistinguishable from an account that never paid.
+    expect(store.readCreditsFlags()).toEqual({
+      balanceKnown: false,
+      purchasesKnown: false,
+      purchasesFailed: true,
+    });
 
-    // And a later success clears the flag.
+    // And a later success clears it.
     purchasesMock.mockResolvedValueOnce([ledgerRow()]);
     await store.refreshPurchases();
     expect(store.readCredits().purchases).toHaveLength(1);
+    expect(store.readCreditsFlags().purchasesFailed).toBe(false);
+    expect(store.readCreditsFlags().purchasesKnown).toBe(true);
   });
 });

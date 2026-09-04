@@ -43,6 +43,10 @@ export function PurchaseHistory({
 }) {
   const { purchases, purchasesKnown, purchasesFailed, refreshPurchases } =
     useCredits();
+  // A repeat failure leaves purchasesFailed already true, so the store's state
+  // does not change and the UI would be pixel-identical to before the click.
+  // Tracking the attempt locally is what makes the retry observable.
+  const [retrying, setRetrying] = useState(false);
   const [receipt, setReceipt] = useState<Purchase | null>(null);
 
   useEffect(() => {
@@ -75,18 +79,27 @@ export function PurchaseHistory({
             Could not load your billing history.{" "}
             <button
               type="button"
-              onClick={() => void refreshPurchases()}
+              disabled={retrying}
+              onClick={() => {
+                setRetrying(true);
+                void refreshPurchases().finally(() => setRetrying(false));
+              }}
               style={{
                 ...rowBtn,
-                height: "auto",
+                // minHeight, not height: rowBtn inherits minHeight from
+                // ghostBtnSm, so overriding `height` does nothing and the
+                // link renders as a 28px box stretching this line.
+                minHeight: 0,
                 padding: 0,
                 border: "none",
                 background: "none",
                 color: "var(--accent)",
                 textDecoration: "underline",
+                cursor: retrying ? "default" : "pointer",
+                opacity: retrying ? 0.6 : 1,
               }}
             >
-              Retry
+              {retrying ? "Retrying…" : "Retry"}
             </button>
           </p>
         ) : purchases.length === 0 ? (

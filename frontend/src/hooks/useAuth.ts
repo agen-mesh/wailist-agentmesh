@@ -75,8 +75,7 @@ export function useAuth() {
     [],
   );
 
-  const signOut = useCallback(async () => {
-    await auth.signOut();
+  const clearLocalSession = useCallback(() => {
     if (IS_NATIVE) {
       setAuthToken(null);
       // Logged for the mirror-image reason: a shared device that fails to
@@ -90,11 +89,28 @@ export function useAuth() {
     // Balance and purchase history are module singletons that survive a
     // client-side route change, so they have to be dropped explicitly here --
     // otherwise the next account to sign in in this tab sees the previous
-    // one's money until its own fetch lands.
+    // one's money until its own fetch lands. resetCredits also bumps the
+    // store's epoch, which discards any refresh still in flight.
     resetCredits();
     setSignedIn(false);
     setUser(null);
   }, []);
+
+  const signOut = useCallback(async () => {
+    // The local teardown below runs in a finally: auth.signOut() is a network
+    // call, and letting a failed request skip the cleanup would leave the
+    // previous account's balance, purchase history and (on native) persisted
+    // token live in a UI that has already moved on. Signing out locally is
+    // the part that must not be optional -- the server-side cookie clear is
+    // best-effort by comparison.
+    try {
+      await auth.signOut();
+    } catch (err) {
+      console.error("sign-out request failed; clearing local session anyway", err);
+    } finally {
+      clearLocalSession();
+    }
+  }, [clearLocalSession]);
 
   // Completes the post-OAuth onboarding prompt (or a later profile edit) —
   // updates the backend then reflects it locally so callers don't need a

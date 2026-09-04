@@ -156,11 +156,29 @@ let purchasesKnown = false;
 // needs it to offer a retry rather than silently showing an empty page.
 let purchasesFailed = false;
 
+// epoch identifies the account session a fetch was started under. Every
+// refresh captures it and drops its result if it no longer matches.
+//
+// Without it, resetCredits() on sign-out does not stop a request already in
+// flight: /billing fires refreshBalance and refreshPurchases on mount, and a
+// sign-out a moment later leaves those responses to land afterwards and write
+// the PREVIOUS account's balance and rows straight back — setting
+// purchasesKnown along the way, so they render as settled fact. That is the
+// leak resetCredits exists to close, just moved later in the timeline.
+//
+// It also settles a quieter race: two overlapping refreshes of the same field
+// where the slower, older response would otherwise win.
+let epoch = 0;
+
 // refreshPurchases re-reads top-up history. Call it on mount and after
 // anything that creates or settles a payment.
 export async function refreshPurchases(): Promise<void> {
+  const started = epoch;
   try {
     const rows = await creditsApi.purchases();
+    // Someone signed out (or reset the store) while this was in flight; these
+    // rows belong to an account that is no longer signed in.
+    if (started !== epoch) return;
     purchasesFailed = false;
     purchasesKnown = true;
     commit((prev) => ({ ...prev, purchases: rows.map(toPurchase) }));
@@ -172,6 +190,7 @@ export async function refreshPurchases(): Promise<void> {
     // purchasesKnown false forever, and a panel that waits on it renders
     // nothing at all -- no heading, no error, no retry -- so a backend blip
     // looks identical to an account that has never paid.
+    if (started !== epoch) return;
     purchasesFailed = true;
     listeners.forEach((l) => l());
   }
@@ -185,8 +204,12 @@ let balanceKnown = false;
 // refreshBalance re-reads the authoritative balance. Call it on mount and
 // after anything that moves money (a completed run, a verified top-up).
 export async function refreshBalance(): Promise<void> {
+  const started = epoch;
   try {
     const balanceUSD = await creditsApi.balance();
+    // See refreshPurchases: a balance that arrives after a sign-out belongs to
+    // the account that just left.
+    if (started !== epoch) return;
     balanceKnown = true;
     commit((prev) => ({ ...prev, balanceUSD }));
   } catch {
@@ -204,10 +227,25 @@ export async function refreshBalance(): Promise<void> {
 // fetch resolves. That is the same cross-account leak this module removed from
 // localStorage, moved into memory and shortened to one round-trip.
 export function resetCredits(): void {
+  // Bump first: anything already in flight is now stale and must not write
+  // its result back after this returns.
+  epoch++;
   balanceKnown = false;
   purchasesKnown = false;
   purchasesFailed = false;
   commit(() => DEFAULT_STATE);
+}
+
+// readCreditsFlags exposes the load/failure flags outside a React render.
+// readCredits deliberately returns only CreditsState, so without this the
+// flags are invisible to any non-component caller — including tests, which
+// otherwise cannot tell a real reset from one that forgot to clear them.
+export function readCreditsFlags(): {
+  balanceKnown: boolean;
+  purchasesKnown: boolean;
+  purchasesFailed: boolean;
+} {
+  return { balanceKnown, purchasesKnown, purchasesFailed };
 }
 
 // recordPurchase is called after a payment the client believes succeeded. It

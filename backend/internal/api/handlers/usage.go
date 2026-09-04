@@ -306,7 +306,7 @@ func (d *Deps) UsageByEndpoint(w http.ResponseWriter, r *http.Request) {
 // It bounds the rows returned, NOT the work done to find them: ListSettlements
 // must de-duplicate a run-funded run's repeated tx id before any limit can
 // apply, so it reads and sorts every settlement receipt the user owns whatever
-// this is set to. Migration 000032 indexes that path; keeping the read itself
+// this is set to. Migration 000032 indexes the join; keeping the read itself
 // proportional to the page size would need a different query shape (a windowed
 // scan over a bounded time range).
 const maxSettlementsLimit = 200
