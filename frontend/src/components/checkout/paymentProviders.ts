@@ -1,8 +1,15 @@
 import type { PaymentMethod } from "./types";
 
-// Single source of truth for the checkout's payment providers and their live
-// state. Cashfree is selectable today; NOWPayments, PayPal + Stripe render as
-// disabled "coming soon" rows. Order here is the display order.
+// Display metadata for the checkout's payment providers. Order here is the
+// display order.
+//
+// `enabled` here is only the fallback used before the server answers (and if
+// it never does). Real availability is deployment state -- NOWPayments needs a
+// live FX rate to be priced at all -- so it comes from
+// GET /payments/providers via usePaymentProviders.
+//
+// Stripe and PayPal are not implemented on the backend, so they are not
+// reported by that endpoint and stay permanently "Coming soon" here.
 export interface PaymentProvider {
   id: PaymentMethod;
   label: string;
@@ -20,8 +27,8 @@ export const PAYMENT_PROVIDERS: PaymentProvider[] = [
   {
     id: "nowpayments",
     label: "NOWPayments",
-    sublabel: "Coming soon",
-    enabled: false,
+    sublabel: "Crypto · USD",
+    enabled: true,
   },
   {
     id: "paypal",
@@ -40,3 +47,9 @@ export const PAYMENT_PROVIDERS: PaymentProvider[] = [
 // The default selected provider -- the first enabled one.
 export const DEFAULT_PROVIDER: PaymentMethod =
   PAYMENT_PROVIDERS.find((p) => p.enabled)?.id ?? "cashfree";
+
+// Providers that settle in USD. The top-up UI is denominated in rupees, so
+// these convert the chosen amount at the server's live rate before charging.
+export const USD_PROVIDERS: ReadonlySet<PaymentMethod> = new Set<PaymentMethod>(
+  ["nowpayments"],
+);

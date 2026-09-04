@@ -417,3 +417,36 @@ func (d *Deps) NOWPaymentsWebhook(w http.ResponseWriter, r *http.Request) {
 		respond.JSON(w, http.StatusOK, map[string]string{"status": "ignored"})
 	}
 }
+
+// PaymentProviders reports which checkout providers this deployment can
+// actually take money through, and the rate needed to price the USD ones.
+//
+// The frontend used to hardcode availability, which meant a deployment whose
+// FX lookup was failing still offered a crypto top-up that could only fail at
+// invoice creation. Cashfree charges in INR and needs no rate; NOWPayments
+// quotes in USD, so it is only offerable when a rate is available.
+func (d *Deps) PaymentProviders(w http.ResponseWriter, r *http.Request) {
+	// The top-up UI is denominated in rupees while NOWPayments settles in USD,
+	// so the frontend has to convert. Serving the same rate the Cashfree path
+	// pins into its ledger row keeps the two from disagreeing -- the
+	// frontend's own fx.ts constant is a mock (a fixed 1/83) and would quote a
+	// price that drifts from what is actually charged.
+	//
+	// Cached, because this is hit on every billing page mount and a live fetch
+	// per request put a third-party host on the critical path of a page load.
+	rate, stale, err := payments.CachedINRToUSDRate(r.Context())
+	if err != nil {
+		log.Printf("payment providers: fx rate: %v", err)
+	} else if stale {
+		log.Printf("payment providers: serving a stale fx rate (%v) — refresh is failing", rate)
+	}
+	usdPriceable := err == nil && rate > 0
+
+	respond.JSON(w, http.StatusOK, map[string]any{
+		"usd_per_inr": rate,
+		"providers": []map[string]any{
+			{"id": "cashfree", "enabled": true, "currency": "INR"},
+			{"id": "nowpayments", "enabled": usdPriceable, "currency": "USD"},
+		},
+	})
+}

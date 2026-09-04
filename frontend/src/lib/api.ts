@@ -13,6 +13,7 @@ import {
 import { WORKFLOWS, SAMPLE_WORKFLOW, buildUsage } from "./data";
 import { assertWritable } from "./readonly";
 import { IS_NATIVE, authHeaders } from "./nativeAuth";
+import type { PaymentMethod } from "@/components/checkout/types";
 
 // In the browser, always route through /api so the cookie stays same-site.
 // NEXT_PUBLIC_API_URL still controls mock vs real (empty = mock data).
@@ -757,6 +758,43 @@ export const payments = {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error ?? "payment verification failed");
+    return data;
+  },
+
+  // Which gateways this deployment can actually take money through, plus the
+  // live INR->USD rate. Both come from the server because both are deployment
+  // state: NOWPayments quotes in USD and can only be offered when a rate is
+  // available, and it has to be the same rate the backend uses rather than the
+  // mock constant in lib/credits/fx.ts.
+  listProviders: async (): Promise<{
+    usd_per_inr: number;
+    providers: { id: PaymentMethod; enabled: boolean; currency: string }[];
+  }> => {
+    if (!BASE) throw new Error("payments require a configured backend");
+    const res = await apiFetch(`${BASE}/payments/providers`, {
+      credentials: "include",
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok)
+      throw new Error(data.error ?? "could not load payment providers");
+    return data;
+  },
+
+  // Opens a NOWPayments hosted invoice. Crypto settles on-chain with no
+  // client-side completion step, so the IPN webhook is the ONLY path that
+  // credits a crypto top-up -- there is deliberately no verify call here.
+  createCryptoInvoice: async (
+    amountUSDCents: number,
+  ): Promise<{ order_id: string; invoice_url: string }> => {
+    if (!BASE) throw new Error("payments require a configured backend");
+    const res = await apiFetch(`${BASE}/payments/nowpayments/invoice`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount_usd_cents: amountUSDCents }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? "invoice creation failed");
     return data;
   },
 };

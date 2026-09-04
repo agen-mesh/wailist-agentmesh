@@ -56,6 +56,46 @@ export default function BillingPage() {
     void refreshBalance();
   }, [refreshBalance]);
 
+  // A crypto top-up sends the browser to NOWPayments and back. This closes out
+  // that round trip. Nothing is credited here -- the IPN webhook is the only
+  // path that grants credit -- so the message says the balance will follow
+  // rather than claiming success.
+  //
+  // Written as one asynchronous routine so the effect never sets state during
+  // its own render pass.
+  const [returnState, setReturnState] = useState<{
+    tone: "pending" | "error";
+    message: string;
+  } | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      const params = new URLSearchParams(window.location.search);
+      const outcome = params.get("crypto");
+      if (!outcome) return;
+
+      // Strip the param so a refresh doesn't re-run this.
+      const url = new URL(window.location.href);
+      url.searchParams.delete("crypto");
+      window.history.replaceState({}, "", url.toString());
+
+      if (outcome === "cancelled" || outcome === "canceled") {
+        setReturnState({ tone: "error", message: "Checkout was cancelled." });
+        return;
+      }
+      if (outcome !== "success") return;
+
+      setReturnState({
+        tone: "pending",
+        message:
+          "Payment submitted. Crypto settles on-chain, so your balance will update once it confirms.",
+      });
+      // The credit may already have landed while the payer was redirecting
+      // back, so it is worth one look rather than making them reload.
+      await refreshBalance();
+    })();
+  }, [refreshBalance]);
+
   const [couponCode, setCouponCode] = useState("");
   const [couponState, setCouponState] = useState<
     "idle" | "loading" | "success" | "error"
@@ -152,6 +192,34 @@ export default function BillingPage() {
               up anytime; testnet usage stays free.
             </p>
           </div>
+
+          {/* Outcome of a redirect checkout, above the fold: the payer has just
+              come back from another site and the first thing they need is
+              whether it worked. */}
+          {returnState && (
+            <div
+              role="status"
+              style={{
+                marginTop: 18,
+                padding: "12px 14px",
+                borderRadius: "var(--r-2)",
+                fontSize: 13,
+                lineHeight: 1.5,
+                border: `1px solid ${
+                  returnState.tone === "error"
+                    ? "var(--danger)"
+                    : "var(--border)"
+                }`,
+                background: "var(--bg-elev-1)",
+                color:
+                  returnState.tone === "error"
+                    ? "var(--danger)"
+                    : "var(--fg-muted)",
+              }}
+            >
+              {returnState.message}
+            </div>
+          )}
 
           <div className="bill-grid">
             {/* MAIN column */}

@@ -89,6 +89,7 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Post("/payments/cashfree/order", d.CreateCashfreeOrder)
 		r.Post("/payments/cashfree/verify", d.VerifyCashfreePayment)
 		r.Post("/payments/nowpayments/invoice", d.CreateCryptoInvoice)
+		r.Get("/payments/providers", d.PaymentProviders)
 		r.Get("/credits/balance", d.GetCreditBalance)
 		r.Post("/credits/redeem-coupon", d.RedeemCoupon)
 
