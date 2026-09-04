@@ -378,6 +378,54 @@ export const workflows = {
     };
   },
 
+  // PUT /workflows/:id/geofence
+  //
+  // No assertWritable, unlike every other write above, and that absence is the
+  // change: a geofence is chosen from the place it describes, so a viewer may
+  // set one. See the "workflow.geofence" capability in lib/readonly.ts for the
+  // reasoning, and readonly.test.ts for the tests that pin it.
+  //
+  // Distinct from native/api.ts's setGeofence, which the shipped Android app
+  // uses via shell.setGeofence: that one also arms Android's GeofencingClient,
+  // because the device doing the watching is the device that has to be told.
+  // This one only records the zone on the server -- correct for a browser,
+  // where nothing is watching, and honest about it in the screen's copy.
+  setGeofence: async (
+    id: string,
+    fence: { lat: number; lng: number; radiusM: number },
+  ): Promise<void> => {
+    if (BASE) {
+      const res = await apiFetch(`${BASE}/workflows/${id}/geofence`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fence),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "could not save the zone");
+      }
+      return;
+    }
+    await delay(200);
+  },
+
+  // DELETE /workflows/:id/geofence
+  clearGeofence: async (id: string): Promise<void> => {
+    if (BASE) {
+      const res = await apiFetch(`${BASE}/workflows/${id}/geofence`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "could not remove the zone");
+      }
+      return;
+    }
+    await delay(150);
+  },
+
   // DELETE /workflows/:id/schedule
   clearSchedule: async (id: string): Promise<void> => {
     assertWritable("DELETE", `/workflows/${id}/schedule`);

@@ -20,13 +20,23 @@ func TestBlocksWrite(t *testing.T) {
 		{"deploy", http.MethodPost, "/workflows/wf_123/deploy", true},
 		{"build", http.MethodPost, "/workflows/wf_123/build", true},
 
-		// Schedule and geofence configuration change what triggers a workflow,
-		// same category of authoring as the five above. Must mirror WRITE_RULES
-		// in frontend/src/lib/readonly.ts one for one.
+		// Schedule configuration changes what triggers a workflow, same
+		// category of authoring as the five above. Must mirror WRITE_RULES in
+		// frontend/src/lib/readonly.ts one for one.
 		{"set schedule", http.MethodPut, "/workflows/wf_123/schedule", true},
 		{"clear schedule", http.MethodDelete, "/workflows/wf_123/schedule", true},
-		{"set geofence", http.MethodPut, "/workflows/wf_123/geofence", true},
-		{"clear geofence", http.MethodDelete, "/workflows/wf_123/geofence", true},
+
+		// Geofence configuration is the deliberate exception, and these two
+		// cases exist to make removing it from the list a decision rather than
+		// an accident: a fence is chosen from the place it describes, so the
+		// phone is the right client for it and this list must not refuse one.
+		// The matching frontend capability is "workflow.geofence".
+		//
+		// If either of these ever flips back to true, lib/readonly.ts has to
+		// grow its WRITE_RULES entries back in the same commit -- the two
+		// lists disagreeing is what turns a button into a silent 403.
+		{"set geofence", http.MethodPut, "/workflows/wf_123/geofence", false},
+		{"clear geofence", http.MethodDelete, "/workflows/wf_123/geofence", false},
 		// GET, but find-or-creates a workflow row server-side (see the comment
 		// on readOnlyBlocked), so it belongs on this list despite the verb.
 		{"tendril console", http.MethodGet, "/tendril/console", true},

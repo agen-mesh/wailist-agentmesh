@@ -512,6 +512,7 @@ export function WorkflowsPage() {
             <WorkflowRows
               items={filtered}
               onOpen={(id) => router.push(`/workflows/${id}`)}
+              onGeofence={(id) => router.push(`/workflows/${id}/geofence`)}
               onDelete={handleDelete}
               onSetSchedule={handleSetSchedule}
               onClearSchedule={handleClearSchedule}
@@ -1229,12 +1230,14 @@ function SchedulePopover({
 function WorkflowRows({
   items,
   onOpen,
+  onGeofence,
   onDelete,
   onSetSchedule,
   onClearSchedule,
 }: {
   items: Workflow[];
   onOpen: (id: string) => void;
+  onGeofence: (id: string) => void;
   onDelete: (id: string) => void;
   onSetSchedule: (id: string, cron: string) => Promise<void>;
   onClearSchedule: (id: string) => Promise<void>;
@@ -1379,6 +1382,28 @@ function WorkflowRows({
             >
               Open
             </button>
+            {/* Its own button rather than an item in RowMenu below, because
+                that menu is gated on "workflow.delete" and so never appears on
+                a phone -- which is the one device this screen is for. Shown
+                only for a deployed workflow: SetGeofence answers 409 until
+                then, and an entry point that always fails is worse than none.
+                The capability, not the device, decides -- see lib/readonly.ts. */}
+            {can("workflow.geofence", readOnly) && wf.status === "deployed" && (
+              <button
+                style={ghostBtnSm}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onGeofence(wf.id);
+                }}
+                title={
+                  wf.geofenceRadiusM !== undefined
+                    ? "Location trigger is set"
+                    : "Set a location trigger"
+                }
+              >
+                {wf.geofenceRadiusM !== undefined ? "Zone ·" : "Zone"}
+              </button>
+            )}
             {can("workflow.delete", readOnly) && (
               <RowMenu
                 workflowId={wf.id}

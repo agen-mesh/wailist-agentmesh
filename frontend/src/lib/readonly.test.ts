@@ -20,6 +20,18 @@ describe("can", () => {
     expect(can("workflow.chat", VIEWER)).toBe(true);
   });
 
+  // The one authoring-shaped action a viewer keeps, and the reason the Android
+  // app has anything to trigger. Asserted next to the withholding test above
+  // so the two read as one decision rather than an inconsistency.
+  it("lets a viewer configure a geofence, and only a geofence", () => {
+    expect(can("workflow.geofence", VIEWER)).toBe(true);
+    // The neighbours it is most easily confused with stay shut. Setting a
+    // trigger is not editing the thing it triggers.
+    expect(can("workflow.editGraph", VIEWER)).toBe(false);
+    expect(can("workflow.deploy", VIEWER)).toBe(false);
+    expect(can("workflow.create", VIEWER)).toBe(false);
+  });
+
   it("leaves a viewer's account alone", () => {
     expect(can("account.billing", VIEWER)).toBe(true);
     expect(can("account.settings", VIEWER)).toBe(true);
@@ -33,6 +45,7 @@ describe("can", () => {
       "workflow.editGraph",
       "workflow.deploy",
       "workflow.buildFromChat",
+      "workflow.geofence",
       "workflow.run",
       "workflow.stop",
       "workflow.chat",
@@ -56,25 +69,49 @@ describe("isWriteBlocked", () => {
     );
   });
 
-  // Added alongside PUT/DELETE .../schedule, PUT/DELETE .../geofence, and
-  // GET /tendril/console -- these must mirror backend/internal/api/readonly.go
-  // one for one, same as every other rule in this list.
-  it("blocks schedule, geofence, and the tendril console for a viewer", () => {
+  // Added alongside PUT/DELETE .../schedule and GET /tendril/console -- these
+  // must mirror backend/internal/api/readonly.go one for one, same as every
+  // other rule in this list.
+  it("blocks schedule and the tendril console for a viewer", () => {
     expect(isWriteBlocked("PUT", "/workflows/wf_123/schedule", VIEWER)).toBe(
       true,
     );
     expect(
       isWriteBlocked("DELETE", "/workflows/wf_123/schedule", VIEWER),
     ).toBe(true);
-    expect(isWriteBlocked("PUT", "/workflows/wf_123/geofence", VIEWER)).toBe(
-      true,
-    );
-    expect(
-      isWriteBlocked("DELETE", "/workflows/wf_123/geofence", VIEWER),
-    ).toBe(true);
     // GET, not a write verb -- listed because the backend handler behind it
     // creates a workflow row on first call (get-or-create), so it is a write
     // in effect. See lib/tendril.ts's console().
+    expect(isWriteBlocked("GET", "/tendril/console", VIEWER)).toBe(true);
+  });
+
+  // The geofence exception, pinned from the guard's side.
+  //
+  // This is the half that actually ships the decision: the capability above
+  // permits it, and this is what stops the fetch guard from throwing before
+  // the request is built. Both halves have to hold, so both are tested --
+  // either one reverting alone leaves a control that looks available and is
+  // not.
+  it("lets a viewer configure a geofence", () => {
+    expect(isWriteBlocked("PUT", "/workflows/wf_123/geofence", VIEWER)).toBe(
+      false,
+    );
+    expect(
+      isWriteBlocked("DELETE", "/workflows/wf_123/geofence", VIEWER),
+    ).toBe(false);
+  });
+
+  // Guards the blast radius rather than the feature: the geofence rules were
+  // removed by deleting two entries from a list, and deleting one line too
+  // many there would quietly open workflow deletion to every phone in the
+  // world. The neighbours are asserted so that mistake fails a test instead
+  // of shipping.
+  it("still blocks the neighbouring rules the geofence entries sat between", () => {
+    expect(isWriteBlocked("PUT", "/workflows/wf_123", VIEWER)).toBe(true);
+    expect(isWriteBlocked("DELETE", "/workflows/wf_123", VIEWER)).toBe(true);
+    expect(isWriteBlocked("PUT", "/workflows/wf_123/schedule", VIEWER)).toBe(
+      true,
+    );
     expect(isWriteBlocked("GET", "/tendril/console", VIEWER)).toBe(true);
   });
 

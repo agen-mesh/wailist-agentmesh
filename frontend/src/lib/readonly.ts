@@ -17,6 +17,9 @@ export type Capability =
   | "workflow.editGraph"
   | "workflow.deploy"
   | "workflow.buildFromChat"
+  // Configuring a trigger from where you are. Not authoring, though it is
+  // shaped like it -- see WITHHELD below for why this one is permitted.
+  | "workflow.geofence"
   // Operating — available on any screen.
   | "workflow.run"
   | "workflow.stop"
@@ -37,6 +40,21 @@ const WITHHELD: ReadonlySet<Capability> = new Set<Capability>([
   // workflow is not, and stays open.
   "workflow.buildFromChat",
 ]);
+
+// "workflow.geofence" is deliberately ABSENT from that set, and it is the one
+// authoring-shaped thing a viewer may do.
+//
+// The rest of the list withholds actions that need a keyboard, a pointer and
+// room -- none of which a phone has. Choosing where a fence sits needs none of
+// them; it needs you to be standing in the place. A geofence set from a desk,
+// from a map you are not looking at, is the version that is hard to get right.
+// So the device that is worst at authoring is the one best placed to do this,
+// and withholding it would mean the trigger could only ever be configured
+// somewhere its author cannot see what they are configuring.
+//
+// It is also the whole point of the Android app (#112): a viewer that cannot
+// set a fence has nothing to trigger. Nothing else moves -- a viewer still
+// cannot create, delete, deploy or edit a graph.
 
 // Pure on purpose: `readOnly` is passed in rather than measured here, so the
 // policy can be tested without a DOM and so React components drive it from
@@ -60,8 +78,10 @@ const WRITE_RULES: ReadonlyArray<{ method: string; pattern: RegExp }> = [
   { method: "POST", pattern: /^\/workflows\/[^/]+\/build$/ },
   { method: "PUT", pattern: /^\/workflows\/[^/]+\/schedule$/ },
   { method: "DELETE", pattern: /^\/workflows\/[^/]+\/schedule$/ },
-  { method: "PUT", pattern: /^\/workflows\/[^/]+\/geofence$/ },
-  { method: "DELETE", pattern: /^\/workflows\/[^/]+\/geofence$/ },
+  // PUT/DELETE .../geofence used to sit here. They were removed with the
+  // capability above: leaving them would have made the guard contradict the
+  // policy, so a viewer would see the control, press it, and get an exception
+  // instead of a saved zone.
   { method: "GET", pattern: /^\/tendril\/console$/ },
 ];
 

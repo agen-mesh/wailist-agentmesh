@@ -61,8 +61,19 @@ var readOnlyBlocked = []struct {
 	{http.MethodPost, regexp.MustCompile(`^/workflows/[^/]+/build$`)},
 	{http.MethodPut, regexp.MustCompile(`^/workflows/[^/]+/schedule$`)},
 	{http.MethodDelete, regexp.MustCompile(`^/workflows/[^/]+/schedule$`)},
-	{http.MethodPut, regexp.MustCompile(`^/workflows/[^/]+/geofence$`)},
-	{http.MethodDelete, regexp.MustCompile(`^/workflows/[^/]+/geofence$`)},
+	// PUT/DELETE .../geofence are deliberately NOT here, though they were
+	// once. A geofence is configured from the place it describes, which means
+	// from a phone -- the client this list would refuse. The frontend permits
+	// it as the capability "workflow.geofence" (lib/readonly.ts), and these
+	// two lists have to agree: a call the server rejects but the client offers
+	// is a button that fails with no explanation.
+	//
+	// The cost is real and accepted: a deployment running WEB_READONLY_MODE
+	// as a public demo or a mirror will now accept a geofence write. That is
+	// the narrowest hole this decision can be given -- it arms a trigger on a
+	// workflow the caller already owns, and cannot change a graph, create a
+	// workflow or delete one.
+
 	// GET, but find-or-creates a workflow row server-side, so it belongs on
 	// this list despite the general rule that reads are exempt.
 	{http.MethodGet, regexp.MustCompile(`^/tendril/console$`)},
