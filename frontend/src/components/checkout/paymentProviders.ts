@@ -53,3 +53,8 @@ export const DEFAULT_PROVIDER: PaymentMethod =
 export const USD_PROVIDERS: ReadonlySet<PaymentMethod> = new Set<PaymentMethod>(
   ["nowpayments"],
 );
+
+// Mirrors minCryptoAmountUSDCents in handlers/payments.go -- NOWPayments
+// rejects an invoice below this with a 400, so the Pay button must not offer
+// it as if it would succeed.
+export const MIN_CRYPTO_AMOUNT_USD_CENTS = 100;

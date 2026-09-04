@@ -125,7 +125,11 @@ func CachedINRToUSDRate(ctx context.Context) (rate float64, stale bool, err erro
 		return fxCache.rate, false, nil
 	}
 
-	fresh, err := fetchINRToUSD(ctx)
+	// Not ctx: this fills a cache shared by every concurrent caller, so one
+	// caller's request being cancelled must not fail the refresh for the
+	// others waiting on the same lock. fxHTTPClient's own 5s timeout still
+	// bounds the call.
+	fresh, err := fetchINRToUSD(context.Background())
 	if err == nil {
 		fxCache.rate = fresh
 		fxCache.fetchedAt = time.Now()

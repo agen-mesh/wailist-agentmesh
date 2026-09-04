@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Pill } from "@/components/ui";
 import type { PaymentMethod } from "./types";
-import { USD_PROVIDERS } from "./paymentProviders";
+import { USD_PROVIDERS, MIN_CRYPTO_AMOUNT_USD_CENTS } from "./paymentProviders";
 import { usePaymentProviders } from "./usePaymentProviders";
 import { payments } from "@/lib/api";
 import { useCashfreeCheckout } from "./useCashfreeCheckout";
@@ -114,8 +114,9 @@ export function PaymentInfoPanel({
     !isSuccess &&
     agreed &&
     (method !== "cashfree" || phoneValid) &&
-    // A USD gateway with no rate cannot be priced, so it cannot be paid.
-    (!isUSD || amountUSDCents > 0);
+    // A USD gateway with no rate cannot be priced, and below the server's
+    // own minimum it would only 400 at invoice creation.
+    (!isUSD || amountUSDCents >= MIN_CRYPTO_AMOUNT_USD_CENTS);
 
   // Cashfree completes in-page via its own JS SDK. NOWPayments is a redirect:
   // the browser leaves for the hosted invoice and returns to /billing, where
@@ -493,9 +494,13 @@ export function PaymentInfoPanel({
               ? "Your cart is empty."
               : method === "cashfree" && !phoneValid
                 ? "Enter your phone number above to continue."
-                : !agreed
-                  ? "Please confirm the credit policy above to continue."
-                  : `You'll be redirected to ${selected?.label ?? "the provider"} to complete payment.`}
+                : isUSD &&
+                    amountUSDCents > 0 &&
+                    amountUSDCents < MIN_CRYPTO_AMOUNT_USD_CENTS
+                  ? `Minimum $${(MIN_CRYPTO_AMOUNT_USD_CENTS / 100).toFixed(2)} for crypto payments.`
+                  : !agreed
+                    ? "Please confirm the credit policy above to continue."
+                    : `You'll be redirected to ${selected?.label ?? "the provider"} to complete payment.`}
           </p>
         )}
       </div>

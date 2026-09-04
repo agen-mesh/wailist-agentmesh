@@ -56,9 +56,21 @@ export function usePaymentProviders(): ProviderState {
         });
       })
       .catch(() => {
-        // Availability unknown, so nothing is offered and every row keeps the
-        // unavailable sublabel it started with.
-        if (!cancelled) setState((s) => ({ ...s, loading: false }));
+        // The request itself failed, telling us nothing about availability --
+        // unlike a stale FX rate (still a 200), this doesn't mean the rate
+        // lookup is down. Cashfree needs no rate and has its own working
+        // flow, so a transient failure here shouldn't disable it too.
+        if (!cancelled) {
+          setState((s) => ({
+            ...s,
+            providers: s.providers.map((p) => {
+              if (p.id !== "cashfree") return p;
+              const fallback = PAYMENT_PROVIDERS.find((d) => d.id === "cashfree");
+              return fallback ? { ...fallback } : p;
+            }),
+            loading: false,
+          }));
+        }
       });
     return () => {
       cancelled = true;
