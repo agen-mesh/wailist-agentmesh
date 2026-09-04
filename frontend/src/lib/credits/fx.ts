@@ -38,6 +38,12 @@ export function creditsForTopup(amountINR: number): number {
   return inrToCreditsUSD(amountINR) + bonusUSD(amountINR);
 }
 
+// Balance at or below which the UI warns the user to top up. A plain constant,
+// not user configuration: there is no settings screen for it and no scheduled
+// charge behind it. It replaced an `autoRecharge` object whose enabled/amount/
+// cap fields nothing ever read or wrote (#164).
+export const LOW_BALANCE_THRESHOLD_USD = 5;
+
 // Illustrative GST for Indian payments. Prices are treated as tax-inclusive, so
 // this splits a total into its base and GST components (display only, mock).
 export const GST_RATE = 0.18;

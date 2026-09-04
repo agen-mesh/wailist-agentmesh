@@ -1254,6 +1254,50 @@ func (s *Store) CreditBalance(ctx context.Context, userID string) (int64, error)
 	return s.GetCreditBalance(ctx, userID)
 }
 
+// ListCreditTransactions returns a user's top-up history, newest first.
+//
+// This is the read side of the same credit_ledger rows CreateCreditTransaction
+// writes and CompleteCreditTransaction settles — the authoritative record of
+// what a user paid and what it granted. It exists because the billing page
+// previously kept its own copy in localStorage, which is per-browser: signing
+// in elsewhere (or as a different account in the same browser) showed the
+// wrong history for money the database had recorded correctly all along.
+//
+// Rows of every status are returned, not just 'completed'. A pending or failed
+// top-up is exactly what a user comes to this page to see after a payment that
+// did not visibly land, and hiding it would make the page a worse answer than
+// the localStorage version it replaces.
+func (s *Store) ListCreditTransactions(ctx context.Context, userID string, limit int) ([]models.CreditTransaction, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, user_id, provider, provider_order_id, provider_payment_id, status,
+		       amount_inr_paise, fx_rate_usd_per_inr, amount_usd_cents, credit_usd_micros,
+		       created_at, completed_at
+		FROM credit_ledger
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// Non-nil so an account with no top-ups marshals as [] rather than null.
+	out := make([]models.CreditTransaction, 0, limit)
+	for rows.Next() {
+		var t models.CreditTransaction
+		if err := rows.Scan(
+			&t.ID, &t.UserID, &t.Provider, &t.ProviderOrderID, &t.ProviderPaymentID,
+			&t.Status, &t.AmountINRPaise, &t.FXRateUSDPerINR, &t.AmountUSDCents,
+			&t.CreditUSDMicros, &t.CreatedAt, &t.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 // --- Coupons ---
 
 // The coupon catalog is configuration, not code: it comes from the COUPON_CODES

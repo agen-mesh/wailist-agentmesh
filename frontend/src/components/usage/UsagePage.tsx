@@ -5,8 +5,7 @@ import { useCredits } from "@/lib/credits/store";
 import { LowBalanceBanner } from "@/components/billing/LowBalanceBanner";
 import { IconSearch, Card, ghostBtnSm } from "@/components/ui";
 import { Topbar } from "@/components/Topbar";
-import { usage as usageApi, auth as authApi } from "@/lib/api";
-import { listSettlements } from "@/lib/settlements";
+import { usage as usageApi } from "@/lib/api";
 import {
   UsageRange,
   UsagePayload,
@@ -288,46 +287,23 @@ function UsageBody({
 }) {
   const { timeseries, byWorkflow, byEndpoint } = data;
   const { balanceUSD, refreshBalance } = useCredits();
-  const [localSettlements, setLocalSettlements] = useState<Settlement[]>([]);
-  const [tendrilSettlements, setTendrilSettlements] = useState<Settlement[]>(
-    [],
-  );
-  // Two sources, merged: workflow-run x402 payments come from the local
-  // per-user record (the server still can't scope x402_relay_settlements to
-  // a user — no user_id column on that table). Tendril top-ups aren't a
-  // workflow run at all (they're the console's direct-action button), but
-  // they DO land in a ledger that's scoped to a user from the moment it's
-  // written (tendril_credit_ledger), so /usage/settlements can report those
-  // honestly — see usage.go's UsageSettlements doc comment.
-  const settlements = useMemo(
-    () =>
-      [...tendrilSettlements, ...localSettlements].sort(
-        (a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime(),
-      ),
-    [tendrilSettlements, localSettlements],
-  );
-  // Read after mount and only for the signed-in user, so another account's
-  // history in the same browser is never shown.
-  useEffect(() => {
-    let stale = false;
-    authApi
-      .me()
-      .then((u) => {
-        if (!stale) setLocalSettlements(listSettlements(u.id));
-      })
-      .catch(() => {
-        /* signed out: leave the panel empty */
-      });
-    return () => {
-      stale = true;
-    };
-  }, []);
+  // One server-scoped source. /usage/settlements merges the user's own
+  // workflow-run x402 payments (read back from the run_logs receipts the
+  // engine persists per settlement) with their Tendril top-ups, both already
+  // scoped to the signed-in user and already sorted newest-first — see
+  // usage.go's UsageSettlements doc comment.
+  //
+  // The x402 half used to be rebuilt client-side into localStorage, which
+  // followed the browser rather than the account: the rows vanished on
+  // sign-out and did not follow the user to another device, even though the
+  // receipts were in the database the whole time.
+  const [settlements, setSettlements] = useState<Settlement[]>([]);
   useEffect(() => {
     let stale = false;
     usageApi
       .settlements(18)
       .then((rows) => {
-        if (!stale) setTendrilSettlements(rows);
+        if (!stale) setSettlements(rows);
       })
       .catch(() => {
         /* transient failure: leave whatever loaded last */

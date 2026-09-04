@@ -1,86 +1,74 @@
 "use client";
 import { useSyncExternalStore } from "react";
+import type {
+  CreditsState,
+  Purchase,
+  PurchaseStatus,
+} from "@/lib/credits/types";
 import type { PaymentMethod } from "@/components/checkout/types";
-import type { AutoRecharge, CreditsState, Purchase } from "@/lib/credits/types";
-import { creditsForTopup } from "@/lib/credits/fx";
-import { credits as creditsApi } from "@/lib/api";
+import { credits as creditsApi, type PurchaseRecord } from "@/lib/api";
 
 // Credit wallet state, shared across routes via useSyncExternalStore.
 //
-// balanceUSD is NOT local state: it is fetched from the backend
-// (users.credit_balance_usd_micros via GET /credits/balance), the same row the
-// engine reserves against and debits on every paid x402 call. It is
-// deliberately never read from or written to localStorage — a cached copy
-// silently goes stale the instant a run spends money, which previously showed
-// a healthy balance for an account the backend considered empty.
+// Nothing here is persisted to the browser. Both fields are read back from the
+// server, and a local copy of either was a bug:
 //
-// purchases/autoRecharge remain browser-local for now (top-up history and
-// auto-recharge preferences have no backend yet).
-
-const STORAGE_KEY = "agentmesh_credits_v1";
-
-const DEFAULT_AUTO_RECHARGE: AutoRecharge = {
-  enabled: false,
-  thresholdUSD: 5,
-  amountINR: 1000,
-  monthlyCapINR: null,
-};
+//   - balanceUSD comes from GET /credits/balance
+//     (users.credit_balance_usd_micros), the same row the engine reserves
+//     against and debits on every paid x402 call. A cached copy went stale the
+//     instant a run spent money, showing a healthy balance for an account the
+//     backend considered empty.
+//   - purchases comes from GET /credits/purchases (credit_ledger), the rows the
+//     Cashfree and NOWPayments webhooks write and settle. Kept in localStorage
+//     this was per-browser: signing out, or signing in as a different account
+//     on the same machine, showed history belonging to neither the session nor
+//     the money that actually moved.
+//
+// An `autoRecharge` config object used to be persisted here too. It was never
+// wired to a settings screen or a scheduled charge — only its threshold was
+// read, as a low-balance warning — so it collapsed to the
+// LOW_BALANCE_THRESHOLD_USD constant in fx.ts. Building the real feature is
+// tracked in #164.
 
 const DEFAULT_STATE: CreditsState = {
   balanceUSD: 0,
   purchases: [],
-  autoRecharge: DEFAULT_AUTO_RECHARGE,
 };
 
-let state: CreditsState = DEFAULT_STATE;
-let loaded = false;
-const listeners = new Set<() => void>();
+// Keys the previous localStorage-backed build wrote. Nothing reads them any
+// more, but a returning user's browser still holds one account's purchase
+// history and settlement rows, so the migration clears them once on load
+// rather than leaving stale money data sitting there indefinitely.
+// LEGACY_SETTLEMENTS_PREFIX matched a per-user key (`..._<userId>`), so its
+// leftovers are found by prefix rather than by exact name.
+const LEGACY_CREDITS_KEY = "agentmesh_credits_v1";
+const LEGACY_SETTLEMENTS_PREFIX = "agentmesh_settlements_";
 
-// Read persisted state, tolerating missing/corrupt data (best-effort mock).
-function loadState(): CreditsState {
-  if (typeof window === "undefined") return DEFAULT_STATE;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_STATE;
-    const parsed = JSON.parse(raw) as Partial<CreditsState>;
-    return {
-      // Deliberately not restored from storage — see the module comment.
-      balanceUSD: 0,
-      purchases: Array.isArray(parsed.purchases) ? parsed.purchases : [],
-      autoRecharge: {
-        ...DEFAULT_AUTO_RECHARGE,
-        ...(parsed.autoRecharge ?? {}),
-      },
-    };
-  } catch {
-    return DEFAULT_STATE;
-  }
-}
-
-// Hydrate lazily on the first client snapshot so the server render (defaults)
-// and the initial client render match, then React re-renders with real values.
-function ensureLoaded(): void {
-  if (loaded || typeof window === "undefined") return;
-  state = loadState();
-  loaded = true;
-}
-
-function persist(): void {
+function clearLegacyStorage(): void {
   if (typeof window === "undefined") return;
   try {
-    // balanceUSD is intentionally excluded: persisting it would recreate the
-    // stale-cache bug the moment a run debits credits in another tab/session.
-    const { balanceUSD: _omit, ...persistable } = state;
-    void _omit;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persistable));
+    window.localStorage.removeItem(LEGACY_CREDITS_KEY);
+    // Collect first, then remove: deleting while iterating by index shifts
+    // every later key down and skips half of them.
+    const stale: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (k?.startsWith(LEGACY_SETTLEMENTS_PREFIX)) stale.push(k);
+    }
+    stale.forEach((k) => window.localStorage.removeItem(k));
   } catch {
-    /* ignore storage quota/availability errors in this mock */
+    /* private mode or blocked storage: nothing to clean up that we can reach */
   }
 }
 
-function commit(next: CreditsState): void {
-  state = next;
-  persist();
+let state: CreditsState = DEFAULT_STATE;
+const listeners = new Set<() => void>();
+
+// commit takes an updater rather than a finished state so a caller can never
+// write back a `state` it captured earlier, clobbering a concurrent refresh of
+// the other field (balance and purchases are fetched independently).
+function commit(update: (prev: CreditsState) => CreditsState): void {
+  state = update(state);
   listeners.forEach((l) => l());
 }
 
@@ -91,50 +79,89 @@ function subscribe(onChange: () => void): () => void {
   };
 }
 
+// One-shot, on the first client read. Not a module-level side effect: this
+// module is imported during the server render too, where there is no storage
+// to clean and the work would just be skipped every time.
+let legacyCleared = false;
+
 function getSnapshot(): CreditsState {
-  ensureLoaded();
+  if (!legacyCleared && typeof window !== "undefined") {
+    legacyCleared = true;
+    clearLegacyStorage();
+  }
   return state;
 }
 
+// The server render has asked for nothing yet, so it renders the same defaults
+// the client starts from — the two must agree or React reports a mismatch.
 function getServerSnapshot(): CreditsState {
   return DEFAULT_STATE;
 }
 
-function newId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `txn_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+// readCredits is the current state without subscribing — for callers outside a
+// React render (and for tests, which drive the module singleton directly).
+// Components should use useCredits so they re-render when it changes.
+export function readCredits(): CreditsState {
+  return getSnapshot();
 }
 
-// Record a successful top-up: grants credits (base + bonus) and prepends the
-// purchase to history. Returns the created record.
-//
-// `creditsUSDOverride` lets a caller that already knows the real, authoritative
-// credited amount (e.g. a backend-verified payment) supply it directly instead
-// of falling through to the local mock-FX estimate. Providers without a real
-// backend yet (e.g. the NOWPayments stub) omit it and get the mock amount.
-export function addPurchase(input: {
-  amountINR: number;
-  method: PaymentMethod;
-  creditsUSDOverride?: number;
-}): Purchase {
-  const creditsUSD =
-    input.creditsUSDOverride ?? creditsForTopup(input.amountINR);
-  const purchase: Purchase = {
-    id: newId(),
-    createdAt: new Date().toISOString(),
-    amountINR: input.amountINR,
-    creditsUSD,
-    method: input.method,
-    status: "paid",
+// KNOWN_METHODS bounds credit_ledger.provider to the PaymentMethod union the
+// UI's label maps are keyed by. An unrecognised provider (a gateway added
+// backend-first) falls back to the Cashfree label rather than indexing those
+// maps with a string they have no entry for, which renders as "undefined".
+const KNOWN_METHODS = new Set<string>([
+  "cashfree",
+  "nowpayments",
+  "paypal",
+  "stripe",
+]);
+
+const KNOWN_STATUSES = new Set<string>([
+  "pending",
+  "completed",
+  "failed",
+  "expired",
+  "partial",
+  "refunded",
+]);
+
+// toPurchase maps one credit_ledger row to the shape the billing UI renders.
+// Stored units are converted exactly once, here: paise and cents are integers
+// in the database precisely so no rounding happens before this point.
+function toPurchase(r: PurchaseRecord): Purchase {
+  return {
+    id: r.id,
+    createdAt: r.createdAt,
+    amountINR:
+      typeof r.amountInrPaise === "number" ? r.amountInrPaise / 100 : undefined,
+    amountUSD:
+      typeof r.amountUsdCents === "number" ? r.amountUsdCents / 100 : undefined,
+    creditsUSD: r.creditUsdMicros / 1e6,
+    method: (KNOWN_METHODS.has(r.provider)
+      ? r.provider
+      : "cashfree") as PaymentMethod,
+    status: (KNOWN_STATUSES.has(r.status)
+      ? r.status
+      : "pending") as PurchaseStatus,
   };
-  commit({ ...state, purchases: [purchase, ...state.purchases] });
-  // The backend is what actually credited the account; re-read it rather than
-  // adding creditsUSD here, so the displayed balance can never disagree with
-  // what the engine will let the user spend.
-  void refreshBalance();
-  return purchase;
+}
+
+// purchasesKnown mirrors balanceKnown: it separates "this account has never
+// topped up" from "we have not asked yet", so the history panel can show an
+// empty state only once the server has actually answered.
+let purchasesKnown = false;
+
+// refreshPurchases re-reads top-up history. Call it on mount and after
+// anything that creates or settles a payment.
+export async function refreshPurchases(): Promise<void> {
+  try {
+    const rows = await creditsApi.purchases();
+    purchasesKnown = true;
+    commit((prev) => ({ ...prev, purchases: rows.map(toPurchase) }));
+  } catch {
+    // Leave the last known list in place; a failed poll is not evidence the
+    // history changed, and blanking it would look like receipts disappeared.
+  }
 }
 
 // balanceKnown distinguishes "the server says $0" from "we have not asked
@@ -148,24 +175,32 @@ export async function refreshBalance(): Promise<void> {
   try {
     const balanceUSD = await creditsApi.balance();
     balanceKnown = true;
-    commit({ ...state, balanceUSD });
+    commit((prev) => ({ ...prev, balanceUSD }));
   } catch {
     // Leave the last known value in place; a failed poll is not evidence the
     // balance changed, and blanking it would look like funds vanished.
   }
 }
 
-export function setAutoRecharge(cfg: AutoRecharge): void {
-  commit({ ...state, autoRecharge: cfg });
+// recordPurchase is called after a payment the client believes succeeded. It
+// writes nothing locally — credit_ledger is the record, and the webhook or the
+// verify call is what settles the row. This just re-reads both server-owned
+// values so the UI reflects what actually landed.
+//
+// A just-verified payment can still be 'pending' for the moment it takes the
+// gateway's webhook to arrive, which is why the history renders status rather
+// than assuming every row is paid.
+export async function recordPurchase(): Promise<void> {
+  await Promise.all([refreshBalance(), refreshPurchases()]);
 }
 
 export interface CreditsSnapshot extends CreditsState {
-  hydrated: boolean;
   balanceKnown: boolean;
+  purchasesKnown: boolean;
   refreshBalance: typeof refreshBalance;
+  refreshPurchases: typeof refreshPurchases;
   lastPurchase: Purchase | undefined;
-  addPurchase: typeof addPurchase;
-  setAutoRecharge: typeof setAutoRecharge;
+  recordPurchase: typeof recordPurchase;
 }
 
 export function useCredits(): CreditsSnapshot {
@@ -174,23 +209,30 @@ export function useCredits(): CreditsSnapshot {
     getSnapshot,
     getServerSnapshot,
   );
-  const hydrated = useSyncExternalStore(
-    subscribe,
-    () => loaded,
-    () => false,
-  );
   const known = useSyncExternalStore(
     subscribe,
     () => balanceKnown,
     () => false,
   );
+  const purchasesLoaded = useSyncExternalStore(
+    subscribe,
+    () => purchasesKnown,
+    () => false,
+  );
   return {
     ...snapshot,
-    hydrated,
     balanceKnown: known,
+    purchasesKnown: purchasesLoaded,
     refreshBalance,
-    lastPurchase: snapshot.purchases[0],
-    addPurchase,
-    setAutoRecharge,
+    refreshPurchases,
+    // "Repeat last top-up" needs an amount to repeat, so the most recent
+    // COMPLETED row with an INR amount wins. Both filters matter: a crypto
+    // top-up has no INR figure the checkout could be reopened with, and a
+    // failed or expired attempt is not a purchase to offer repeating — the
+    // button's own label would assert a payment that never landed.
+    lastPurchase: snapshot.purchases.find(
+      (p) => p.status === "completed" && p.amountINR !== undefined,
+    ),
+    recordPurchase,
   };
 }

@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -132,6 +133,48 @@ func (d *Deps) GetCreditBalance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respond.JSON(w, http.StatusOK, map[string]any{"credit_usd_micros": balance})
+}
+
+// creditPurchasesDefaultLimit caps an unparameterised billing-history read.
+// Deep history is a rare ask; the page shows a reverse-chronological list and
+// a user looking for one old receipt is better served by a future date filter
+// than by every client paying to transfer a whole ledger on page load.
+const creditPurchasesDefaultLimit = 50
+
+// creditPurchasesMaxLimit bounds ?limit= so a caller cannot ask for an
+// unbounded scan of their own ledger.
+const creditPurchasesMaxLimit = 200
+
+// GetCreditPurchases returns the signed-in user's top-up history from
+// credit_ledger — the authoritative record, replacing the per-browser
+// localStorage copy the billing page used to keep (see
+// db.ListCreditTransactions for why that had to change).
+func (d *Deps) GetCreditPurchases(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(CtxUserID).(string)
+
+	limit := creditPurchasesDefaultLimit
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		v, err := strconv.Atoi(raw)
+		// Mirrors UsageSettlements' guard: a negative value parses fine but
+		// would reach the query (and make([]T, 0, v)) as a nonsense capacity.
+		if err != nil || v < 1 {
+			respond.Error(w, http.StatusBadRequest, "limit must be a positive number")
+			return
+		}
+		if v > creditPurchasesMaxLimit {
+			v = creditPurchasesMaxLimit
+		}
+		limit = v
+	}
+
+	txns, err := d.Store.ListCreditTransactions(r.Context(), userID, limit)
+	if err != nil {
+		log.Printf("credit purchases: %v", err)
+		respond.Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, txns)
 }
 
 // RedeemCoupon credits a signed-in user's balance for a known, unredeemed

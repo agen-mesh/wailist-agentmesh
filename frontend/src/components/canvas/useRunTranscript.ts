@@ -2,15 +2,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   runs as runsApi,
-  auth as authApi,
   type RunLogRecord,
   type DeadLetterRun,
 } from "@/lib/api";
-import { recordSettlements } from "@/lib/settlements";
 
 // This hook owns everything about *what happened in a run*: the live SSE
-// stream, the DB reconciliation that covers the stream's gaps, the cached
-// last-run transcript, and the settlement rows a finished run produces.
+// stream, the DB reconciliation that covers the stream's gaps, and the cached
+// last-run transcript.
 // It was extracted verbatim from LogDrawer -- every comment below is a
 // postmortem of a real failure, so treat behavioural changes here as bugs
 // unless they come with their own investigation.
@@ -530,44 +528,12 @@ export function useRunTranscript({
     completeOnce();
   }, [running, completeOnce]);
 
-  // Persist any settlements this run produced, scoped to the signed-in user,
-  // so the usage page can show them (see lib/settlements.ts for why this is
-  // client-side for now).
-  useEffect(() => {
-    if (!done || logs.length === 0) return;
-    const rows = logs
-      .map((l) => ({ log: l, usd: settledUsdOf(l.output) }))
-      // Filtering on settledUsdOf rather than isX402Payment: a settlement that
-      // returned no tx id is still a debit, and gating on the id dropped those
-      // rows entirely -- the usage page under-reported real spend.
-      .filter((x): x is { log: LogEvent; usd: number } => x.usd !== null)
-      .map(({ log: l, usd }) => {
-        const p = l.output as Partial<X402Payment>;
-        return {
-          ts: l.ts,
-          endpoint: p.nodeName ?? "x402 endpoint",
-          amountAlgo: usd,
-          // Settlement.txId is a plain string; a payment without one records as
-          // empty rather than being dropped.
-          txId: p.txId ?? "",
-          explorerURL: p.explorerURL ?? "",
-          workflowId: workflowId ?? "",
-        };
-      });
-    if (rows.length === 0) return;
-    let stale = false;
-    authApi
-      .me()
-      .then((u) => {
-        if (!stale) recordSettlements(u.id, rows);
-      })
-      .catch(() => {
-        /* not signed in / offline: nothing to attribute the rows to */
-      });
-    return () => {
-      stale = true;
-    };
-  }, [done, logs, workflowId]);
+  // No client-side settlement recording here any more. The engine writes one
+  // run_logs row per settlement as it happens (see runner.go's publish loop),
+  // which is both durable and user-scoped through runs -> workflows, so the
+  // usage page reads GET /usage/settlements instead of a localStorage copy
+  // this hook used to build from the transcript. That copy followed the
+  // browser rather than the account.
 
   // Detect the lease a Tendril rent step in this run opened, so the console
   // can offer a Terminal tab into it. Takes the most recent one — a run

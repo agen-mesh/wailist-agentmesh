@@ -1,10 +1,10 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, Pill } from "@/components/ui";
 import { rowBtn } from "@/components/ui/buttons";
 import { useCredits } from "@/lib/credits/store";
 import { Receipt } from "./Receipt";
-import type { Purchase } from "@/lib/credits/types";
+import type { Purchase, PurchaseStatus } from "@/lib/credits/types";
 import type { PaymentMethod } from "@/components/checkout/types";
 
 const METHOD_LABELS: Record<PaymentMethod, string> = {
@@ -19,17 +19,39 @@ const dateFmt = new Intl.DateTimeFormat("en", {
   timeStyle: "short",
 });
 
-// Mock billing history sourced from the local credits store. Newest first.
+// STATUS_PILLS maps credit_ledger.status to what the row shows. Only
+// 'completed' actually granted credits; the others are surfaced rather than
+// filtered out so a user whose payment did not land can see which stage it
+// stopped at instead of an empty page.
+const STATUS_PILLS: Record<
+  PurchaseStatus,
+  { label: string; tone: "ok" | "warm" | "danger" }
+> = {
+  completed: { label: "Paid", tone: "ok" },
+  pending: { label: "Pending", tone: "warm" },
+  partial: { label: "Partial", tone: "warm" },
+  refunded: { label: "Refunded", tone: "warm" },
+  failed: { label: "Failed", tone: "danger" },
+  expired: { label: "Expired", tone: "danger" },
+};
+
+// Billing history from credit_ledger via GET /credits/purchases. Newest first.
 export function PurchaseHistory({
   onBuyAgain,
 }: {
   onBuyAgain: (amountINR: number) => void;
 }) {
-  const { purchases, hydrated } = useCredits();
+  const { purchases, purchasesKnown, refreshPurchases } = useCredits();
   const [receipt, setReceipt] = useState<Purchase | null>(null);
 
-  // Avoid rendering store-derived rows until hydrated (SSR shows nothing).
-  if (!hydrated) return null;
+  useEffect(() => {
+    void refreshPurchases();
+  }, [refreshPurchases]);
+
+  // Nothing until the server has answered: an empty list before that is "not
+  // asked yet", and rendering "No purchases yet" for it tells a paying user
+  // their receipts are gone.
+  if (!purchasesKnown) return null;
 
   return (
     <>
@@ -80,7 +102,9 @@ export function PurchaseHistory({
                       fontVariantNumeric: "tabular-nums",
                     }}
                   >
-                    ₹{p.amountINR.toFixed(2)}
+                    {p.amountINR !== undefined
+                      ? `\u20B9${p.amountINR.toFixed(2)}`
+                      : `$${(p.amountUSD ?? 0).toFixed(2)}`}
                   </span>
                   <div
                     style={{
@@ -100,7 +124,9 @@ export function PurchaseHistory({
                     >
                       +${p.creditsUSD.toFixed(2)}
                     </span>
-                    <Pill tone="ok">Paid</Pill>
+                    <Pill tone={STATUS_PILLS[p.status].tone}>
+                      {STATUS_PILLS[p.status].label}
+                    </Pill>
                   </div>
                 </div>
 
@@ -125,13 +151,18 @@ export function PurchaseHistory({
                   >
                     Receipt
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => onBuyAgain(p.amountINR)}
-                    style={rowBtn}
-                  >
-                    Buy again
-                  </button>
+                  {/* Only an INR row can be repeated -- the checkout is
+                      driven by an INR amount, which a crypto top-up has
+                      none of. */}
+                  {p.amountINR !== undefined && (
+                    <button
+                      type="button"
+                      onClick={() => onBuyAgain(p.amountINR!)}
+                      style={rowBtn}
+                    >
+                      Buy again
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

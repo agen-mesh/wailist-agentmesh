@@ -440,7 +440,53 @@ export const credits = {
     await delay(120);
     throw new Error("coupons aren't available in mock mode");
   },
+
+  // Top-up history from credit_ledger — the same rows the payment webhooks
+  // write and settle, scoped server-side to the signed-in user. This replaced
+  // a localStorage copy: history kept per-browser disappeared on sign-out or a
+  // device change, and showed the previous account's purchases to the next one
+  // signing in on the same browser.
+  purchases: async (limit = 50): Promise<PurchaseRecord[]> => {
+    if (BASE) {
+      const res = await apiFetch(`${BASE}/credits/purchases?limit=${limit}`, {
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(
+          (data as { error?: string } | null)?.error ??
+            "purchase history fetch failed",
+        );
+      }
+      return Array.isArray(data) ? (data as PurchaseRecord[]) : [];
+    }
+    await delay(120);
+    return [];
+  },
 };
+
+// PurchaseRecord is one credit_ledger row as the API returns it (see the Go
+// models.CreditTransaction). Amounts stay in their stored units — paise for
+// the INR path, cents for the crypto one, micros for credits granted — so the
+// caller converts once, at the point of display, rather than trusting a
+// pre-rounded number.
+//
+// amountInrPaise and amountUsdCents are mutually exclusive: a Cashfree top-up
+// is INR-denominated with an FX rate attached, a crypto one is already USD, so
+// each row carries exactly one of them.
+export interface PurchaseRecord {
+  id: string;
+  provider: string;
+  providerOrderId: string;
+  providerPaymentId?: string;
+  status: string;
+  amountInrPaise?: number;
+  fxRateUsdPerInr?: number;
+  amountUsdCents?: number;
+  creditUsdMicros: number;
+  createdAt: string;
+  completedAt?: string;
+}
 
 // -- Runs -------------------------------------------------------------------
 export interface RunLogRecord {

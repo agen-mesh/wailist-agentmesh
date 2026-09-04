@@ -299,18 +299,28 @@ func (d *Deps) UsageByEndpoint(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, out)
 }
 
-// UsageSettlements reports real on-chain payments. The general x402 relay
-// settlement rows (x402_relay_settlements) carry no user_id — the relay is a
-// public, unauthenticated route, so at insert time there is no user to
-// attribute a settlement to — and fabricating an owner would be worse than
-// omitting them, so those stay out of this list until that table gains an
-// owner column (per-run settlement tx ids remain visible in the run
-// console, which does know the user).
+// maxSettlementsLimit bounds ?limit= on the settlements endpoint. Without a
+// ceiling, one authenticated request could pass a limit large enough to both
+// allocate the result slice up front and drive a LIMIT that large through the
+// run_logs -> runs -> workflows join, which is enough to OOM the process.
+const maxSettlementsLimit = 200
+
+// UsageSettlements reports real on-chain payments, from two user-scoped
+// sources merged newest-first.
 //
-// Tendril top-ups are the one real settlement this endpoint CAN show
-// honestly: they're a real Wallet 1 -> Wallet 2 payment recorded in
-// tendril_credit_ledger, which is scoped to a user from the moment it's
-// written.
+// The general x402 relay settlement rows (x402_relay_settlements) are still
+// NOT one of them: that table carries no user_id — the relay is a public,
+// unauthenticated route, so at insert time there is no user to attribute a
+// settlement to — and fabricating an owner would be worse than omitting them.
+//
+//  1. x402 settlements from the user's own runs, read from the run_logs
+//     receipts the engine persists per settlement (db.ListSettlements). These
+//     reach a user through runs -> workflows, which is a different and
+//     answerable question from the relay table's. The usage page used to
+//     rebuild this list client-side into localStorage, which was per-browser
+//     and lost on sign-out or a device change.
+//  2. Tendril top-ups — a real Wallet 1 -> Wallet 2 payment recorded in
+//     tendril_credit_ledger, scoped to a user from the moment it's written.
 func (d *Deps) UsageSettlements(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(CtxUserID).(string)
 	limit := 20
@@ -323,6 +333,9 @@ func (d *Deps) UsageSettlements(w http.ResponseWriter, r *http.Request) {
 			respond.Error(w, http.StatusBadRequest, "limit must be a positive number")
 			return
 		}
+		if v > maxSettlementsLimit {
+			v = maxSettlementsLimit
+		}
 		limit = v
 	}
 
@@ -332,23 +345,58 @@ func (d *Deps) UsageSettlements(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	sort.Slice(tendril.Topups, func(i, j int) bool {
-		return tendril.Topups[i].CreatedAt.After(tendril.Topups[j].CreatedAt)
-	})
 
-	out := make([]map[string]any, 0, limit)
+	// Ask for the full limit from each source, then merge and truncate: either
+	// source alone could legitimately fill the whole page.
+	x402, err := d.Store.ListSettlements(r.Context(), userID, limit)
+	if err != nil {
+		log.Printf("usage settlements (x402): %v", err)
+		respond.Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	type settlement struct {
+		ts  time.Time
+		row map[string]any
+	}
+	merged := make([]settlement, 0, len(x402)+len(tendril.Topups))
+
+	for _, s := range x402 {
+		merged = append(merged, settlement{ts: s.Ts, row: map[string]any{
+			"ts":         s.Ts.UTC().Format(time.RFC3339),
+			"endpoint":   s.Endpoint,
+			"amountAlgo": usd(s.USDMicros),
+			// A settlement whose tx id never reached us is still a real debit,
+			// so it reports with an empty id rather than being dropped — the
+			// same call the client-side version had to make (see the frontend's
+			// old recordSettlements dedup note).
+			"txId":        s.TxID,
+			"explorerURL": s.ExplorerURL,
+			"workflowId":  s.WorkflowID,
+		}})
+	}
+
 	for _, t := range tendril.Topups {
-		if len(out) >= limit {
-			break
-		}
-		out = append(out, map[string]any{
+		merged = append(merged, settlement{ts: t.CreatedAt, row: map[string]any{
 			"ts":          t.CreatedAt.UTC().Format(time.RFC3339),
 			"endpoint":    "Tendril credit top-up",
 			"amountAlgo":  usd(t.AmountUSDMicros),
 			"txId":        t.TxID,
 			"explorerURL": nodes.ExplorerURLForAsset(d.USDCAssetID, t.TxID),
 			"workflowId":  "",
-		})
+		}})
+	}
+
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].ts.After(merged[j].ts)
+	})
+
+	out := make([]map[string]any, 0, limit)
+	for _, m := range merged {
+		if len(out) >= limit {
+			break
+		}
+		out = append(out, m.row)
 	}
 	respond.JSON(w, http.StatusOK, out)
 }

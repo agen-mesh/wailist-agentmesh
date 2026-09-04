@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import type { Purchase } from "@/lib/credits/types";
+import type { Purchase, PurchaseStatus } from "@/lib/credits/types";
 import type { PaymentMethod } from "@/components/checkout/types";
 import { gstBreakdown } from "@/lib/credits/fx";
 
@@ -16,6 +16,18 @@ const dateFmt = new Intl.DateTimeFormat("en", {
   dateStyle: "long",
   timeStyle: "short",
 });
+
+// A receipt states the row's real credit_ledger status rather than always
+// "Paid" -- a printed document asserting payment for a failed or still-pending
+// top-up is the one thing this page must never produce.
+const STATUS_LABELS: Record<PurchaseStatus, string> = {
+  completed: "Paid",
+  pending: "Pending",
+  partial: "Partially paid",
+  refunded: "Refunded",
+  failed: "Failed",
+  expired: "Expired",
+};
 
 // The modal is dark on-screen (design system), but a printed receipt must be
 // legible on paper.
@@ -82,16 +94,30 @@ const printRowStyle: React.CSSProperties = {
 // dark palette would come out illegible (or be dropped entirely by browsers
 // that disable background graphics when printing).
 function PrintSheet({ purchase }: { purchase: Purchase }) {
-  const { base, gst } = gstBreakdown(purchase.amountINR);
   const rows: [string, string][] = [
     ["Receipt ID", purchase.id],
     ["Date", dateFmt.format(new Date(purchase.createdAt))],
-    ["Subtotal (excl. GST)", `INR ${base.toFixed(2)}`],
-    ["GST (18%)", `INR ${gst.toFixed(2)}`],
-    ["Amount paid", `INR ${purchase.amountINR.toFixed(2)}`],
+    // The GST split only exists for an INR payment. A crypto top-up is stored
+    // USD-denominated with no INR figure at all, so there is nothing to split
+    // and inventing one would put a fabricated tax line on a receipt.
+    ...(purchase.amountINR !== undefined
+      ? ([
+          [
+            "Subtotal (excl. GST)",
+            `INR ${gstBreakdown(purchase.amountINR).base.toFixed(2)}`,
+          ],
+          [
+            "GST (18%)",
+            `INR ${gstBreakdown(purchase.amountINR).gst.toFixed(2)}`,
+          ],
+          ["Amount paid", `INR ${purchase.amountINR.toFixed(2)}`],
+        ] as [string, string][])
+      : ([
+          ["Amount paid", `USD ${(purchase.amountUSD ?? 0).toFixed(2)}`],
+        ] as [string, string][])),
     ["Credits added", `USD ${purchase.creditsUSD.toFixed(2)}`],
     ["Method", METHOD_LABELS[purchase.method]],
-    ["Status", "Paid"],
+    ["Status", STATUS_LABELS[purchase.status]],
   ];
 
   return (
@@ -242,24 +268,33 @@ export function Receipt({
               label="Date"
               value={dateFmt.format(new Date(purchase.createdAt))}
             />
-            <Row
-              label="Subtotal (excl. GST)"
-              value={`₹${gstBreakdown(purchase.amountINR).base.toFixed(2)}`}
-            />
-            <Row
-              label="GST (18%)"
-              value={`₹${gstBreakdown(purchase.amountINR).gst.toFixed(2)}`}
-            />
-            <Row
-              label="Amount paid"
-              value={`₹${purchase.amountINR.toFixed(2)}`}
-            />
+            {purchase.amountINR !== undefined ? (
+              <>
+                <Row
+                  label="Subtotal (excl. GST)"
+                  value={`₹${gstBreakdown(purchase.amountINR).base.toFixed(2)}`}
+                />
+                <Row
+                  label="GST (18%)"
+                  value={`₹${gstBreakdown(purchase.amountINR).gst.toFixed(2)}`}
+                />
+                <Row
+                  label="Amount paid"
+                  value={`₹${purchase.amountINR.toFixed(2)}`}
+                />
+              </>
+            ) : (
+              <Row
+                label="Amount paid"
+                value={`$${(purchase.amountUSD ?? 0).toFixed(2)}`}
+              />
+            )}
             <Row
               label="Credits added"
               value={`$${purchase.creditsUSD.toFixed(2)}`}
             />
             <Row label="Method" value={METHOD_LABELS[purchase.method]} />
-            <Row label="Status" value="Paid" />
+            <Row label="Status" value={STATUS_LABELS[purchase.status]} />
           </div>
 
           <p

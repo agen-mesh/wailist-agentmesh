@@ -434,10 +434,10 @@ export default function BillingPage() {
                   </p>
                 </div>
 
-                {lastPurchase && (
+                {lastPurchase?.amountINR !== undefined && (
                   <button
                     type="button"
-                    onClick={() => openCheckoutFor(lastPurchase.amountINR)}
+                    onClick={() => openCheckoutFor(lastPurchase.amountINR!)}
                     style={{
                       width: "100%",
                       height: 36,

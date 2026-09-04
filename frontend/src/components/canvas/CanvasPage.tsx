@@ -16,6 +16,7 @@ import {
   useCredits,
   refreshBalance as refreshCredits,
 } from "@/lib/credits/store";
+import { LOW_BALANCE_THRESHOLD_USD } from "@/lib/credits/fx";
 import { CanvasGraph } from "./CanvasGraph";
 import { PalettePanel } from "./PalettePanel";
 import { Inspector } from "./Inspector";
@@ -987,10 +988,10 @@ function CanvasTopbar({
   // Wallet balance is global (not per-node), so it lives in the topbar's
   // financial cluster. The value comes from the backend (the same row the
   // engine debits), so it is only meaningful once that fetch has landed —
-  // hence balanceKnown rather than the localStorage `hydrated` flag.
-  const { balanceUSD, autoRecharge, balanceKnown, refreshBalance } =
+  // hence balanceKnown, which separates a real $0 from "not asked yet".
+  const { balanceUSD, balanceKnown, refreshBalance } =
     useCredits();
-  const lowBalance = balanceKnown && balanceUSD < autoRecharge.thresholdUSD;
+  const lowBalance = balanceKnown && balanceUSD < LOW_BALANCE_THRESHOLD_USD;
 
   useEffect(() => {
     void refreshBalance();
