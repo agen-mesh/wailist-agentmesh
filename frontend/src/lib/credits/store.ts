@@ -151,16 +151,29 @@ function toPurchase(r: PurchaseRecord): Purchase {
 // empty state only once the server has actually answered.
 let purchasesKnown = false;
 
+// purchasesFailed is the third state the pair above cannot express: not
+// "loading", not "answered", but "we asked and could not find out". The UI
+// needs it to offer a retry rather than silently showing an empty page.
+let purchasesFailed = false;
+
 // refreshPurchases re-reads top-up history. Call it on mount and after
 // anything that creates or settles a payment.
 export async function refreshPurchases(): Promise<void> {
   try {
     const rows = await creditsApi.purchases();
+    purchasesFailed = false;
     purchasesKnown = true;
     commit((prev) => ({ ...prev, purchases: rows.map(toPurchase) }));
   } catch {
     // Leave the last known list in place; a failed poll is not evidence the
     // history changed, and blanking it would look like receipts disappeared.
+    //
+    // But record the failure. Without it a first fetch that fails leaves
+    // purchasesKnown false forever, and a panel that waits on it renders
+    // nothing at all -- no heading, no error, no retry -- so a backend blip
+    // looks identical to an account that has never paid.
+    purchasesFailed = true;
+    listeners.forEach((l) => l());
   }
 }
 
@@ -182,6 +195,21 @@ export async function refreshBalance(): Promise<void> {
   }
 }
 
+// resetCredits drops everything this module holds. It MUST run on sign-out.
+//
+// state, balanceKnown and purchasesKnown are module singletons that outlive a
+// client-side route change, so without this a second account signing in in the
+// same tab renders the first account's balance and purchase rows — with
+// purchasesKnown already true, so they show as settled fact — until the new
+// fetch resolves. That is the same cross-account leak this module removed from
+// localStorage, moved into memory and shortened to one round-trip.
+export function resetCredits(): void {
+  balanceKnown = false;
+  purchasesKnown = false;
+  purchasesFailed = false;
+  commit(() => DEFAULT_STATE);
+}
+
 // recordPurchase is called after a payment the client believes succeeded. It
 // writes nothing locally — credit_ledger is the record, and the webhook or the
 // verify call is what settles the row. This just re-reads both server-owned
@@ -197,6 +225,7 @@ export async function recordPurchase(): Promise<void> {
 export interface CreditsSnapshot extends CreditsState {
   balanceKnown: boolean;
   purchasesKnown: boolean;
+  purchasesFailed: boolean;
   refreshBalance: typeof refreshBalance;
   refreshPurchases: typeof refreshPurchases;
   lastPurchase: Purchase | undefined;
@@ -219,10 +248,16 @@ export function useCredits(): CreditsSnapshot {
     () => purchasesKnown,
     () => false,
   );
+  const purchasesErrored = useSyncExternalStore(
+    subscribe,
+    () => purchasesFailed,
+    () => false,
+  );
   return {
     ...snapshot,
     balanceKnown: known,
     purchasesKnown: purchasesLoaded,
+    purchasesFailed: purchasesErrored,
     refreshBalance,
     refreshPurchases,
     // "Repeat last top-up" needs an amount to repeat, so the most recent

@@ -194,3 +194,43 @@ describe("lastPurchase", () => {
     expect(last?.id).toBe("inr");
   });
 });
+
+describe("resetCredits", () => {
+  // The leak this whole change removes from localStorage also exists in
+  // memory: module state outlives a client-side route change, so signing in
+  // as a second account in the same tab would show the first one's money.
+  it("drops balance, history and the known flags", async () => {
+    purchasesMock.mockResolvedValue([ledgerRow()]);
+    balanceMock.mockResolvedValue(42);
+    const { refreshPurchases, refreshBalance, resetCredits, readCredits } =
+      await freshStore();
+    await refreshPurchases();
+    await refreshBalance();
+    expect(readCredits().purchases).toHaveLength(1);
+    expect(readCredits().balanceUSD).toBe(42);
+
+    resetCredits();
+
+    expect(readCredits().purchases).toEqual([]);
+    expect(readCredits().balanceUSD).toBe(0);
+  });
+});
+
+describe("refreshPurchases failure handling", () => {
+  // A first fetch that fails used to leave purchasesKnown false forever, so a
+  // panel gated on it rendered nothing at all -- a backend blip looked exactly
+  // like an account that had never paid.
+  it("flags the failure so the UI can distinguish it from an empty account", async () => {
+    purchasesMock.mockRejectedValueOnce(new Error("offline"));
+    const store = await freshStore();
+    await store.refreshPurchases();
+
+    // Nothing loaded, but the store can now say why.
+    expect(store.readCredits().purchases).toEqual([]);
+
+    // And a later success clears the flag.
+    purchasesMock.mockResolvedValueOnce([ledgerRow()]);
+    await store.refreshPurchases();
+    expect(store.readCredits().purchases).toHaveLength(1);
+  });
+});

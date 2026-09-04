@@ -300,9 +300,15 @@ func (d *Deps) UsageByEndpoint(w http.ResponseWriter, r *http.Request) {
 }
 
 // maxSettlementsLimit bounds ?limit= on the settlements endpoint. Without a
-// ceiling, one authenticated request could pass a limit large enough to both
-// allocate the result slice up front and drive a LIMIT that large through the
-// run_logs -> runs -> workflows join, which is enough to OOM the process.
+// ceiling, one authenticated request could pass a limit large enough that
+// allocating the result slice up front exhausts memory.
+//
+// It bounds the rows returned, NOT the work done to find them: ListSettlements
+// must de-duplicate a run-funded run's repeated tx id before any limit can
+// apply, so it reads and sorts every settlement receipt the user owns whatever
+// this is set to. Migration 000032 indexes that path; keeping the read itself
+// proportional to the page size would need a different query shape (a windowed
+// scan over a bounded time range).
 const maxSettlementsLimit = 200
 
 // UsageSettlements reports real on-chain payments, from two user-scoped

@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { auth, AuthUser } from "@/lib/api";
 import { IS_NATIVE, setAuthToken, authReady } from "@/lib/nativeAuth";
+import { resetCredits } from "@/lib/credits/store";
 
 const UI_COOKIE = "agentmesh_ui";
 const TTL = 60 * 60 * 24 * 7; // 7 days -- matches backend JWT TTL
@@ -86,6 +87,11 @@ export function useAuth() {
         .catch((err) => console.error("native shell failed to clear sign-out", err));
     }
     clearUICookie();
+    // Balance and purchase history are module singletons that survive a
+    // client-side route change, so they have to be dropped explicitly here --
+    // otherwise the next account to sign in in this tab sees the previous
+    // one's money until its own fetch lands.
+    resetCredits();
     setSignedIn(false);
     setUser(null);
   }, []);
