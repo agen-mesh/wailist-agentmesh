@@ -547,6 +547,11 @@ body {
    custom property redefined at :root can. */
 :root {
   --wf-page-pad: 36px 24px 80px;
+  /* Hero figures. Overridden smaller on a phone; see the 768 block. */
+  --wf-row-pad: 14px 16px;
+  --wf-row-gap: 12px;
+  --wf-balance-size: 28px;
+  --us-figure-size: 40px;
   --wf-h1: 36px;
   --wf-kpi-cols: repeat(4, 1fr);
   --wf-card-cols: repeat(3, 1fr);
@@ -591,7 +596,32 @@ body {
     --wf-kpi-cols: repeat(2, 1fr);
     --wf-card-cols: minmax(0, 1fr);
     /* Two even columns: the row stops being a table and becomes a card. */
-    --wf-row-cols: minmax(0, 1fr) minmax(0, 1fr);
+    /* Three, not two. Two columns left five stacked lines per card; three
+       fits (the widest value is the 85px status pill) and removes a whole
+       line from every row. */
+    --wf-row-cols: repeat(3, minmax(0, 1fr));
+
+    /* ── Density ───────────────────────────────────────────────────────────
+       The app used to shrink type in exactly two places, so a phone rendered
+       what is really desktop sizing: a workflow row came out ~246px tall and
+       three of them filled the screen. Spacing is supposed to scale DOWN with
+       the viewport, not stay put -- an 8pt-grid layout drops a 32px desktop
+       margin to 16px on a phone rather than keeping it.
+
+       This is the step that was missing: everything jumped straight from
+       desktop values to the ≤520 block. Padding and type only; nothing a thumb
+       aims at is touched, because density and tap-safety pull against each
+       other and tap-safety wins. */
+    --wf-page-pad: 20px 16px 56px;
+    --wf-h1: 26px;
+    /* The two loudest single elements on their screens. 28/40px is a desktop
+       hero figure; on a 343px column it is most of a card. */
+    --wf-row-pad: 10px 12px;
+    /* 10, not 8: eight read as clamped against the 9px captions once the
+       cells went to three columns. Still well under the 12 desktop uses. */
+    --wf-row-gap: 10px;
+    --wf-balance-size: 22px;
+    --us-figure-size: 28px;
   }
   .wf-header {
     flex-direction: column;
@@ -616,7 +646,8 @@ body {
      !important); each metric grows a caption from its data-label. */
   .wf-row {
     align-items: start;
-    row-gap: 12px;
+    /* 12 -> 8: five gaps per card, so this alone is 20px off every row. */
+    row-gap: 8px;
   }
   .wf-row > *:first-child,
   .wf-row > *:last-child {
@@ -625,10 +656,37 @@ body {
   .wf-row-actions {
     justify-content: flex-start;
   }
+  /* The caption has to sit ABOVE the value, which means the cell has to stack.
+     Most cells are blocks and did; the Status cell is a flex row (it centres a
+     Pill), so its ::before became a sibling flex item BESIDE the pill instead
+     of a line above it. That left Status 13px shorter than Agents beside it and
+     starting 6px lower -- the misalignment visible on the badge.
+
+     align-items matters as much as the direction: stretch is the flex default,
+     and it would run the Pill the full width of the column. */
+  .wf-row > [data-label] {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  /* And the cells have to hang from a common top edge.
+     `.wf-row { align-items: start }` above has never actually applied: the row
+     sets `alignItems: "center"` as an INLINE style, which beats any stylesheet
+     rule, so the cells were centred against each other and a taller cell (the
+     22px Pill vs 18px text) pushed its neighbour down by half the difference.
+     That is the last 2px of the badge misalignment.
+     `align-self` on the child wins where `align-items` on the parent cannot,
+     because the inline style does not set it -- and it needs no !important,
+     which the comment above resorts to for the header row. */
+  .wf-row > * {
+    align-self: start;
+  }
   .wf-row > [data-label]::before {
     content: attr(data-label);
     display: block;
-    margin-bottom: 3px;
+    /* 4, not 3: the caption is 9px and the value is 12-14px, so three pixels
+       between them let the two run together at a glance. */
+    margin-bottom: 4px;
     font-family: var(--font-mono);
     font-size: 9px;
     text-transform: uppercase;
@@ -639,8 +697,11 @@ body {
 
 @media (max-width: 520px) {
   :root {
-    --wf-page-pad: 24px 16px 64px;
-    --wf-h1: 28px;
+    /* Tighter again, not looser: this block sits AFTER the 768 one, so a
+       larger value here would silently undo it. */
+    --wf-page-pad: 16px 14px 48px;
+    /* Below the 768 step, not above it -- this block wins on a phone. */
+    --wf-h1: 24px;
     --wf-cardmeta-cols: repeat(2, 1fr);
   }
 }
@@ -652,10 +713,29 @@ body {
    horizontal scroll — it is nine columns wide and already self-contained. */
 :root {
   --us-settle-cols: minmax(0, 1.9fr) minmax(0, 1.15fr) 140px 114px 108px;
+  /* The width below which the settlements table scrolls sideways rather than
+     squeezing, and the headspace above the page header. Both collapse on a
+     phone -- see the 768 block. */
+  --us-settle-minw: 720px;
+  --us-headspace: 60px;
 }
 @media (max-width: 768px) {
   :root {
-    --us-settle-cols: minmax(0, 1fr) minmax(0, 1fr);
+    /* The <=768 collapse that lived here has been REMOVED, and measuring is
+       why. It had never applied (UsagePage hardcoded the same string and won),
+       so wiring the property up was the first time anyone saw what it does:
+       five fields in two columns wrap to three lines, taking a settlement row
+       from ~36px to 101px. Six rows then cost 833px -- more than all eighteen
+       did while scrolling sideways.
+
+       So the rule was not merely dead, it was wrong. The compact table stays,
+       and the length is cut by showing six rows with a "Show all" instead.
+       Sideways scroll is the right pattern for dense comparison data; it is
+       the vertical length that was the actual complaint. */
+    --us-headspace: 0px;
+    /* 210 -> 150: a quarter of a phone screen back, and the chart still
+       reads because preserveAspectRatio has always been none. */
+    --us-chart-h: 150px;
   }
 }
 
@@ -739,16 +819,24 @@ body {
   --nav-h: 56px;
 }
 
+/* The bar is --nav-h tall, and then sits below the status bar rather than under
+   it. From Android 15 the WebView draws edge to edge (see layout.tsx), so the
+   shell has to reserve --safe-top on top of its own height and paint its
+   background up through it -- otherwise the brand and the actions render behind
+   the clock. `box-sizing: border-box` is global, so the padding comes out of the
+   grown height and the bar row keeps its full --nav-h. --safe-top resolves to
+   0px on a desktop browser, where every calc() here collapses to the old value. */
 .appnav {
   position: relative;
-  height: var(--nav-h);
+  height: calc(var(--nav-h) + var(--safe-top));
   flex-shrink: 0;
   z-index: 60;
 }
 .appnav__shell {
   position: relative;
   z-index: 2;
-  height: var(--nav-h);
+  height: calc(var(--nav-h) + var(--safe-top));
+  padding-top: var(--safe-top);
   background: var(--bg-elev-1);
   border-bottom: 1px solid var(--border);
 }
@@ -797,9 +885,94 @@ body {
   color: var(--fg);
 }
 
+/* ── Bottom navigation (handheld) ───────────────────────────────────────────
+   Mounted by components/nav/BottomNav.tsx, which decides when it appears. It is
+   fixed rather than in flow because the app pages are 100dvh shells with their
+   own scroll areas; `body[data-bottomnav]` below gives back the space it covers
+   so the last row of a list is never sitting underneath it. */
+.bottomnav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  background: var(--bg-elev-1);
+  border-top: 1px solid var(--border);
+}
+
+.bottomnav__item {
+  /* 56px is the bar; the icon and label centre inside it. Each item is a
+     quarter of the viewport wide, so the target clears 44px on both axes with
+     room to spare. */
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 4px;
+  text-decoration: none;
+  color: var(--fg-dim);
+  transition:
+    color 0.12s var(--ease),
+    transform 0.12s var(--ease);
+}
+
+.bottomnav__item[data-active] {
+  color: var(--accent);
+}
+
+.bottomnav__item:hover {
+  color: var(--fg);
+}
+.bottomnav__item[data-active]:hover {
+  color: var(--accent);
+}
+
+/* Physical acknowledgement of the press, per the app's motion rules. Scaling
+   the whole item rather than the icon keeps the label and glyph together. */
+.bottomnav__item:active {
+  transform: scale(0.97);
+}
+
+.bottomnav__label {
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+
+/* The bar covers the bottom 56px plus whatever the home indicator claims, so
+   the shell gives that back as padding. Set on <body> by the component, which
+   removes it again the moment the bar is not showing. */
+body[data-bottomnav] .am-viewport,
+body[data-bottomnav] .am-viewport-min {
+  padding-bottom: calc(56px + var(--safe-bottom));
+}
+
+/* Two navigations for the same four routes is one too many. While the bottom
+   bar is up, the hamburger goes away; on a detail screen the bottom bar hides
+   and the hamburger comes back, so there is never a screen with no way out.
+   Driven off the same attribute the bar sets, so the two cannot disagree. */
+body[data-bottomnav] .appnav__trigger {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bottomnav__item {
+    transition: none;
+  }
+  .bottomnav__item:active {
+    transform: none;
+  }
+}
+
 .appnav__sheet {
   position: fixed;
-  top: var(--nav-h);
+  /* Below the whole bar, inset included, or the sheet starts underneath it. */
+  top: calc(var(--nav-h) + var(--safe-top));
   left: 0;
   right: 0;
   bottom: 0;

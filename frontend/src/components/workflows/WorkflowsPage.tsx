@@ -11,6 +11,8 @@ import {
   ghostBtnSm,
 } from "@/components/ui";
 import { Topbar } from "@/components/Topbar";
+import { PullToRefresh } from "@/components/PullToRefresh";
+import { WorkflowListSkeleton } from "@/components/ui/Skeleton";
 import { Workflow } from "@/lib/types";
 import { workflows as workflowsApi } from "@/lib/api";
 import { useCredits } from "@/lib/credits/store";
@@ -48,13 +50,29 @@ export function WorkflowsPage() {
   } | null>(null);
   const { balanceUSD, balanceKnown, refreshBalance } = useCredits();
 
+  // Extracted from the mount effect so pull-to-refresh can run the same fetch
+  // rather than a second copy of it that could drift.
+  const reload = useCallback(
+    () =>
+      workflowsApi
+        .list()
+        .then(setWfList)
+        .catch(() => setWfList([]))
+        .finally(() => setLoading(false)),
+    [],
+  );
+
   useEffect(() => {
-    workflowsApi
-      .list()
-      .then(setWfList)
-      .catch(() => setWfList([]))
-      .finally(() => setLoading(false));
-  }, []);
+    void reload();
+  }, [reload]);
+
+  // What the pull gesture runs. The balance goes with it: the two are read
+  // together on mount for the same reason, and a refresh that updated the list
+  // while leaving a stale figure above it would look like a bug.
+  const refreshAll = useCallback(
+    () => Promise.all([reload(), refreshBalance()]),
+    [reload, refreshBalance],
+  );
 
   // Same authoritative balance the engine spends against, re-read on mount so
   // this page never shows a figure left over from before the last run.
@@ -232,8 +250,13 @@ export function WorkflowsPage() {
     >
       <Topbar />
 
-      {/* Main */}
-      <div style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>
+      {/* Main. PullToRefresh owns the scrolling, because the gesture has to
+          know the scroll position to tell a pull from an ordinary drag. On
+          desktop it is a plain overflow container and adds no listeners. */}
+      <PullToRefresh
+        onRefresh={refreshAll}
+        style={{ flex: 1, minHeight: 0, background: "var(--bg)" }}
+      >
         <div
           style={{
             maxWidth: 1280,
@@ -351,7 +374,9 @@ export function WorkflowsPage() {
               <div
                 style={{
                   marginTop: 8,
-                  fontSize: 28,
+                  // Token, not a literal: the phone step shrinks it. This is
+                  // the largest single element on the screen at 375px.
+                  fontSize: "var(--wf-balance-size)",
                   fontWeight: 500,
                   letterSpacing: "-0.02em",
                   fontFamily: "var(--font-mono)",
@@ -497,17 +522,7 @@ export function WorkflowsPage() {
 
           {/* List */}
           {loading ? (
-            <div
-              style={{
-                padding: 48,
-                textAlign: "center",
-                color: "var(--fg-dim)",
-                fontFamily: "var(--font-mono)",
-                fontSize: 12,
-              }}
-            >
-              loading workflows…
-            </div>
+            <WorkflowListSkeleton />
           ) : view === "rows" ? (
             <WorkflowRows
               items={filtered}
@@ -541,7 +556,7 @@ export function WorkflowsPage() {
             </div>
           )}
         </div>
-      </div>
+      </PullToRefresh>
     </div>
   );
 }
@@ -1274,8 +1289,16 @@ function WorkflowRows({
           style={{
             display: "grid",
             gridTemplateColumns: "var(--wf-row-cols)",
-            gap: 12,
-            padding: "14px 16px",
+            // Tokenised for the same reason as the padding: an inline value
+            // beats the stylesheet, so a media query could never have reached
+            // it. There are five gaps per card on a phone.
+            // Fallbacks are not decoration. `var(--x)` with no fallback and no
+            // definition resolves to nothing, and `padding: <nothing>` collapses to
+            // ZERO -- the card goes from spacious to clamped with no error anywhere.
+            // The desktop values are the fallback, so the worst case is desktop
+            // spacing on a phone rather than none at all.
+            gap: "var(--wf-row-gap, 12px)",
+            padding: "var(--wf-row-pad, 14px 16px)",
             alignItems: "center",
             borderBottom:
               i < items.length - 1 ? "1px solid var(--border-soft)" : "none",

@@ -15,6 +15,7 @@ import {
 } from "@/lib/types";
 import { AreaChart } from "./AreaChart";
 import { Donut, DonutSegment } from "./Donut";
+import { useIsHandheld } from "@/hooks/useIsHandheld";
 
 const RANGES: UsageRange[] = ["24h", "7d", "30d"];
 
@@ -298,6 +299,20 @@ function UsageBody({
   // sign-out and did not follow the user to another device, even though the
   // receipts were in the database the whole time.
   const [settlements, setSettlements] = useState<Settlement[]>([]);
+  // How many settlements are shown before "Show all".
+  //
+  // On a phone the table stacks into cards rather than scrolling sideways, and
+  // 18 stacked cards is roughly a screen and a half of a list nobody scrolls to
+  // the end of. Six is enough to see the shape of recent activity, which is
+  // what this card is for; the rest are one tap away. Progressive disclosure is
+  // the standard answer to a long table on a small screen.
+  //
+  // Desktop is unaffected: it keeps its five-column table and shows all 18.
+  const handheld = useIsHandheld();
+  const [showAllSettlements, setShowAllSettlements] = useState(false);
+  const settlementCap =
+    handheld && !showAllSettlements ? 6 : settlements.length;
+  const visibleSettlements = settlements.slice(0, settlementCap);
   useEffect(() => {
     let stale = false;
     usageApi
@@ -352,7 +367,9 @@ function UsageBody({
           alignItems: "flex-end",
           gap: 16,
           flexWrap: "wrap",
-          paddingTop: 60,
+          // Unconditional 60px of headspace, which on a 812px phone is 7% of
+          // the screen spent on nothing. Tokenised so the phone step drops it.
+          paddingTop: "var(--us-headspace)",
           marginBottom: 12,
         }}
       >
@@ -439,7 +456,8 @@ function UsageBody({
                 >
                   <span
                     style={{
-                      fontSize: 40,
+                      // Token, not a literal: see the 768 block in globals.css.
+                      fontSize: "var(--us-figure-size)",
                       fontWeight: 500,
                       lineHeight: 1,
                       letterSpacing: "-0.02em",
@@ -696,7 +714,7 @@ function UsageBody({
         <div className="am-usage-table">
           <div
             style={{
-              minWidth: 720,
+              minWidth: "var(--us-settle-minw)",
               display: "grid",
               gridTemplateColumns: SETTLE_GRID,
               gap: 14,
@@ -713,8 +731,8 @@ function UsageBody({
             <span style={{ ...hcell, textAlign: "right" }}>Amount</span>
             <span style={{ ...hcell, textAlign: "right" }}>Time</span>
           </div>
-          <div style={{ minWidth: 720, padding: "2px 0" }}>
-            {settlements.map((s, i) => (
+          <div style={{ minWidth: "var(--us-settle-minw)", padding: "2px 0" }}>
+            {visibleSettlements.map((s, i) => (
               <div
                 key={s.txId}
                 style={{
@@ -724,7 +742,7 @@ function UsageBody({
                   alignItems: "center",
                   padding: "11px 10px",
                   borderBottom:
-                    i < settlements.length - 1
+                    i < visibleSettlements.length - 1
                       ? "1px solid var(--border-soft)"
                       : "none",
                   fontFamily: "var(--font-mono)",
@@ -775,6 +793,25 @@ function UsageBody({
               </div>
             ))}
           </div>
+          {/* Only when there is something hidden, and only where it was hidden.
+              Says how many rather than just "more", so the tap is an informed
+              one. */}
+          {settlements.length > visibleSettlements.length && (
+            <button
+              type="button"
+              onClick={() => setShowAllSettlements(true)}
+              style={{
+                ...ghostBtnSm,
+                width: "100%",
+                // ghostBtnSm is 28px, which is a pointer size. This one is
+                // tapped, so it takes the 44px floor.
+                minHeight: 44,
+                marginTop: 8,
+              }}
+            >
+              Show all {settlements.length} settlements
+            </button>
+          )}
         </div>
       </Card>
 
@@ -818,7 +855,11 @@ const ASC_FIRST: readonly SortKey[] = ["endpoint", "type"];
 
 // Unit price gets 120px so "26*/1M" fits on one line (cell is nowrap).
 const EP_GRID = "1.9fr 1.15fr 66px 66px 120px 108px 116px 78px 92px";
-const SETTLE_GRID = "minmax(0,1.9fr) minmax(0,1.15fr) 140px 114px 108px"; // Endpoint · Hash · Workflow · Amount · Time
+// Reads the custom property rather than repeating its value. globals.css has
+// carried a <=768px collapse for --us-settle-cols since it was written, and it
+// has never once applied, because this constant hardcoded the same string and
+// won. Endpoint · Hash · Workflow · Amount · Time.
+const SETTLE_GRID = "var(--us-settle-cols)";
 
 function EndpointTable({
   rows,

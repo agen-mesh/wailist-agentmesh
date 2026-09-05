@@ -142,8 +142,7 @@ export default function BillingPage() {
       : 0
     : amountINR;
   const overMax = effectiveINR > MAX_INR;
-  const checkoutAmountINR =
-    effectiveINR >= 1 && !overMax ? effectiveINR : 0;
+  const checkoutAmountINR = effectiveINR >= 1 && !overMax ? effectiveINR : 0;
   const canCheckout = checkoutAmountINR > 0;
   const credits = creditsForTopup(checkoutAmountINR);
   // Only call a balance "low" once we've actually read it — before the first
@@ -466,6 +465,15 @@ export default function BillingPage() {
                       }}
                       style={{
                         flex: 1,
+                        // A flex item's min-width defaults to `auto`, which for
+                        // an input is its intrinsic size -- so `flex: 1` could
+                        // grow it but never shrink it below that floor. The
+                        // "≈ $x credits" hint beside it is nowrap and cannot
+                        // shrink either, so on a 375px screen the row overflowed
+                        // its own border by ~69px and the hint was cut off.
+                        // This is the property that exists to say "yes, you may
+                        // shrink".
+                        minWidth: 0,
                         height: "100%",
                         background: "transparent",
                         border: "none",
