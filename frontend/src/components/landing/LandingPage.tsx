@@ -1025,6 +1025,9 @@ function LandingFooter() {
           <a href="/terms" style={linkStyle}>
             Terms &amp; Conditions
           </a>
+          <a href="/privacy" style={linkStyle}>
+            Privacy Policy
+          </a>
           <a href="/refund-policy" style={linkStyle}>
             Refund Policy
           </a>

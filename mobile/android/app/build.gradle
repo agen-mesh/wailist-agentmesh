@@ -1,5 +1,12 @@
 apply plugin: 'com.android.application'
 
+// Resolved before the android block so the coercion is a plain statement.
+// Written inline as `versionCode (findProperty(..) ?: 1) as Integer` it parses
+// as `(versionCode(..)) as Integer` -- the setter is called first, returns
+// null, and the cast then fails with "Value is null". Groovy, not Gradle.
+def agentmeshVersionCode = (project.findProperty("agentmeshVersionCode") ?: "1") as Integer
+def agentmeshVersionName = (project.findProperty("agentmeshVersionName") ?: "0.0.0-dev").toString()
+
 android {
     namespace "ai.agentmesh.app"
     compileSdk rootProject.ext.compileSdkVersion
@@ -7,8 +14,22 @@ android {
         applicationId "ai.agentmesh.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // Supplied by android.yml from the release tag; the defaults below
+        // are what a local build gets.
+        //
+        // These used to be hardcoded 1 / "1.0", which had two problems. Play
+        // refuses any upload whose versionCode is not strictly GREATER than
+        // the last one accepted, so a fixed 1 makes the first upload work and
+        // the second impossible -- unless somebody remembers to hand-edit this
+        // file before every release, which is exactly the step that gets
+        // forgotten once. And "1.0" contradicted the tag that produced the
+        // build: android-v0.0.1 shipped an APK calling itself 1.0.
+        //
+        // The default versionName is deliberately "0.0.0-dev" rather than a
+        // plausible-looking "1.0". A local build is not a release, and it
+        // should not be able to masquerade as one in a bug report.
+        versionCode agentmeshVersionCode
+        versionName agentmeshVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

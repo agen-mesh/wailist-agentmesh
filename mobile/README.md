@@ -136,3 +136,68 @@ production submission. Expect at least one resubmit on the background-location
 review.
 
 Keystores are never committed; signing material comes from CI secrets.
+
+### The version comes from the tag
+
+`versionCode` and `versionName` are derived in `android.yml` from the release
+tag: `android-v1.2.3` gives `versionName 1.2.3` and `versionCode 10203`, as
+`major*10000 + minor*100 + patch`.
+
+Computed from the version rather than from `github.run_number`, so it is a pure
+function of the tag: re-running a build, or rebuilding after an infrastructure
+failure, produces the identical `versionCode` instead of burning a number Play
+would then refuse to reuse. The scheme caps minor and patch at 99, so the
+workflow **fails** on a tag that exceeds it rather than silently emitting a
+colliding code, and on a malformed tag rather than guessing.
+
+A `workflow_dispatch` run has no tag and falls through to the `build.gradle`
+defaults, `1` / `0.0.0-dev`. A local build is not a release and should not be
+able to look like one in a bug report.
+
+### Release prerequisites
+
+Everything below needs a human, and most of it needs a human with Play Console
+access. None of it can be done from inside this repository.
+
+> **Back up the keystore, outside this repository.** It exists in one place:
+> the `ANDROID_KEYSTORE_BASE64` secret, which GitHub will not show you again.
+> If it is lost the app can never be updated under the same Play listing. Not
+> "with difficulty": the listing is frozen, and you would publish a new app
+> under a new package name and ask every user to reinstall. Put the `.jks` and
+> its three passwords in a password manager and somewhere offline.
+
+**Upload the `.aab`, not the APK.** Only the APK is attached to the GitHub
+Release; the bundle is in the workflow run's artifacts (`agentmesh-release-aab`,
+**7-day retention**). If it has expired, re-run the workflow or cut a new tag.
+Publishing is deliberately manual: a release should be a decision somebody
+makes, not a side effect of pushing a tag.
+
+**Privacy policy URL.** Mandatory once background location is declared, and
+Play checks that it resolves: `https://www.agent-mesh.app/privacy`. The page is
+`frontend/src/app/privacy/page.tsx`, drafted from what the app actually does.
+It is a binding document and Play will hold you to it, so have someone
+qualified read it before the listing goes live.
+
+**Data Safety form.** Must match behaviour or the submission is rejected, and
+being caught overstating is worse than a slow review. Grounded in the code:
+location is collected (approximate and precise), **not** shared with third
+parties, and **not stored on our servers**. Migration `000029` keeps only the
+derived `geofence_inside` boolean and a timestamp, never coordinates. It is
+processed ephemerally, is not required to use the app, and clearing the zone
+removes the stored state. One nuance to declare rather than hide: undelivered
+fixes are held **on the device** while offline and deleted once sent or within
+a day (`frontend/src/native/queue.ts`).
+
+**Background-location declaration.** A dedicated Google review, separate from
+the normal one. They want a written justification and **a short video** showing
+the in-app disclosure appearing _before_ the system dialog, and the app already
+does this (`frontend/src/native/permissions.ts`), and it is the single biggest
+factor in these reviews. Budget calendar time, not engineering time: one to
+three weeks, and rejections are more often about the video than the app.
+
+**Store listing.** Phone screenshots at minimum, short and full descriptions,
+icon, feature graphic, content rating questionnaire.
+
+What still cannot be verified here: that the `.aab` installs from the
+internal-testing track on a real device. That needs hardware, and belongs to
+the deferred device-verification issue.

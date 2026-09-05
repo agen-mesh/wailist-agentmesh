@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 const EFFECTIVE = "28 July 2026";
 const COMPANY = "AgentMesh";
-const CONTACT = "legal@agentmesh.ai";
+const CONTACT = "legal@agent-mesh.app";
 
 export default function RefundPolicyPage() {
   return (

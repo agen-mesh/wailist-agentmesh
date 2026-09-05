@@ -72,6 +72,46 @@ jobs:
           fi
           echo "$KEYSTORE_BASE64" | base64 -d > mobile/android/release.keystore
 
+      # versionCode must increase on every Play upload, and versionName should
+      # match the tag that produced the build. Both are derived here rather
+      # than committed, so a release needs no file edit and cannot be shipped
+      # with a stale number.
+      #
+      # The code is computed from the version rather than from github.run_number
+      # so it is a pure function of the tag: re-running a build, or rebuilding
+      # the same tag after an infrastructure failure, produces the identical
+      # versionCode instead of silently burning a number Play will then refuse
+      # to reuse.
+      #
+      # major*10000 + minor*100 + patch. That caps minor and patch at 99, which
+      # is a real limit and worth knowing: 1.2.3 -> 10203. Play's own ceiling is
+      # 2100000000, so this scheme has room for major versions into the tens of
+      # thousands.
+      #
+      # A workflow_dispatch run has no tag; it falls through to the defaults in
+      # app/build.gradle (1 / "0.0.0-dev"), which is correct because a dispatch
+      # build is for testing the pipeline and must not look like a release.
+      - name: Derive the version from the tag
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" != refs/tags/android-v* ]]; then
+            echo "No release tag; leaving the build.gradle defaults in place."
+            exit 0
+          fi
+          version="${GITHUB_REF_NAME#android-v}"
+          if [[ ! "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::Tag '$GITHUB_REF_NAME' is not android-v<major>.<minor>.<patch>; refusing to guess a versionCode." >&2
+            exit 1
+          fi
+          major="${BASH_REMATCH[1]}"; minor="${BASH_REMATCH[2]}"; patch="${BASH_REMATCH[3]}"
+          if (( minor > 99 || patch > 99 )); then
+            echo "::error::minor and patch must each be <= 99 for this versionCode scheme (got $version)." >&2
+            exit 1
+          fi
+          echo "name=$version" >> "$GITHUB_OUTPUT"
+          echo "code=$(( major * 10000 + minor * 100 + patch ))" >> "$GITHUB_OUTPUT"
+          echo "Building $version as versionCode $(( major * 10000 + minor * 100 + patch ))"
+
       - name: Build the release bundle and APK
         working-directory: mobile/android
         env:
@@ -81,7 +121,19 @@ jobs:
         # bundleRelease (.aab) is what Play wants; assembleRelease (.apk) is
         # what a sideload install wants. Same signing config, both cheap off
         # one already-configured keystore, so build both every run.
-        run: ./gradlew bundleRelease assembleRelease
+        # The properties are omitted entirely on a dispatch run, so Gradle
+        # falls back to the defaults rather than being handed empty strings.
+        #
+        # An array rather than a string: unquoted $args would rely on word
+        # splitting to become two arguments, which happens to work for digits
+        # and dotted versions but is one odd character away from not.
+        run: |
+          args=()
+          if [ -n "${{ steps.version.outputs.code }}" ]; then
+            args+=("-PagentmeshVersionCode=${{ steps.version.outputs.code }}")
+            args+=("-PagentmeshVersionName=${{ steps.version.outputs.name }}")
+          fi
+          ./gradlew bundleRelease assembleRelease "${args[@]}"
 
       - uses: actions/upload-artifact@v4
         with:

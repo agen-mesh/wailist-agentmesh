@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 const EFFECTIVE = "28 July 2026";
 const COMPANY = "AgentMesh";
-const CONTACT = "legal@agentmesh.ai";
+const CONTACT = "legal@agent-mesh.app";
 
 export default function TermsPage() {
   return (
@@ -114,6 +114,9 @@ export default function TermsPage() {
             flexWrap: "wrap",
           }}
         >
+          <Link href="/privacy" style={linkStyle}>
+            Privacy Policy →
+          </Link>
           <Link href="/refund-policy" style={linkStyle}>
             Cancellation &amp; Refund Policy →
           </Link>
