@@ -12,6 +12,25 @@ const config: CapacitorConfig = {
   appName: "AgentMesh",
   webDir: "www",
 
+  // android.webContentsDebuggingEnabled is deliberately NOT set here, and it
+  // should stay that way.
+  //
+  // It looks like the obvious hardening -- set it false and a release build
+  // cannot be inspected. It is not. Capacitor already defaults the value to
+  // whether the app is debuggable (CapConfig reads FLAG_DEBUGGABLE), so the
+  // behaviour we want is what happens with the key absent: debug builds are
+  // inspectable, release builds are not.
+  //
+  // Setting it FALSE would apply to both, taking chrome://inspect away from
+  // developers for no security gain -- release was already closed. Setting it
+  // TRUE ships a release build whose WebView, network traffic and storage are
+  // readable by anyone with a USB cable. There is no value here that is better
+  // than leaving it out, because this file is one static value baked into the
+  // bundle at `cap sync` time and cannot vary by build type.
+  //
+  // MainActivity re-asserts the safe answer natively, so a future edit to this
+  // file cannot ship an inspectable release by accident.
+
   server: {
     // https, not the default capacitor:// -- the WebView treats an https
     // origin as a secure context, which the geolocation and notification APIs

@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { NativeBoot } from "@/components/native/NativeBoot";
+import { IS_NATIVE } from "@/lib/nativeAuth";
+import { buildCsp } from "@/lib/csp";
 import localFont from "next/font/local";
 import "./globals.css";
 
@@ -78,6 +80,26 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable}`}
       style={{ fontFamily: "var(--font-sans)" }}
     >
+      {/*
+        The Content-Security-Policy, in the native shell only.
+        
+        A meta tag rather than a header because there is no server: the bundle
+        is files on the device, served by the WebView itself, so a header has
+        nobody to set it. The web app is behind Vercel and gets its own headers,
+        which is why this is gated on IS_NATIVE -- a build-time constant, so the
+        tag is absent from the web bundle entirely rather than merely inert.
+        
+        NEXT_PUBLIC_API_URL is read here, at build time, for the same reason
+        lib/api.ts reads it: connect-src has to name the actual backend this
+        build talks to. See lib/csp.ts for what the policy does and does not
+        buy.
+      */}
+      {IS_NATIVE && (
+        <meta
+          httpEquiv="Content-Security-Policy"
+          content={buildCsp(process.env.NEXT_PUBLIC_API_URL)}
+        />
+      )}
       <body
         style={{
           margin: 0,

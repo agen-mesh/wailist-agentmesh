@@ -6,7 +6,8 @@
   "scripts": {
     "build:web": "cross-env MOBILE_BUILD=1 NEXT_PUBLIC_NATIVE_CLIENT=1 npm --prefix ../frontend run build",
     "copy:web": "node scripts/copy-web.mjs",
-    "sync": "npm run build:web && npm run copy:web && cap sync android",
+    "check:api-url": "node scripts/check-api-url.mjs",
+    "sync": "npm run check:api-url && npm run build:web && npm run copy:web && cap sync android",
     "open:android": "cap open android",
     "run:android": "npm run sync && cap run android",
     "typecheck": "tsc --noEmit"
