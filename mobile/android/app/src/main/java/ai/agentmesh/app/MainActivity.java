@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
         // in the app module has to be registered explicitly, and before
         // super.onCreate, or the bridge is built without it.
         registerPlugin(GeofencePlugin.class);
+        registerPlugin(SecureStorePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

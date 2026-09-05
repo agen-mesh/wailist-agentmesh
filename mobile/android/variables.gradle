@@ -17,4 +17,9 @@ ext {
     // every app on the device, and the reason a paid background
     // tracking SDK is not required for enter/leave on a circle.
     playServicesLocationVersion = '21.3.0'
+    // Keystore-backed EncryptedSharedPreferences, behind SecureStorePlugin.
+    // 1.0.0 is the stable release and needs API 23, which is this app's
+    // minSdk exactly. The 1.1.0 line is still alpha and a session token is
+    // not the place to carry one.
+    androidxSecurityCryptoVersion = '1.0.0'
 }

@@ -127,6 +127,30 @@ does not nag, the feature simply shows as off, and everything else keeps
 working. Google Play reviews background-location use specifically and will ask
 to see that disclosure.
 
+## Session token storage, and its known dead end
+
+The session token lives in `EncryptedSharedPreferences`, behind
+`SecureStorePlugin` in the app module. AES-GCM ciphertext on disk, with the key
+in the Android Keystore. What that does _not_ buy is any defence against code
+running as this app on an unlocked device: anything the app can decrypt, an
+attacker holding the app's identity can decrypt too.
+
+**`androidx.security:security-crypto` is deprecated by Google with no
+replacement.** This is known, not an oversight. The pin is `1.0.0` rather than
+the `1.1.0` alpha because the stable line is the lesser of the two problems,
+and `MasterKeys` on 1.0.0 takes its arguments in a different order from
+`MasterKey.Builder`, which only exists from the alpha onwards.
+
+The practical failure mode is key invalidation: the Keystore entry can become
+undecryptable (a restored backup, a changed lock screen on some OEM builds),
+and the library throws rather than degrading. `SecureStorePlugin` handles that
+by deleting the corrupt file and starting a fresh store, which costs the
+session but not the app. `native/auth.ts` handles the same failure from the
+other side by keeping the user signed in on whatever the old store still holds.
+
+Whoever replaces this will need to pick a successor, and there is no official
+one. Tink directly is the usual answer.
+
 ## Release
 
 Not on the Railway/Vercel push pipeline. Signed AAB via Gradle, gated on a
