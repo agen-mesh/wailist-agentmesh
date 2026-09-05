@@ -27,6 +27,12 @@ export interface BazaarResource {
   host: string;
   supported: boolean;
   provider?: string;
+  // Set when this entry is backed by a dedicated console page rather than a
+  // canvas node. A provider key ("tendril", "prism"), never a URL: the page
+  // maps it to a route it already owns, so catalog data can never redirect a
+  // user. Entries sharing a key are one product with several endpoints and
+  // collapse into a single card.
+  console?: string;
 }
 
 export interface BazaarPage {
@@ -43,15 +49,26 @@ export interface BazaarPage {
 // that always hit a relative, hostless URL and rendered the "could not load
 // the catalog" error state instead.
 //
-// The two curated entries mirror backend/internal/bazaar.Curated() exactly
-// (same ids, URLs, methods, payTo). Deliberately not invented: a demo user
-// can copy an endpoint out of this page, and a fabricated URL or payment
-// address is the same hazard as fabricating a curated entry's payment
-// params server-side -- which is why Prism is absent from Curated() rather
-// than guessed at. Where the real entry has no payTo, this carries "" for
-// the same reason. Only settleCount is synthetic (the real value is live
-// telemetry with no static counterpart), and the third entry is explicitly
-// labelled as a non-real example on an example.com host.
+// The curated entries mirror backend/internal/bazaar.Curated() exactly (same
+// ids, URLs, methods, payTo). Deliberately not invented: a demo user can copy
+// an endpoint out of this page, and a fabricated URL or payment address is the
+// same hazard as fabricating a curated entry's payment params server-side.
+//
+// This comment used to cite Prism as the example of what NOT to guess at,
+// because no verified quote for it existed. One does now: all four Prism
+// endpoints were probed live on 2026-09-05 and backend/internal/prism holds
+// the results, so the entry below carries Prism's real address rather than a
+// placeholder. The rule it illustrated is unchanged -- a payment address is
+// transcribed from a probe or it is not written at all.
+//
+// CANIX402 is no longer here because it is no longer curated (it has no
+// console page). It is not gone from the Bazaar: in a real deployment its 14
+// catalog entries still list as community rows. Mock mode has no catalog to
+// draw those from, which is why only the example community row remains.
+//
+// Only settleCount is synthetic (the real value is live telemetry with no
+// static counterpart), and the last entry is explicitly labelled as a non-real
+// example on a reserved example.com host.
 const MOCK_RESOURCES: BazaarResource[] = [
   {
     id: "curated:tendril-run",
@@ -77,24 +94,48 @@ const MOCK_RESOURCES: BazaarResource[] = [
     host: "tendrilregister.007575.xyz",
     supported: true,
     provider: "Tendril",
+    console: "tendril",
   },
   {
-    id: "curated:canix-quotes",
-    url: "https://canix402-api.compx.io/execution/quotes",
+    id: "curated:prism-resume-screen-accurate",
+    url: "https://prism-99h2.onrender.com/resume-screen-accurate",
     method: "POST",
-    description: "Algorand DeFi execution quotes across supported protocols.",
+    description:
+      "Screens a batch of resumes against a target job description and returns ranked candidates with detailed match scores using high-precision LLM reasoning.",
     merchantId: "",
     network: "algorand-mainnet",
     testnet: false,
-    amountMicros: 5000,
+    amountMicros: 250000,
     asset: "31566704",
-    // The real Curated() entry declares no payTo; don't invent one.
-    payTo: "",
+    payTo: "FL7U7GHUZB2R6RACPGY5UFD2K47CP2IL4RQWX7LKYE5QSFGXVJCDGPRLBE",
+    // Empty for the same reason the real curated entry is: Prism's input is a
+    // nested files array, which a flat param list cannot express. The console
+    // renders its form from the backend's own field spec.
     params: [],
-    settleCount: 94,
-    host: "canix402-api.compx.io",
+    settleCount: 61,
+    host: "prism-99h2.onrender.com",
     supported: true,
-    provider: "CANIX402",
+    provider: "Prism",
+    console: "prism",
+  },
+  {
+    id: "curated:prism-code-review-fast",
+    url: "https://prism-99h2.onrender.com/code-review-fast",
+    method: "GET",
+    description:
+      "Reviews a single code file for bugs, security issues, syntax errors, and code quality problems with fast LLM turnarounds.",
+    merchantId: "",
+    network: "algorand-mainnet",
+    testnet: false,
+    amountMicros: 100000,
+    asset: "31566704",
+    payTo: "FL7U7GHUZB2R6RACPGY5UFD2K47CP2IL4RQWX7LKYE5QSFGXVJCDGPRLBE",
+    params: [],
+    settleCount: 38,
+    host: "prism-99h2.onrender.com",
+    supported: true,
+    provider: "Prism",
+    console: "prism",
   },
   {
     id: "community:example-weather",
@@ -164,6 +205,17 @@ export const bazaar = {
     };
   },
 };
+
+// X402_PLATFORM_FEE_USD_MICROS mirrors models.X402PlatformFeeUSDMicros on the
+// backend ($1.50). It is added by the relay to EVERY x402 call, so a price
+// quoted without it understates what the user is actually charged — for Prism,
+// whose endpoints cost 10–25 cents, by roughly 7x.
+//
+// Kept in step with the backend the same way lib/readonly.ts mirrors
+// readonly.go; the authoritative value for the Prism console arrives at
+// runtime from GET /prism/endpoints, and this constant exists for the Bazaar,
+// which has no such call. bazaar.test.ts pins the two together.
+export const X402_PLATFORM_FEE_USD_MICROS = 1_500_000;
 
 // formatPrice renders an atomic amount (6 decimals) as a plain number, with
 // no trailing zeros — 5000 -> "0.005". The unit isn't necessarily USDC; see

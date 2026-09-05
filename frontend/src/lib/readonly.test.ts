@@ -76,6 +76,13 @@ describe("isWriteBlocked", () => {
     // creates a workflow row on first call (get-or-create), so it is a write
     // in effect. See lib/tendril.ts's console().
     expect(isWriteBlocked("GET", "/tendril/console", VIEWER)).toBe(true);
+    // The Prism console's pair behaves identically. /prism/run stays open
+    // because running a paid call is operating, not authoring -- the line
+    // /tendril/run and /tendril/topup already sit on.
+    expect(isWriteBlocked("GET", "/prism/console", VIEWER)).toBe(true);
+    expect(isWriteBlocked("GET", "/prism/console/exists", VIEWER)).toBe(false);
+    expect(isWriteBlocked("POST", "/prism/run", VIEWER)).toBe(false);
+    expect(isWriteBlocked("GET", "/prism/endpoints", VIEWER)).toBe(false);
   });
 
   it("blocks nothing for an editor", () => {

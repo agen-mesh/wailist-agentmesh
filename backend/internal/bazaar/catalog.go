@@ -71,6 +71,21 @@ type Resource struct {
 	// Supported and Curated are filled in by curated.go, not by the fetch.
 	Supported bool   `json:"supported"`
 	Provider  string `json:"provider,omitempty"`
+
+	// Console marks an entry as backed by a dedicated console page rather
+	// than by a canvas node, and is the ONLY signal the frontend uses to
+	// decide which of the two an "Add"/"Open" button does.
+	//
+	// It is deliberately a provider key ("tendril", "prism") and never a
+	// URL: the frontend maps it to a route it already owns, so a catalog
+	// entry — which mirrors data from an external registry — can never
+	// redirect a user anywhere. Empty means the ordinary canvas-node path.
+	//
+	// Entries sharing a Console key are one product with several endpoints;
+	// the Bazaar collapses them into a single card that opens that console
+	// (four "Prism" cards all opening the same page would be four buttons
+	// for one destination).
+	Console string `json:"console,omitempty"`
 }
 
 // rawResource mirrors the upstream JSON exactly. Kept separate from Resource

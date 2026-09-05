@@ -2,6 +2,12 @@
 import { useEffect, useRef, useState } from "react";
 import { WorkflowNode, CustomParam } from "@/lib/types";
 import {
+  MAX_PARAM_FILE_BYTES,
+  base64DecodedBytes,
+  bytesToBase64,
+  formatFileSize,
+} from "@/lib/fileEncoding";
+import {
   PROVIDER_TEMPLATES,
   TOOL_TEMPLATES,
   TRIGGER_TEMPLATES,
@@ -1315,21 +1321,6 @@ function ToolInspector({
   );
 }
 
-// Backend enforces the same ceiling (nodes.maxParamFileBytes) — this copy
-// exists to fail fast with a clear message instead of after an upload.
-const MAX_PARAM_FILE_BYTES = 2 * 1024 * 1024;
-
-// btoa needs a binary string; chunked so a multi-MB file doesn't blow the
-// argument limit of String.fromCharCode.
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
-
 // Base64 inflates by 4/3, so the decoded size is what the user actually
 // picked — showing the encoded length would overstate every file by a third.
 // A tool402 node's JSON body references its own fields with {{kind:name}}.
@@ -1395,14 +1386,7 @@ function bodySkeleton(fields: CustomParam[]): string {
   return `{\n${lines.join(",\n")}\n}`;
 }
 
-function formatFileSize(base64: string): string {
-  const bytes = Math.floor((base64.length * 3) / 4);
-  return bytes < 1024
-    ? `${bytes} B`
-    : bytes < 1024 * 1024
-      ? `${(bytes / 1024).toFixed(0)} KB`
-      : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
+
 
 // ── Tool402 Inspector ──────────────────────────────────────────────────────
 function Tool402Inspector({
@@ -1885,7 +1869,7 @@ function Tool402Inspector({
                       📎 {p.fileName || "file"}
                     </span>
                     <span style={{ color: "var(--fg-dim)" }}>
-                      {formatFileSize(p.value)}
+                      {formatFileSize(base64DecodedBytes(p.value ?? ""))}
                     </span>
                     <button
                       onClick={() =>

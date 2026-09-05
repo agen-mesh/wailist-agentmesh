@@ -2,45 +2,61 @@
 import { useEffect, useState } from "react";
 import { CanvasPage } from "@/components/canvas/CanvasPage";
 import { TendrilConsolePage } from "@/components/tendril/TendrilConsolePage";
+import { PrismConsolePage } from "@/components/prism/PrismConsolePage";
 import { tendril } from "@/lib/tendril";
+import { prism } from "@/lib/prism";
 
-// Most workflow ids open the normal canvas. The one id that is this user's
-// Tendril console (backend: GetOrCreateSystemWorkflow, one hidden row per
-// user, matched here by id -- never by name, since the backend's real row
-// name has no fixed relationship to any frontend constant) opens the
-// console instead: renting real hardware is a lookup-and-press-buttons
-// task, not something that benefits from a node graph, so that row never
-// shows the editor -- there's nothing on its canvas to show in the first
-// place.
+// Most workflow ids open the normal canvas. A handful are consoles: one
+// hidden row per user per partner (backend: GetOrCreateSystemWorkflow),
+// matched here by id -- never by name, since the backend's real row name has
+// no fixed relationship to any frontend constant. Those rows never show the
+// editor, because there is nothing on their canvas to show: renting hardware
+// or running a paid AI task is a fill-a-form-and-press-a-button job, not
+// something a node graph makes better.
 //
-// Uses consoleWorkflowIdIfExists(), NOT console() -- the latter creates the
-// console row on first call, which here would mean every workflow-page
-// visit silently minting a hidden "Tendril Console" row for users who have
-// never touched Tendril at all, just from opening one of their own,
-// unrelated workflows. A "not found yet" answer trivially resolves to
-// "this isn't the console" without ever needing to create it.
+// Both lookups use the consoleWorkflowIdIfExists() variants, NOT console() --
+// the latter creates the console row on first call, which here would mean
+// every workflow-page visit silently minting a hidden console row for users
+// who have never touched either partner, just from opening one of their own
+// unrelated workflows. A "not found yet" answer trivially resolves to "this
+// isn't a console" without ever needing to create one.
+type ConsoleKind = "tendril" | "prism" | null;
+
 export function WorkflowRoute({ workflowId }: { workflowId: string }) {
-  const [isTendrilConsole, setIsTendrilConsole] = useState<boolean | null>(
-    () => (workflowId === "new" ? false : null),
+  const [consoleKind, setConsoleKind] = useState<ConsoleKind | undefined>(
+    () => (workflowId === "new" ? null : undefined),
   );
 
   useEffect(() => {
     if (workflowId === "new") return;
     let stale = false;
-    tendril
-      .consoleWorkflowIdIfExists()
-      .then((consoleWorkflowId) => {
-        if (!stale) setIsTendrilConsole(workflowId === consoleWorkflowId);
-      })
-      .catch(() => {
-        if (!stale) setIsTendrilConsole(false);
-      });
+    // One parallel round, not two sequential awaits: this blocks the page
+    // behind a "loading…" state on EVERY workflow visit, so awaiting the
+    // consoles one after another would double that delay for every user who
+    // is just opening an ordinary workflow.
+    Promise.allSettled([
+      tendril.consoleWorkflowIdIfExists(),
+      prism.consoleWorkflowIdIfExists(),
+    ]).then(([tendrilResult, prismResult]) => {
+      if (stale) return;
+      // A rejected lookup degrades to "not a console" rather than an error
+      // screen: the canvas is the overwhelmingly likely correct answer, and
+      // a transient failure of this check should never block a user from
+      // their own workflow.
+      const tendrilId =
+        tendrilResult.status === "fulfilled" ? tendrilResult.value : null;
+      const prismId =
+        prismResult.status === "fulfilled" ? prismResult.value : null;
+      if (tendrilId && workflowId === tendrilId) setConsoleKind("tendril");
+      else if (prismId && workflowId === prismId) setConsoleKind("prism");
+      else setConsoleKind(null);
+    });
     return () => {
       stale = true;
     };
   }, [workflowId]);
 
-  if (isTendrilConsole === null) {
+  if (consoleKind === undefined) {
     return (
       <div
         className="am-viewport"
@@ -59,6 +75,7 @@ export function WorkflowRoute({ workflowId }: { workflowId: string }) {
       </div>
     );
   }
-  if (isTendrilConsole) return <TendrilConsolePage />;
+  if (consoleKind === "tendril") return <TendrilConsolePage />;
+  if (consoleKind === "prism") return <PrismConsolePage />;
   return <CanvasPage key={workflowId} workflowId={workflowId} />;
 }
