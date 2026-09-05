@@ -66,6 +66,9 @@ var readOnlyBlocked = []struct {
 	// GET, but find-or-creates a workflow row server-side, so it belongs on
 	// this list despite the general rule that reads are exempt.
 	{http.MethodGet, regexp.MustCompile(`^/tendril/console$`)},
+	// Same exception, same reason: find-or-creates the console's workflow
+	// row. /prism/console/exists is the non-creating variant and is exempt.
+	{http.MethodGet, regexp.MustCompile(`^/prism/console$`)},
 }
 
 // blocksWrite reports whether read-only mode rejects this method and path.

@@ -63,6 +63,11 @@ const WRITE_RULES: ReadonlyArray<{ method: string; pattern: RegExp }> = [
   { method: "PUT", pattern: /^\/workflows\/[^/]+\/geofence$/ },
   { method: "DELETE", pattern: /^\/workflows\/[^/]+\/geofence$/ },
   { method: "GET", pattern: /^\/tendril\/console$/ },
+  // Same exception, same reason: a GET that find-or-creates the console's
+  // workflow row. /prism/console/exists never creates one, and /prism/run is
+  // operating rather than authoring, so neither is listed -- exactly the line
+  // /tendril/console/exists and /tendril/run already sit on.
+  { method: "GET", pattern: /^\/prism\/console$/ },
 ];
 
 // `path` is the API path as written at the call site (leading slash, no

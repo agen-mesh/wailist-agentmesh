@@ -32,6 +32,14 @@ func TestBlocksWrite(t *testing.T) {
 		{"tendril console", http.MethodGet, "/tendril/console", true},
 		// The read-only counterpart never creates anything, so it stays open.
 		{"tendril console exists", http.MethodGet, "/tendril/console/exists", false},
+		// The Prism console's pair behaves identically, for the same reasons.
+		{"prism console", http.MethodGet, "/prism/console", true},
+		{"prism console exists", http.MethodGet, "/prism/console/exists", false},
+		// Running a paid Prism call is operating, not authoring -- the same
+		// line /tendril/run and /tendril/topup already sit on. A viewer who
+		// can spend their own credit on a Tendril job can spend it here too.
+		{"prism run", http.MethodPost, "/prism/run", false},
+		{"prism endpoints", http.MethodGet, "/prism/endpoints", false},
 
 		// Operating a workflow somebody else built stays available -- this is
 		// the line the whole feature draws.

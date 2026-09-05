@@ -142,9 +142,11 @@ export function ResourceCard({
         </div>
       )}
 
-      {/* A supported entry without curated params (no hand-authored fields
-          yet, e.g. CANIX402 today) must not imply this card is pre-configured
-          — only endorsement is guaranteed, not a filled-in form. */}
+      {/* A supported entry without curated params must not imply this card is
+          pre-configured — only endorsement is guaranteed, not a filled-in
+          form. Nothing renders here today: every curated entry now has a
+          console and is drawn by ConsoleCard instead. This is the fallback for
+          a future partner that has neither params nor a console. */}
       {resource.supported && paramCount === 0 && (
         <div style={{ fontSize: 11, color: "var(--fg-dim)", lineHeight: 1.5 }}>
           Officially supported — this endpoint takes no input, or its fields

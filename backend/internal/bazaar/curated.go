@@ -4,46 +4,61 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/agentmesh/backend/internal/prism"
 )
 
 // Curated is AgentMesh's own registry of officially-supported x402 providers.
 //
 // It is deliberately NOT derived from the GoPlausible catalog. Verified live
-// 2026-08-03: of the launch providers, only CANIX402 appears in
-// /discovery/resources at all (14 entries) — Tendril and Prism return zero
+// 2026-08-03: of the launch providers, only CANIX402 appeared in
+// /discovery/resources at all (14 entries) — Tendril and Prism returned zero
 // matches across all 779 entries despite Tendril sitting at rank 4 on the
 // challenge leaderboard. A "supported" list built by filtering catalog data
-// would silently omit them.
+// would silently omit both.
 //
-// Params here are hand-authored, not scraped: the whole point of the supported
-// tier is that a user fills labelled fields instead of hand-writing JSON.
+// # What being curated means, as of 2026-09-05
 //
-// Prism (https://prism-99h2.onrender.com/resume-screen-accurate) is the one
-// launch provider named above that still has no entry here, and that's
-// deliberate on two independent grounds, not an oversight:
+// An entry here is a partner with a dedicated console page (see
+// Resource.Console). That is now the definition of the supported tier, not a
+// coincidence of which entries happen to have hand-authored params:
+// TestEveryCuratedEntryIsConsoleBacked enforces it.
 //
-//  1. Unlike Tendril, we have no verified static payTo/amount for Prism to
-//     hand-author — engine/nodes/tool402.go discovers its challenge live, per
-//     call, from the Payment-Required header rather than a fixed quote.
-//     Guessing one would risk routing a real payment to the wrong address,
-//     exactly the hazard frontend/src/lib/bazaar.ts's MOCK_RESOURCES comment
-//     already refuses to take for the same provider.
-//  2. Prism's real body isn't expressible as labelled params anyway: it needs
-//     a nested files array (base64 file content alongside a text field) built
-//     via BodyMode-JSON + a body template (see
-//     TestBuildTargetRequestJSONBodyModeProducesPrismShape), while Resource's
+// The two members are Tendril and Prism. CANIX402 was removed from the tier
+// on 2026-09-05 — it has no console, and a badge promising more than an
+// endpoint URL was more than we were actually delivering for it. Removing it
+// from this registry does NOT remove it from the Bazaar: its 14 real catalog
+// entries flow through Merge untouched and stay browsable as community
+// listings, which TestCanixIsNotCuratedButSurvivesMerge pins.
+//
+// # Prism's entries, and why they took until now
+//
+// This comment used to explain why Prism was absent, on two grounds. One is
+// resolved and one is not:
+//
+//  1. RESOLVED — "no verified static payTo/amount". All four Prism endpoints
+//     were probed live on 2026-09-05 and their challenges agreed exactly with
+//     Prism's written spec. internal/prism holds the results and is the single
+//     source of truth for them; the entries below are derived from it rather
+//     than retyped, so the price a Bazaar card quotes is literally the value
+//     the console charges. Guessing a payment address remains the hazard it
+//     always was — see that package's doc comment.
+//
+//  2. STILL TRUE — "not expressible as labelled params". Prism's real body
+//     needs a nested files array carrying base64 file content alongside a text
+//     field (see TestBuildTargetRequestJSONBodyModeProducesPrismShape), while
 //     Param and the frontend's discoveredParams pipeline only ever render a
-//     flat list of plain-text inputs — there is no file-upload kind in either.
-//     A curated entry today, even with a trustworthy payTo, would let a user
-//     add "Prism" from the Bazaar expecting it to work and get a silently
-//     broken request (or the $0.25 charge-then-"No files provided" failure
-//     TestBuildTargetRequestJSONBodyModeProducesPrismShape exists to prevent).
+//     flat list of plain-text inputs. There is still no file kind in either.
 //
-// Making Prism a real Bazaar entry needs Param/discoveredParams to support a
-// file kind and a body-template shape first — a model change, not a one-line
-// registry addition.
+// The console is what resolves (2): it renders a purpose-built form per
+// endpoint and builds the CustomParams and BodyTemplate server-side. So Prism
+// is listed here with Params deliberately EMPTY and Console set — the entry
+// advertises and prices the endpoints, and the console is where they are
+// actually called. Exposing a file-taking endpoint as a plain canvas node
+// still needs a file kind in discoveredParams first, which is a model change
+// and not a registry addition.
 func Curated() []Resource {
-	return []Resource{
+	out := []Resource{
 		{
 			ID:          "curated:tendril-run",
 			URL:         "https://tendrilregister.007575.xyz/x402/run",
@@ -58,6 +73,7 @@ func Curated() []Resource {
 			// Tendril-side credit balance keyed to the paying wallet address.
 			AmountMicros: 10000,
 			Supported:    true,
+			Console:      "tendril",
 			Params: []Param{{
 				Name:        "payload",
 				Type:        "string",
@@ -65,22 +81,40 @@ func Curated() []Resource {
 				Description: "Python source to execute. Its stdout is returned as `result`.",
 			}},
 		},
-		{
-			ID:          "curated:canix-quotes",
-			URL:         "https://canix402-api.compx.io/execution/quotes",
-			Method:      http.MethodPost,
-			Provider:    "CANIX402",
-			Host:        "canix402-api.compx.io",
-			Description: "Algorand DeFi execution quotes across supported protocols.",
-			Network:     AlgorandMainnet,
-			Asset:       "31566704",
-			Supported:   true,
-			// No hand-authored params for this one yet (see Merge) — explicit
-			// []Param{} rather than the nil zero value, which marshals as JSON
-			// null and crashes the frontend grid.
-			Params: []Param{},
-		},
 	}
+	return append(out, prismCurated()...)
+}
+
+// prismCurated derives Prism's catalog entries from internal/prism, the same
+// table the console builds and pays its real requests from. Derived, never
+// retyped: a copy could drift, and a drifted price means the Bazaar quotes one
+// number while the user is charged another.
+func prismCurated() []Resource {
+	eps := prism.Endpoints()
+	out := make([]Resource, 0, len(eps))
+	for _, e := range eps {
+		out = append(out, Resource{
+			ID:           "curated:prism-" + e.ID,
+			URL:          e.URL(),
+			Method:       e.Method,
+			Provider:     prism.Provider,
+			Host:         prism.Host,
+			Description:  e.Description,
+			Network:      prism.Network,
+			Asset:        prism.AssetID,
+			PayTo:        prism.PayTo,
+			AmountMicros: e.AmountMicros,
+			Supported:    true,
+			Console:      prism.ConsoleKey,
+			// Deliberately empty, and explicitly []Param{} rather than the nil
+			// zero value — nil marshals as JSON null and crashes the frontend
+			// grid. Empty is also the honest answer: Prism's inputs are not
+			// expressible as flat params, which is why it has a console at
+			// all. The console reads prism.Endpoints().Fields instead.
+			Params: []Param{},
+		})
+	}
+	return out
 }
 
 // normalizeURLForMatch makes two URLs comparable for Merge's purposes: it
@@ -146,6 +180,52 @@ func Merge(catalog []Resource) []Resource {
 			matched[key] = true
 			r.Supported = true
 			r.Provider = c.Provider
+			// Console has to travel with the curation, not just the
+			// provider name: without this, a Prism or Tendril endpoint
+			// that later appears in the upstream catalog would be badged
+			// Supported but lose its console key, and its Bazaar card
+			// would silently fall back to dropping a canvas node the
+			// endpoint's real input shape cannot be expressed in.
+			r.Console = c.Console
+			// The PAYMENT QUOTE comes from the registry, not the catalog,
+			// whenever the registry declares one.
+			//
+			// This is the one place the "registry curates, catalog supplies
+			// facts" split does not hold, and it was found the hard way:
+			// Prism's code-review endpoints appeared in the upstream catalog
+			// listing 25500 micros, while their live 402 challenges (probed
+			// 2026-09-05) declare 100000 and 200000. Keeping the catalog's
+			// number meant the Bazaar quoting $0.0255 for a call the console
+			// charges $0.20 for -- a price the user is shown and then not
+			// billed.
+			//
+			// Between a mirrored third-party listing and an amount we probed
+			// off the endpoint itself and will settle against, the probe wins.
+			// Only overwrite what the registry actually declares, so an entry
+			// that carries no quote (a curated URL with no verified price)
+			// still inherits the catalog's.
+			//
+			// Live telemetry -- SettleCount, LastSeen, the entry's own ID --
+			// is untouched: that genuinely is the catalog's to supply.
+			if c.AmountMicros > 0 {
+				r.AmountMicros = c.AmountMicros
+			}
+			if c.PayTo != "" {
+				r.PayTo = c.PayTo
+			}
+			if c.Asset != "" {
+				r.Asset = c.Asset
+			}
+			if c.Network != "" {
+				r.Network = c.Network
+				// Testnet was derived from the CATALOG's network
+				// (catalog.go:207), so overriding Network without it leaves the
+				// two disagreeing: a curated entry that upstream happens to
+				// list on testnet would merge out priced and payable on
+				// mainnet while ResourceCard/EndpointRow still render a
+				// "testnet" pill over it.
+				r.Testnet = r.Network == AlgorandTestnet
+			}
 			// A hand-authored description and param set are strictly better
 			// than the publisher's own, which is why the entry is curated.
 			if c.Description != "" {

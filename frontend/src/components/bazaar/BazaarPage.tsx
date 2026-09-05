@@ -3,12 +3,29 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Topbar } from "@/components/Topbar";
 import { bazaar, type BazaarResource } from "@/lib/bazaar";
 import { ResourceCard } from "./ResourceCard";
+import { ConsoleCard } from "./ConsoleCard";
 import { EndpointRow } from "./EndpointRow";
 import { ProviderGroupCard } from "./ProviderGroupCard";
 import { AddToWorkflowDialog } from "./AddToWorkflowDialog";
 
 const PAGE_SIZE = 30;
 
+// The partner track is explicit, not auto-fill. There are two partners; an
+// auto-fill grid stretches to four columns on a wide screen and leaves them
+// adrift in it, which reads as "two things are missing" rather than "these are
+// the two". auto-fit with a max keeps each card at a readable width and lets a
+// third slot in cleanly when there is one.
+const CONSOLE_GRID: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 460px))",
+  justifyContent: "start",
+  gap: 14,
+};
+
+// Any supported entry WITHOUT a console still renders as an ordinary card.
+// Nothing produces one today (curated.go's TestEveryCuratedEntryIsConsoleBacked
+// requires a console key), but a registry that grows a non-console partner
+// should degrade to a card rather than vanish from the page.
 const GRID: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
@@ -169,35 +186,21 @@ const BAZAAR_CSS = `
   background: var(--bg-elev-2);
 }
 .bz-supported-card {
-  /* The wrapper owns the hover shadow, so it has to match the card's own
-     radius -- otherwise the glow is cast by a square box sitting behind a
-     rounded one and reads as a lopsided smear at the corners. */
-  border-radius: var(--r-2);
   /* Fill the grid cell. Grid stretches this wrapper to the tallest card in
-     the row, but the card inside was intrinsically sized, so a short
-     description left a visible gap under it and the row looked ragged. */
+     the row, but the card inside is intrinsically sized, so a short
+     description would otherwise leave a visible gap under it and the row
+     would look ragged. */
   height: 100%;
-  transition:
-    transform 0.15s var(--ease),
-    box-shadow 0.15s var(--ease);
 }
 .bz-supported-card > * {
   height: 100%;
-}
-.bz-supported-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 @media (prefers-reduced-motion: reduce) {
   .bz-row,
   .bz-row::before,
   .bz-row__chevron,
-  .bz-group-body,
-  .bz-supported-card {
+  .bz-group-body {
     transition: none !important;
-  }
-  .bz-supported-card:hover {
-    transform: none;
   }
 }
 `;
@@ -210,6 +213,26 @@ export function BazaarPage() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState<BazaarResource | null>(null);
+
+  // Supported entries collapse by console key: Prism is four endpoints behind
+  // one page, and four cards all opening that same page would be four buttons
+  // for one destination. Entries without a console key keep one card each.
+  // Map preserves first-seen order, so a console surfaces where its first
+  // endpoint would have.
+  const { consoles, plainSupported } = useMemo(() => {
+    const byConsole = new Map<string, BazaarResource[]>();
+    const plain: BazaarResource[] = [];
+    for (const r of supported) {
+      if (!r.console) {
+        plain.push(r);
+        continue;
+      }
+      const list = byConsole.get(r.console);
+      if (list) list.push(r);
+      else byConsole.set(r.console, [r]);
+    }
+    return { consoles: Array.from(byConsole.entries()), plainSupported: plain };
+  }, [supported]);
 
   // Endpoints sharing a host collapse into one ProviderGroupCard so a single
   // heavy publisher doesn't bury everything else (one host is over 70% of the
@@ -383,28 +406,53 @@ export function BazaarPage() {
       <style>{BAZAAR_CSS}</style>
       <Topbar />
       <div style={{ padding: "24px 24px 64px", maxWidth: 1180, width: "100%", margin: "0 auto" }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: "var(--fg)" }}>
+        <h1
+          style={{
+            margin: 0,
+            fontSize: 26,
+            fontWeight: 600,
+            letterSpacing: "-0.02em",
+            color: "var(--fg)",
+          }}
+        >
           x402 Bazaar
         </h1>
-        <p style={{ margin: "6px 0 0", fontSize: 13, color: "var(--fg-muted)", lineHeight: 1.6 }}>
-          Every paid endpoint listed in GoPlausible&apos;s Algorand catalog. Add
-          any of them to a workflow. Our official partners are verified by
-          AgentMesh, and arrive with hand-authored fields where we have them.
+        <p
+          style={{
+            margin: "8px 0 0",
+            fontSize: 13.5,
+            color: "var(--fg-muted)",
+            lineHeight: 1.65,
+            maxWidth: "68ch",
+          }}
+        >
+          Services your agents can pay for by the call, no accounts or API keys
+          needed. Our partners come with a ready-made page. Everything else you
+          can drop straight onto a canvas.
         </p>
 
         {supported.length > 0 && (
-          <section style={{ marginTop: 24 }}>
+          <section style={{ marginTop: 28 }}>
             <SectionHeading
-              title="Official AgentMesh partners"
-              note="Verified by AgentMesh."
+              title="Partners"
+              note="Set up and tested by us. Open one and start using it right away."
             />
-            <div style={GRID}>
-              {supported.map((r) => (
-                <div key={r.id} className="bz-supported-card">
-                  <ResourceCard resource={r} onAdd={setAdding} />
-                </div>
-              ))}
-            </div>
+            {consoles.length > 0 && (
+              <div style={CONSOLE_GRID}>
+                {consoles.map(([key, resources]) => (
+                  <ConsoleCard key={key} consoleKey={key} resources={resources} />
+                ))}
+              </div>
+            )}
+            {plainSupported.length > 0 && (
+              <div style={{ ...GRID, marginTop: consoles.length > 0 ? 12 : 0 }}>
+                {plainSupported.map((r) => (
+                  <div key={r.id} className="bz-supported-card">
+                    <ResourceCard resource={r} onAdd={setAdding} />
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         )}
 
@@ -420,13 +468,13 @@ export function BazaarPage() {
             }}
           >
             <SectionHeading
-              title="All endpoints"
-              note="Community listings. You configure the fields yourself."
+              title="Everything else"
+              note="Public listings. Add one to a canvas and fill in its details yourself."
             />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search endpoints…"
+              placeholder="Search…"
               aria-label="Search endpoints"
               style={{
                 height: 32,
@@ -489,13 +537,13 @@ export function BazaarPage() {
 
           {!loading && !error && items.length === 0 && activeQuery && (
             <p style={{ marginTop: 16, fontSize: 12.5, color: "var(--fg-dim)" }}>
-              No endpoints match “{activeQuery}”.
+              Nothing matches “{activeQuery}”.
             </p>
           )}
 
           {exhausted && items.length > 0 && (
             <p style={{ marginTop: 16, fontSize: 12, color: "var(--fg-dim)" }}>
-              That&apos;s all {total} endpoints.
+              That&apos;s all {total}.
             </p>
           )}
 
