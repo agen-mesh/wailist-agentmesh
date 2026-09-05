@@ -58,3 +58,7 @@ export const USD_PROVIDERS: ReadonlySet<PaymentMethod> = new Set<PaymentMethod>(
 // rejects an invoice below this with a 400, so the Pay button must not offer
 // it as if it would succeed.
 export const MIN_CRYPTO_AMOUNT_USD_CENTS = 100;
+
+// Mirrors maxCryptoAmountUSDCents in handlers/payments.go -- same reasoning
+// as the minimum above, at the other end of the range.
+export const MAX_CRYPTO_AMOUNT_USD_CENTS = 600_000;

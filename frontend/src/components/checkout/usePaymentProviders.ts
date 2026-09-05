@@ -23,11 +23,14 @@ const UNAVAILABLE_SUBLABEL = "Coming soon";
 // disabled: offering a button that can only fail is worse than showing none.
 export function usePaymentProviders(): ProviderState {
   const [state, setState] = useState<ProviderState>({
-    providers: PAYMENT_PROVIDERS.map((p) => ({
-      ...p,
-      enabled: false,
-      sublabel: UNAVAILABLE_SUBLABEL,
-    })),
+    // Cashfree needs no rate lookup and has never depended on this endpoint,
+    // so it starts from its own static default rather than "disabled" --
+    // otherwise every checkout open shows it as broken for the round trip.
+    providers: PAYMENT_PROVIDERS.map((p) =>
+      p.id === "cashfree"
+        ? { ...p }
+        : { ...p, enabled: false, sublabel: UNAVAILABLE_SUBLABEL },
+    ),
     usdPerINR: 0,
     loading: true,
   });

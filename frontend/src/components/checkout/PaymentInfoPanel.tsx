@@ -2,7 +2,11 @@
 import { useState } from "react";
 import { Pill } from "@/components/ui";
 import type { PaymentMethod } from "./types";
-import { USD_PROVIDERS, MIN_CRYPTO_AMOUNT_USD_CENTS } from "./paymentProviders";
+import {
+  USD_PROVIDERS,
+  MIN_CRYPTO_AMOUNT_USD_CENTS,
+  MAX_CRYPTO_AMOUNT_USD_CENTS,
+} from "./paymentProviders";
 import { usePaymentProviders } from "./usePaymentProviders";
 import { payments } from "@/lib/api";
 import { useCashfreeCheckout } from "./useCashfreeCheckout";
@@ -103,7 +107,13 @@ export function PaymentInfoPanel({
   const amountUSDCents =
     usdPerINR > 0 ? Math.round(amountINR * usdPerINR * 100) : 0;
   const isUSD = USD_PROVIDERS.has(method);
-  const busy = status === "processing" || cashfree.loading || providersLoading;
+  // Cashfree's own default is available before the providers fetch resolves
+  // (see usePaymentProviders), so only a USD gateway -- which needs that
+  // fetch's rate to even price itself -- should block on it.
+  const busy =
+    status === "processing" ||
+    cashfree.loading ||
+    (isUSD && providersLoading);
   const isSuccess = status === "success";
   // Cashfree specifically needs a real phone; other providers don't ask for
   // one, so this gate only applies when that method is selected.
@@ -114,9 +124,11 @@ export function PaymentInfoPanel({
     !isSuccess &&
     agreed &&
     (method !== "cashfree" || phoneValid) &&
-    // A USD gateway with no rate cannot be priced, and below the server's
-    // own minimum it would only 400 at invoice creation.
-    (!isUSD || amountUSDCents >= MIN_CRYPTO_AMOUNT_USD_CENTS);
+    // A USD gateway with no rate cannot be priced, and outside the server's
+    // own min/max it would only 400 at invoice creation.
+    (!isUSD ||
+      (amountUSDCents >= MIN_CRYPTO_AMOUNT_USD_CENTS &&
+        amountUSDCents <= MAX_CRYPTO_AMOUNT_USD_CENTS));
 
   // Cashfree completes in-page via its own JS SDK. NOWPayments is a redirect:
   // the browser leaves for the hosted invoice and returns to /billing, where
@@ -498,7 +510,9 @@ export function PaymentInfoPanel({
                     amountUSDCents > 0 &&
                     amountUSDCents < MIN_CRYPTO_AMOUNT_USD_CENTS
                   ? `Minimum $${(MIN_CRYPTO_AMOUNT_USD_CENTS / 100).toFixed(2)} for crypto payments.`
-                  : !agreed
+                  : isUSD && amountUSDCents > MAX_CRYPTO_AMOUNT_USD_CENTS
+                    ? `Maximum $${(MAX_CRYPTO_AMOUNT_USD_CENTS / 100).toFixed(2)} for crypto payments.`
+                    : !agreed
                     ? "Please confirm the credit policy above to continue."
                     : `You'll be redirected to ${selected?.label ?? "the provider"} to complete payment.`}
           </p>
