@@ -30,11 +30,120 @@
   height: 100dvh;
 }
 
-/* Bottom-docked bars sit under the home indicator on notched phones without
-   this. `0px` (not `0`) is deliberate — env() fallbacks must carry a unit. */
-.am-safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+/* The same fix for a page whose content GROWS past the screen -- an infinite
+   list, say. `height` would clip it; `min-height` gives the short page a full
+   screen and lets the long one run on. Two classes rather than one because the
+   difference is the scroll model, not the value. */
+.am-viewport-min {
+  min-height: 100vh;
+  min-height: 100dvh;
 }
+
+/* ── Safe areas ─────────────────────────────────────────────────────────────
+   The app targets Android SDK 35, so from Android 15 the WebView draws behind
+   the status and navigation bars and the page is responsible for keeping its
+   own content clear of them. `viewport-fit=cover` in layout.tsx opts in; these
+   classes are the other half.
+
+   Two sources, in this order, and the order matters:
+
+     var(--safe-area-inset-top, env(safe-area-inset-top, 0px))
+
+   Capacitor (>= 8.3.2; this app is on 8.5) injects the `--safe-area-inset-*`
+   custom properties itself, precisely because Android WebView below version 140
+   reports wrong values from `env()`. So the injected variable is preferred, the
+   standard `env()` is the fallback for a plain browser, and `0px` is the floor
+   for anything that has neither.
+
+   `0px` (not `0`) is deliberate — env() fallbacks must carry a unit.
+
+   The top and bottom values are also published as custom properties, because a
+   bar that has to GROW by the inset needs it inside a calc() rather than as
+   padding, and repeating the whole var/env/floor chain inline is where a typo
+   hides. Only those two: nothing yet needs to compute against the side insets.
+   This is the one place in this file that is not an `.am-*` class; it defines
+   new custom properties rather than overriding any existing rule. */
+:root {
+  --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --safe-bottom: var(
+    --safe-area-inset-bottom,
+    env(safe-area-inset-bottom, 0px)
+  );
+}
+
+.am-safe-top {
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+}
+
+/* Bottom-docked bars sit under the home indicator on notched phones without
+   this. */
+.am-safe-bottom {
+  padding-bottom: var(
+    --safe-area-inset-bottom,
+    env(safe-area-inset-bottom, 0px)
+  );
+}
+
+/* Landscape, where a cutout moves to a side. Rarely the deciding factor in
+   portrait, and free to include. */
+.am-safe-x {
+  padding-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  padding-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+}
+
+/* ── Touch ──────────────────────────────────────────────────────────────────
+   Scoped to `pointer: coarse` rather than to a width, for the same reason
+   lib/device.ts is: a laptop dragged narrow is still driven by a mouse, and
+   none of this should apply to it.
+
+   These are the small tells that read as "web page in a WebView" rather than
+   "app", and each is a one-line fix that the app has simply never had. */
+@media (pointer: coarse) {
+  /* The default is a translucent grey rectangle, drawn on the element's box
+     rather than its rounded corners, and after a delay -- so a tap on a card
+     flashes a square behind it. Removing it is only correct when something
+     replaces it, which is what the :active rule below is for: taking away the
+     feedback and leaving nothing would be worse than the ugly default. */
+  a,
+  button,
+  [role="button"],
+  summary {
+    -webkit-tap-highlight-color: transparent;
+    /* Without this the browser reserves the tap for a possible double-tap
+       zoom, so every press is acknowledged late. It is the single biggest
+       reason a touch web app feels a beat behind a native one. Not applied
+       globally: the canvas sets `touch-action: none` deliberately, and pinch
+       to zoom must keep working on ordinary content. */
+    touch-action: manipulation;
+  }
+
+  /* The replacement acknowledgement. 0.97 and not lower: the press should read
+     as the surface giving slightly, not as the control shrinking. Duration is
+     at the fast end of the app's 100-150ms micro-interaction band, because
+     this one fires under the user's finger. */
+  a:active,
+  button:not(:disabled):active,
+  [role="button"]:active {
+    transform: scale(0.97);
+    transition: transform 0.1s var(--ease);
+  }
+
+  /* Stops the whole page rubber-banding past its ends, which is the giveaway
+     that this is a document being scrolled rather than a screen. `contain`
+     rather than `none`: inner scrollers keep their own behaviour. */
+  body {
+    overscroll-behavior-y: contain;
+  }
+}
+
+@media (pointer: coarse) and (prefers-reduced-motion: reduce) {
+  a:active,
+  button:not(:disabled):active,
+  [role="button"]:active {
+    transform: none;
+  }
+}
+
 /* ── Studio, compact ────────────────────────────────────────────────────── */
 /* The studio is a three-column desktop IDE: palette | graph | rail. Read-only
    already drops the palette, but the rail's 320px still leaves ~55px of graph
@@ -70,7 +179,7 @@
 }
 
 /* The grip is 14px of visible bar in a 44px target — the minimum a thumb can
-   reliably hit, per the same rule .pw-reveal follows. */
+   reliably hit, which is the 44px floor the touch block above sets. */
 .am-sheet-grip {
   flex-shrink: 0;
   height: 44px;
@@ -160,7 +269,7 @@
 
 /* The rail's segmented switch is sized for a pointer (26px) because in its own
    column that is all it ever meets. Inside the bottom sheet it is tapped, so it
-   takes the full 44px target -- the same floor .pw-reveal and .am-sheet-grip
+   takes the full 44px target -- the same floor .am-sheet-grip
    hold to. Scoped to the sheet so the desktop rail keeps its density. */
 .am-studio-sheet .rail-switch__seg {
   min-height: 44px;
