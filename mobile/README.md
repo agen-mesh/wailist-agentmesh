@@ -118,6 +118,49 @@ paying, and it is contained rather than unknown — the server already tolerates
 late and out-of-order fixes by design, so nothing downstream changes when it
 lands.
 
+## Push notifications
+
+Run-status notifications go out through Firebase Cloud Messaging. Everything is
+wired and inert: with no Firebase project configured the app builds and runs
+normally, it simply never receives a notification, and the server's send path
+does nothing at all.
+
+Turning it on needs two artefacts, and they are not the same kind of thing.
+
+**`google-services.json` — config, not a secret.** In the Firebase console,
+create a project and add an Android app whose package name is exactly
+`ai.agentmesh.app`; it must match `applicationId` in `app/build.gradle`
+character for character, and a mismatch fails silently at delivery time rather
+than at build time. Download the file to:
+
+```
+mobile/android/app/google-services.json
+```
+
+It is **gitignored**. Not because it is confidential -- it ships inside every
+APK, so anyone with the app already has a copy -- but because it is per-project
+config, and committing one would pin every developer and every CI run to a
+single Firebase project. `app/build.gradle` applies the Google Services plugin
+only when the file is present, which is why its absence costs nothing.
+
+**A service-account key — a real secret.** Firebase console → Project settings
+→ Service accounts → Generate new private key. Give the resulting JSON to the
+backend as `FCM_SERVICE_ACCOUNT_JSON`. Never commit it.
+
+Note that the backend uses **FCM HTTP v1**, which authenticates with that
+service account. Older guides describe copying a "Server key" from Cloud
+Messaging settings; Google has retired that API, and anything still mentioning
+a server key is out of date.
+
+**Which runs notify:** ones the user did not start -- geofence, schedule,
+webhook -- plus every failure, whatever started it. A run you pressed Run on
+does not notify on success, because you are already looking at the screen that
+shows the result. The rule lives in one tested function,
+`push.ShouldNotify` in `backend/internal/push`.
+
+**Testing needs a real device or an emulator image with Google Play services.**
+A plain AVD image has no FCM and will never receive anything.
+
 ## Location permission
 
 Background location is the most-refused permission on Android, and asking cold

@@ -21,3 +21,9 @@ local.properties
 *.keystore
 *.jks
 keystore.properties
+
+# Firebase config for push notifications. NOT a secret -- it ships inside every
+# APK, so anyone with the app already has it -- but it is per-project config,
+# and committing it would pin every developer and every CI run to one Firebase
+# project. Each environment supplies its own; see README.md.
+android/app/google-services.json

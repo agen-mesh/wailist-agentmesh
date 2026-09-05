@@ -18,6 +18,7 @@ import (
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/models"
+	"github.com/agentmesh/backend/internal/push"
 	"github.com/agentmesh/backend/internal/sse"
 	"github.com/agentmesh/backend/internal/tendril"
 	"github.com/agentmesh/backend/internal/x402"
@@ -978,6 +979,15 @@ func (r *Runner) IsRunning(workflowID string) bool {
 func (r *Runner) finishRun(wf models.Workflow, run models.Run, status models.RunStatus) {
 	r.store.FinishRun(context.Background(), run.ID, status)
 	go alert.Notify(context.Background(), alert.ChannelWorkflows, fmt.Sprintf("workflow %q run %s finished: %s", wf.Name, run.ID, status))
+	// Every terminal status passes through here, which is why the push hangs
+	// off this one function rather than the several return sites that call it.
+	//
+	// A goroutine, exactly like the alert above: FCM is somebody else's server,
+	// and a run must never be held open -- or failed -- because a notification
+	// was slow. push.NotifyRunFinished decides for itself whether this run is
+	// worth notifying about, and does nothing at all until a Firebase service
+	// account is configured.
+	go push.NotifyRunFinished(context.Background(), r.store, wf.UserID, wf.ID, wf.Name, run.ID, run.TriggeredBy, status)
 }
 
 // Run executes a workflow from scratch. Call via Start rather than directly.

@@ -79,6 +79,31 @@ export async function pushFix(fix: Fix): Promise<PingResult> {
   return (await res.json()) as PingResult;
 }
 
+// Push notification targets.
+//
+// Registration is idempotent by design -- the server upserts on the token --
+// so the app re-registers on every sign-in rather than trying to remember
+// whether it has done so before. That is the cheaper correctness: a flag on
+// the device can disagree with the server, a repeated call cannot.
+export async function registerDevice(token: string): Promise<void> {
+  const res = await call("/devices", {
+    method: "POST",
+    body: JSON.stringify({ token, platform: "android" }),
+  });
+  if (!res.ok) throw new Error("could not register this device");
+}
+
+// Called on sign-out, and allowed to fail quietly by its caller: a device that
+// cannot reach the server must still be able to sign out. The server-side row
+// is not left dangling forever either way -- FCM rejects sends to a token the
+// app has unregistered, and Deliver drops it on that verdict.
+export async function unregisterDevice(token: string): Promise<void> {
+  await call("/devices", {
+    method: "DELETE",
+    body: JSON.stringify({ token }),
+  });
+}
+
 export interface Geofence {
   lat: number;
   lng: number;

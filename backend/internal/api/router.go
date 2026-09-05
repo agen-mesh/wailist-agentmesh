@@ -72,6 +72,12 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Delete("/workflows/{id}/geofence", d.ClearGeofence)
 		r.Post("/workflows/{id}/trigger/location", d.LocationPing)
 
+		// Push notification targets. In the authenticated group for the same
+		// reason as the geofence routes above: a device belongs to whoever is
+		// signed in on it, and the session is the only thing that says so.
+		r.Post("/devices", d.RegisterDevice)
+		r.Delete("/devices", d.UnregisterDevice)
+
 		r.Post("/workflows/{id}/deploy", d.Deploy)
 		r.Post("/workflows/{id}/build", d.BuildWorkflow)
 		r.Get("/workflows/{id}/agents/{agentId}/balance", d.AgentBalance)

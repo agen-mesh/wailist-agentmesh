@@ -250,6 +250,20 @@ type Run struct {
 	InputContext any        `json:"inputContext,omitempty"`
 }
 
+// DeviceToken is one device registered to receive push notifications.
+//
+// Token is unique across every user, not per user: it identifies an app
+// install rather than a person, so signing in as somebody else on the same
+// phone reassigns the existing row instead of adding a second one.
+type DeviceToken struct {
+	ID         string    `json:"id"`
+	UserID     string    `json:"userId"`
+	Token      string    `json:"token"`
+	Platform   string    `json:"platform"`
+	CreatedAt  time.Time `json:"createdAt"`
+	LastSeenAt time.Time `json:"lastSeenAt"`
+}
+
 type LogStatus string
 
 const (

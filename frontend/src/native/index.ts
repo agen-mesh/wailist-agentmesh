@@ -7,6 +7,7 @@
 import { loadToken, saveToken, clearToken } from "./auth";
 import { flush, start, stop } from "./geofence";
 import { setGeofence, clearGeofence } from "./api";
+import { disablePush, enablePush, listenForTaps, type PushState } from "./push";
 
 export interface NativeShell {
   onSignedIn(token: string): Promise<void>;
@@ -16,6 +17,16 @@ export interface NativeShell {
     fence: { lat: number; lng: number; radiusM: number },
   ): Promise<boolean>;
   clearGeofence(workflowId: string): Promise<void>;
+  /**
+   * Asks for notification permission and registers this device.
+   *
+   * Separate from onSignedIn rather than folded into it, because the two want
+   * different timing: a session must be restored before the first request goes
+   * out, whereas a permission prompt should appear when the user has been
+   * given a reason for it. The web bundle decides when that is; the shell only
+   * knows how.
+   */
+  enableNotifications(): Promise<PushState>;
 }
 
 /**
@@ -33,6 +44,11 @@ export async function boot(): Promise<string | null> {
   // Not awaited: a flush that cannot reach the network keeps its queue, and
   // the app must still start.
   void flush();
+  // Attached unconditionally, before anything is known about permission. A
+  // notification tapped from a cold start delivers its event during launch,
+  // and a listener registered after that has already missed it -- the app
+  // would open on its front page having been asked to open a specific run.
+  void listenForTaps().catch(() => {});
   return token;
 }
 
@@ -44,7 +60,15 @@ export const shell: NativeShell = {
   },
 
   async onSignedOut() {
+    // Notifications first, and only then the token: unregistering is an
+    // authenticated call, so clearing the session first would guarantee it
+    // fails and leave this device receiving the next user's run results.
+    await disablePush();
     await clearToken();
+  },
+
+  async enableNotifications() {
+    return enablePush();
   },
 
   async setGeofence(workflowId, fence) {
