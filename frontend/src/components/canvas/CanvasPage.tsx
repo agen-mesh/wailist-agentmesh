@@ -1043,7 +1043,17 @@ function CanvasTopbar({
           onChange={(e) =>
             setWorkflow((wf) => ({ ...wf, name: e.target.value }))
           }
-          style={nameFieldStyle}
+          style={{
+            ...nameFieldStyle,
+            // flex-basis:auto (nameFieldStyle) sizes a plain element to its
+            // text content, but NOT a form control: an <input>'s intrinsic
+            // size is a fixed UA default (~20 characters) regardless of its
+            // value, so the read-only span above grows with the name and
+            // this input would not. An explicit ch-based width, clamped to
+            // the same floor/cap nameFieldStyle already enforces in px,
+            // makes the editable field track what's actually typed.
+            width: `${Math.min(Math.max(workflow.name.length + 2, 15), 60)}ch`,
+          }}
         />
       ) : (
         <span

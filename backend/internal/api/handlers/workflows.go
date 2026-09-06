@@ -13,21 +13,11 @@ import (
 	"github.com/agentmesh/backend/internal/respond"
 )
 
-// isSystemConsoleWorkflowName reports whether name is one of the hidden,
-// per-user rows GetOrCreateSystemWorkflow finds-or-creates to back a partner
-// console (Tendril, Prism). Those exist purely so the engine has a workflow
-// to hang runs and debit-ledger rows off; the user never authored them and
-// there is nothing to open on a canvas, so they must not appear in the
-// regular workflow list next to things the user actually built.
-func isSystemConsoleWorkflowName(name string) bool {
-	switch name {
-	case tendrilConsoleWorkflowName, prismConsoleWorkflowName:
-		return true
-	default:
-		return false
-	}
-}
-
+// ListWorkflows excludes a partner console's hidden row (Tendril, Prism) via
+// Store.ListWorkflows' own WHERE NOT is_system -- filtered at the query, not
+// here, so a row that will never be shown doesn't get decrypted and
+// aggregated into Runs/Spend for nothing. See is_system's doc comment
+// (models.Workflow) for why that column, not a name match, is what decides.
 func (d *Deps) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(CtxUserID).(string)
 	wfs, err := d.Store.ListWorkflows(r.Context(), userID)
@@ -35,14 +25,6 @@ func (d *Deps) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	visible := wfs[:0]
-	for _, wf := range wfs {
-		if isSystemConsoleWorkflowName(wf.Name) {
-			continue
-		}
-		visible = append(visible, wf)
-	}
-	wfs = visible
 	if wfs == nil {
 		wfs = []models.Workflow{}
 	}

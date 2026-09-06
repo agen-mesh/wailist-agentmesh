@@ -652,6 +652,11 @@ export function PrismConsolePage() {
                       display: "flex",
                       alignItems: "center",
                       gap: 14,
+                      // Same escape hatch the pre-flatten layout had: on a
+                      // narrow viewport the hint text can't shrink below its
+                      // own width, so without wrap it would overflow the
+                      // panel instead of dropping to its own line.
+                      flexWrap: "wrap",
                     }}
                   >
                     {missing.length > 0 && (
@@ -659,7 +664,6 @@ export function PrismConsolePage() {
                         style={{
                           fontSize: 11.5,
                           color: "var(--fg-dim)",
-                          whiteSpace: "nowrap",
                         }}
                       >
                         Add {missing.map((m) => m.toLowerCase()).join(" and ")}{" "}
@@ -668,7 +672,7 @@ export function PrismConsolePage() {
                     )}
                     <div
                       aria-hidden
-                      style={{ flex: 1, height: 1, background: "var(--border)" }}
+                      style={{ flex: 1, minWidth: 24, height: 1, background: "var(--border)" }}
                     />
                     <button
                       type="button"

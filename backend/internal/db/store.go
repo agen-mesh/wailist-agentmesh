@@ -47,7 +47,7 @@ func (s *Store) Close() {
 // sites, and one was missed. A future column now only needs to be added
 // here and in scanWorkflowRow's Scan call, once, for every caller to pick
 // it up automatically.
-const workflowColumns = `id, user_id, name, status, graph, deployed_at, run_endpoint, created_at, updated_at, schedule_cron, schedule_next_run_at, geofence_lat, geofence_lng, geofence_radius_m, geofence_inside, geofence_last_fix_at`
+const workflowColumns = `id, user_id, name, status, graph, deployed_at, run_endpoint, created_at, updated_at, schedule_cron, schedule_next_run_at, geofence_lat, geofence_lng, geofence_radius_m, geofence_inside, geofence_last_fix_at, is_system`
 
 // rowScanner is satisfied by both pgx.Row (QueryRow) and *pgx.Rows
 // (Query's per-row iteration) -- scanWorkflowRow works with either, so a
@@ -68,7 +68,7 @@ func scanWorkflowRow(row rowScanner) (models.Workflow, error) {
 		&w.DeployedAt, &runEndpoint, &w.CreatedAt, &w.UpdatedAt,
 		&w.ScheduleCron, &w.ScheduleNextRunAt,
 		&w.GeofenceLat, &w.GeofenceLng, &w.GeofenceRadiusM,
-		&w.GeofenceInside, &w.GeofenceLastFixAt,
+		&w.GeofenceInside, &w.GeofenceLastFixAt, &w.IsSystem,
 	); err != nil {
 		return models.Workflow{}, err
 	}
@@ -80,13 +80,22 @@ func scanWorkflowRow(row rowScanner) (models.Workflow, error) {
 }
 
 func (s *Store) CreateWorkflow(ctx context.Context, name, userID string) (models.Workflow, error) {
+	return s.createWorkflowRow(ctx, name, userID, false)
+}
+
+// createWorkflowRow is CreateWorkflow's and GetOrCreateSystemWorkflow's
+// shared INSERT, split out so isSystem can never be set by anything but
+// GetOrCreateSystemWorkflow itself -- CreateWorkflow (the ordinary
+// POST /workflows path) always passes false, hardcoded at its one call site
+// rather than threaded through from a request body a user could set.
+func (s *Store) createWorkflowRow(ctx context.Context, name, userID string, isSystem bool) (models.Workflow, error) {
 	id := uuid.New().String()
 	emptyGraph := `{"nodes":[],"edges":[]}`
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO workflows (id, user_id, name, status, graph)
-		VALUES ($1, $2, $3, 'draft', $4::jsonb)
+		INSERT INTO workflows (id, user_id, name, status, graph, is_system)
+		VALUES ($1, $2, $3, 'draft', $4::jsonb, $5)
 		RETURNING `+workflowColumns+`
-	`, id, userID, name, emptyGraph)
+	`, id, userID, name, emptyGraph, isSystem)
 	return scanWorkflowRow(row)
 }
 
@@ -103,10 +112,17 @@ func (s *Store) CreateWorkflow(ctx context.Context, name, userID string) (models
 // workflow-page visit calling GetOrCreateSystemWorkflow instead would mint
 // an empty "Tendril Console" row for every user who has never touched
 // Tendril, the instant they open ANY of their own workflows.
+// AND is_system = true is load-bearing, not redundant with the name match:
+// without it, a user renaming their OWN workflow to this exact name (there
+// is no name validation on UpdateWorkflow) would resolve here as THE system
+// workflow -- oldest match wins -- silently swapping their real workflow for
+// the console from then on. is_system is a column no rename can touch, so
+// only a row this store itself created via createWorkflowRow(isSystem=true)
+// can ever match.
 func (s *Store) FindSystemWorkflow(ctx context.Context, userID, name string) (w models.Workflow, found bool, err error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+workflowColumns+`
-		FROM workflows WHERE user_id = $1 AND name = $2 ORDER BY created_at ASC LIMIT 1
+		FROM workflows WHERE user_id = $1 AND name = $2 AND is_system = true ORDER BY created_at ASC LIMIT 1
 	`, userID, name)
 	if err != nil {
 		return models.Workflow{}, false, err
@@ -139,7 +155,7 @@ func (s *Store) GetOrCreateSystemWorkflow(ctx context.Context, userID, name stri
 	if found {
 		return w, nil
 	}
-	return s.CreateWorkflow(ctx, name, userID)
+	return s.createWorkflowRow(ctx, name, userID, true)
 }
 
 func (s *Store) GetWorkflow(ctx context.Context, id string) (models.Workflow, error) {
@@ -393,10 +409,17 @@ func (s *Store) ClaimDueSchedules(ctx context.Context, now time.Time, nextRun fu
 	return out, nil
 }
 
+// AND NOT is_system excludes a partner console's hidden row (Tendril,
+// Prism): the user never authored it and there is nothing to open on a
+// canvas, so it has no place in a list of things the user built. Filtered
+// here, in the query, rather than after the fact in the handler -- a row
+// excluded post-hoc still paid for its own decrypt and its own
+// attachWorkflowStats aggregation for nothing; idx_workflows_user_visible
+// (migration 000033) covers this exact predicate.
 func (s *Store) ListWorkflows(ctx context.Context, userID string) ([]models.Workflow, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+workflowColumns+`
-		FROM workflows WHERE user_id = $1 ORDER BY updated_at DESC
+		FROM workflows WHERE user_id = $1 AND NOT is_system ORDER BY updated_at DESC
 	`, userID)
 	if err != nil {
 		return nil, err

@@ -229,6 +229,13 @@ type Workflow struct {
 	// not the server's receive time. Offline pings flush in a burst, so the
 	// only ordering that means anything is the one the device observed.
 	GeofenceLastFixAt *time.Time `json:"geofenceLastFixAt,omitempty"`
+	// IsSystem marks a row GetOrCreateSystemWorkflow finds-or-creates to back
+	// a partner console (Tendril, Prism) rather than something a user built.
+	// Set once, at INSERT, and never touched by UpdateWorkflow -- identity
+	// lives in this column, not in the name, precisely so renaming a
+	// workflow can never make it (or unmake it) a console. json:"-": this is
+	// server-internal bookkeeping, not something the frontend needs to see.
+	IsSystem bool `json:"-"`
 }
 
 type RunStatus string

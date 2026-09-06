@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { BASE, workflows as workflowsApi } from "@/lib/api";
+import { BASE } from "@/lib/api";
 import {
   X402_PLATFORM_FEE_USD_MICROS,
   type BazaarResource,
@@ -11,6 +11,7 @@ import { prism } from "@/lib/prism";
 import { can } from "@/lib/readonly";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import { TENDRIL_DEMO_WORKFLOW, PRISM_DEMO_WORKFLOW } from "@/lib/data";
+import { loadTemplateWorkflow } from "@/lib/templateWorkflow";
 import type { Workflow } from "@/lib/types";
 
 const MAGENTA = "#E879F9";
@@ -181,20 +182,13 @@ export function ConsoleCard({
   // there is no "the one shared try-it" row to find-or-create, since each
   // click is a new copy the user immediately owns and can edit or throw away.
   const tryWorkflow = async () => {
-    if (trying || opening || !canTryWorkflow || !template) return;
+    if (trying || opening || !canTryWorkflow || !available || !template) return;
     setTrying(true);
     setError(null);
-    let wf: Workflow | undefined;
     try {
-      wf = await workflowsApi.create(template.name);
-      await workflowsApi.update(wf.id, {
-        name: template.name,
-        nodes: template.nodes,
-        edges: template.edges,
-      });
-      router.push(`/workflows/${wf.id}`);
+      const id = await loadTemplateWorkflow(template);
+      router.push(`/workflows/${id}`);
     } catch (e) {
-      if (wf) await workflowsApi.remove(wf.id).catch(() => {});
       setError(e instanceof Error ? e.message : "Could not load this workflow. Try again.");
       setTrying(false);
     }
@@ -252,8 +246,12 @@ export function ConsoleCard({
           <button
             type="button"
             onClick={tryWorkflow}
-            disabled={trying || opening}
-            title={`Try a workflow with ${provider}`}
+            disabled={trying || opening || !available}
+            title={
+              available
+                ? `Try a workflow with ${provider}`
+                : "This preview has no backend connected."
+            }
             aria-label={`Try a workflow with ${provider}`}
             style={{
               width: 26,
@@ -265,8 +263,8 @@ export function ConsoleCard({
               borderRadius: "var(--r-2)",
               border: "1px solid var(--border-strong)",
               background: "var(--bg)",
-              color: trying ? "var(--fg-dim)" : MAGENTA,
-              cursor: trying || opening ? "default" : "pointer",
+              color: trying || !available ? "var(--fg-dim)" : MAGENTA,
+              cursor: trying || opening || !available ? "default" : "pointer",
               fontSize: 11,
               padding: 0,
             }}

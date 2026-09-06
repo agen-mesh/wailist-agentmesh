@@ -273,6 +273,77 @@ func TestFindSystemWorkflowReportsScheduleFields(t *testing.T) {
 	}
 }
 
+// TestFindSystemWorkflowIgnoresANameCollisionFromAnOrdinaryWorkflow is the
+// regression test for the hijack migration 000033 (is_system) closes.
+// UpdateWorkflow has never validated names, so before is_system existed, a
+// user renaming their OWN ordinary workflow to exactly the console's name
+// made FindSystemWorkflow's name-only WHERE clause return THAT workflow --
+// oldest match wins -- silently swapping it for the console from then on:
+// inaccessible via the canvas (WorkflowRoute dispatches on id) with console
+// runs/spend attributed to it. is_system is a column no rename can touch.
+func TestFindSystemWorkflowIgnoresANameCollisionFromAnOrdinaryWorkflow(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	email := fmt.Sprintf("system-workflow-collision-test-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const systemWorkflowName = "Collision Console (managed, do not edit)"
+
+	// The user's own, ordinary workflow -- created the normal way, is_system
+	// false -- happens to carry the exact name a console would use. This is
+	// the state UpdateWorkflow's missing validation lets a rename produce.
+	ordinary, err := store.CreateWorkflow(ctx, systemWorkflowName, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Before is_system, this would have returned the ordinary workflow.
+	if _, ok, err := store.FindSystemWorkflow(ctx, user.ID, systemWorkflowName); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatal("FindSystemWorkflow matched the ordinary, non-system workflow by name alone")
+	}
+
+	// GetOrCreateSystemWorkflow must therefore create a SEPARATE row, not
+	// silently adopt the ordinary one.
+	sys, err := store.GetOrCreateSystemWorkflow(ctx, user.ID, systemWorkflowName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sys.ID == ordinary.ID {
+		t.Fatal("GetOrCreateSystemWorkflow returned the ordinary workflow's id instead of creating its own row")
+	}
+	if !sys.IsSystem {
+		t.Error("the row GetOrCreateSystemWorkflow just created has IsSystem = false, want true")
+	}
+
+	// The ordinary workflow -- same name, is_system false -- must still be
+	// visible to the user; the hidden system row must not be.
+	list, err := store.ListWorkflows(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawOrdinary, sawSystem bool
+	for _, w := range list {
+		if w.ID == ordinary.ID {
+			sawOrdinary = true
+		}
+		if w.ID == sys.ID {
+			sawSystem = true
+		}
+	}
+	if !sawOrdinary {
+		t.Error("ListWorkflows dropped the user's own ordinary workflow")
+	}
+	if sawSystem {
+		t.Error("ListWorkflows returned the hidden system workflow row")
+	}
+}
+
 // TestClaimDueSchedulesAnchorsNextRunOnDueTimeNotSweepTime is a regression
 // test for a review finding: ClaimDueSchedules used to call
 // nextRun(cronExpr, now) -- the SWEEP time -- rather than the row's own

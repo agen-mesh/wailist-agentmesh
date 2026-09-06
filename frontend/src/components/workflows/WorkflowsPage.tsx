@@ -15,6 +15,7 @@ import { Workflow } from "@/lib/types";
 import { workflows as workflowsApi } from "@/lib/api";
 import { useCredits } from "@/lib/credits/store";
 import { DEMO_WORKFLOW } from "@/lib/data";
+import { loadTemplateWorkflow } from "@/lib/templateWorkflow";
 import { can } from "@/lib/readonly";
 import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
 import { useReadOnly } from "@/hooks/useReadOnly";
@@ -84,32 +85,18 @@ export function WorkflowsPage() {
 
   // Loads DEMO_WORKFLOW (lib/data.ts) into a brand-new workflow row every
   // click -- a demo is just a starting point the user immediately edits, so
-  // there's no
-  // "the one shared demo" identity to preserve and a fresh copy each time is
-  // correct. create() makes the empty row, then update() writes the full
-  // node/edge graph in one shot (same two-call pattern the canvas editor's
-  // own save path already uses).
+  // there's no "the one shared demo" identity to preserve and a fresh copy
+  // each time is correct. loadTemplateWorkflow (lib/templateWorkflow.ts)
+  // owns the create()-then-update()-then-rollback-on-failure sequence,
+  // shared with each partner ConsoleCard's "try a workflow" icon.
   const handleLoadDemoWorkflow = useCallback(async () => {
     if (creatingDemo) return;
     setCreatingDemo(true);
     setPageError((prev) => (prev?.source === "demo" ? null : prev));
-    let wf: Workflow | undefined;
     try {
-      wf = await workflowsApi.create(DEMO_WORKFLOW.name);
-      // UpdateWorkflow (backend/internal/api/handlers/workflows.go) overwrites
-      // name unconditionally from the request body -- omitting it here would
-      // blank out the name create() just set.
-      await workflowsApi.update(wf.id, {
-        name: DEMO_WORKFLOW.name,
-        nodes: DEMO_WORKFLOW.nodes,
-        edges: DEMO_WORKFLOW.edges,
-      });
-      router.push(`/workflows/${wf.id}`);
+      const id = await loadTemplateWorkflow(DEMO_WORKFLOW);
+      router.push(`/workflows/${id}`);
     } catch (e) {
-      // If create() succeeded but update() failed, don't leave an empty
-      // orphaned row behind in the user's workflow list -- best-effort
-      // delete it before surfacing the error.
-      if (wf) await workflowsApi.remove(wf.id).catch(() => {});
       setPageError({
         source: "demo",
         message:
