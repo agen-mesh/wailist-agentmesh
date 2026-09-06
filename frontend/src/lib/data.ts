@@ -818,6 +818,325 @@ export const DEMO_WORKFLOW: Workflow = {
   ],
 };
 
+// TENDRIL_DEMO_WORKFLOW and PRISM_DEMO_WORKFLOW are DEMO_WORKFLOW's shape
+// (trigger -> two agents, each with its own model and an agent-invoked
+// tool402 call -> one guaranteed flow-step tool402 call -> an http tool ->
+// an unconfigured, unbilled action -> end), with the CANIX402 calls swapped
+// for the partner the button is named after. Same reason as DEMO_WORKFLOW
+// itself: real, live-callable endpoints and correct billing math, not an
+// invented example.
+//
+// Neither node type needs the partner's console: curated:tendril-run has no
+// lease step ("No lease needed -- Tendril picks the machine, runs the job in
+// a throwaway sandbox, and destroys it", curated.go) and is plainly payable
+// with one string param, and code-review-fast/accurate take two plain-text
+// query params (raw_url, file_path) -- unlike resume-screen, nothing here
+// needs a file upload, so an ordinary discoveredParams/paramDefaults tool402
+// node (the same shape "Add to workflow" already produces for a curated
+// entry) is enough. Both point at the real endpoints in
+// backend/internal/bazaar/curated.go and backend/internal/prism/endpoints.go
+// -- not a copy that can drift, since a run node's own field values are what
+// get sent regardless.
+
+// tendrilNode mirrors canixNode's shape one row up: a self-contained
+// tool402 node pointed at Tendril's one payable endpoint, requiring no
+// separate rent/lease step.
+function tendrilNode(
+  id: string,
+  x: number,
+  y: number,
+  opts: { name: string; description: string; payload: string },
+): WorkflowNode {
+  return {
+    id,
+    type: "tool402",
+    x,
+    y,
+    name: opts.name,
+    description: opts.description,
+    endpoint: "https://tendrilregister.007575.xyz/x402/run",
+    method: "POST",
+    provider: "tendrilregister.007575.xyz",
+    price: "0.01",
+    unit: "call",
+    discoveredParams: [
+      {
+        name: "payload",
+        type: "string",
+        required: true,
+        description: "Python source to execute. Its stdout is returned as `result`.",
+      },
+    ],
+    paramDefaults: { payload: opts.payload },
+  };
+}
+
+export const TENDRIL_DEMO_WORKFLOW: Workflow = {
+  id: "wf-demo-tendril",
+  name: "Demo: Tendril Codegen Pipeline",
+  nodes: [
+    {
+      id: "t1",
+      type: "trigger",
+      template: "manual",
+      icon: "▶",
+      x: 40,
+      y: 260,
+      label: "Manual Trigger",
+    },
+    {
+      id: "t2",
+      type: "agent",
+      template: "agent",
+      x: 320,
+      y: 220,
+      name: "Codegen Agent",
+      systemPrompt:
+        "You are a Python developer. Write a short, correct Python script for the task you're given, then use the Tendril Run tool to actually execute it on rented compute and confirm the output before handing off.",
+    },
+    {
+      id: "t3",
+      type: "provider",
+      template: "gemini",
+      x: 240,
+      y: 460,
+      name: "Gemini 2.5 Flash",
+      model: "gemini-2.5-flash",
+      keyMode: "platform",
+    },
+    tendrilNode("t4", 440, 460, {
+      name: "Tendril Run",
+      description:
+        "Run a Python script on rented compute and get its stdout back. No lease needed -- Tendril picks the machine, runs the job in a throwaway sandbox, and destroys it.",
+      payload: "print(sum(range(1, 101)))",
+    }),
+    {
+      id: "t5",
+      type: "agent",
+      template: "agent",
+      x: 700,
+      y: 220,
+      name: "Verification Agent",
+      systemPrompt:
+        "You receive a script and its claimed output from the prior agent. Write a small independent check (e.g. recompute the same result a different way) and run it with the Tendril Run tool to confirm the first agent's output is actually correct before reporting.",
+    },
+    {
+      id: "t6",
+      type: "provider",
+      template: "gemini",
+      x: 618,
+      y: 461,
+      name: "Gemini 2.5 Flash",
+      model: "gemini-2.5-flash",
+      keyMode: "platform",
+    },
+    tendrilNode("t7", 820, 460, {
+      name: "Tendril Run",
+      description:
+        "Run a Python script on rented compute and get its stdout back. No lease needed -- Tendril picks the machine, runs the job in a throwaway sandbox, and destroys it.",
+      payload: "print(sorted([5, 3, 9, 1]))",
+    }),
+    tendrilNode("t8", 980, 220, {
+      name: "Tendril Run (final pull)",
+      description:
+        "Runs unconditionally as a flow step after the Verification Agent finishes -- unlike the two tool402 nodes above, this one is not agent-invoked, so it's billed on every run.",
+      payload: "print('pipeline complete')",
+    }),
+    {
+      id: "t9",
+      type: "tool",
+      template: "http",
+      x: 1220,
+      y: 220,
+      name: "Fetch Data",
+      url: "https://httpbin.org/get",
+      method: "GET",
+    },
+    {
+      id: "t10",
+      type: "action",
+      template: "telegram",
+      x: 1460,
+      y: 220,
+      name: "Post Summary",
+      description:
+        "Posts the pipeline's report to Telegram -- add your own bot token (Secrets) and chat ID (Config) in this node's settings to enable it. Unconfigured, this step no-ops (green, unbilled) rather than failing.",
+    },
+    { id: "t11", type: "end", template: "done", x: 1700, y: 220 },
+  ],
+  edges: [
+    { id: "te1", from: "t1", to: "t2", kind: "flow", toPort: "in" },
+    { id: "te2", from: "t3", to: "t2", kind: "attach", toPort: "model" },
+    { id: "te3", from: "t4", to: "t2", kind: "attach", toPort: "tools" },
+    { id: "te4", from: "t2", to: "t5", kind: "flow", toPort: "in" },
+    { id: "te5", from: "t6", to: "t5", kind: "attach", toPort: "model" },
+    { id: "te6", from: "t7", to: "t5", kind: "attach", toPort: "tools" },
+    { id: "te7", from: "t5", to: "t8", kind: "flow", toPort: "in" },
+    { id: "te8", from: "t8", to: "t9", kind: "flow", toPort: "in" },
+    { id: "te9", from: "t9", to: "t10", kind: "flow", toPort: "in" },
+    { id: "te10", from: "t10", to: "t11", kind: "flow", toPort: "in" },
+  ],
+};
+
+// prismCodeReviewNode mirrors canixNode/tendrilNode. Deliberately restricted
+// to code-review-fast/accurate: those take flat text query params (raw_url,
+// file_path), unlike resume-screen's nested files array, so they are the
+// only Prism endpoints an ordinary discoveredParams tool402 node can call --
+// see backend/internal/bazaar/curated.go on why Prism otherwise needs its
+// console.
+function prismCodeReviewNode(
+  id: string,
+  x: number,
+  y: number,
+  opts: { name: string; description: string; tier: "fast" | "accurate"; rawUrl: string; filePath: string },
+): WorkflowNode {
+  return {
+    id,
+    type: "tool402",
+    x,
+    y,
+    name: opts.name,
+    description: opts.description,
+    endpoint: `https://prism-99h2.onrender.com/code-review-${opts.tier}`,
+    method: "GET",
+    provider: "prism-99h2.onrender.com",
+    price: opts.tier === "accurate" ? "0.20" : "0.10",
+    unit: "call",
+    discoveredParams: [
+      {
+        name: "raw_url",
+        type: "string",
+        required: true,
+        description:
+          "Public raw-text link to the file to review (e.g. a GitHub Raw URL).",
+      },
+      {
+        name: "file_path",
+        type: "string",
+        required: true,
+        description: "The file's name, extension included -- tells Prism which language to expect.",
+      },
+    ],
+    paramDefaults: { raw_url: opts.rawUrl, file_path: opts.filePath },
+  };
+}
+
+const PRISM_DEMO_RAW_URL =
+  "https://raw.githubusercontent.com/octocat/Hello-World/master/README";
+
+export const PRISM_DEMO_WORKFLOW: Workflow = {
+  id: "wf-demo-prism",
+  name: "Demo: Prism Code Review Pipeline",
+  nodes: [
+    {
+      id: "p1",
+      type: "trigger",
+      template: "manual",
+      icon: "▶",
+      x: 40,
+      y: 260,
+      label: "Manual Trigger",
+    },
+    {
+      id: "p2",
+      type: "agent",
+      template: "agent",
+      x: 320,
+      y: 220,
+      name: "Review Agent",
+      systemPrompt:
+        "You review code for bugs and security issues. Use the Prism Code Review tool on the file you're given, then summarize the findings as a short, prioritized list for the next agent.",
+    },
+    {
+      id: "p3",
+      type: "provider",
+      template: "gemini",
+      x: 240,
+      y: 460,
+      name: "Gemini 2.5 Flash",
+      model: "gemini-2.5-flash",
+      keyMode: "platform",
+    },
+    prismCodeReviewNode("p4", 440, 460, {
+      name: "Prism Code Review (quick)",
+      description:
+        "A quick pass over one file for bugs, security issues and obvious mistakes. Answers in seconds. Accepts: raw_url (required), file_path (required).",
+      tier: "fast",
+      rawUrl: PRISM_DEMO_RAW_URL,
+      filePath: "README",
+    }),
+    {
+      id: "p5",
+      type: "agent",
+      template: "agent",
+      x: 700,
+      y: 220,
+      name: "Triage Agent",
+      systemPrompt:
+        "You receive a findings list from the prior agent. Use the Prism Code Review tool for a second, thorough pass, then write a final triage report ranking every finding from both passes by severity.",
+    },
+    {
+      id: "p6",
+      type: "provider",
+      template: "gemini",
+      x: 618,
+      y: 461,
+      name: "Gemini 2.5 Flash",
+      model: "gemini-2.5-flash",
+      keyMode: "platform",
+    },
+    prismCodeReviewNode("p7", 820, 460, {
+      name: "Prism Code Review (quick)",
+      description:
+        "A quick pass over one file for bugs, security issues and obvious mistakes. Answers in seconds. Accepts: raw_url (required), file_path (required).",
+      tier: "fast",
+      rawUrl: PRISM_DEMO_RAW_URL,
+      filePath: "README",
+    }),
+    prismCodeReviewNode("p8", 980, 220, {
+      name: "Prism Code Review (thorough, final pull)",
+      description:
+        "A careful, senior-level review with a proper security pass. Runs unconditionally as a flow step after the Triage Agent finishes -- unlike the two tool402 nodes above, this one is not agent-invoked, so it's billed on every run.",
+      tier: "accurate",
+      rawUrl: PRISM_DEMO_RAW_URL,
+      filePath: "README",
+    }),
+    {
+      id: "p9",
+      type: "tool",
+      template: "http",
+      x: 1220,
+      y: 220,
+      name: "Fetch Data",
+      url: "https://httpbin.org/get",
+      method: "GET",
+    },
+    {
+      id: "p10",
+      type: "action",
+      template: "telegram",
+      x: 1460,
+      y: 220,
+      name: "Post Summary",
+      description:
+        "Posts the triage report to Telegram -- add your own bot token (Secrets) and chat ID (Config) in this node's settings to enable it. Unconfigured, this step no-ops (green, unbilled) rather than failing.",
+    },
+    { id: "p11", type: "end", template: "done", x: 1700, y: 220 },
+  ],
+  edges: [
+    { id: "pe1", from: "p1", to: "p2", kind: "flow", toPort: "in" },
+    { id: "pe2", from: "p3", to: "p2", kind: "attach", toPort: "model" },
+    { id: "pe3", from: "p4", to: "p2", kind: "attach", toPort: "tools" },
+    { id: "pe4", from: "p2", to: "p5", kind: "flow", toPort: "in" },
+    { id: "pe5", from: "p6", to: "p5", kind: "attach", toPort: "model" },
+    { id: "pe6", from: "p7", to: "p5", kind: "attach", toPort: "tools" },
+    { id: "pe7", from: "p5", to: "p8", kind: "flow", toPort: "in" },
+    { id: "pe8", from: "p8", to: "p9", kind: "flow", toPort: "in" },
+    { id: "pe9", from: "p9", to: "p10", kind: "flow", toPort: "in" },
+    { id: "pe10", from: "p10", to: "p11", kind: "flow", toPort: "in" },
+  ],
+};
+
 export const WORKFLOWS: Workflow[] = [
   {
     id: "wf-triage",

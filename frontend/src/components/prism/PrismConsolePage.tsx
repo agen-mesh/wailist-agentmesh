@@ -641,6 +641,9 @@ export function PrismConsolePage() {
                     ))}
                   </div>
 
+                  {/* One flat row instead of a button with a status line
+                      stacked under it: the hint (if any) sits to the left, a
+                      rule fills whatever space is left, then the button. */}
                   <div
                     style={{
                       marginTop: 20,
@@ -648,11 +651,25 @@ export function PrismConsolePage() {
                       borderTop: "1px solid var(--border)",
                       display: "flex",
                       alignItems: "center",
-                      justifyContent: "flex-end",
                       gap: 14,
-                      flexWrap: "wrap",
                     }}
                   >
+                    {missing.length > 0 && (
+                      <div
+                        style={{
+                          fontSize: 11.5,
+                          color: "var(--fg-dim)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Add {missing.map((m) => m.toLowerCase()).join(" and ")}{" "}
+                        to run this.
+                      </div>
+                    )}
+                    <div
+                      aria-hidden
+                      style={{ flex: 1, height: 1, background: "var(--border)" }}
+                    />
                     <button
                       type="button"
                       onClick={handleRun}
@@ -662,19 +679,6 @@ export function PrismConsolePage() {
                       {running ? "Working…" : `Run · ${formatUsd(total)}`}
                     </button>
                   </div>
-                  {missing.length > 0 && (
-                    <div
-                      style={{
-                        marginTop: 8,
-                        fontSize: 11.5,
-                        color: "var(--fg-dim)",
-                        textAlign: "right",
-                      }}
-                    >
-                      Add {missing.map((m) => m.toLowerCase()).join(" and ")} to
-                      run this.
-                    </div>
-                  )}
                 </Panel>
               )}
 
