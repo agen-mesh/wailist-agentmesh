@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { BASE } from "@/lib/api";
+import { BASE, workflows as workflowsApi } from "@/lib/api";
 import {
   X402_PLATFORM_FEE_USD_MICROS,
   type BazaarResource,
@@ -10,6 +10,8 @@ import { tendril } from "@/lib/tendril";
 import { prism } from "@/lib/prism";
 import { can } from "@/lib/readonly";
 import { useReadOnly } from "@/hooks/useReadOnly";
+import { TENDRIL_DEMO_WORKFLOW, PRISM_DEMO_WORKFLOW } from "@/lib/data";
+import type { Workflow } from "@/lib/types";
 
 const MAGENTA = "#E879F9";
 const MAGENTA_SOFT = "rgba(232, 121, 249, 0.14)";
@@ -29,6 +31,16 @@ const CONSOLE_COPY: Record<string, { verb: string; blurb: string }> = {
     blurb:
       "Have a file reviewed for bugs and security holes, or score a resume against a role. Pick quick or thorough, and pay for that one run.",
   },
+};
+
+// TRY_WORKFLOW_TEMPLATES backs the card's "try a workflow" icon: a real,
+// multi-node pipeline that actually calls this partner, as opposed to the
+// console's single-endpoint form. Lives in lib/data.ts next to DEMO_WORKFLOW
+// -- same shape, same reason (real endpoints and correct billing math, not
+// an invented example).
+const TRY_WORKFLOW_TEMPLATES: Record<string, Workflow> = {
+  tendril: TENDRIL_DEMO_WORKFLOW,
+  prism: PRISM_DEMO_WORKFLOW,
 };
 
 // Where each console lives. Resolved on click, never on render: both of these
@@ -126,12 +138,15 @@ export function ConsoleCard({
   const router = useRouter();
   const readOnly = useReadOnly();
   const [opening, setOpening] = useState(false);
+  const [trying, setTrying] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const provider = resources[0].provider ?? resources[0].host;
   const capabilities = capabilityLabels(resources.map((r) => r.url));
   const copy = CONSOLE_COPY[consoleKey];
   const route = CONSOLE_ROUTES[consoleKey];
+  const template = TRY_WORKFLOW_TEMPLATES[consoleKey];
+  const canTryWorkflow = Boolean(template) && can("workflow.create", readOnly);
   // Mock/demo mode (NEXT_PUBLIC_API_URL unset) has no backend to resolve a
   // console workflow id against. Say so on the button rather than routing to
   // a URL that cannot load -- the rest of the page still renders its fixtures
@@ -158,6 +173,30 @@ export function ConsoleCard({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not open this. Try again.");
       setOpening(false);
+    }
+  };
+
+  // Unlike `open`, this always creates a fresh workflow row (create() then
+  // update(), the same two-call pattern the demo-workflow buttons use) --
+  // there is no "the one shared try-it" row to find-or-create, since each
+  // click is a new copy the user immediately owns and can edit or throw away.
+  const tryWorkflow = async () => {
+    if (trying || opening || !canTryWorkflow || !template) return;
+    setTrying(true);
+    setError(null);
+    let wf: Workflow | undefined;
+    try {
+      wf = await workflowsApi.create(template.name);
+      await workflowsApi.update(wf.id, {
+        name: template.name,
+        nodes: template.nodes,
+        edges: template.edges,
+      });
+      router.push(`/workflows/${wf.id}`);
+    } catch (e) {
+      if (wf) await workflowsApi.remove(wf.id).catch(() => {});
+      setError(e instanceof Error ? e.message : "Could not load this workflow. Try again.");
+      setTrying(false);
     }
   };
 
@@ -209,6 +248,32 @@ export function ConsoleCard({
             {copy?.verb ?? "Open console"}
           </div>
         </div>
+        {canTryWorkflow && (
+          <button
+            type="button"
+            onClick={tryWorkflow}
+            disabled={trying || opening}
+            title={`Try a workflow with ${provider}`}
+            aria-label={`Try a workflow with ${provider}`}
+            style={{
+              width: 26,
+              height: 26,
+              flexShrink: 0,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: "var(--r-2)",
+              border: "1px solid var(--border-strong)",
+              background: "var(--bg)",
+              color: trying ? "var(--fg-dim)" : MAGENTA,
+              cursor: trying || opening ? "default" : "pointer",
+              fontSize: 11,
+              padding: 0,
+            }}
+          >
+            {trying ? "…" : "▶"}
+          </button>
+        )}
       </div>
 
       <p

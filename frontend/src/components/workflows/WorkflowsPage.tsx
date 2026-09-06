@@ -14,7 +14,7 @@ import { Topbar } from "@/components/Topbar";
 import { Workflow } from "@/lib/types";
 import { workflows as workflowsApi } from "@/lib/api";
 import { useCredits } from "@/lib/credits/store";
-import { DEMO_WORKFLOW, TENDRIL_DEMO_WORKFLOW, PRISM_DEMO_WORKFLOW } from "@/lib/data";
+import { DEMO_WORKFLOW } from "@/lib/data";
 import { can } from "@/lib/readonly";
 import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
 import { useReadOnly } from "@/hooks/useReadOnly";
@@ -35,15 +35,13 @@ export function WorkflowsPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [creatingDemo, setCreatingDemo] = useState(false);
-  const [creatingTendrilDemo, setCreatingTendrilDemo] = useState(false);
-  const [creatingPrismDemo, setCreatingPrismDemo] = useState(false);
   // Tagged by source so the banner always shows the most recent failure --
   // two separate error strings with a fixed `a || b` precedence would let
   // a stale error from one action permanently mask a newer one from the
   // other. A success only clears the error if it's the one that owns it,
   // so it never wipes an unrelated action's still-relevant error.
   const [pageError, setPageError] = useState<{
-    source: "demo" | "tendril-demo" | "prism-demo" | "delete" | "schedule";
+    source: "demo" | "delete" | "schedule";
     message: string;
   } | null>(null);
   const { balanceUSD, balanceKnown, refreshBalance } = useCredits();
@@ -120,59 +118,6 @@ export function WorkflowsPage() {
       setCreatingDemo(false);
     }
   }, [creatingDemo, router]);
-
-  // Same create()-then-update() pattern as handleLoadDemoWorkflow, one
-  // template per partner. TENDRIL_DEMO_WORKFLOW / PRISM_DEMO_WORKFLOW
-  // (lib/data.ts) are real, multi-node workflows -- not the single-endpoint
-  // console -- so someone can see what wiring either partner into an actual
-  // agent pipeline looks like before building their own.
-  const handleLoadTendrilDemoWorkflow = useCallback(async () => {
-    if (creatingTendrilDemo) return;
-    setCreatingTendrilDemo(true);
-    setPageError((prev) => (prev?.source === "tendril-demo" ? null : prev));
-    let wf: Workflow | undefined;
-    try {
-      wf = await workflowsApi.create(TENDRIL_DEMO_WORKFLOW.name);
-      await workflowsApi.update(wf.id, {
-        name: TENDRIL_DEMO_WORKFLOW.name,
-        nodes: TENDRIL_DEMO_WORKFLOW.nodes,
-        edges: TENDRIL_DEMO_WORKFLOW.edges,
-      });
-      router.push(`/workflows/${wf.id}`);
-    } catch (e) {
-      if (wf) await workflowsApi.remove(wf.id).catch(() => {});
-      setPageError({
-        source: "tendril-demo",
-        message:
-          e instanceof Error ? e.message : "could not load the Tendril demo workflow",
-      });
-      setCreatingTendrilDemo(false);
-    }
-  }, [creatingTendrilDemo, router]);
-
-  const handleLoadPrismDemoWorkflow = useCallback(async () => {
-    if (creatingPrismDemo) return;
-    setCreatingPrismDemo(true);
-    setPageError((prev) => (prev?.source === "prism-demo" ? null : prev));
-    let wf: Workflow | undefined;
-    try {
-      wf = await workflowsApi.create(PRISM_DEMO_WORKFLOW.name);
-      await workflowsApi.update(wf.id, {
-        name: PRISM_DEMO_WORKFLOW.name,
-        nodes: PRISM_DEMO_WORKFLOW.nodes,
-        edges: PRISM_DEMO_WORKFLOW.edges,
-      });
-      router.push(`/workflows/${wf.id}`);
-    } catch (e) {
-      if (wf) await workflowsApi.remove(wf.id).catch(() => {});
-      setPageError({
-        source: "prism-demo",
-        message:
-          e instanceof Error ? e.message : "could not load the Prism demo workflow",
-      });
-      setCreatingPrismDemo(false);
-    }
-  }, [creatingPrismDemo, router]);
 
   // Deletion is permanent, so the row only calls this after its own in-menu
   // confirm step. The backend refuses (409) for workflows with Tendril lease
@@ -297,44 +242,6 @@ export function WorkflowsPage() {
                   <span style={{ marginLeft: 6 }}>
                     <Pill tone="accent" mono>
                       $2.07+/run
-                    </Pill>
-                  </span>
-                </button>
-              )}
-              {can("workflow.create", readOnly) && (
-                <button
-                  onClick={handleLoadTendrilDemoWorkflow}
-                  disabled={creatingTendrilDemo}
-                  style={{
-                    ...ghostBtn,
-                    opacity: creatingTendrilDemo ? 0.6 : 1,
-                    position: "relative",
-                  }}
-                  title="Two Gemini 2.5 Flash agents + an HTTP tool + a Telegram step (no-ops until you add your own bot token/chat ID) + up to 3 real Tendril x402 calls (Algorand mainnet), each running a Python script on rented compute -- only 1 of those 3 is guaranteed, the other 2 fire only if the agent's LLM chooses to call them (and can fire more than once). $2.07 guaranteed floor, ~$5.09 typical, no fixed ceiling."
-                >
-                  {creatingTendrilDemo ? "Loading…" : "Try a workflow with Tendril"}
-                  <span style={{ marginLeft: 6 }}>
-                    <Pill tone="accent" mono>
-                      $2.07+/run
-                    </Pill>
-                  </span>
-                </button>
-              )}
-              {can("workflow.create", readOnly) && (
-                <button
-                  onClick={handleLoadPrismDemoWorkflow}
-                  disabled={creatingPrismDemo}
-                  style={{
-                    ...ghostBtn,
-                    opacity: creatingPrismDemo ? 0.6 : 1,
-                    position: "relative",
-                  }}
-                  title="Two Gemini 2.5 Flash agents + an HTTP tool + a Telegram step (no-ops until you add your own bot token/chat ID) + up to 3 real Prism x402 calls (Algorand mainnet), each reviewing a file for bugs and security issues -- only 1 of those 3 is guaranteed, the other 2 fire only if the agent's LLM chooses to call them (and can fire more than once). $2.26 guaranteed floor, ~$5.46 typical, no fixed ceiling."
-                >
-                  {creatingPrismDemo ? "Loading…" : "Try a workflow with Prism"}
-                  <span style={{ marginLeft: 6 }}>
-                    <Pill tone="accent" mono>
-                      $2.26+/run
                     </Pill>
                   </span>
                 </button>
