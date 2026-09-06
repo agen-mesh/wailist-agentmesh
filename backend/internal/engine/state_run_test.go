@@ -24,7 +24,7 @@ func TestStateNodePersistsAcrossRuns(t *testing.T) {
 	}
 
 	run1, _ := store.CreateRun(ctx, wf.ID, "manual", []byte(`{"message":"go"}`))
-	runner.Run(ctx, wf, run1)
+	runner.Run(ctx, wf, run1, 0)
 
 	vars, err := store.GetWorkflowVariables(ctx, wf.ID)
 	if err != nil {
@@ -42,7 +42,7 @@ func TestStateNodePersistsAcrossRuns(t *testing.T) {
 		ID: "x2", From: "s1", To: "g1", Kind: models.EdgeKindFlow,
 	})
 	run2, _ := store.CreateRun(ctx, wf.ID, "manual", []byte(`{"message":"go"}`))
-	runner.Run(ctx, wf, run2)
+	runner.Run(ctx, wf, run2, 0)
 
 	logs, _ := store.GetRunLogs(ctx, run2.ID)
 	var got any
@@ -73,7 +73,7 @@ func TestStateNodeIncrementsCounter(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		run, _ := store.CreateRun(ctx, wf.ID, "manual", []byte(`{"message":"go"}`))
-		runner.Run(ctx, wf, run)
+		runner.Run(ctx, wf, run, 0)
 	}
 
 	vars, _ := store.GetWorkflowVariables(ctx, wf.ID)
@@ -102,7 +102,7 @@ func TestStateWriteIsVisibleLaterInTheSameRun(t *testing.T) {
 	}
 
 	run, _ := store.CreateRun(ctx, wf.ID, "manual", []byte(`{"message":"go"}`))
-	runner.Run(ctx, wf, run)
+	runner.Run(ctx, wf, run, 0)
 
 	logs, _ := store.GetRunLogs(ctx, run.ID)
 	var got any
@@ -134,7 +134,7 @@ func TestStateNodeRejectsUnknownOp(t *testing.T) {
 	}
 
 	run, _ := store.CreateRun(ctx, wf.ID, "manual", []byte(`{"message":"go"}`))
-	runner.Run(ctx, wf, run)
+	runner.Run(ctx, wf, run, 0)
 
 	finished, _ := store.GetRun(ctx, run.ID)
 	if finished.Status != models.RunStatusFailed {

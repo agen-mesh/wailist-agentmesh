@@ -6,7 +6,9 @@ export type NodeType =
   | "tool402"
   | "action"
   | "state"
-  | "end";
+  | "end"
+  | "tendril"
+  | "google";
 export type EdgeKind = "flow" | "attach";
 export type PortName = "in" | "out" | "model" | "tools" | "top";
 
@@ -86,10 +88,16 @@ export interface WorkflowNode {
   emailBody?: string;
   emailApiKey?: string;
   emailProvider?: string;
-  // generic per-connector storage — credentials go in secrets (encrypted server-side,
+  // generic per-connector storage -- credentials go in secrets (encrypted server-side,
   // "__enc__" sentinel on read), non-secret settings go in config
   secrets?: Record<string, string>;
   config?: Record<string, string>;
+  // tendril-specific
+  tendrilAction?: "topup" | "rent" | "run" | "release";
+  tendrilNodeId?: string;
+  tendrilHours?: string;
+  // USD of AgentMesh credit to convert into Tendril credit, on a topup node.
+  tendrilAmount?: string;
 }
 
 export interface WorkflowEdge {
@@ -114,6 +122,8 @@ export interface Workflow {
   runs?: number;
   spend?: string;
   tags?: string[];
+  scheduleCron?: string;
+  scheduleNextRunAt?: string;
 }
 
 export interface NodeTypeMeta {

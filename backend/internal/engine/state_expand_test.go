@@ -70,7 +70,7 @@ func TestStateExpandsInToolURL(t *testing.T) {
 	}
 
 	run, _ := store.CreateRun(ctx, wf.ID, "manual", []byte(`{"message":"go"}`))
-	runner.Run(ctx, wf, run)
+	runner.Run(ctx, wf, run, 0)
 
 	select {
 	case p := <-gotPath:
@@ -110,7 +110,7 @@ func TestNoStateLeavesFieldsUntouched(t *testing.T) {
 	}
 
 	run, _ := store.CreateRun(ctx, wf.ID, "manual", []byte(`{"message":"go"}`))
-	runner.Run(ctx, wf, run)
+	runner.Run(ctx, wf, run, 0)
 
 	select {
 	case p := <-gotPath:
@@ -153,13 +153,13 @@ func TestStateExpansionDoesNotMutateTheGraph(t *testing.T) {
 	}
 
 	run1, _ := store.CreateRun(ctx, wf.ID, "manual", []byte(`{"message":"go"}`))
-	runner.Run(ctx, wf, run1)
+	runner.Run(ctx, wf, run1, 0)
 
 	if err := store.SetWorkflowVariable(ctx, wf.ID, "cursor", []byte(`"second"`)); err != nil {
 		t.Fatal(err)
 	}
 	run2, _ := store.CreateRun(ctx, wf.ID, "manual", []byte(`{"message":"go"}`))
-	runner.Run(ctx, wf, run2)
+	runner.Run(ctx, wf, run2, 0)
 
 	first := <-paths
 	second := <-paths
@@ -201,7 +201,7 @@ func TestStateIsNotExpandedIntoCredentials(t *testing.T) {
 	}
 
 	run, _ := store.CreateRun(ctx, wf.ID, "manual", []byte(`{"message":"go"}`))
-	runner.Run(ctx, wf, run)
+	runner.Run(ctx, wf, run, 0)
 
 	select {
 	case auth := <-gotAuth:

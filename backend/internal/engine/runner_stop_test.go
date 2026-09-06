@@ -30,6 +30,11 @@ func (f *fakeRelaySigner) SignUSDCPaymentGroup(_ context.Context, _, _ string, _
 	return []string{"g0", "g1"}, 0, nil
 }
 
+// SignUSDCPaymentSingle must also be implemented -- without it, the
+// nodes.USDCGroupSigner type assertion in reserveAndFundRun silently fails
+// (a nil interface satisfies neither branch of a type switch cleanly), and
+// every test using this fake degrades to the no-fund path instead of
+// exercising the real run-funded flow it exists to test.
 func (f *fakeRelaySigner) SignUSDCPaymentSingle(_ context.Context, _, _ string, _, _ uint64) ([]string, int, error) {
 	return []string{"g0"}, 0, nil
 }
@@ -56,7 +61,7 @@ func newTestRunnerWithRelay(t *testing.T, relayBaseURL string) (*engine.Runner, 
 	}
 	t.Cleanup(store.Close)
 	broker := sse.NewBroker()
-	return engine.NewRunner(store, broker, &fakeRelaySigner{}, relayBaseURL, "platform-enc-mnemonic", engine.X402Config{USDCAssetID: 10458941}), store
+	return engine.NewRunner(store, broker, &fakeRelaySigner{}, relayBaseURL, "platform-enc-mnemonic", "", engine.X402Config{USDCAssetID: 10458941}), store
 }
 
 func newTestRunner(t *testing.T) (*engine.Runner, *db.Store) {
@@ -71,7 +76,7 @@ func newTestRunner(t *testing.T) (*engine.Runner, *db.Store) {
 	}
 	t.Cleanup(store.Close)
 	broker := sse.NewBroker()
-	return engine.NewRunner(store, broker, &noopSigner{}, "http://localhost:8080", "", engine.X402Config{USDCAssetID: 10458941}), store
+	return engine.NewRunner(store, broker, &noopSigner{}, "http://localhost:8080", "", "", engine.X402Config{USDCAssetID: 10458941}), store
 }
 
 // newTestRunnerWithRunFunding builds a Runner with the full run-level
@@ -94,7 +99,7 @@ func newTestRunnerWithRunFunding(t *testing.T, relayBaseURL, facilitatorURL stri
 	}
 	t.Cleanup(store.Close)
 	broker := sse.NewBroker()
-	return engine.NewRunner(store, broker, &fakeRelaySigner{}, relayBaseURL, "platform-spend-enc-mnemonic", engine.X402Config{
+	return engine.NewRunner(store, broker, &fakeRelaySigner{}, relayBaseURL, "platform-spend-enc-mnemonic", "", engine.X402Config{
 		USDCAssetID:               10458941,
 		PlatformWalletAddress:     "PLATFORMADDR",
 		PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
