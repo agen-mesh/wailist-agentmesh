@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { IconClose } from "@/components/ui";
 import { useModalDismissal } from "@/hooks/useModalDismissal";
 import { useCredits } from "@/lib/credits/store";
+import { useCurrency } from "@/lib/currency/store";
 import { creditsForTopup } from "@/lib/credits/fx";
 import type { PaymentMethod } from "./types";
 import { DEFAULT_PROVIDER } from "./paymentProviders";
@@ -72,6 +73,7 @@ export function CheckoutModal({
   const items = useMemo(() => buildCreditCart(amountINR), [amountINR]);
   const [method, setMethod] = useState<PaymentMethod>(DEFAULT_PROVIDER);
   const { recordPurchase, balanceUSD } = useCredits();
+  const { formatBalance, isDefault: isDefaultCurrency } = useCurrency();
   const router = useRouter();
   // Just the credited amount for the success screen, not a purchase record:
   // credit_ledger is where the purchase lives, written by the backend when the
@@ -157,8 +159,13 @@ export function CheckoutModal({
                 <p
                   style={{ fontSize: 13, color: "var(--fg-muted)", margin: 0 }}
                 >
-                  ${creditedUSD.toFixed(2)} credits added to your
-                  wallet.
+                  {/* USD keeps the exact original sentence. formatBalance
+                      already ends in "credits" for other currencies, so
+                      reusing it here would repeat the word. */}
+                  {isDefaultCurrency
+                    ? `$${creditedUSD.toFixed(2)} credits`
+                    : formatBalance(creditedUSD)}{" "}
+                  added to your wallet.
                 </p>
                 <div
                   style={{
@@ -171,7 +178,7 @@ export function CheckoutModal({
                     padding: "8px 14px",
                   }}
                 >
-                  New balance: ${balanceUSD.toFixed(2)}
+                  New balance: {formatBalance(balanceUSD)}
                 </div>
                 <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
                   <button

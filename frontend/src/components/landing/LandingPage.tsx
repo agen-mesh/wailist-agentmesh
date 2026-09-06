@@ -1018,7 +1018,7 @@ function LandingFooter() {
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <Logo size={14} />
           <span>
-            © {new Date().getFullYear()} AgentMesh · SOUBHAGYA SADHUKHAN
+            © {new Date().getUTCFullYear()} AgentMesh · SOUBHAGYA SADHUKHAN
           </span>
         </div>
         <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>

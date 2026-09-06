@@ -34,4 +34,10 @@ export interface Purchase {
 export interface CreditsState {
   balanceUSD: number;
   purchases: Purchase[]; // newest first
+  // The account's own low-balance warning threshold, mirrored from
+  // user_settings.low_balance_usd_micros. A plain number, deliberately not the
+  // persisted autoRecharge config this store used to keep: that object was
+  // per-browser and unwired, which is why it was removed. This one is a cache
+  // of a server value, refreshed on every /auth/me.
+  lowBalanceThresholdUSD: number;
 }

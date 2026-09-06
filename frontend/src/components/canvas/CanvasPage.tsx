@@ -16,7 +16,7 @@ import {
   useCredits,
   refreshBalance as refreshCredits,
 } from "@/lib/credits/store";
-import { LOW_BALANCE_THRESHOLD_USD } from "@/lib/credits/fx";
+import { useCurrency } from "@/lib/currency/store";
 import { CanvasGraph } from "./CanvasGraph";
 import { PalettePanel } from "./PalettePanel";
 import { Inspector } from "./Inspector";
@@ -989,9 +989,10 @@ function CanvasTopbar({
   // financial cluster. The value comes from the backend (the same row the
   // engine debits), so it is only meaningful once that fetch has landed —
   // hence balanceKnown, which separates a real $0 from "not asked yet".
-  const { balanceUSD, balanceKnown, refreshBalance } =
+  const { balanceUSD, balanceKnown, lowBalanceThresholdUSD, refreshBalance } =
     useCredits();
-  const lowBalance = balanceKnown && balanceUSD < LOW_BALANCE_THRESHOLD_USD;
+  const { formatBalance } = useCurrency();
+  const lowBalance = balanceKnown && balanceUSD < lowBalanceThresholdUSD;
 
   useEffect(() => {
     void refreshBalance();
@@ -1075,7 +1076,7 @@ function CanvasTopbar({
       >
         <Stat
           label="credits"
-          value={balanceKnown ? `$${balanceUSD.toFixed(2)}` : "-"}
+          value={balanceKnown ? formatBalance(balanceUSD) : "-"}
           color={lowBalance ? "var(--danger)" : "var(--accent)"}
         />
         <span className="am-studio-stats-extra">

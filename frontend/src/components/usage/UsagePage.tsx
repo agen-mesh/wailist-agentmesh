@@ -1,7 +1,13 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCredits } from "@/lib/credits/store";
+import { useCurrency } from "@/lib/currency/store";
+import {
+  CURRENCY_SYMBOLS,
+  currencyFractionDigits,
+  type Currency,
+} from "@/lib/currency/format";
 import { LowBalanceBanner } from "@/components/billing/LowBalanceBanner";
 import { IconSearch, Card, ghostBtnSm } from "@/components/ui";
 import { Topbar } from "@/components/Topbar";
@@ -287,6 +293,28 @@ function UsageBody({
 }) {
   const { timeseries, byWorkflow, byEndpoint } = data;
   const { balanceUSD, refreshBalance } = useCredits();
+  const {
+    format: formatMoney,
+    isDefault: isUSD,
+    currency,
+    convertAmount,
+  } = useCurrency();
+  // These figures render as a bare number beside a separate currency label, in
+  // a fixed-width mono column. Intl's currency style can't reproduce that, so
+  // the value is converted and the existing helpers keep formatting it.
+  // convertAmount returns the input unchanged on USD and null when no rate is
+  // available, so both of those paths render exactly as before.
+  const inCurrency = (x: number) => convertAmount(x) ?? x;
+  const activeCode = convertAmount(1) === null ? "USD" : currency;
+  // JPY has no subunit; without this the bare-number columns would render
+  // ¥12,355.69 beside an Intl-formatted ¥12,356 elsewhere on the page.
+  const dp = currencyFractionDigits(activeCode);
+  // The USD branch keeps the trailing " USD" the tooltip has always shown;
+  // formatMoney alone would drop it and change the default rendering.
+  const formatCurrency = useCallback(
+    (usd: number) => (isUSD ? `$${usd.toFixed(2)} USD` : formatMoney(usd)),
+    [isUSD, formatMoney],
+  );
   // One server-scoped source. /usage/settlements merges the user's own
   // workflow-run x402 payments (read back from the run_logs receipts the
   // engine persists per settlement) with their Tendril top-ups, both already
@@ -446,7 +474,7 @@ function UsageBody({
                       color: tone,
                     }}
                   >
-                    {left == null ? "…" : compactUsd(left)}
+                    {left == null ? "…" : compactUsd(inCurrency(left))}
                   </span>
                   <span
                     style={{
@@ -455,7 +483,7 @@ function UsageBody({
                       color: "var(--fg-muted)",
                     }}
                   >
-                    USD
+                    {activeCode}
                   </span>
                 </div>
                 {pctLeft != null && (
@@ -522,14 +550,20 @@ function UsageBody({
           right={
             <Legend
               items={[
-                { c: "var(--accent)", label: "Spend (USD)" },
+                // Names the unit the bars are actually drawn in, so it has to
+                // track the display currency rather than hardcode USD.
+                { c: "var(--accent)", label: `Spend (${activeCode})` },
                 { c: "var(--warm)", label: "Usage (calls)" },
               ]}
             />
           }
         />
         <div style={{ padding: "4px 4px 0" }}>
-          <AreaChart data={timeseries} algoUsd={ALGO_USD} />
+          <AreaChart
+            data={timeseries}
+            algoUsd={ALGO_USD}
+            formatSpend={formatCurrency}
+          />
         </div>
       </Card>
 
@@ -594,8 +628,8 @@ function UsageBody({
                       textAlign: "right",
                     }}
                   >
-                    {usd(w.algo)}{" "}
-                    <span style={{ color: "var(--fg-dim)" }}>USD</span>
+                    {usd(inCurrency(w.algo), dp)}{" "}
+                    <span style={{ color: "var(--fg-dim)" }}>{activeCode}</span>
                   </span>
                 </button>
               ))
@@ -617,8 +651,8 @@ function UsageBody({
           >
             <Donut
               segments={segments}
-              centerLabel={usd(catTotal)}
-              centerSub="USD"
+              centerLabel={usd(inCurrency(catTotal), dp)}
+              centerSub={activeCode}
             />
             <div
               style={{
@@ -657,7 +691,7 @@ function UsageBody({
                       color: "var(--fg)",
                     }}
                   >
-                    {usd(s.value)}
+                    {usd(inCurrency(s.value), dp)}
                   </span>
                   <span
                     style={{
@@ -829,6 +863,14 @@ function EndpointTable({
   className?: string;
   style?: React.CSSProperties;
 }) {
+  const { currency, convertAmount } = useCurrency();
+  // Same reasoning as UsageBody: bare numbers in a mono column, with the glyph
+  // rendered by the call site. Falls back to USD and "$" when no rate is
+  // available, which is also exactly the pre-existing output.
+  const inCurrency = (x: number) => convertAmount(x) ?? x;
+  const activeCode = convertAmount(1) === null ? "USD" : currency;
+  const symbol = CURRENCY_SYMBOLS[activeCode as Currency] ?? "$";
+  const dp = currencyFractionDigits(activeCode);
   const [cat, setCat] = useState<"all" | UsageCategory>("all");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
@@ -1046,7 +1088,7 @@ function EndpointTable({
                   {r.provider}
                 </span>
                 <TypeTag type={r.type} />
-                <span style={numCell}>{r.calls.toLocaleString()}</span>
+                <span style={numCell}>{r.calls.toLocaleString("en")}</span>
                 {/* Both money columns are USD like every other figure on the page --
                   a bare "6.110" reads as dollars but is ALGO (~6× off). The exact
                   on-chain ALGO amount stays available on hover for anyone
@@ -1067,7 +1109,8 @@ function EndpointTable({
                 >
                   {r.unitPrice != null ? (
                     <>
-                      ${usdPrice(r.unitPrice)}
+                      {symbol}
+                      {usdPrice(inCurrency(r.unitPrice))}
                       {r.type === "llm" && "*"}
                       <span style={{ color: "var(--fg-dim)" }}>/{r.unit}</span>
                     </>
@@ -1077,10 +1120,11 @@ function EndpointTable({
                 </span>
                 <span
                   className="cell-tip"
-                  data-tip={`$${trim(r.totalAlgo)}`}
+                  data-tip={`${symbol}${trim(inCurrency(r.totalAlgo))}`}
                   style={{ ...numCell, color: "var(--accent)" }}
                 >
-                  ${usd(r.totalAlgo)}
+                  {symbol}
+                  {usd(inCurrency(r.totalAlgo), dp)}
                 </span>
                 <span
                   style={{

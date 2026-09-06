@@ -1,14 +1,16 @@
 "use client";
 import { useCredits } from "@/lib/credits/store";
-import { LOW_BALANCE_THRESHOLD_USD } from "@/lib/credits/fx";
+import { useCurrency } from "@/lib/currency/store";
 
 // Low-balance warning: shows once the server-reported balance falls below the
-// threshold. Gated on balanceKnown, not on a render count -- an unfetched
-// balance reads as 0 and would flash this banner at every user on page load.
+// account's own threshold. Gated on balanceKnown, not on a render count -- an
+// unfetched balance reads as 0 and would flash this banner at every user on
+// page load.
 export function LowBalanceBanner({ onTopUp }: { onTopUp: () => void }) {
-  const { balanceUSD, balanceKnown } = useCredits();
+  const { balanceUSD, balanceKnown, lowBalanceThresholdUSD } = useCredits();
+  const { formatBalance } = useCurrency();
 
-  if (!balanceKnown || balanceUSD >= LOW_BALANCE_THRESHOLD_USD) return null;
+  if (!balanceKnown || balanceUSD >= lowBalanceThresholdUSD) return null;
 
   return (
     <div
@@ -28,8 +30,8 @@ export function LowBalanceBanner({ onTopUp }: { onTopUp: () => void }) {
       }}
     >
       <span>
-        Low balance: ${balanceUSD.toFixed(2)} left. Top up to keep your agents
-        running.
+        Low balance: {formatBalance(balanceUSD)} left. Top up to keep your
+        agents running.
       </span>
       <button
         type="button"

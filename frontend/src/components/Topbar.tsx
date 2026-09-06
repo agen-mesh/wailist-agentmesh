@@ -205,7 +205,11 @@ export function Topbar() {
                     <div className="profile-menu__divider" />
                     <button
                       className="profile-menu__item"
-                      onClick={() => setMenuState("closed")}
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuState("closed");
+                        router.push("/settings");
+                      }}
                     >
                       Settings
                     </button>

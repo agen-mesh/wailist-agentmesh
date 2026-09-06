@@ -5,6 +5,7 @@ import { Topbar } from "@/components/Topbar";
 import { PurchaseHistory } from "@/components/billing/PurchaseHistory";
 import { CheckoutModal } from "@/components/checkout/CheckoutModal";
 import { useCredits } from "@/lib/credits/store";
+import { useCurrency } from "@/lib/currency/store";
 import {
   bonusRate,
   creditsForTopup,
@@ -15,7 +16,6 @@ import { credits as creditsApi } from "@/lib/api";
 
 const PRESETS_INR = [1000, 5000, 10000, 20000];
 const MAX_INR = maxTopupINR();
-const LOW_BALANCE_USD = 5;
 
 const HOW_IT_WORKS = [
   "Credits are spent as your agents call paid tools, x402 endpoints, and LLM providers.",
@@ -45,11 +45,21 @@ const panelStyle: React.CSSProperties = {
   padding: 20,
 };
 
+// Still used by the top-up estimates below, which stay USD-denominated: they
+// sit inside the ₹ purchase flow that CURRENCY_PLAN.md §4 excludes, and they
+// are computed from the placeholder FX in lib/credits/fx.ts (§9), not the real
+// rate table. The balance figures use the display currency instead.
 const fmtUSD = (n: number) => `$${n.toFixed(2)}`;
 
 export default function BillingPage() {
-  const { balanceUSD, balanceKnown, lastPurchase, refreshBalance } =
-    useCredits();
+  const {
+    balanceUSD,
+    balanceKnown,
+    lastPurchase,
+    refreshBalance,
+    lowBalanceThresholdUSD,
+  } = useCredits();
+  const { formatBalance } = useCurrency();
   const [amountINR, setAmountINR] = useState<number>(PRESETS_INR[1]);
   const [customINR, setCustomINR] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
@@ -124,7 +134,7 @@ export default function BillingPage() {
       await refreshBalance();
       setCouponState("success");
       setCouponMessage(
-        `Coupon applied — ${fmtUSD(creditedUSD)} added to your balance.`,
+        `Coupon applied — ${formatBalance(creditedUSD)} added to your balance.`,
       );
       setCouponCode("");
     } catch (e) {
@@ -148,8 +158,11 @@ export default function BillingPage() {
   const credits = creditsForTopup(checkoutAmountINR);
   // Only call a balance "low" once we've actually read it — before the first
   // fetch lands, balanceUSD is 0 because nothing is known, not because the
-  // account is empty.
-  const isLow = balanceKnown && balanceUSD < LOW_BALANCE_USD;
+  // account is empty. The threshold itself is the one the user set in
+  // Settings, not a constant: it was previously hardcoded here as a second $5
+  // beside the store's own default, so the two could disagree the moment
+  // either moved.
+  const isLow = balanceKnown && balanceUSD < lowBalanceThresholdUSD;
 
   return (
     <div
@@ -293,7 +306,7 @@ export default function BillingPage() {
                         fontVariantNumeric: "tabular-nums",
                       }}
                     >
-                      {balanceKnown ? fmtUSD(balanceUSD) : "—"}
+                      {balanceKnown ? formatBalance(balanceUSD) : "—"}
                     </div>
                   </div>
                   <span

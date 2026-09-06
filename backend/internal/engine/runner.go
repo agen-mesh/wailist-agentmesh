@@ -57,12 +57,57 @@ type Runner struct {
 	tendrilSession           *tendril.Session
 	googleClientID           string
 	googleClientSecret       string
+
+	// Per-run cache of the account's per-call spend ceiling, keyed by run ID.
+	// The ceiling cannot change mid-run, and it is now consulted on every
+	// reserved charge, so re-reading user_settings each time would issue a
+	// SELECT per paid tool call for a value that is constant.
+	runCeilings sync.Map
+
 	// runBilling accumulates each run's non-tool402 billable total (run.ID
 	// -> *int64, in USD micros) so it can be settled as one lump-sum x402
 	// payment at the end of Run -- see addRunBilling and settleRunTotal.
 	// Real tool402 spend is deliberately excluded (see addRunBilling's own
 	// filtering): it already gets its own on-chain settlement.
 	runBilling sync.Map
+}
+
+// runCeiling wraps the pointer so a nil ceiling ("no user limit") can be cached
+// and read back without a nil-interface type assertion.
+type runCeiling struct{ value *int64 }
+
+// callCeiling returns the account's per-call ceiling, reading user_settings at
+// most once per run. A nil return means no user ceiling -- the global
+// MaxSingleX402QuoteUSDMicros still applies, so nil is a weaker limit and never
+// an unlimited one. Errors are not cached: a transient failure must not disable
+// the ceiling for the rest of the run.
+func (r *Runner) callCeiling(ctx context.Context, wf models.Workflow, run models.Run) (*int64, error) {
+	if v, ok := r.runCeilings.Load(run.ID); ok {
+		return v.(runCeiling).value, nil
+	}
+	settings, err := r.store.GetUserSettings(ctx, wf.UserID)
+	if err != nil {
+		return nil, err
+	}
+	r.runCeilings.Store(run.ID, runCeiling{settings.MaxCallSpendUSDMicros})
+	return settings.MaxCallSpendUSDMicros, nil
+}
+
+// enforceCallCeiling refuses a charge above the account's per-call limit.
+//
+// This is the check the settings page actually promises ("Refuse any single
+// paid call above this amount, before it runs"). It has to live where the real
+// amount is known: preflightCheck only ever sees fixed platform constants, so
+// for a long time the ceiling never saw a tool's real quoted price at all.
+func (r *Runner) enforceCallCeiling(ctx context.Context, wf models.Workflow, run models.Run, amountUSDMicros int64) error {
+	ceiling, err := r.callCeiling(ctx, wf, run)
+	if err != nil {
+		return err
+	}
+	if ceiling != nil && amountUSDMicros > *ceiling {
+		return fmt.Errorf("call would spend %d micros, above the %d micros per-call limit set for this account", amountUSDMicros, *ceiling)
+	}
+	return nil
 }
 
 func NewRunner(
@@ -117,9 +162,42 @@ func (r *Runner) SetGoogleOAuth(clientID, clientSecret string) {
 }
 
 // preflightCheck fails a node before it runs if wf.UserID can't cover
-// amountUSDMicros. Blocks outright — no soft overage — matching the
-// prepaid-only model already used for credit top-ups.
-func (r *Runner) preflightCheck(ctx context.Context, wf models.Workflow, amountUSDMicros int64) error {
+// amountUSDMicros, or if the charge exceeds the user's own per-call spend
+// ceiling. Blocks outright — no soft overage — matching the prepaid-only model
+// already used for credit top-ups.
+//
+// This is the single chokepoint every spend path goes through, which is why the
+// user ceiling is enforced here rather than at each call site: a limit the
+// engine only checks in some branches is worse than no limit, because the
+// settings page would still claim it applies everywhere.
+func (r *Runner) preflightCheck(ctx context.Context, wf models.Workflow, run models.Run, amountUSDMicros int64) error {
+	// Skipped entirely at or below the probe floor, which keeps this off the
+	// hot path: nodes.executeFunctionCall calls checkBalance with
+	// X402ProbeFloorUSDMicros before every attached tool402 call, up to 15 times
+	// in one agent run. That is sound rather than merely cheap — a stored ceiling
+	// can never sit below the floor (parseSettingsPatch rejects it, and
+	// user_settings_max_call_spend_above_probe_floor enforces it for every other
+	// writer), so an amount that small cannot breach one.
+	//
+	// Note what this function does and does not cover. Every caller hands it a
+	// fixed platform constant -- the agent fee, the BYOK flat fee, the x402
+	// platform fee, or the probe floor. A tool's real quoted price never reaches
+	// here, so the account ceiling is enforced against real spend in
+	// enforceCallCeiling, on PaymentLedger.Reserve and in reserveAndFundRun,
+	// where the true amount is known.
+	// Through enforceCallCeiling rather than its own GetUserSettings: that
+	// reads the ceiling once per run. Checking it here and there with two
+	// different reads meant the cache covered only one of the two places the
+	// ceiling is consulted, and this is the one on the hot path.
+	//
+	// Tightens models.MaxSingleX402QuoteUSDMicros; it can never loosen it, since
+	// PATCH /settings refuses a ceiling above the global cap.
+	if amountUSDMicros > models.X402ProbeFloorUSDMicros {
+		if err := r.enforceCallCeiling(ctx, wf, run, amountUSDMicros); err != nil {
+			return err
+		}
+	}
+
 	balance, err := r.store.GetCreditBalance(ctx, wf.UserID)
 	if err != nil {
 		return err
@@ -183,6 +261,12 @@ const ledgerCompensationTimeout = 10 * time.Second
 func (r *Runner) newPaymentLedger(wf models.Workflow, run models.Run) nodes.PaymentLedger {
 	return nodes.PaymentLedger{
 		Reserve: func(cctx context.Context, amountUSDMicros int64) error {
+			// Checked here, not in preflightCheck: this is where the real
+			// settlement amount is known. preflightCheck is only ever handed
+			// fixed platform constants.
+			if err := r.enforceCallCeiling(cctx, wf, run, amountUSDMicros); err != nil {
+				return err
+			}
 			return r.store.ReserveCredits(cctx, wf.UserID, amountUSDMicros)
 		},
 		Commit: func(cctx context.Context, nodeID string, amountUSDMicros int64, kind string) {
@@ -610,6 +694,13 @@ func (r *Runner) reserveAndFundRun(ctx context.Context, wf models.Workflow, run 
 		if amount > models.MaxSingleX402QuoteUSDMicros {
 			return runFundResult{}, fmt.Errorf("x402 run funding: tool %s quoted %d, exceeding the %d ceiling", tool.ID, amount, models.MaxSingleX402QuoteUSDMicros)
 		}
+		// The account's own ceiling, on the tool's real quoted price. This path
+		// pre-funds the whole run and reserves directly, so without this check it
+		// bypassed the per-call limit entirely -- only the global cap above
+		// applied, and a $1 limit still permitted a $1000 call.
+		if err := r.enforceCallCeiling(ctx, wf, run, amount); err != nil {
+			return runFundResult{}, fmt.Errorf("x402 run funding: tool %s: %w", tool.ID, err)
+		}
 		if estimate > math.MaxInt64-amount {
 			return runFundResult{}, fmt.Errorf("x402 run funding: estimate overflow summing tool %s", tool.ID)
 		}
@@ -982,6 +1073,7 @@ func (r *Runner) finishRun(wf models.Workflow, run models.Run, status models.Run
 
 // Run executes a workflow from scratch. Call via Start rather than directly.
 func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run, gen uint64) {
+	defer r.runCeilings.Delete(run.ID)
 	defer r.broker.Close(run.ID)
 	defer r.registry.deregister(wf.ID, gen)
 
@@ -1428,12 +1520,12 @@ func (r *Runner) executeNode(
 			agentFeeUSDMicros = nodes.PlatformKeyFeeUSDMicros(nodes.ModelTier(provider.Template, resolvedModel))
 		}
 
-		if err := r.preflightCheck(ctx, wf, agentFeeUSDMicros); err != nil {
+		if err := r.preflightCheck(ctx, wf, run, agentFeeUSDMicros); err != nil {
 			return nil, err
 		}
 		aw := walletByAgent[node.ID]
 		checkBalance := func(cctx context.Context, amount int64) error {
-			return r.preflightCheck(cctx, wf, amount)
+			return r.preflightCheck(cctx, wf, run, amount)
 		}
 		attach := attachMap[node.ID]
 		rf, err := r.reserveAndFundRun(ctx, wf, run, attach)
@@ -1556,7 +1648,7 @@ func (r *Runner) executeNode(
 	case models.NodeTypeTool:
 		billable := nodes.BillableFlatFee(node.Type, node.Template)
 		if billable {
-			if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
+			if err := r.preflightCheck(ctx, wf, run, models.ByokFlatFeeUSDMicros); err != nil {
 				return nil, err
 			}
 		}
@@ -1589,7 +1681,7 @@ func (r *Runner) executeNode(
 		// see the matching comment in provider.go's executeFunctionCall. The
 		// real, exact-amount reservation happens inside ExecuteTool402V2 via
 		// ledger below.
-		if err := r.preflightCheck(ctx, wf, models.X402ProbeFloorUSDMicros); err != nil {
+		if err := r.preflightCheck(ctx, wf, run, models.X402ProbeFloorUSDMicros); err != nil {
 			return nil, err
 		}
 		// A standalone tool402 node is never run-funded (that only ever
@@ -1626,7 +1718,7 @@ func (r *Runner) executeNode(
 		}
 		// Same conservative pre-flight as tool402: one cheap balance check
 		// before any network call that could spend money.
-		if err := r.preflightCheck(ctx, wf, models.X402PlatformFeeUSDMicros); err != nil {
+		if err := r.preflightCheck(ctx, wf, run, models.X402PlatformFeeUSDMicros); err != nil {
 			return nil, err
 		}
 		usdcSigner, _ := r.walletSvc.(nodes.USDCGroupSigner)
@@ -1657,7 +1749,7 @@ func (r *Runner) executeNode(
 	case models.NodeTypeAction:
 		billable := nodes.BillableFlatFee(node.Type, node.Template)
 		if billable {
-			if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
+			if err := r.preflightCheck(ctx, wf, run, models.ByokFlatFeeUSDMicros); err != nil {
 				return nil, err
 			}
 		}
@@ -1685,7 +1777,7 @@ func (r *Runner) executeNode(
 		// automatically instead of silently being ignored by this branch.
 		billable := nodes.BillableFlatFee(node.Type, node.Template)
 		if billable {
-			if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
+			if err := r.preflightCheck(ctx, wf, run, models.ByokFlatFeeUSDMicros); err != nil {
 				return nil, err
 			}
 		}

@@ -7,6 +7,7 @@ import type {
 } from "@/lib/credits/types";
 import type { PaymentMethod } from "@/components/checkout/types";
 import { credits as creditsApi, type PurchaseRecord } from "@/lib/api";
+import { LOW_BALANCE_THRESHOLD_USD } from "@/lib/credits/fx";
 
 // Credit wallet state, shared across routes via useSyncExternalStore.
 //
@@ -33,6 +34,9 @@ import { credits as creditsApi, type PurchaseRecord } from "@/lib/api";
 const DEFAULT_STATE: CreditsState = {
   balanceUSD: 0,
   purchases: [],
+  // Same figure LOW_BALANCE_THRESHOLD_USD carried, and it stays the fallback
+  // for a session that has not read /auth/me yet.
+  lowBalanceThresholdUSD: LOW_BALANCE_THRESHOLD_USD,
 };
 
 // Keys the previous localStorage-backed build wrote. Nothing reads them any
@@ -258,6 +262,24 @@ export function readCreditsFlags(): {
 // than assuming every row is paid.
 export async function recordPurchase(): Promise<void> {
   await Promise.all([refreshBalance(), refreshPurchases()]);
+}
+
+// Mirrors the server-side low balance threshold
+// (user_settings.low_balance_usd_micros) into the store the UI already reads.
+//
+// The threshold used to be a browser-local default that no screen could
+// change, duplicated as a second hardcoded constant on the credits page. The
+// settings page now owns it and the server stores it; this keeps
+// LowBalanceBanner and the canvas indicator — both of which read
+// lowBalanceThresholdUSD — in step without either having to learn about
+// /settings.
+//
+// This is a cache of a server value, not the source of truth: SettingsPage
+// calls it after every load and save, and a browser that never opens settings
+// simply keeps the default until it does.
+export function setLowBalanceThresholdUSD(thresholdUSD: number): void {
+  if (state.lowBalanceThresholdUSD === thresholdUSD) return;
+  commit((prev) => ({ ...prev, lowBalanceThresholdUSD: thresholdUSD }));
 }
 
 export interface CreditsSnapshot extends CreditsState {

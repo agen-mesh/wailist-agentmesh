@@ -18,10 +18,14 @@ export function AreaChart({
   data,
   height = 210,
   algoUsd = 1,
+  formatSpend = defaultFormatSpend,
 }: {
   data: UsagePoint[];
   height?: number;
   algoUsd?: number;
+  /** Renders the tooltip's spend figure. Defaults to the USD output this
+   *  chart has always produced, so an un-passed prop changes nothing. */
+  formatSpend?: (usd: number) => string;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -179,20 +183,25 @@ export function AreaChart({
           data={data[active]}
           leftPct={(x(active) / W) * 100}
           algoUsd={algoUsd}
+          formatSpend={formatSpend}
         />
       )}
     </div>
   );
 }
 
+const defaultFormatSpend = (usd: number) => `$${usd.toFixed(2)} USD`;
+
 function ChartTip({
   data,
   leftPct,
   algoUsd,
+  formatSpend,
 }: {
   data: UsagePoint;
   leftPct: number;
   algoUsd: number;
+  formatSpend: (usd: number) => string;
 }) {
   const flip = leftPct > 62;
   const spendUsd = (data.x402Algo + data.llmAlgo) * algoUsd;
@@ -219,15 +228,11 @@ function ChartTip({
       }}
     >
       <div style={{ color: "var(--fg-dim)", marginBottom: 5 }}>{data.ts}</div>
-      <TipRow
-        c="var(--accent)"
-        label="Spend"
-        val={`$${spendUsd.toFixed(2)} USD`}
-      />
+      <TipRow c="var(--accent)" label="Spend" val={formatSpend(spendUsd)} />
       <TipRow
         c="var(--warm)"
         label="Usage"
-        val={`${data.calls.toLocaleString()} calls`}
+        val={`${data.calls.toLocaleString("en")} calls`}
       />
     </div>
   );

@@ -25,6 +25,10 @@ import {
   estimateLeaseHoursCostUSD,
   TendrilMachine,
 } from "@/lib/tendril";
+// Used for the platform's own USD fees below. Deliberately NOT applied to
+// node.price / node.asset, which are on-chain USDC amounts an endpoint
+// actually charges -- converting those would misstate the contract.
+import { useCurrency } from "@/lib/currency/store";
 
 interface InspectorProps {
   selected: WorkflowNode | null;
@@ -995,6 +999,7 @@ function ProviderInspector({
   node: WorkflowNode;
   onUpdate: (n: WorkflowNode) => void;
 }) {
+  const { format: formatMoney } = useCurrency();
   const tpl = PROVIDER_TEMPLATES.find((t) => t.id === node.template);
   return (
     <>
@@ -1125,7 +1130,7 @@ function ProviderInspector({
                 <input
                   style={monoInputStyle}
                   readOnly
-                  value={`${tier} tier · $${TIER_FEES[tier].toFixed(2)}/call`}
+                  value={`${tier} tier · ${formatMoney(TIER_FEES[tier])}/call`}
                 />
               );
             })()}
@@ -4099,6 +4104,7 @@ function TendrilInspector({
   onUpdate: (n: WorkflowNode) => void;
 }) {
   const [credit, setCredit] = useState<number | null>(null);
+  const { format: formatMoney } = useCurrency();
   const [machines, setMachines] = useState<TendrilMachine[]>([]);
   const action = node.tendrilAction ?? "rent";
 
@@ -4141,7 +4147,7 @@ function TendrilInspector({
   return (
     <>
       <div style={{ fontSize: 12, opacity: 0.85 }}>
-        Tendril credit: <strong>${creditVal.toFixed(2)}</strong>
+        Tendril credit: <strong>{formatMoney(creditVal)}</strong>
         {selectedMachine && (
           <>
             {" "}
@@ -4189,7 +4195,7 @@ function TendrilInspector({
             />
           </Field>
           <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
-            Converts ${topupAmount.toFixed(2)} of your AgentMesh credits into
+            Converts {formatMoney(topupAmount)} of your AgentMesh credits into
             Tendril credit.
           </div>
         </Section>
@@ -4234,7 +4240,7 @@ function TendrilInspector({
                 color: cost > creditVal ? "var(--danger)" : "var(--fg-dim)",
               }}
             >
-              Costs ${cost.toFixed(2)} of Tendril credit
+              Costs {formatMoney(cost)} of Tendril credit
               {cost > creditVal &&
                 " — not enough Tendril credit, add a Topup node"}
             </div>

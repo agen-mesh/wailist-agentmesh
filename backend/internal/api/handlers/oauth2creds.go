@@ -276,11 +276,9 @@ func randomLabelSuffix() string {
 // already omit both).
 func (d *Deps) OAuth2CredList(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(CtxUserID).(string)
+	// An absent provider lists every connected account, which is what the
+	// settings page needs; the canvas still passes one to narrow the list.
 	provider := r.URL.Query().Get("provider")
-	if provider == "" {
-		respond.Error(w, http.StatusBadRequest, "provider query param required")
-		return
-	}
 	creds, err := d.Store.ListOAuthCredentials(r.Context(), userID, provider)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, err.Error())
