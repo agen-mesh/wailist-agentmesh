@@ -948,7 +948,14 @@ const nameFieldStyle: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 500,
   fontFamily: "var(--font-sans)",
-  flex: "0 1 200px",
+  // flex-basis "auto", not a fixed px: a fixed basis caps the field at that
+  // width even when the topbar has room to spare, which is what truncated
+  // an ordinary-length name ("Demo: Prism Code Review Pipeline") into "…"
+  // on an otherwise empty row. auto sizes to the name's own text up to
+  // maxWidth, and still shrinks (flex-shrink 1) once the row actually
+  // runs out of space.
+  flex: "0 1 auto",
+  maxWidth: 480,
   // A floor, not 0. With minWidth:0 the field collapsed to 12px on a narrow
   // topbar -- the workflow name was simply gone. 120px keeps enough to read
   // and to recognise, and the text ellipsizes from there.
