@@ -381,6 +381,9 @@ func nodeConfigHash(n models.WorkflowNode) string {
 		TendrilNodeID    string
 		TendrilHours     string
 		TendrilAmount    string
+		StateOp          string
+		StateKey         string
+		StateValue       string
 	}{
 		Type: n.Type, Template: n.Template, SystemPrompt: n.SystemPrompt,
 		Wallet: n.Wallet, Balance: n.Balance, Model: n.Model, KeyMode: n.KeyMode,
@@ -392,6 +395,7 @@ func nodeConfigHash(n models.WorkflowNode) string {
 		CustomParams: n.CustomParams, BodyMode: n.BodyMode, BodyTemplate: n.BodyTemplate,
 		Config: n.Config, TendrilAction: n.TendrilAction, TendrilNodeID: n.TendrilNodeID,
 		TendrilHours: n.TendrilHours, TendrilAmount: n.TendrilAmount,
+		StateOp: n.StateOp, StateKey: n.StateKey, StateValue: n.StateValue,
 	}
 	b, err := json.Marshal(relevant)
 	if err != nil {
