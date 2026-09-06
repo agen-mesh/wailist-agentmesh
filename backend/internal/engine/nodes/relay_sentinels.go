@@ -6,8 +6,9 @@ package nodes
 //
 // tool402.go is byte-frozen (engine_test.TestX402PaymentPathIsFrozen), so the
 // literal is spelled out there and cannot reference this symbol. This constant
-// is the copy that callers running a single relay call outside the graph
-// engine (the Prism and Tendril consoles) match against, instead of re-typing
-// the literal. relay_sentinels_test.go asserts the two stay identical, so a
-// reword of the frozen return fails loudly and names this constant.
+// is the copy the Prism console's relayUnpayable helper matches against
+// instead of re-typing the literal (the Tendril console does not run this
+// check; it reports a relay failure as a bare 502). relay_sentinels_test.go
+// asserts the two stay identical, so a reword of the frozen return fails
+// loudly and names this constant.
 const ErrMsgNoPlatformSpendWallet = "payment required but no platform spend wallet configured"
