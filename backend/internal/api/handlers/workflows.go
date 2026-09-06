@@ -13,6 +13,22 @@ import (
 	"github.com/agentmesh/backend/internal/respond"
 )
 
+// isReservedSystemWorkflowName reports whether name is one of the exact
+// names GetOrCreateSystemWorkflow uses for a partner console's hidden row.
+// is_system (models.Workflow) is what actually decides a workflow's
+// identity now, so this reservation is belt-and-suspenders, not
+// load-bearing on its own: it stops a user's rename from ever recreating
+// the name-collision shape in the first place, rather than relying solely
+// on is_system to survive it if it does.
+func isReservedSystemWorkflowName(name string) bool {
+	switch name {
+	case tendrilConsoleWorkflowName, prismConsoleWorkflowName:
+		return true
+	default:
+		return false
+	}
+}
+
 // ListWorkflows excludes a partner console's hidden row (Tendril, Prism) via
 // Store.ListWorkflows' own WHERE NOT is_system -- filtered at the query, not
 // here, so a row that will never be shown doesn't get decrypted and
@@ -78,6 +94,17 @@ func (d *Deps) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		Edges []models.WorkflowEdge `json:"edges"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
+	// is_system is the real identity guard (FindSystemWorkflow requires it,
+	// so a rename alone can no longer forge a console). This check exists so
+	// the collision shape can't arise at all: an ordinary workflow renamed to
+	// exactly a console's name would otherwise sit there sharing that name
+	// forever, one migration or code path away from mattering again. A
+	// row that already IS the console is exempt -- its own name never goes
+	// through user-facing rename UI, but there's no reason to block it here.
+	if !existing.IsSystem && isReservedSystemWorkflowName(body.Name) {
+		respond.Error(w, http.StatusBadRequest, "That name is reserved. Please choose another.")
+		return
+	}
 	clampRetryFields(body.Nodes)
 	encryptedNodes := encryptNodes(body.Nodes, d.EncryptionKey, existing.Nodes)
 	encryptedNodes = ensureWebhookSecrets(encryptedNodes, d.EncryptionKey)
