@@ -14,8 +14,6 @@ import { Topbar } from "@/components/Topbar";
 import { Workflow } from "@/lib/types";
 import { workflows as workflowsApi } from "@/lib/api";
 import { useCredits } from "@/lib/credits/store";
-import { tendril } from "@/lib/tendril";
-import { prism } from "@/lib/prism";
 import { DEMO_WORKFLOW } from "@/lib/data";
 import { can } from "@/lib/readonly";
 import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
@@ -36,8 +34,6 @@ export function WorkflowsPage() {
   const [wfList, setWfList] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [creatingTendril, setCreatingTendril] = useState(false);
-  const [creatingPrism, setCreatingPrism] = useState(false);
   const [creatingDemo, setCreatingDemo] = useState(false);
   // Tagged by source so the banner always shows the most recent failure --
   // two separate error strings with a fixed `a || b` precedence would let
@@ -45,7 +41,7 @@ export function WorkflowsPage() {
   // other. A success only clears the error if it's the one that owns it,
   // so it never wipes an unrelated action's still-relevant error.
   const [pageError, setPageError] = useState<{
-    source: "demo" | "delete" | "tendril" | "prism" | "schedule";
+    source: "demo" | "delete" | "schedule";
     message: string;
   } | null>(null);
   const { balanceUSD, balanceKnown, refreshBalance } = useCredits();
@@ -86,72 +82,9 @@ export function WorkflowsPage() {
     }
   }, [creating, router]);
 
-  // No node graph here at all — this row is a shortcut into the direct
-  // Tendril console (WorkflowRoute matches on its id), not a workflow you
-  // build on canvas. tendril.console() finds-or-creates the ONE hidden
-  // workflow that backs every user's console, so repeated clicks always
-  // open the same row instead of workflowsApi.create minting a fresh
-  // duplicate one every time.
-  // tendril.console() finds-OR-CREATES the console row. Creating one is
-  // authoring even though it is a GET; isWriteBlocked's WRITE_RULES lists it
-  // explicitly for that reason. This branch picks the non-creating variant up
-  // front so a viewer never issues the blocked call at all, and has nowhere
-  // to go if the desktop app has not opened this user's console yet.
-  const handleLoadTendrilWorkflow = useCallback(async () => {
-    if (creatingTendril) return;
-    setCreatingTendril(true);
-    setPageError((prev) => (prev?.source === "tendril" ? null : prev));
-    try {
-      const workflowId = can("workflow.create", readOnly)
-        ? await tendril.console()
-        : await tendril.consoleWorkflowIdIfExists();
-      if (!workflowId) {
-        setPageError({
-          source: "tendril",
-          message:
-            "Open Tendril from the AgentMesh desktop app first.",
-        });
-        setCreatingTendril(false);
-        return;
-      }
-      router.push(`/workflows/${workflowId}`);
-    } catch {
-      setCreatingTendril(false);
-    }
-  }, [creatingTendril, router, readOnly]);
-
-  // The Prism console's counterpart, identical in shape for identical
-  // reasons: prism.console() finds-OR-CREATES the one hidden row backing this
-  // user's console, so repeated clicks reopen the same one. Creating a row is
-  // authoring even though the call is a GET, which is why a viewer takes the
-  // non-creating variant and simply has nowhere to go if no console exists
-  // yet.
-  const handleLoadPrismWorkflow = useCallback(async () => {
-    if (creatingPrism) return;
-    setCreatingPrism(true);
-    setPageError((prev) => (prev?.source === "prism" ? null : prev));
-    try {
-      const workflowId = can("workflow.create", readOnly)
-        ? await prism.console()
-        : await prism.consoleWorkflowIdIfExists();
-      if (!workflowId) {
-        setPageError({
-          source: "prism",
-          message:
-            "Open Prism from the AgentMesh desktop app first.",
-        });
-        setCreatingPrism(false);
-        return;
-      }
-      router.push(`/workflows/${workflowId}`);
-    } catch {
-      setCreatingPrism(false);
-    }
-  }, [creatingPrism, router, readOnly]);
-
   // Loads DEMO_WORKFLOW (lib/data.ts) into a brand-new workflow row every
-  // click -- unlike handleLoadTendrilWorkflow's find-or-create console, a
-  // demo is just a starting point the user immediately edits, so there's no
+  // click -- a demo is just a starting point the user immediately edits, so
+  // there's no
   // "the one shared demo" identity to preserve and a fresh copy each time is
   // correct. create() makes the empty row, then update() writes the full
   // node/edge graph in one shot (same two-call pattern the canvas editor's
@@ -313,60 +246,6 @@ export function WorkflowsPage() {
                   </span>
                 </button>
               )}
-              <button
-                onClick={handleLoadTendrilWorkflow}
-                disabled={creatingTendril}
-                style={{
-                  ...ghostBtn,
-                  opacity: creatingTendril ? 0.6 : 1,
-                  position: "relative",
-                }}
-                title="Rent a real Linux machine by the hour, with SSH. An official AgentMesh partner."
-              >
-                {creatingTendril ? "Opening…" : "Tendril"}
-                <span
-                  style={{
-                    marginLeft: 6,
-                    fontSize: 9,
-                    fontFamily: "var(--font-mono)",
-                    color: "#E879F9",
-                    border: "1px solid #E879F9",
-                    borderRadius: 999,
-                    padding: "1px 5px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.04em",
-                  }}
-                >
-                  Official
-                </span>
-              </button>
-              <button
-                onClick={handleLoadPrismWorkflow}
-                disabled={creatingPrism}
-                style={{
-                  ...ghostBtn,
-                  opacity: creatingPrism ? 0.6 : 1,
-                  position: "relative",
-                }}
-                title="Code review and resume screening, paid per run. An official AgentMesh partner."
-              >
-                {creatingPrism ? "Opening…" : "Prism"}
-                <span
-                  style={{
-                    marginLeft: 6,
-                    fontSize: 9,
-                    fontFamily: "var(--font-mono)",
-                    color: "#E879F9",
-                    border: "1px solid #E879F9",
-                    borderRadius: 999,
-                    padding: "1px 5px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.04em",
-                  }}
-                >
-                  Official
-                </span>
-              </button>
               {can("workflow.create", readOnly) && (
                 <button
                   onClick={handleNewWorkflow}

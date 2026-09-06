@@ -641,10 +641,6 @@ export function PrismConsolePage() {
                     ))}
                   </div>
 
-                  {/* The price is stated in full, itemised, next to the
-                      button that spends it. Prism's endpoints cost cents but
-                      the flat platform fee is $1.50, so quoting the endpoint
-                      price alone would understate a run several times over. */}
                   <div
                     style={{
                       marginTop: 20,
@@ -652,27 +648,11 @@ export function PrismConsolePage() {
                       borderTop: "1px solid var(--border)",
                       display: "flex",
                       alignItems: "center",
-                      justifyContent: "space-between",
+                      justifyContent: "flex-end",
                       gap: 14,
                       flexWrap: "wrap",
                     }}
                   >
-                    <div
-                      style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: 11.5,
-                        color: "var(--fg-dim)",
-                        lineHeight: 1.7,
-                      }}
-                    >
-                      <div style={{ color: "var(--fg)", fontWeight: 600 }}>
-                        {formatUsd(total)} for this run
-                      </div>
-                      <div>
-                        {formatUsd(endpoint.amountMicros)} to Prism ·{" "}
-                        {formatUsd(fee)} AgentMesh fee
-                      </div>
-                    </div>
                     <button
                       type="button"
                       onClick={handleRun}
