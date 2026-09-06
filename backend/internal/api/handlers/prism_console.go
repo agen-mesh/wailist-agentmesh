@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -275,12 +276,17 @@ func (d *Deps) PrismConsoleRun(w http.ResponseWriter, r *http.Request) {
 	if execErr != nil || unpayable {
 		status = models.RunStatusFailed
 	}
-	d.Store.FinishRun(r.Context(), run.ID, status)
+	// WithoutCancel: by this point the payment has settled and the ledger row
+	// is written, so the run must reach a terminal status even if the client
+	// has already disconnected and r.Context() is cancelled. A row stuck at
+	// "running" after the user was charged is the worst of the outcomes here.
+	d.Store.FinishRun(context.WithoutCancel(r.Context()), run.ID, status)
 
 	if execErr != nil {
 		// A blocked balance is the user's problem to fix (top up), not a
-		// gateway failure — 402 says so, and the frontend routes it to the
-		// billing prompt rather than the generic error banner.
+		// gateway failure, so it gets 402 rather than 502. The console renders
+		// the message text in its error panel; a dedicated top-up affordance
+		// there is still open (the Tendril console has one, this does not yet).
 		var blocked *nodes.ErrBalanceBlocked
 		if errors.As(execErr, &blocked) {
 			respond.Error(w, http.StatusPaymentRequired, execErr.Error())

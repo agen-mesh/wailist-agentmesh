@@ -2,10 +2,9 @@
 import { useEffect, useRef, useState } from "react";
 import { WorkflowNode, CustomParam } from "@/lib/types";
 import {
-  MAX_PARAM_FILE_BYTES,
   base64DecodedBytes,
-  bytesToBase64,
   formatFileSize,
+  readFileAsBase64,
 } from "@/lib/fileEncoding";
 import {
   PROVIDER_TEMPLATES,
@@ -1501,22 +1500,21 @@ function Tool402Inspector({
     writeFields(custom.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
 
   const pickFile = async (i: number, file: File) => {
-    if (file.size > MAX_PARAM_FILE_BYTES) {
-      setFieldError(
-        `${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB — the limit is 2 MB.`,
-      );
-      return;
-    }
     setFieldError(null);
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
+      // readFileAsBase64 owns the size check, the chunked encode, and the
+      // limit-message wording, so the Inspector and the Prism console cannot
+      // drift apart on any of the three.
+      const encoded = await readFileAsBase64(file);
       patchField(i, {
-        value: bytesToBase64(bytes),
-        fileName: file.name,
-        mimeType: file.type,
+        value: encoded.value,
+        fileName: encoded.fileName,
+        mimeType: encoded.mimeType,
       });
-    } catch {
-      setFieldError(`Could not read ${file.name}.`);
+    } catch (e) {
+      setFieldError(
+        e instanceof Error ? e.message : `Could not read ${file.name}.`,
+      );
     }
   };
 

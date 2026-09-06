@@ -59,10 +59,14 @@ const TIER_SUFFIXES = ["fast", "accurate", "quick", "thorough"];
 export function capabilityLabels(urls: string[]): string[] {
   const out: string[] = [];
   for (const raw of urls) {
-    let seg = raw;
+    let seg: string;
     try {
       const parts = new URL(raw).pathname.split("/").filter(Boolean);
-      seg = parts[parts.length - 1] ?? raw;
+      // A rootless URL (https://host/) has no path segment to name a
+      // capability after; skip it rather than fall back to `raw` and render
+      // the whole URL string as a chip.
+      if (parts.length === 0) continue;
+      seg = parts[parts.length - 1];
     } catch {
       // A malformed catalog URL should not take the card down with it.
       continue;

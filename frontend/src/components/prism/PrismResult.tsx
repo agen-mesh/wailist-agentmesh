@@ -381,13 +381,21 @@ export function PrismResult({ response }: { response: unknown }) {
   const [showRaw, setShowRaw] = useState(false);
 
   const body = isRecord(response) ? response : null;
-  const candidates = body && Array.isArray(body.candidates) ? body.candidates : null;
+  const topArray = Array.isArray(response) ? response : null;
+  // A bare top-level array is a real shape too: code-review's response schema
+  // is undocumented and unseen, and if it comes back as an array this view
+  // still has to render it rather than fall through to a raw dump — the whole
+  // reason this component exists. Its items go through the same candidate /
+  // ValueBlock path the wrapped `candidates` array uses.
+  const candidates =
+    (body && Array.isArray(body.candidates) ? body.candidates : null) ?? topArray;
   const rest = body
     ? Object.entries(body).filter(([k]) => k !== "candidates" && !PAYMENT_NOISE.has(k))
     : [];
 
-  // A string or a bare array has no structure worth imposing one on.
-  const structured = body !== null;
+  // Only a scalar (a plain string or number) has no structure worth imposing
+  // one on; a record or an array does.
+  const structured = body !== null || topArray !== null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
