@@ -132,7 +132,7 @@ describe("what a partner card quotes", () => {
   // card is the main way into the console, so it has to agree with it.
   it("quotes the all-in range, not the vendor's share", () => {
     const r = (amountMicros: number) => ({ amountMicros }) as never;
-    expect(priceLabel([r(100_000), r(200_000), r(250_000)])).toBe("$1.60–$1.75 a run");
+    expect(priceLabel([r(100_000), r(200_000), r(250_000)])).toBe("$1.60-$1.75 a run");
   });
 
   it("collapses to one figure when every endpoint costs the same", () => {

@@ -749,7 +749,7 @@ export function PrismConsolePage() {
                     >
                       {result.settled
                         ? `${formatUsd(result.totalUsdMicros)} charged`
-                        : "Free — you were not charged"}
+                        : "Free, you were not charged"}
                     </span>
                   </div>
 
@@ -771,7 +771,7 @@ export function PrismConsolePage() {
                       }}
                     >
                       Prism answered without asking for payment, so this run was
-                      free. That is unusual — double-check the result before you
+                      free. That is unusual, so double-check the result before you
                       rely on it.
                     </div>
                   )}

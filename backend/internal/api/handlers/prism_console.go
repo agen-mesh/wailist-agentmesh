@@ -26,7 +26,7 @@ import (
 // metered credit balance on one side, stateless paid calls on the other), so
 // they are kept as parallel files that are easy to diff rather than folded
 // into an abstraction over two members.
-const prismConsoleWorkflowName = "Prism Console (managed — do not edit)"
+const prismConsoleWorkflowName = "Prism Console (managed, do not edit)"
 
 // maxPrismFileBytes bounds a single uploaded file's decoded size. Mirrors the
 // frontend's MAX_PARAM_FILE_BYTES. Enforced here as well because the client's
@@ -118,7 +118,7 @@ type prismRunField struct {
 func buildPrismNode(req prismRunRequest) (models.WorkflowNode, error) {
 	e, ok := prism.Lookup(req.Endpoint)
 	if !ok {
-		return models.WorkflowNode{}, fmt.Errorf("that task is no longer available — refresh the page to see the current list")
+		return models.WorkflowNode{}, fmt.Errorf("that task is no longer available. Refresh the page to see the current list.")
 	}
 
 	params := make([]models.CustomParam, 0, len(e.Fields))
@@ -141,7 +141,7 @@ func buildPrismNode(req prismRunRequest) (models.WorkflowNode, error) {
 				return models.WorkflowNode{}, fmt.Errorf("That %s file could not be read. Choose it again.", strings.ToLower(f.Label))
 			}
 			if len(raw) > maxPrismFileBytes {
-				return models.WorkflowNode{}, fmt.Errorf("That %s is %.1f MB. The limit is %d MB — try a smaller file.",
+				return models.WorkflowNode{}, fmt.Errorf("That %s is %.1f MB. The limit is %d MB; try a smaller file.",
 					strings.ToLower(f.Label), float64(len(raw))/1024/1024, maxPrismFileBytes/1024/1024)
 			}
 			if got.FileName == "" {
@@ -219,7 +219,7 @@ func (d *Deps) PrismConsoleRun(w http.ResponseWriter, r *http.Request) {
 	}
 	run, err := d.Store.CreateRun(r.Context(), wf.ID, "prism-console", []byte("{}"))
 	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, "Could not start the run. Nothing was charged — try again.")
+		respond.Error(w, http.StatusInternalServerError, "Could not start the run. Nothing was charged; try again.")
 		return
 	}
 
@@ -261,8 +261,18 @@ func (d *Deps) PrismConsoleRun(w http.ResponseWriter, r *http.Request) {
 		r.Context(), node, consoleRunContext{}, models.AgentWallet{}, nil, relay,
 	)
 
+	// settled / unpayable are computed here, before FinishRun, because they
+	// decide the run's status as much as execErr does. A call we could not pay
+	// for (relayUnpayable: no platform spend wallet on this server) did not do
+	// what the user asked, so its row must not read RunStatusSuccess just
+	// because executeTool402V2Relay reported the misconfiguration with a nil
+	// error. A quiet probe (settled == false, but not unpayable) still counts
+	// as success: the target answered, there was simply nothing to pay.
+	settled := result.SettledUSDMicros > 0
+	unpayable := !settled && relayUnpayable(result.Response)
+
 	status := models.RunStatusSuccess
-	if execErr != nil {
+	if execErr != nil || unpayable {
 		status = models.RunStatusFailed
 	}
 	d.Store.FinishRun(r.Context(), run.ID, status)
@@ -288,17 +298,16 @@ func (d *Deps) PrismConsoleRun(w http.ResponseWriter, r *http.Request) {
 	//
 	//  1. The target answered the probe with something other than a 402, so
 	//     there was nothing to pay. Unusual, but the response is really theirs.
-	//  2. WE could not pay — no platform spend wallet or USDC signer configured
-	//     on this server. executeTool402V2Relay returns that as a response body
-	//     with a NIL error (tool402.go:1289), so it arrives here looking exactly
+	//  2. WE could not pay: no platform spend wallet or USDC signer configured
+	//     on this server. executeTool402V2Relay's first guard returns that as a
+	//     response body with a NIL error, so it arrives here looking exactly
 	//     like a success. It is a server misconfiguration, and telling the user
 	//     "Prism answered without asking for payment" would blame the vendor for
 	//     our own broken deployment.
 	//
 	// relayUnpayable separates the two, so each gets its own status, log line
 	// and message.
-	settled := result.SettledUSDMicros > 0
-	if !settled && relayUnpayable(result.Response) {
+	if unpayable {
 		log.Printf("CRITICAL: prism console could not pay (user=%s run=%s target=%s): the relay has no platform spend wallet or USDC signer configured",
 			userID, run.ID, node.Endpoint)
 		respond.Error(w, http.StatusServiceUnavailable,

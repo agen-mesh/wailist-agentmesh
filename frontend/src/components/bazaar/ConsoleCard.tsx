@@ -95,10 +95,14 @@ export function priceLabel(resources: BazaarResource[]): string {
     .map((r) => r.amountMicros + X402_PLATFORM_FEE_USD_MICROS)
     .sort((a, b) => a - b);
   const usd = (micros: number) => `$${(micros / 1e6).toFixed(2)}`;
+  // A console card only mounts with a non-empty endpoint group today, but a
+  // guard here keeps an empty list from rendering "$NaN a run" if that ever
+  // stops holding.
+  if (totals.length === 0) return "";
   const low = totals[0];
   const high = totals[totals.length - 1];
   if (low === high) return `${usd(low)} a run`;
-  return `${usd(low)}–${usd(high)} a run`;
+  return `${usd(low)}-${usd(high)} a run`;
 }
 
 // One partner console: several endpoints behind a single purpose-built page.
