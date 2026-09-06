@@ -1275,18 +1275,6 @@ func newRelayRequest(ctx context.Context, relayURL, targetMethod string, targetB
 	return req, nil
 }
 
-// ErrMsgNoPlatformSpendWallet is the string executeTool402V2Relay puts in its
-// response body — paired with a NIL error — when this server has no platform
-// spend wallet or USDC signer configured and so cannot pay an x402 challenge.
-//
-// The nil-error, body-only contract is load-bearing for the graph-engine
-// callers and is deliberately not changed here. This constant exists so a
-// caller that runs a single relay call outside the engine (the Prism and
-// Tendril consoles) can recognise the "we could not pay" case against a shared
-// symbol instead of re-typing the literal and letting a reword drift past its
-// own test.
-const ErrMsgNoPlatformSpendWallet = "payment required but no platform spend wallet configured"
-
 // targetMethod/targetBody describe the call the RELAY should make to
 // node.Endpoint (our own /x402/relay is always reached via a plain GET
 // itself — these two headers just tell the relay handler what to do with
@@ -1299,7 +1287,7 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 	expectedAssetID := cfg.ExpectedAssetID
 	relayBaseURL := cfg.RelayBaseURL
 	if platformSpendEncMnemonic == "" || usdcSigner == nil {
-		return Tool402PaymentResult{Response: map[string]any{"error": ErrMsgNoPlatformSpendWallet}}, nil
+		return Tool402PaymentResult{Response: map[string]any{"error": "payment required but no platform spend wallet configured"}}, nil
 	}
 
 	relayURL := relayBaseURL + "/x402/relay?target=" + url.QueryEscape(node.Endpoint)

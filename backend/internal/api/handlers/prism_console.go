@@ -186,9 +186,11 @@ func buildPrismNode(req prismRunRequest) (models.WorkflowNode, error) {
 // a nil error, and the graph-engine callers rely on that contract, so there is
 // nothing else to key on without changing the payment path this console
 // deliberately does not touch. Matching is done against the exported
-// nodes.ErrMsgNoPlatformSpendWallet constant, not a local literal, so a reword
-// on the relay side moves the matcher and its test together. If that sentinel
-// ever becomes a typed error, replace this with errors.As and delete the helper.
+// nodes.ErrMsgNoPlatformSpendWallet constant, not a local literal; tool402.go
+// is byte-frozen so its own copy stays a literal, but
+// nodes.TestNoPlatformSpendWalletMessageMatchesTheFrozenReturn fails if the two
+// ever diverge. If that sentinel becomes a typed error, replace this with
+// errors.As and delete the helper.
 func relayUnpayable(response any) bool {
 	m, ok := response.(map[string]any)
 	if !ok {
