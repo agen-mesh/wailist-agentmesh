@@ -104,6 +104,19 @@ export function formatUsd(micros: number): string {
   return `$${(micros / 1e6).toFixed(2)}`;
 }
 
+// PrismRunError carries the HTTP status alongside the message so the console
+// can tell a blocked balance (402, backend's ErrBalanceBlocked) from a gateway
+// failure and offer a top-up instead of a bare error line. A 402 here means
+// the request was rejected BEFORE any payment, so nothing was charged.
+export class PrismRunError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "PrismRunError";
+    this.status = status;
+  }
+}
+
 export const prism = {
   // Finds-or-creates the ONE hidden workflow row that backs this user's Prism
   // console, so every entry point (the Bazaar card, the workflow list) opens
@@ -150,7 +163,9 @@ export const prism = {
       body: JSON.stringify({ endpoint, fields }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error ?? `run: ${res.status}`);
+    if (!res.ok) {
+      throw new PrismRunError(data.error ?? `run: ${res.status}`, res.status);
+    }
     return data as PrismRunResult;
   },
 };

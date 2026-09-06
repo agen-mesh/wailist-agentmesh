@@ -182,18 +182,20 @@ func buildPrismNode(req prismRunRequest) (models.WorkflowNode, error) {
 // relayUnpayable reports whether a result is executeTool402V2Relay's
 // "cannot pay" sentinel rather than a real answer from the target.
 //
-// Matching on the message string is unpleasant, but that branch signals the
-// condition only through the response body — it returns a nil error, so there
-// is nothing else to key on without editing the payment path, which this
-// console deliberately does not touch. If that sentinel ever becomes a typed
-// error, replace this with errors.As and delete the helper.
+// That branch signals the condition only through the response body: it returns
+// a nil error, and the graph-engine callers rely on that contract, so there is
+// nothing else to key on without changing the payment path this console
+// deliberately does not touch. Matching is done against the exported
+// nodes.ErrMsgNoPlatformSpendWallet constant, not a local literal, so a reword
+// on the relay side moves the matcher and its test together. If that sentinel
+// ever becomes a typed error, replace this with errors.As and delete the helper.
 func relayUnpayable(response any) bool {
 	m, ok := response.(map[string]any)
 	if !ok {
 		return false
 	}
 	msg, _ := m["error"].(string)
-	return strings.Contains(msg, "no platform spend wallet configured")
+	return strings.Contains(msg, nodes.ErrMsgNoPlatformSpendWallet)
 }
 
 // PrismConsoleRun pays for and executes exactly one Prism endpoint, bypassing
@@ -284,9 +286,9 @@ func (d *Deps) PrismConsoleRun(w http.ResponseWriter, r *http.Request) {
 
 	if execErr != nil {
 		// A blocked balance is the user's problem to fix (top up), not a
-		// gateway failure, so it gets 402 rather than 502. The console renders
-		// the message text in its error panel; a dedicated top-up affordance
-		// there is still open (the Tendril console has one, this does not yet).
+		// gateway failure, so it gets 402 rather than 502. lib/prism.ts turns
+		// that status into a PrismRunError the console reads to show an "Add
+		// credits" button instead of a bare error line.
 		var blocked *nodes.ErrBalanceBlocked
 		if errors.As(execErr, &blocked) {
 			respond.Error(w, http.StatusPaymentRequired, execErr.Error())

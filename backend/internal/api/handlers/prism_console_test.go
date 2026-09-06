@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/prism"
 )
@@ -268,13 +269,17 @@ func TestPrismFeeIsTheSharedPlatformConstant(t *testing.T) {
 
 // TestRelayUnpayableSeparatesMisconfigurationFromAQuietTarget covers a review
 // finding: executeTool402V2Relay signals "this server has no spend wallet" by
-// returning a response body with a NIL error (tool402.go:1289), which is
-// indistinguishable from a successful call unless the body is inspected.
-// Without this split the console reported a broken deployment to the user as
-// "Prism answered without asking for payment, so this run was free" — blaming
-// the vendor for our own misconfiguration.
+// returning a response body with a NIL error, which is indistinguishable from
+// a successful call unless the body is inspected. Without this split the
+// console reported a broken deployment to the user as "Prism answered without
+// asking for payment, so this run was free" — blaming the vendor for our own
+// misconfiguration.
+//
+// The sentinel is matched against nodes.ErrMsgNoPlatformSpendWallet, the same
+// constant executeTool402V2Relay builds its body from, so a reword there can
+// never leave this test passing while the real matcher silently stops firing.
 func TestRelayUnpayableSeparatesMisconfigurationFromAQuietTarget(t *testing.T) {
-	cannotPay := map[string]any{"error": "payment required but no platform spend wallet configured"}
+	cannotPay := map[string]any{"error": nodes.ErrMsgNoPlatformSpendWallet}
 	if !relayUnpayable(cannotPay) {
 		t.Error("the relay's own cannot-pay sentinel must be recognised")
 	}

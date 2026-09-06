@@ -7,6 +7,7 @@ import {
   prism as prismApi,
   formatUsd,
   totalCostMicros,
+  PrismRunError,
   type PrismEndpoint,
   type PrismField,
   type PrismRunField,
@@ -386,6 +387,10 @@ export function PrismConsolePage() {
 
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
+  // Set when the run was refused for want of credit (402). The error panel
+  // then offers a top-up instead of the generic "check Credits" note, and
+  // makes clear nothing was charged.
+  const [billingBlocked, setBillingBlocked] = useState(false);
   const [result, setResult] = useState<PrismRunResult | null>(null);
 
   useEffect(() => {
@@ -451,10 +456,12 @@ export function PrismConsolePage() {
     if (!endpoint || missing.length > 0 || running) return;
     setRunning(true);
     setRunError(null);
+    setBillingBlocked(false);
     setResult(null);
     try {
       setResult(await prismApi.run(endpoint.id, fieldValues));
     } catch (e) {
+      setBillingBlocked(e instanceof PrismRunError && e.status === 402);
       setRunError(
         e instanceof Error ? e.message : "Something went wrong. Try again.",
       );
@@ -710,21 +717,44 @@ export function PrismConsolePage() {
                   >
                     {runError}
                   </div>
-                  {/* Whether the money moved is the first thing anyone wants
-                      to know after a failure, and the honest answer here is
-                      "it depends where it broke". Say that rather than imply
-                      either outcome. */}
-                  <div
-                    style={{
-                      marginTop: 8,
-                      fontSize: 11.5,
-                      color: "var(--fg-muted)",
-                      lineHeight: 1.55,
-                    }}
-                  >
-                    If you were charged, it shows up under Credits. Worth a look
-                    before you run it again.
-                  </div>
+                  {billingBlocked ? (
+                    // A 402 is refused before any payment, so the honest note
+                    // is "nothing moved" plus a way to fix it.
+                    <div style={{ marginTop: 10 }}>
+                      <div
+                        style={{
+                          fontSize: 11.5,
+                          color: "var(--fg-muted)",
+                          lineHeight: 1.55,
+                        }}
+                      >
+                        You were not charged. Add credit and run it again.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => router.push("/billing")}
+                        style={{ ...ghostBtnSm, marginTop: 8 }}
+                      >
+                        Add credits
+                      </button>
+                    </div>
+                  ) : (
+                    // Whether the money moved is the first thing anyone wants
+                    // to know after a failure, and the honest answer here is
+                    // "it depends where it broke". Say that rather than imply
+                    // either outcome.
+                    <div
+                      style={{
+                        marginTop: 8,
+                        fontSize: 11.5,
+                        color: "var(--fg-muted)",
+                        lineHeight: 1.55,
+                      }}
+                    >
+                      If you were charged, it shows up under Credits. Worth a
+                      look before you run it again.
+                    </div>
+                  )}
                 </Panel>
               )}
 
