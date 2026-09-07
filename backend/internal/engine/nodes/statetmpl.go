@@ -27,15 +27,14 @@ var stateRef = regexp.MustCompile(`\{\{\s*state((?:\.[A-Za-z_][A-Za-z0-9_]*)+)\s
 // An unresolvable path expands to the empty string rather than leaving the
 // placeholder in place: a literal "{{state.x}}" reaching a third-party API
 // is worse than an empty value, and it makes "no value yet" the same shape
-// as "empty value".
+// as "empty value". This applies uniformly whether the workflow has no
+// state loaded at all or simply doesn't have this particular key yet --
+// the two used to be treated differently (an empty/nil state map left the
+// placeholder in place), but a workflow's very first run is exactly the
+// "no state loaded" case, so that was also the run most likely to leak a
+// literal placeholder into a real request.
 func ExpandState(s string, state map[string]any) string {
 	if s == "" || !strings.Contains(s, "{{") {
-		return s
-	}
-	// With no state loaded there is nothing to substitute; leaving the
-	// placeholders intact makes the misconfiguration visible instead of
-	// silently blanking fields.
-	if len(state) == 0 {
 		return s
 	}
 	return stateRef.ReplaceAllStringFunc(s, func(match string) string {

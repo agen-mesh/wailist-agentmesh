@@ -1,6 +1,7 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1801,7 +1802,9 @@ func (s *Store) GetWorkflowVariables(ctx context.Context, workflowID string) (ma
 			return nil, err
 		}
 		var decoded any
-		json.Unmarshal(v, &decoded)
+		if err := json.Unmarshal(v, &decoded); err != nil {
+			return nil, fmt.Errorf("workflow variable %q: stored value is not valid JSON: %w", k, err)
+		}
 		out[k] = decoded
 	}
 	return out, rows.Err()
@@ -1817,6 +1820,17 @@ func (s *Store) GetWorkflowVariables(ctx context.Context, workflowID string) (ma
 // The key-count quota is checked inside the same transaction as the write
 // so two concurrent inserts cannot both slip past the cap.
 func (s *Store) SetWorkflowVariable(ctx context.Context, workflowID, key string, valueJSON []byte) error {
+	// Compact before measuring: the caller's JSON may carry insignificant
+	// whitespace this check would otherwise count against the quota, while
+	// Postgres's own CHECK measures octet_length(value::text) on the JSONB
+	// column -- which never stores that whitespace. Compacting here keeps
+	// the two checks measuring the same thing, so a value cannot pass one
+	// and fail the other depending on how it happened to be formatted.
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, valueJSON); err != nil {
+		return fmt.Errorf("workflow variable value must be valid JSON: %w", err)
+	}
+	valueJSON = compact.Bytes()
 	if len(valueJSON) > maxWorkflowVariableBytes {
 		return fmt.Errorf("%w: %d bytes, limit %d", ErrVariableTooLarge, len(valueJSON), maxWorkflowVariableBytes)
 	}
@@ -1858,9 +1872,14 @@ func (s *Store) SetWorkflowVariable(ctx context.Context, workflowID, key string,
 }
 
 // IncrementWorkflowVariable adds delta to a numeric variable and returns
-// the new value, creating it at delta if absent. A single statement, so
-// overlapping runs of the same workflow cannot lose an update the way a
-// read-then-write from application code would.
+// the new value, creating it at delta if absent. The insert/update itself
+// is a single statement, so overlapping runs of the same workflow cannot
+// lose an update the way a read-then-write from application code would --
+// the quota check runs in the same transaction as that statement, same as
+// SetWorkflowVariable, so a key that doesn't exist yet still can't slip
+// past MaxWorkflowVariables (a state/increment node with a templated key,
+// or just many distinct counter keys, would otherwise grow the table past
+// the cap unbounded, since this path took no count check at all before).
 //
 // A non-numeric existing value is replaced by delta rather than erroring —
 // the counter use case wants to keep counting, not to fail a run because
@@ -1869,8 +1888,27 @@ func (s *Store) IncrementWorkflowVariable(ctx context.Context, workflowID, key s
 	if key == "" || len(key) > 128 {
 		return 0, errors.New("workflow variable key must be 1-128 characters")
 	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	var count int
+	var exists bool
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE(BOOL_OR(key=$2), FALSE)
+		FROM workflow_variables WHERE workflow_id=$1
+	`, workflowID, key).Scan(&count, &exists); err != nil {
+		return 0, err
+	}
+	if !exists && count >= MaxWorkflowVariables {
+		return 0, fmt.Errorf("%w: %d keys, limit %d", ErrVariableQuotaExceeded, count, MaxWorkflowVariables)
+	}
+
 	var out float64
-	err := s.pool.QueryRow(ctx, `
+	if err := tx.QueryRow(ctx, `
 		INSERT INTO workflow_variables (workflow_id, key, value, updated_at)
 		VALUES ($1,$2,to_jsonb($3::numeric),NOW())
 		ON CONFLICT (workflow_id, key) DO UPDATE
@@ -1881,8 +1919,10 @@ func (s *Store) IncrementWorkflowVariable(ctx context.Context, workflowID, key s
 			END),
 		    updated_at = NOW()
 		RETURNING (value)::numeric
-	`, workflowID, key, delta).Scan(&out)
-	return out, err
+	`, workflowID, key, delta).Scan(&out); err != nil {
+		return 0, err
+	}
+	return out, tx.Commit(ctx)
 }
 
 // DeleteWorkflowVariable removes one key. Deleting a key that does not

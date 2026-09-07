@@ -31,9 +31,13 @@ func TestExpandStateLeavesEverythingElseAlone(t *testing.T) {
 		}
 	}
 
-	// And with no state at all, nothing changes either.
-	if got := nodes.ExpandState("{{state.lastRowId}}", nil); got != "{{state.lastRowId}}" {
-		t.Errorf("with nil state the placeholder must be left intact, got %q", got)
+	// With no state loaded at all, an actual state reference still expands
+	// -- to empty, same as an unresolved key against a non-empty map. A
+	// workflow's first-ever run is exactly the nil-state case, and a
+	// literal placeholder reaching a real request is worse than an empty
+	// value there too -- there is no special case for "no state yet".
+	if got := nodes.ExpandState("{{state.lastRowId}}", nil); got != "" {
+		t.Errorf("with nil state an unresolved reference must expand to empty, got %q", got)
 	}
 }
 

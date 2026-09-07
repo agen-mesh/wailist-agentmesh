@@ -135,6 +135,33 @@ func TestVariableQuotas(t *testing.T) {
 	}
 }
 
+// IncrementWorkflowVariable must respect the same key-count quota as
+// SetWorkflowVariable -- it is a separate write path (a bare upsert, not a
+// call to SetWorkflowVariable), so the cap has to be enforced again here
+// rather than assumed to already apply. A state/increment node with a
+// templated key (or just many distinct counter keys) would otherwise grow
+// the table past MaxWorkflowVariables with no limit at all.
+func TestIncrementWorkflowVariableRespectsQuota(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	wf, _ := store.CreateWorkflow(ctx, "IncrementQuota", "dev")
+	t.Cleanup(func() { store.DeleteWorkflow(ctx, wf.ID) })
+
+	for i := 0; i < db.MaxWorkflowVariables; i++ {
+		if err := store.SetWorkflowVariable(ctx, wf.ID, fmt.Sprintf("k%d", i), []byte(`1`)); err != nil {
+			t.Fatalf("key %d: %v", i, err)
+		}
+	}
+	if _, err := store.IncrementWorkflowVariable(ctx, wf.ID, "one-too-many", 1); !errors.Is(err, db.ErrVariableQuotaExceeded) {
+		t.Fatalf("want ErrVariableQuotaExceeded got %v", err)
+	}
+	// Incrementing an EXISTING key must still work at the cap.
+	if _, err := store.IncrementWorkflowVariable(ctx, wf.ID, "k0", 1); err != nil {
+		t.Fatalf("incrementing an existing key at the cap must be allowed: %v", err)
+	}
+}
+
 // Variables belong to their workflow and die with it.
 func TestWorkflowVariablesAreScopedAndCascade(t *testing.T) {
 	store := testStore(t)

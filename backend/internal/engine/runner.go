@@ -1433,21 +1433,27 @@ func (r *Runner) executeNode(
 	// node is a value copy (executeNode takes models.WorkflowNode by
 	// value), so mutating it here cannot affect wf.Nodes or any other
 	// node's view of the graph.
-	if state := rc.State(); len(state) > 0 {
-		node.URL = nodes.ExpandState(node.URL, state)
-		node.Endpoint = nodes.ExpandState(node.Endpoint, state)
-		node.SystemPrompt = nodes.ExpandState(node.SystemPrompt, state)
-		node.BodyTemplate = nodes.ExpandState(node.BodyTemplate, state)
-		node.EmailTo = nodes.ExpandState(node.EmailTo, state)
-		node.EmailSubject = nodes.ExpandState(node.EmailSubject, state)
-		node.EmailBody = nodes.ExpandState(node.EmailBody, state)
-		if len(node.ParamDefaults) > 0 {
-			expanded := make(map[string]string, len(node.ParamDefaults))
-			for k, v := range node.ParamDefaults {
-				expanded[k] = nodes.ExpandState(v, state)
-			}
-			node.ParamDefaults = expanded
+	//
+	// Always runs, even when this run has no state loaded (an empty/nil
+	// map): a workflow's very first run is exactly that case, and an
+	// unresolved {{state.x}} reference must expand to empty there too, not
+	// leak the literal placeholder into a real request -- ExpandState's own
+	// fast path (no "{{" in the string) already makes this a no-op for
+	// every field on a workflow that doesn't reference state at all.
+	state := rc.State()
+	node.URL = nodes.ExpandState(node.URL, state)
+	node.Endpoint = nodes.ExpandState(node.Endpoint, state)
+	node.SystemPrompt = nodes.ExpandState(node.SystemPrompt, state)
+	node.BodyTemplate = nodes.ExpandState(node.BodyTemplate, state)
+	node.EmailTo = nodes.ExpandState(node.EmailTo, state)
+	node.EmailSubject = nodes.ExpandState(node.EmailSubject, state)
+	node.EmailBody = nodes.ExpandState(node.EmailBody, state)
+	if len(node.ParamDefaults) > 0 {
+		expanded := make(map[string]string, len(node.ParamDefaults))
+		for k, v := range node.ParamDefaults {
+			expanded[k] = nodes.ExpandState(v, state)
 		}
+		node.ParamDefaults = expanded
 	}
 
 	switch node.Type {
