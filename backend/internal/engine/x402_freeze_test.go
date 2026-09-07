@@ -109,11 +109,20 @@ import (
 // PR's ErrPaymentAlreadyCommitted wrapping on top of it; the digest below
 // is freshly computed from that merged file, not copied from either side.
 // No amount/address/signing logic touched by the merge itself.
+//
+// Updated 2026-09-07 for issue #173 (automate Tendril renting): tendril.go
+// gained a new "auto" TendrilAction (executeTendrilAuto) that reuses an
+// already-active lease, or auto-tops-up and rents one for a default $1
+// budget, then runs the payload -- routed through the SAME performRent /
+// performTopup / payTendril helpers the existing explicit rent/topup actions
+// now share (extracted from executeTendrilRent/executeTendrilTopup verbatim,
+// no reservation/settlement/signing logic changed). The explicit
+// topup/rent/run/release actions are unchanged in behavior.
 var frozenX402Files = map[string]string{
 	"nodes/tool402.go":             "af54224f3e2afd23ce5fb1f434bc1ff912b12af47f21e6f941291ae136e90860",
 	"nodes/runfund.go":             "792e2a3c96465545119cebfcb744d487b79b27e5df7b9842ec643a98dce7b782",
 	"nodes/walletpay.go":           "98bb3f7d0cb167f8a50d050e04720738c63c68b9fd570758fa5b9604338a4e37",
-	"nodes/tendril.go":             "b787a18f17bc80f593159e46a0c7fd7e543a9db44f55a451ed8f47102fb9132a",
+	"nodes/tendril.go":             "2ee8bb2fd73803d5df92fa063a3f4d5bdd793654e9dd1c3a1264b7f883e9330f",
 	"nodes/billing.go":             "d6bc9e5931816840d99678f9015f7b186ae3069d54e28605aa618c367bf5beb9",
 	"nodes/tier.go":                "5718a3538e042c9d7f90b37f38b47d893644d6093f560d103ea9036c90ddc90b",
 	"../api/handlers/x402relay.go": "eacd56896816a213dd5658aa536c704db22362a5d787113cbf269d7fe7c1d858",
