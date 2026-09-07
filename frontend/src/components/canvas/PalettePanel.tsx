@@ -110,7 +110,9 @@ const PALETTE_TABS = [
       sub: it.desc,
       tendrilAction: it.action,
       tendrilHours: "1",
-      tendrilAmount: "10",
+      // Left empty on "auto" so the backend's $1 default budget applies --
+      // "10" here would silently make auto's default rent $10, not $1.
+      tendrilAmount: it.action === "auto" ? "" : "10",
     }),
   },
   {

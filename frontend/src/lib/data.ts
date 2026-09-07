@@ -535,6 +535,13 @@ export const END_TEMPLATES = [
 
 export const TENDRIL_TEMPLATES = [
   {
+    id: "tendril_auto",
+    name: "Auto Rent & Run",
+    desc: "Reuses an open lease, or rents one ($1 default) and runs",
+    action: "auto" as const,
+    icon: "⚡",
+  },
+  {
     id: "tendril_topup",
     name: "Buy Tendril Credit",
     desc: "AgentMesh credits → Tendril credit",

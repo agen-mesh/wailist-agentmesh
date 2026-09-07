@@ -4360,7 +4360,7 @@ function TendrilInspector({
   }, []);
 
   useEffect(() => {
-    if (action !== "rent") return;
+    if (action !== "rent" && action !== "auto") return;
     tendrilApi
       .machines()
       .then(setMachines)
@@ -4416,6 +4416,7 @@ function TendrilInspector({
               })
             }
           >
+            <option value="auto">Auto (Rent + Run)</option>
             <option value="topup">Buy Tendril Credit</option>
             <option value="rent">Rent a Machine</option>
             <option value="run">Run a Job</option>
@@ -4423,6 +4424,57 @@ function TendrilInspector({
           </select>
         </Field>
       </Section>
+
+      {action === "auto" && (
+        <Section label="Auto">
+          <div style={{ fontSize: 11, color: "var(--fg-dim)", marginBottom: 6 }}>
+            Reuses a lease you already have open. If none is open (or it ran
+            out of funded time), this rents one automatically before running
+            the job below.
+          </div>
+          <Field label="Machine (optional)">
+            <select
+              style={monoInputStyle}
+              value={node.tendrilNodeId ?? ""}
+              onChange={(e) =>
+                onUpdate({ ...node, tendrilNodeId: e.target.value })
+              }
+            >
+              <option value="">Cheapest online</option>
+              {machines.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label || m.id} — {m.cpuCores} vCPU,{" "}
+                  {Math.round(m.ramMb / 1024)} GB — ${m.pricePerHourUsd}/hr
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Budget (USD, optional)">
+            <input
+              style={monoInputStyle}
+              type="number"
+              min="0.1"
+              step="0.5"
+              placeholder="1"
+              value={node.tendrilAmount ?? ""}
+              onChange={(e) =>
+                onUpdate({ ...node, tendrilAmount: e.target.value })
+              }
+            />
+          </Field>
+          <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+            Only spent when a new rent is actually needed — reusing an open
+            lease costs nothing extra. Defaults to $1 if left blank.
+          </div>
+          <Field label="Payload (Python)">
+            <textarea
+              style={{ ...monoInputStyle, height: 120, resize: "vertical" }}
+              value={payloadValue}
+              onChange={(e) => setPayload(e.target.value)}
+            />
+          </Field>
+        </Section>
+      )}
 
       {action === "topup" && (
         <Section label="Topup">
