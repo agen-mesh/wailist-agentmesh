@@ -348,15 +348,18 @@ func TestExpireStalePendingTransactionsScopesToProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Use a unique, test-only provider for the swept row. This test's zero-threshold
-	// (expire-everything) sweep must only ever touch the row THIS test created — using the
-	// real "nowpayments" here would expire every other package's concurrent nowpayments
+	// Both providers are unique and test-only. The swept one must be unique because using
+	// the real "nowpayments" would expire every other package's concurrent nowpayments
 	// pending rows against the shared test DB, flaking those tests (e.g. the handlers
-	// package's TestCreateCryptoInvoiceLeavesOrphanedPendingRowOnInvoiceFailure).
+	// package's TestCreateCryptoInvoiceLeavesOrphanedPendingRowOnInvoiceFailure). The
+	// control one must be unique so that no other test's cashfree-scoped sweep can expire
+	// the row this test expects to still be pending — what is being asserted is provider
+	// scoping, which holds for any two distinct providers.
 	sweepProvider := fmt.Sprintf("nowpayments-scopetest-%d", time.Now().UnixNano())
+	controlProvider := fmt.Sprintf("cashfree-scopetest-%d", time.Now().UnixNano())
 
-	cashfreeOrderID := fmt.Sprintf("order_expire_cashfree_%d", time.Now().UnixNano())
-	if _, err := store.CreateCreditTransaction(ctx, user.ID, cashfreeOrderID, 10000, 0.012); err != nil {
+	controlOrderID := fmt.Sprintf("order_expire_cashfree_%d", time.Now().UnixNano())
+	if _, err := store.CreateCreditTransactionForProvider(ctx, controlProvider, user.ID, controlOrderID, 10000, 0.012); err != nil {
 		t.Fatal(err)
 	}
 
@@ -383,14 +386,14 @@ func TestExpireStalePendingTransactionsScopesToProvider(t *testing.T) {
 		t.Fatalf("want swept-provider row expired, got status %q", cryptoStatus)
 	}
 
-	var cashfreeStatus string
+	var controlStatus string
 	if err := pool.QueryRow(ctx,
-		`SELECT status FROM credit_ledger WHERE provider_order_id = $1 AND provider = 'cashfree'`,
-		cashfreeOrderID,
-	).Scan(&cashfreeStatus); err != nil {
+		`SELECT status FROM credit_ledger WHERE provider_order_id = $1 AND provider = $2`,
+		controlOrderID, controlProvider,
+	).Scan(&controlStatus); err != nil {
 		t.Fatal(err)
 	}
-	if cashfreeStatus != "pending" {
-		t.Fatalf("want cashfree row untouched by a nowpayments-scoped sweep, got status %q", cashfreeStatus)
+	if controlStatus != "pending" {
+		t.Fatalf("want control-provider row untouched by a scoped sweep, got status %q", controlStatus)
 	}
 }
