@@ -9,10 +9,33 @@
         <item name="colorAccent">@color/colorAccent</item>
     </style>
 
+    <!-- The window the app actually runs in.
+         The parent is DayNight, which follows the device. The app does not: its
+         palette is dark and only dark, with no light theme anywhere in
+         globals.css. So on a phone in light mode the platform supplied a
+         near-white window and the app painted a black page inside it, and every
+         part of the window the WebView had not covered stayed near-white.
+
+         What was visible was the strip behind the status bar: measured #fafafa
+         in light mode and #303030 in dark, against an app background of
+         #08070c, so it matched in NEITHER. See #195.
+
+         windowBackground rather than android:statusBarColor. From API 35 the
+         platform enforces edge-to-edge and ignores statusBarColor outright, and
+         targetSdkVersion is 36 (variables.gradle). Setting it would be the
+         same class of mistake as the launch theme that set android:background
+         on Theme.SplashScreen and silently did nothing. The bars are
+         transparent already; what shows through them is this. -->
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <item name="android:windowBackground">@color/appBackground</item>
+        <!-- Light GLYPHS are wrong here: these ask for dark icons, and the bars
+             now sit on #08070c. False in both, explicitly, rather than relying
+             on DayNight to guess from a mode the app does not follow. -->
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 
 

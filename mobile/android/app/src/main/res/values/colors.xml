@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The app's background, and the literal value of the bg custom property
+         in frontend/src/app/globals.css. It has to be a literal here: the
+         window is painted by the OS before any web content exists, so it cannot
+         read a CSS custom property. If that token changes, this changes with it.
+
+         Named for the app rather than for one screen, because the window
+         background is what shows through wherever the WebView has not drawn:
+         behind the system bars, and for the moment between the window opening
+         and the first web paint. -->
+    <color name="appBackground">#08070c</color>
+</resources>
