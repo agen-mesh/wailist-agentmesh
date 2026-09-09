@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCredits } from "@/lib/credits/store";
 import { LowBalanceBanner } from "@/components/billing/LowBalanceBanner";
@@ -15,6 +15,7 @@ import {
 } from "@/lib/types";
 import { AreaChart } from "./AreaChart";
 import { Donut, DonutSegment } from "./Donut";
+import { useIsHandheld } from "@/hooks/useIsHandheld";
 
 const RANGES: UsageRange[] = ["24h", "7d", "30d"];
 
@@ -298,6 +299,37 @@ function UsageBody({
   // sign-out and did not follow the user to another device, even though the
   // receipts were in the database the whole time.
   const [settlements, setSettlements] = useState<Settlement[]>([]);
+  // How many settlements are shown before "Show all".
+  //
+  // On a phone the table stacks into cards rather than scrolling sideways, and
+  // 18 stacked cards is roughly a screen and a half of a list nobody scrolls to
+  // the end of. Six is enough to see the shape of recent activity, which is
+  // what this card is for; the rest are one tap away. Progressive disclosure is
+  // the standard answer to a long table on a small screen.
+  //
+  // Desktop is unaffected: it keeps its five-column table and shows all 18.
+  const handheld = useIsHandheld();
+  const [showAllSettlements, setShowAllSettlements] = useState(false);
+
+  // Collapse again when the range changes, because the expansion was a decision
+  // about a particular set of rows and those rows are now different ones. Left
+  // alone, "show all 18" silently became "show all" of whatever the next range
+  // returned -- nobody asked for that, and on a wider range it is a long table
+  // they did not open.
+  //
+  // Adjusted during render rather than in an effect: this is the pattern React
+  // documents for resetting state when a value changes, it avoids the extra
+  // commit an effect would cost, and this repo lints against setState in
+  // effects (AuthPage carries a disable comment for exactly that rule).
+  const [rangeShown, setRangeShown] = useState(range);
+  if (rangeShown !== range) {
+    setRangeShown(range);
+    setShowAllSettlements(false);
+  }
+
+  const settlementCap =
+    handheld && !showAllSettlements ? 6 : settlements.length;
+  const visibleSettlements = settlements.slice(0, settlementCap);
   useEffect(() => {
     let stale = false;
     usageApi
@@ -352,7 +384,9 @@ function UsageBody({
           alignItems: "flex-end",
           gap: 16,
           flexWrap: "wrap",
-          paddingTop: 60,
+          // Unconditional 60px of headspace, which on a 812px phone is 7% of
+          // the screen spent on nothing. Tokenised so the phone step drops it.
+          paddingTop: "var(--us-headspace)",
           marginBottom: 12,
         }}
       >
@@ -439,7 +473,8 @@ function UsageBody({
                 >
                   <span
                     style={{
-                      fontSize: 40,
+                      // Token, not a literal: see the 768 block in globals.css.
+                      fontSize: "var(--us-figure-size)",
                       fontWeight: 500,
                       lineHeight: 1,
                       letterSpacing: "-0.02em",
@@ -693,10 +728,10 @@ function UsageBody({
             </span>
           }
         />
-        <div className="am-usage-table">
+        <HScroll>
           <div
             style={{
-              minWidth: 720,
+              minWidth: "var(--us-settle-minw)",
               display: "grid",
               gridTemplateColumns: SETTLE_GRID,
               gap: 14,
@@ -713,8 +748,8 @@ function UsageBody({
             <span style={{ ...hcell, textAlign: "right" }}>Amount</span>
             <span style={{ ...hcell, textAlign: "right" }}>Time</span>
           </div>
-          <div style={{ minWidth: 720, padding: "2px 0" }}>
-            {settlements.map((s, i) => (
+          <div style={{ minWidth: "var(--us-settle-minw)", padding: "2px 0" }}>
+            {visibleSettlements.map((s, i) => (
               <div
                 key={s.txId}
                 style={{
@@ -724,7 +759,7 @@ function UsageBody({
                   alignItems: "center",
                   padding: "11px 10px",
                   borderBottom:
-                    i < settlements.length - 1
+                    i < visibleSettlements.length - 1
                       ? "1px solid var(--border-soft)"
                       : "none",
                   fontFamily: "var(--font-mono)",
@@ -775,7 +810,37 @@ function UsageBody({
               </div>
             ))}
           </div>
-        </div>
+        </HScroll>
+        {/* Only when there is something hidden, and only where it was hidden.
+            Says how many rather than just "more", so the tap is an informed
+            one.
+
+            OUTSIDE the HScroll, and that placement is the whole point. The rows
+            above are held open by --us-settle-minw (720px) against a card about
+            343px wide on a phone, so the pane scrolls sideways. A block box in
+            normal flow does not grow to its overflowing children, so `width:
+            100%` resolved against the pane's own ~343px content box rather than
+            the 720px canvas: the button was laid out at the left edge of a
+            surface that scrolls, and scrolling right to read Amount and Time
+            carried the one CTA off screen with it -- exactly when somebody has
+            scrolled far enough to want it. The fade this PR adds makes that
+            scroll likelier, which is what turned a latent bug into a real one. */}
+        {settlements.length > visibleSettlements.length && (
+          <button
+            type="button"
+            onClick={() => setShowAllSettlements(true)}
+            style={{
+              ...ghostBtnSm,
+              width: "100%",
+              // ghostBtnSm is 28px, which is a pointer size. This one is
+              // tapped, so it takes the 44px floor.
+              minHeight: 44,
+              marginTop: 8,
+            }}
+          >
+            Show all {settlements.length} settlements
+          </button>
+        )}
       </Card>
 
       {/* ⑥ Footer note */}
@@ -818,7 +883,11 @@ const ASC_FIRST: readonly SortKey[] = ["endpoint", "type"];
 
 // Unit price gets 120px so "26*/1M" fits on one line (cell is nowrap).
 const EP_GRID = "1.9fr 1.15fr 66px 66px 120px 108px 116px 78px 92px";
-const SETTLE_GRID = "minmax(0,1.9fr) minmax(0,1.15fr) 140px 114px 108px"; // Endpoint · Hash · Workflow · Amount · Time
+// Reads the custom property rather than repeating its value. globals.css has
+// carried a <=768px collapse for --us-settle-cols since it was written, and it
+// has never once applied, because this constant hardcoded the same string and
+// won. Endpoint · Hash · Workflow · Amount · Time.
+const SETTLE_GRID = "var(--us-settle-cols)";
 
 function EndpointTable({
   rows,
@@ -953,7 +1022,7 @@ function EndpointTable({
         </div>
       </div>
 
-      <div style={{ overflowX: "auto" }}>
+      <HScroll>
         <div style={{ minWidth: 984 }}>
           <div
             style={{
@@ -1138,7 +1207,7 @@ function EndpointTable({
             ))
           )}
         </div>
-      </div>
+      </HScroll>
     </Card>
   );
 }
@@ -1293,6 +1362,54 @@ function Legend({ items }: { items: { c: string; label: string }[] }) {
           {i.label}
         </span>
       ))}
+    </div>
+  );
+}
+
+// A sideways-scrolling table that says so.
+//
+// Both usage tables are wider than a phone and always were: the settlements
+// card was measured as a two-up stack and came out worse (833px against 18
+// rows that scrolled), and the endpoints table is nine sortable columns. The
+// problem was never the scrolling, it was that nothing announced it -- at
+// 375px the endpoints table shows 305 of its 984 pixels and reads as broken,
+// with a type pill sliced in half at the edge.
+//
+// So this adds the one thing that was missing: a fade at the right edge while
+// there is more to reach, gone once there is not. See .am-hscroll.
+function HScroll({ children }: { children: React.ReactNode }) {
+  const paneRef = useRef<HTMLDivElement>(null);
+  // Starts true so nothing flashes a fade over a table that fits. The first
+  // measurement arrives from the observer below, before paint in practice.
+  const [atEnd, setAtEnd] = useState(true);
+
+  const measure = useCallback(() => {
+    const el = paneRef.current;
+    if (!el) return;
+    // 1px of slack: with fractional column widths scrollLeft never lands
+    // exactly on the end, and an off-by-a-fraction leaves the fade up forever.
+    setAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 1);
+  }, []);
+
+  // A ResizeObserver rather than a resize listener, and deliberately: this has
+  // to re-measure when the CONTENT changes width too -- filtering the endpoint
+  // list or switching the range does that without the window moving at all.
+  // Its callback is also asynchronous, which is what keeps the first
+  // measurement out of the effect body.
+  useEffect(() => {
+    const el = paneRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+  }, [measure]);
+
+  return (
+    <div className="am-hscroll" data-at-end={atEnd ? "" : undefined}>
+      <div className="am-hscroll__pane" ref={paneRef} onScroll={measure}>
+        {children}
+      </div>
     </div>
   );
 }

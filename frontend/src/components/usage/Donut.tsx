@@ -35,10 +35,25 @@ export function Donut({
 
   return (
     <svg
-      width={size}
-      height={size}
+      // The viewBox keeps the drawing's coordinate system at `size`, so none of
+      // the geometry below changes. What changes is the rendered box: it was a
+      // hard width={size}, so on a 343px column the donut stayed 168px wide and
+      // pushed its own legend onto the next line.
+      //
+      // maxWidth pins it at `size` on desktop -- so nothing there moves -- while
+      // aspectRatio keeps it square as it shrinks.
       viewBox={`0 0 ${size} ${size}`}
-      style={{ display: "block" }}
+      style={{
+        display: "block",
+        width: "100%",
+        maxWidth: size,
+        // It is a flex item next to its legend. Without this the auto min-width
+        // floor keeps it at `size` and pushes the legend onto its own line,
+        // which is the wrap you see at 375px.
+        minWidth: 0,
+        height: "auto",
+        aspectRatio: "1 / 1",
+      }}
     >
       <g transform={`rotate(-90 ${cx} ${cx})`}>
         <circle
