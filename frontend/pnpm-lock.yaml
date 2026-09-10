@@ -40,25 +40,25 @@ importers:
         version: 6.0.0
       geist:
         specifier: ^1.7.1
-        version: 1.7.2(next@16.3.4(@babel/core@7.29.7(supports-color@7.2.0))(@types/node@26.4.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))
+        version: 1.7.2(next@16.3.4(@babel/core@7.29.7(supports-color@7.2.0))(@types/node@26.4.1)(react-dom@19.2.4(react@19.2.8))(react@19.2.8))
       katex:
         specifier: ^0.18.4
         version: 0.18.5
       next:
         specifier: 16.3.4
-        version: 16.3.4(@babel/core@7.29.7(supports-color@7.2.0))(@types/node@26.4.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        version: 16.3.4(@babel/core@7.29.7(supports-color@7.2.0))(@types/node@26.4.1)(react-dom@19.2.4(react@19.2.8))(react@19.2.8)
       react:
-        specifier: 19.2.4
-        version: 19.2.4
+        specifier: 19.2.8
+        version: 19.2.8
       react-dom:
         specifier: 19.2.4
-        version: 19.2.4(react@19.2.4)
+        version: 19.2.4(react@19.2.8)
       react-markdown:
         specifier: ^10.1.0
-        version: 10.1.0(@types/react@19.2.17)(react@19.2.4)(supports-color@7.2.0)
+        version: 10.1.0(@types/react@19.2.18)(react@19.2.8)(supports-color@7.2.0)
       react-syntax-highlighter:
         specifier: ^16.1.1
-        version: 16.1.1(react@19.2.4)
+        version: 16.1.1(react@19.2.8)
       rehype-katex:
         specifier: ^7.0.1
         version: 7.0.1
@@ -83,7 +83,7 @@ importers:
         version: 10.4.1
       '@testing-library/react':
         specifier: ^16.3.3
-        version: 16.3.3(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        version: 16.3.3(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.4(react@19.2.8))(react@19.2.8)
       '@types/hast':
         specifier: ^3.0.5
         version: 3.0.5
@@ -92,10 +92,10 @@ importers:
         version: 26.4.1
       '@types/react':
         specifier: ^19
-        version: 19.2.17
+        version: 19.2.18
       '@types/react-dom':
         specifier: ^19
-        version: 19.2.3(@types/react@19.2.17)
+        version: 19.2.3(@types/react@19.2.18)
       '@types/react-syntax-highlighter':
         specifier: ^15.5.13
         version: 15.5.13
@@ -916,8 +916,8 @@ packages:
   '@types/react-syntax-highlighter@15.5.13':
     resolution: {integrity: sha512-uLGJ87j6Sz8UaBAooU0T6lWJ0dBmjZgN1PZTrj05TNql2/XpC6+4HhMT5syIdFUUt+FASfCeLLv4kBygNU+8qA==}
 
-  '@types/react@19.2.17':
-    resolution: {integrity: sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw==}
+  '@types/react@19.2.18':
+    resolution: {integrity: sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w==}
 
   '@types/unist@2.0.11':
     resolution: {integrity: sha512-CmBKiL6NNo/OqgmMn95Fk9Whlp2mtvIv+KNpQKN2F4SjvrEesubTRWGYSg+BnWZOnlCaSTU1sMpsBOzgbYhnsA==}
@@ -2513,8 +2513,8 @@ packages:
     peerDependencies:
       react: '>= 0.14.0'
 
-  react@19.2.4:
-    resolution: {integrity: sha512-9nfp2hYpCwOjAN+8TZFGhtWEwgvWHXqESH8qT89AT/lWklpLON22Lc8pEtnpsZz7VmawabSU0gCjnj8aC0euHQ==}
+  react@19.2.8:
+    resolution: {integrity: sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==}
     engines: {node: '>=0.10.0'}
 
   reflect.getprototypeof@1.0.10:
@@ -3665,15 +3665,15 @@ snapshots:
       picocolors: 1.1.1
       pretty-format: 27.5.1
 
-  '@testing-library/react@16.3.3(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+  '@testing-library/react@16.3.3(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.4(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@babel/runtime': 7.29.7
       '@testing-library/dom': 10.4.1
-      react: 19.2.4
-      react-dom: 19.2.4(react@19.2.4)
+      react: 19.2.8
+      react-dom: 19.2.4(react@19.2.8)
     optionalDependencies:
-      '@types/react': 19.2.17
-      '@types/react-dom': 19.2.3(@types/react@19.2.17)
+      '@types/react': 19.2.18
+      '@types/react-dom': 19.2.3(@types/react@19.2.18)
 
   '@tybys/wasm-util@0.10.3':
     dependencies:
@@ -3721,15 +3721,15 @@ snapshots:
 
   '@types/prismjs@1.26.6': {}
 
-  '@types/react-dom@19.2.3(@types/react@19.2.17)':
+  '@types/react-dom@19.2.3(@types/react@19.2.18)':
     dependencies:
-      '@types/react': 19.2.17
+      '@types/react': 19.2.18
 
   '@types/react-syntax-highlighter@15.5.13':
     dependencies:
-      '@types/react': 19.2.17
+      '@types/react': 19.2.18
 
-  '@types/react@19.2.17':
+  '@types/react@19.2.18':
     dependencies:
       csstype: 3.2.3
 
@@ -4624,9 +4624,9 @@ snapshots:
 
   functions-have-names@1.2.3: {}
 
-  geist@1.7.2(next@16.3.4(@babel/core@7.29.7(supports-color@7.2.0))(@types/node@26.4.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)):
+  geist@1.7.2(next@16.3.4(@babel/core@7.29.7(supports-color@7.2.0))(@types/node@26.4.1)(react-dom@19.2.4(react@19.2.8))(react@19.2.8)):
     dependencies:
-      next: 16.3.4(@babel/core@7.29.7(supports-color@7.2.0))(@types/node@26.4.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      next: 16.3.4(@babel/core@7.29.7(supports-color@7.2.0))(@types/node@26.4.1)(react-dom@19.2.4(react@19.2.8))(react@19.2.8)
 
   generator-function@2.0.1: {}
 
@@ -5528,16 +5528,16 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
-  next@16.3.4(@babel/core@7.29.7(supports-color@7.2.0))(@types/node@26.4.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
+  next@16.3.4(@babel/core@7.29.7(supports-color@7.2.0))(@types/node@26.4.1)(react-dom@19.2.4(react@19.2.8))(react@19.2.8):
     dependencies:
       '@next/env': 16.3.4
       '@swc/helpers': 0.5.23
       baseline-browser-mapping: 2.11.21
       caniuse-lite: 1.0.30001810
       postcss: 8.5.23
-      react: 19.2.4
-      react-dom: 19.2.4(react@19.2.4)
-      styled-jsx: 5.1.6(@babel/core@7.29.7(supports-color@7.2.0))(react@19.2.4)
+      react: 19.2.8
+      react-dom: 19.2.4(react@19.2.8)
+      styled-jsx: 5.1.6(@babel/core@7.29.7(supports-color@7.2.0))(react@19.2.8)
     optionalDependencies:
       '@next/swc-darwin-arm64': 16.3.4
       '@next/swc-darwin-x64': 16.3.4
@@ -5706,25 +5706,25 @@ snapshots:
 
   queue-microtask@1.2.3: {}
 
-  react-dom@19.2.4(react@19.2.4):
+  react-dom@19.2.4(react@19.2.8):
     dependencies:
-      react: 19.2.4
+      react: 19.2.8
       scheduler: 0.27.0
 
   react-is@16.13.1: {}
 
   react-is@17.0.2: {}
 
-  react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.4)(supports-color@7.2.0):
+  react-markdown@10.1.0(@types/react@19.2.18)(react@19.2.8)(supports-color@7.2.0):
     dependencies:
       '@types/hast': 3.0.5
       '@types/mdast': 4.0.4
-      '@types/react': 19.2.17
+      '@types/react': 19.2.18
       devlop: 1.1.0
       hast-util-to-jsx-runtime: 2.3.6(supports-color@7.2.0)
       html-url-attributes: 3.0.1
       mdast-util-to-hast: 13.2.1
-      react: 19.2.4
+      react: 19.2.8
       remark-parse: 11.0.0(supports-color@7.2.0)
       remark-rehype: 11.1.2
       unified: 11.0.5
@@ -5733,17 +5733,17 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  react-syntax-highlighter@16.1.1(react@19.2.4):
+  react-syntax-highlighter@16.1.1(react@19.2.8):
     dependencies:
       '@babel/runtime': 7.29.7
       highlight.js: 10.7.3
       highlightjs-vue: 1.0.0
       lowlight: 1.20.0
       prismjs: 1.30.0
-      react: 19.2.4
+      react: 19.2.8
       refractor: 5.0.0
 
-  react@19.2.4: {}
+  react@19.2.8: {}
 
   reflect.getprototypeof@1.0.10:
     dependencies:
@@ -6079,10 +6079,10 @@ snapshots:
     dependencies:
       inline-style-parser: 0.2.7
 
-  styled-jsx@5.1.6(@babel/core@7.29.7(supports-color@7.2.0))(react@19.2.4):
+  styled-jsx@5.1.6(@babel/core@7.29.7(supports-color@7.2.0))(react@19.2.8):
     dependencies:
       client-only: 0.0.1
-      react: 19.2.4
+      react: 19.2.8
     optionalDependencies:
       '@babel/core': 7.29.7(supports-color@7.2.0)
 
