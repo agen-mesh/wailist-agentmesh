@@ -11,6 +11,7 @@
 import type { PluginListenerHandle } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { registerDevice, unregisterDevice } from "./api";
+import { clearOptedIn, hasOptedIn, setOptedIn } from "./pushPrefs";
 
 // What the user is told BEFORE Android's own dialog, for the same reason
 // permissions.ts explains background location first: a cold system prompt is
@@ -35,6 +36,15 @@ export const PUSH_DISCLOSURE = {
 
 export type PushState = "granted" | "denied" | "unavailable";
 
+// What a screen can be told without asking for anything.
+//
+// "off" is the state enablePush() cannot report, because reaching that function
+// means having already asked -- and on Android 13+ asking is a one-shot. It
+// covers both "Android has never been asked" and "Android says yes but nobody
+// here turned it on", which are the same thing to a reader: notifications are
+// not arriving, and there is a way to start them.
+export type PushReadState = PushState | "off";
+
 // Long enough for a cold FCM registration on a slow connection, short enough
 // that a device which will never register does not hold anything up.
 const REGISTRATION_TIMEOUT_MS = 15_000;
@@ -48,6 +58,12 @@ const REGISTRATION_TIMEOUT_MS = 15_000;
 // rotated it meanwhile and the server would be asked to delete a row that no
 // longer describes this device.
 let currentToken: string | null = null;
+let generation = 0;
+let disabled = false;
+let enabling: { generation: number; promise: Promise<PushState> } | null = null;
+let disabling: Promise<void> | null = null;
+let pendingWrite: Promise<void> | null = null;
+let cancelRegistration: (() => void) | null = null;
 
 /**
  * Asks for permission, registers with FCM, and tells the server where to find
@@ -58,25 +74,93 @@ let currentToken: string | null = null;
  * refused is an answer, not an error, and every caller wants to carry on
  * either way.
  */
-export async function enablePush(): Promise<PushState> {
-  try {
-    let perm = await PushNotifications.checkPermissions();
-    if (perm.receive === "prompt" || perm.receive === "prompt-with-rationale") {
-      perm = await PushNotifications.requestPermissions();
+export function enablePush(): Promise<PushState> {
+  const attempt = generation;
+  if (enabling?.generation === attempt) return enabling.promise;
+  const previousDisable = disabling;
+  const promise = (async (): Promise<PushState> => {
+    await previousDisable;
+    if (attempt !== generation) return "unavailable";
+    disabled = false;
+    try {
+      let perm = await PushNotifications.checkPermissions();
+      if (attempt !== generation) return "unavailable";
+      if (
+        perm.receive === "prompt" ||
+        perm.receive === "prompt-with-rationale"
+      ) {
+        perm = await PushNotifications.requestPermissions();
+      }
+      if (attempt !== generation) return "unavailable";
+      if (perm.receive !== "granted") return "denied";
+      const token = await registerForToken();
+      if (attempt !== generation || token === null) return "unavailable";
+      currentToken = token;
+      const write = (async () => {
+        await registerDevice(token);
+        if (attempt === generation) await setOptedIn();
+      })();
+      pendingWrite = write;
+      try {
+        await write;
+      } finally {
+        if (pendingWrite === write) pendingWrite = null;
+      }
+      return attempt === generation ? "granted" : "unavailable";
+    } catch (err) {
+      console.error("push: could not enable notifications", err);
+      return "unavailable";
     }
-    if (perm.receive !== "granted") return "denied";
+  })();
+  enabling = { generation: attempt, promise };
+  void promise.finally(() => {
+    if (enabling?.promise === promise) enabling = null;
+  });
+  return promise;
+}
 
-    const token = await registerForToken();
-    if (token === null) return "unavailable";
+// Capture cancellation before reading preferences, which also crosses the bridge.
+export async function restorePush(): Promise<void> {
+  const attempt = generation;
+  if ((await hasOptedIn()) && attempt === generation) await enablePush();
+}
 
-    await registerDevice(token);
-    currentToken = token;
-    return "granted";
+/**
+ * Whether notifications are on for this app, without asking for anything.
+ *
+ * The distinction this exists for: enablePush() answers by REQUESTING, and on
+ * Android 13+ the permission dialog is a one-shot -- refuse it once and the
+ * only route back is Settings. So a screen that wants to render its own state
+ * cannot use enablePush() to find out what that state is; doing so would burn
+ * the single ask just to draw a toggle.
+ *
+ * TWO facts, not one. Android's permission is necessary and not sufficient:
+ * turning notifications off in this app unregisters the device and clears the
+ * opt-in, but it does NOT revoke the OS permission -- nothing in an app can.
+ * A version of this function that reported only what Android says answered
+ * "granted" the instant after the user pressed Turn off, so the sheet snapped
+ * straight back to its "on" panel, and a device that had opted out on an
+ * earlier visit opened on that panel too. Both were reported in review on
+ * #174; both were invisible to a four-state walkthrough that never set up
+ * "permission granted, opted out" as a case.
+ *
+ * "off" therefore covers never-asked and opted-out alike, which is the same
+ * thing to a reader. "unavailable" means the plugin could not answer at all --
+ * a build with no google-services.json, or a device with no Play services.
+ */
+export async function notificationState(): Promise<PushReadState> {
+  const attempt = generation;
+  try {
+    const { receive } = await PushNotifications.checkPermissions();
+    // Denied first: a refusal is worth saying out loud whatever the opt-in
+    // records, because the route back is Settings rather than this app, and
+    // that is the one thing the reader needs to be told.
+    if (receive === "denied") return "denied";
+    if (receive !== "granted" || disabled) return "off";
+    const optedIn = await hasOptedIn();
+    return attempt === generation && !disabled && optedIn ? "granted" : "off";
   } catch (err) {
-    // A missing google-services.json lands here, and so does an FCM outage.
-    // Neither is worth taking the app down for: notifications are the one
-    // feature whose absence the user can simply be told about.
-    console.error("push: could not enable notifications", err);
+    console.error("push: could not read the notification permission", err);
     return "unavailable";
   }
 }
@@ -84,26 +168,61 @@ export async function enablePush(): Promise<PushState> {
 /**
  * Stops this device receiving notifications, and tells the server so.
  *
- * Called on sign-out. Never throws: a device that cannot reach the network
- * must still be able to sign out, and the server is not left holding a dead
- * row either way -- FCM rejects sends to an unregistered token, and the send
- * path drops the row on that verdict.
+ * Called on sign-out, and when the user turns notifications off. Never
+ * throws: a device that cannot reach the network must still be able to sign
+ * out, and the server is not left holding a dead row either way -- FCM
+ * rejects sends to an unregistered token, and the send path drops the row on
+ * that verdict.
+ *
+ * Note what this cannot do after a cold start: currentToken is null, so the
+ * server keeps the row until FCM refuses a send to it. The opt-in flag is
+ * still cleared, so nothing re-arms it, and the row is dropped on the first
+ * send that would have gone to this device. Turning it off is therefore
+ * immediate on the phone and eventual on the server.
  */
-export async function disablePush(): Promise<void> {
-  const token = currentToken;
-  currentToken = null;
-  if (token) {
-    await unregisterDevice(token).catch((err) => {
-      console.error("push: could not unregister this device", err);
-    });
-  }
-  // NOT removeAllListeners(). The tap listener is attached once by boot() and
-  // is not part of any one session: removing it here left a sign-out followed
-  // by a sign-in, with no restart in between, unable to route a tapped
-  // notification anywhere until the next cold start. registerForToken now
-  // removes the two listeners it owns as soon as it settles, so there is
-  // nothing of this function's to tidy up.
-  await PushNotifications.unregister().catch(() => {});
+export function disablePush(): Promise<void> {
+  generation++;
+  disabled = true;
+  cancelRegistration?.();
+  const write = pendingWrite;
+  const previousDisable = disabling;
+  const promise = (async () => {
+    // Cleared first, and not conditional on holding a token. A cold start
+    // leaves currentToken null while the device is still registered
+    // server-side, so gating this on having a token would leave the flag set on
+    // exactly the devices that most need it cleared -- and boot() would then
+    // re-arm what the user just turned off.
+    await clearOptedIn();
+    await previousDisable;
+    // Keep the session available until a pending server write has settled.
+    // New enables wait for this cleanup before registering again.
+    // The enable path reports a rejected registration; cleanup still runs.
+    await write?.catch(() => {});
+    // Cleared a SECOND time, deliberately. The write awaited above can be an
+    // in-flight setOptedIn from an enable that started before this disable did;
+    // clearing only before that await would let it land afterwards and leave
+    // the device opted in with the switch showing off.
+    await clearOptedIn();
+    const token = currentToken;
+    currentToken = null;
+    if (token) {
+      await unregisterDevice(token).catch((err) => {
+        console.error("push: could not unregister this device", err);
+      });
+    }
+    // NOT removeAllListeners(). The tap listener is attached once by boot() and
+    // is not part of any one session: removing it here left a sign-out followed
+    // by a sign-in, with no restart in between, unable to route a tapped
+    // notification anywhere until the next cold start. registerForToken removes
+    // the two listeners it owns as soon as it settles, so there is nothing of
+    // this function's to tidy up.
+    await PushNotifications.unregister().catch(() => {});
+  })();
+  disabling = promise;
+  void promise.finally(() => {
+    if (disabling === promise) disabling = null;
+  });
+  return promise;
 }
 
 /**
@@ -141,6 +260,7 @@ function registerForToken(): Promise<string | null> {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (cancelRegistration === cancel) cancelRegistration = null;
       handles.splice(0).forEach(drop);
       resolve(value);
     };
@@ -149,7 +269,9 @@ function registerForToken(): Promise<string | null> {
     // or one whose google-services.json was never added, can leave both
     // unfired -- and an unresolved promise here would hang sign-in behind a
     // notification the user never asked for.
-    const timer = setTimeout(() => finish(null), REGISTRATION_TIMEOUT_MS);
+    const cancel = () => finish(null);
+    cancelRegistration = cancel;
+    const timer = setTimeout(cancel, REGISTRATION_TIMEOUT_MS);
 
     track(
       PushNotifications.addListener("registration", (t) => finish(t.value)),

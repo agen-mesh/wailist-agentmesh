@@ -7,6 +7,8 @@ import { AppNav } from "@/components/nav/AppNav";
 import { APP_NAV_ITEMS, type NavItem } from "@/lib/nav";
 import { can } from "@/lib/readonly";
 import { useReadOnly } from "@/hooks/useReadOnly";
+import { IS_NATIVE } from "@/lib/nativeAuth";
+import { NotificationsSheet } from "@/components/notifications/NotificationsSheet";
 
 // Shared application top bar. Rendered identically on every authed page so the
 // brand cluster, primary navigation, and account menu never drift between routes.
@@ -15,6 +17,11 @@ export function Topbar() {
   const pathname = usePathname();
   const { signOut, user, completeOnboarding } = useAuth();
   const readOnly = useReadOnly();
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  // The account button, so the notifications sheet can hand focus back to
+  // something that still exists. The menu item that opens it does not: the
+  // menu closes in the same update.
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
 
   // Avatar shows the first letter of the signed-in user's name, falling back
   // to the email local part while auth is still loading or for an OAuth
@@ -142,6 +149,7 @@ export function Topbar() {
             >
               <button
                 className="profile-menu__trigger"
+                ref={menuTriggerRef}
                 aria-haspopup="true"
                 aria-expanded={menuOpen}
                 aria-label="Account menu"
@@ -202,13 +210,27 @@ export function Topbar() {
                         </div>
                       </div>
                     </div>
-                    <div className="profile-menu__divider" />
-                    <button
-                      className="profile-menu__item"
-                      onClick={() => setMenuState("closed")}
-                    >
-                      Settings
-                    </button>
+                    {/* Native only: there is no FCM in a browser, so on the
+                        web this would be a control that cannot do anything.
+                        The Settings item that used to sit here was removed --
+                        its onClick only closed the menu, because /settings
+                        does not exist on this branch, and shipping a working
+                        item beside a dead one is worse than shipping neither.
+                        #57 restores it along with the page it needs. */}
+                    {IS_NATIVE && (
+                      <>
+                        <div className="profile-menu__divider" />
+                        <button
+                          className="profile-menu__item"
+                          onClick={() => {
+                            setMenuState("closed");
+                            setNotificationsOpen(true);
+                          }}
+                        >
+                          Notifications
+                        </button>
+                      </>
+                    )}
                     <div className="profile-menu__divider" />
                     <button
                       className="profile-menu__item profile-menu__item--danger"
@@ -228,6 +250,12 @@ export function Topbar() {
       />
       {user?.needsOnboarding && (
         <OnboardingModal onComplete={completeOnboarding} />
+      )}
+      {notificationsOpen && (
+        <NotificationsSheet
+          onClose={() => setNotificationsOpen(false)}
+          returnFocusTo={menuTriggerRef}
+        />
       )}
     </>
   );
