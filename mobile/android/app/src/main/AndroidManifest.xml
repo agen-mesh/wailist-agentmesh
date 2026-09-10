@@ -42,6 +42,36 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Where OAuth comes back.
+
+                 The provider and the backend callback both run in a Custom Tab,
+                 outside the WebView, because Google refuses OAuth in an embedded
+                 one. The backend finishes a native flow by redirecting to
+                 ai.agentmesh.app://auth?code=..., and this is what catches it.
+
+                 The scheme is @string/custom_url_scheme, which Capacitor's own
+                 scaffolding has been shipping since the project was generated
+                 and which nothing consumed until now. Its value is the
+                 applicationId, and it has to stay in step with capacitor.config.
+                 ts's appId, APP_SCHEME in frontend/src/native/oauth.ts, and
+                 nativeAppScheme in the Go handler. A mismatch fails silently:
+                 Android does not match the filter, the Custom Tab sits there,
+                 and nothing says why.
+
+                 BROWSABLE is required for a link followed by a browser to
+                 arrive at all. DEFAULT is required for an implicit intent to
+                 resolve. launchMode is already singleTask above, so this is
+                 delivered to the running activity rather than starting a second
+                 copy on top of the signed out one. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="@string/custom_url_scheme"
+                    android:host="auth" />
+            </intent-filter>
+
         </activity>
 
         <provider

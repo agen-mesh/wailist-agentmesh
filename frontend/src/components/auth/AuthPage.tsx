@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Logo, IconArrow, Tag } from "@/components/ui";
 import { SessionPersistError, useAuth } from "@/hooks/useAuth";
 import { auth } from "@/lib/api";
+import { IS_NATIVE } from "@/lib/nativeAuth";
 import { authBtn } from "@/components/ui/buttons";
 
 const OAUTH_ERRORS: Record<string, string> = {
@@ -106,6 +107,22 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
     const url = auth.oauthURL(provider);
     if (!url) {
       setError("Social sign in is not configured.");
+      return;
+    }
+    // In the app this must NOT be a page navigation. It would take the WebView
+    // off its own https://localhost origin -- blocked by the native CSP, and
+    // when it is not blocked, the app bundle is gone with no way back but
+    // killing the app. Google refuses OAuth in an embedded WebView anyway.
+    // native/oauth.ts opens a Custom Tab instead, and the answer returns as a
+    // deep link that boot()'s listener handles, so nothing resumes here.
+    if (IS_NATIVE) {
+      void import("@/native/oauth")
+        .then(({ start }) => start(provider))
+        .catch((err) =>
+          setError(
+            err instanceof Error ? err.message : "Could not open sign in.",
+          ),
+        );
       return;
     }
     window.location.href = url;

@@ -17,6 +17,7 @@ import {
   type PushReadState,
   type PushState,
 } from "./push";
+import { listenForCallback } from "./oauth";
 
 export interface NativeShell {
   onSignedIn(token: string): Promise<void>;
@@ -97,6 +98,29 @@ export async function boot(): Promise<string | null> {
       console.error("push: could not re-arm on launch", err),
     );
   }
+  // Same reasoning, and the same cold start: the OAuth callback arrives as an
+  // Android intent, and Android is free to have killed the app while the Custom
+  // Tab was in front. A listener attached when the sign-in screen mounts would
+  // miss the answer to the question that screen asked.
+  //
+  // The token goes in through the same seam password sign-in uses rather than
+  // through saveToken directly -- see persistNativeSession -- so a failed write
+  // rolls the session back instead of leaving the app half signed in.
+  void listenForCallback(async (result) => {
+    if (!result.ok) {
+      window.location.assign(
+        `/signin?error=${encodeURIComponent(result.reason)}`,
+      );
+      return;
+    }
+    const { persistNativeSession } = await import("@/hooks/useAuth");
+    try {
+      await persistNativeSession(result.token);
+      window.location.assign("/workflows");
+    } catch {
+      window.location.assign("/signin?error=session_persist");
+    }
+  }).catch(() => {});
   return token;
 }
 

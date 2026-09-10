@@ -23,7 +23,12 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	r.Post("/auth/signin", d.SignIn)
 	r.Post("/auth/signout", d.SignOut)
 	r.Get("/auth/oauth/{provider}", d.OAuthStart)
+	r.Get("/auth/oauth/{provider}/url", d.OAuthStartURL)
 	r.Get("/auth/oauth/{provider}/callback", d.OAuthCallback)
+	// Public because the caller has no session yet — that is the whole point of
+	// it. The one-time code it takes is the credential, and it is worthless
+	// without the verifier that never left the device. See oauth_native.go.
+	r.Post("/auth/oauth/exchange", d.OAuthExchange)
 	r.Post("/waitlist", d.JoinWaitlist)
 	r.Post("/run/{workflowId}", d.PublicTrigger)
 	// Called by Cashfree's servers, not the browser — authenticated via HMAC signature

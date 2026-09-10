@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { OAuthResult } from "./oauth";
 
 // What boot() and onSignedOut owe the notification feature.
 //
@@ -8,9 +9,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // clear at sign-out is what stops a shared phone registering the next person
 // for notifications they were never asked about.
 
-function harness(opts: { token: string | null; optedIn: boolean }) {
-  const calls = { enable: 0, disable: 0, clears: 0, taps: 0, flushes: 0 };
+function harness(opts: {
+  token: string | null;
+  optedIn: boolean;
+  restore?: () => Promise<void>;
+}) {
+  const calls = { enable: 0, disable: 0, clears: 0, taps: 0, flushes: 0, oauth: 0 };
   const prefs = { optedIn: opts.optedIn };
+  const navigate = vi.fn();
+  const persistNativeSession = vi
+    .fn<(token: string) => Promise<void>>()
+    .mockResolvedValue(undefined);
+  let onOAuth: ((result: OAuthResult) => void | Promise<void>) | undefined;
+
+  vi.stubGlobal("window", { location: { assign: navigate } });
+  vi.doMock("@/hooks/useAuth", () => ({ persistNativeSession }));
+  vi.doMock("./oauth", () => ({
+    listenForCallback: async (callback: typeof onOAuth) => {
+      calls.oauth += 1;
+      onOAuth = callback;
+    },
+  }));
 
   vi.doMock("./auth", () => ({
     loadToken: async () => opts.token,
@@ -30,6 +49,7 @@ function harness(opts: { token: string | null; optedIn: boolean }) {
   }));
   vi.doMock("./push", () => ({
     restorePush: async () => {
+      await opts.restore?.();
       if (prefs.optedIn) calls.enable += 1;
     },
     enablePush: async () => {
@@ -56,8 +76,22 @@ function harness(opts: { token: string | null; optedIn: boolean }) {
     },
   }));
 
-  return { calls, prefs };
+  return {
+    calls,
+    prefs,
+    navigate,
+    persistNativeSession,
+    async deliverOAuth(result: OAuthResult) {
+      if (!onOAuth) throw new Error("OAuth callback listener was not registered");
+      await onOAuth(result);
+    },
+  };
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 // boot() fires the re-arm without awaiting it, deliberately -- a slow FCM
 // registration must not hold up the launch. So the assertion has to let the
@@ -109,6 +143,77 @@ describe("boot", () => {
     await boot();
     expect(calls.taps).toBe(1);
     expect(calls.flushes).toBe(1);
+  });
+
+  it("handles an OAuth callback on a signed-out launch without opting into push", async () => {
+    const h = harness({ token: null, optedIn: false });
+    const { boot } = await import("./index");
+
+    expect(await boot()).toBeNull();
+    await h.deliverOAuth({ ok: true, token: "tok_oauth" });
+
+    expect(h.calls.oauth).toBe(1);
+    expect(h.calls.taps).toBe(1);
+    expect(h.calls.enable).toBe(0);
+    expect(h.persistNativeSession).toHaveBeenCalledWith("tok_oauth");
+    expect(h.navigate).toHaveBeenCalledWith("/workflows");
+  });
+
+  it("handles OAuth while notification restoration is still pending", async () => {
+    let finishRestore!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finishRestore = resolve;
+    });
+    const h = harness({
+      token: "tok_session",
+      optedIn: true,
+      restore: () => pending,
+    });
+    const { boot } = await import("./index");
+
+    expect(await boot()).toBe("tok_session");
+    await h.deliverOAuth({ ok: true, token: "tok_oauth" });
+    expect(h.calls.enable).toBe(0);
+    expect(h.calls.taps).toBe(1);
+    expect(h.persistNativeSession).toHaveBeenCalledWith("tok_oauth");
+    expect(h.navigate).toHaveBeenCalledWith("/workflows");
+
+    finishRestore();
+    await settle();
+    expect(h.calls.enable).toBe(1);
+  });
+
+  it("keeps OAuth available when notification restoration fails", async () => {
+    const h = harness({
+      token: "tok_session",
+      optedIn: true,
+      restore: async () => {
+        throw new Error("push unavailable");
+      },
+    });
+    const { boot } = await import("./index");
+
+    expect(await boot()).toBe("tok_session");
+    await settle();
+    await h.deliverOAuth({ ok: true, token: "tok_oauth" });
+
+    expect(h.persistNativeSession).toHaveBeenCalledWith("tok_oauth");
+    expect(h.navigate).toHaveBeenCalledWith("/workflows");
+    expect(h.calls.taps).toBe(1);
+    expect(h.calls.enable).toBe(0);
+  });
+
+  it("restores notifications even when an OAuth callback reports an error", async () => {
+    const h = harness({ token: "tok_session", optedIn: true });
+    const { boot } = await import("./index");
+
+    await boot();
+    await h.deliverOAuth({ ok: false, reason: "cancelled" });
+    await settle();
+
+    expect(h.calls.enable).toBe(1);
+    expect(h.persistNativeSession).not.toHaveBeenCalled();
+    expect(h.navigate).toHaveBeenCalledWith("/signin?error=cancelled");
   });
 });
 

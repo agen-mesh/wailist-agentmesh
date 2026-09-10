@@ -51,6 +51,19 @@ func (d *Deps) providerConfig(name string) (oauthProvider, bool) {
 	return oauthProvider{}, false
 }
 
+// OAuthStartURL gives native clients the browser URL on the callback's origin.
+func (d *Deps) OAuthStartURL(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "provider")
+	if _, ok := d.providerConfig(name); !ok {
+		respond.Error(w, http.StatusNotFound, "unknown or unconfigured provider")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	respond.JSON(w, http.StatusOK, map[string]string{
+		"url": strings.TrimSuffix(d.oauthRedirectURI(name), "/callback"),
+	})
+}
+
 // OAuthStart redirects the browser to the provider's consent screen.
 func (d *Deps) OAuthStart(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "provider")
@@ -60,10 +73,22 @@ func (d *Deps) OAuthStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state, err := randHex(16)
+	random, err := randHex(16)
 	if err != nil {
 		d.redirectFail(w, r, "internal")
 		return
+	}
+	// A native flow carries its client and its PKCE challenge in the state, so
+	// the callback can tell the two apart without a second cookie. See
+	// oauth_native.go. A web flow's state is unchanged: a bare random string.
+	state := random
+	if isNativeStart(r) {
+		challenge := strings.TrimSpace(r.URL.Query().Get("challenge"))
+		if challenge == "" {
+			nativeFail(w, r, "no_challenge")
+			return
+		}
+		state = encodeNativeState(challenge, random)
 	}
 	secure := strings.HasPrefix(d.BaseURL, "https")
 	http.SetCookie(w, &http.Cookie{
@@ -97,9 +122,25 @@ func (d *Deps) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cookieName := oauthStateCookie(name)
-	cookie, err := r.Cookie(cookieName)
-	if err != nil || cookie.Value == "" || cookie.Value != r.URL.Query().Get("state") {
-		d.redirectFail(w, r, "invalid_state")
+	cookie, cookieErr := r.Cookie(cookieName)
+
+	// Which channel a failure goes back on, decided before the state has been
+	// trusted. This chooses only where an error message is shown, never whether
+	// the flow is authentic, so falling back to the query when there is no
+	// cookie is safe -- and it means a native user sees the failure in the app
+	// rather than stranded on a page in a browser tab with no way back.
+	stateSeen := r.URL.Query().Get("state")
+	if cookieErr == nil && cookie.Value != "" {
+		stateSeen = cookie.Value
+	}
+	native, challenge := decodeNativeState(stateSeen)
+	fail := d.redirectFail
+	if native {
+		fail = nativeFail
+	}
+
+	if cookieErr != nil || cookie.Value == "" || cookie.Value != r.URL.Query().Get("state") {
+		fail(w, r, "invalid_state")
 		return
 	}
 	// One-time use: clear the state cookie so it cannot be replayed.
@@ -110,35 +151,54 @@ func (d *Deps) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
-		d.redirectFail(w, r, "no_code")
+		fail(w, r, "no_code")
 		return
 	}
 
 	accessToken, err := exchangeCode(p, code, d.oauthRedirectURI(name))
 	if err != nil {
-		d.redirectFail(w, r, "token_exchange")
+		fail(w, r, "token_exchange")
 		return
 	}
 
 	email, err := fetchEmail(name, p, accessToken)
 	if err != nil || email == "" {
-		d.redirectFail(w, r, "no_email")
+		fail(w, r, "no_email")
 		return
 	}
 
 	user, err := d.Store.GetOrCreateOAuthUser(r.Context(), strings.ToLower(strings.TrimSpace(email)))
 	if errors.Is(err, db.ErrPasswordAccountExists) {
-		d.redirectFail(w, r, "account_exists")
+		fail(w, r, "account_exists")
 		return
 	}
 	if err != nil {
-		d.redirectFail(w, r, "user_upsert")
+		fail(w, r, "user_upsert")
+		return
+	}
+
+	// The app's session is not issued here. It gets a one-time code instead,
+	// which it swaps for a token over HTTPS from inside the app -- so the
+	// session never travels on this front channel at all. See oauth_native.go.
+	if native {
+		if challenge == "" {
+			fail(w, r, "invalid_state")
+			return
+		}
+		exchange, err := d.issueExchangeCode(user.ID, user.Email, challenge)
+		if err != nil {
+			fail(w, r, "token_issue")
+			return
+		}
+		q := url.Values{}
+		q.Set("code", exchange)
+		nativeRedirect(w, r, q)
 		return
 	}
 
 	token, err := d.issueToken(user)
 	if err != nil {
-		d.redirectFail(w, r, "token_issue")
+		fail(w, r, "token_issue")
 		return
 	}
 
