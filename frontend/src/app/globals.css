@@ -492,6 +492,23 @@ body {
 .lp-marquee {
   padding: 0 32px 40px;
 }
+
+/* The waitlist form. Side by side while there is room, stacked once there is
+   not: at 360px the row gave the email field about 150px, which is narrower
+   than the placeholder it has to show.
+
+   A class rather than the inline `display: flex` it replaces -- the row had to
+   stop being an inline style before any media query could reach it. */
+.lp-waitlist {
+  display: flex;
+  gap: 8px;
+}
+@media (max-width: 520px) {
+  .lp-waitlist {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
 @media (max-width: 768px) {
   :root {
     --lp-steps-cols: repeat(2, 1fr);
@@ -524,10 +541,27 @@ body {
   grid-template-columns: 1fr 1fr;
   min-height: 100dvh;
 }
+/* The insets are folded into this rule's own padding rather than added with
+   .am-safe-top / .am-safe-bottom. targetSdkVersion 36 enforces edge-to-edge, so
+   the WebView draws behind the status bar and a screen starting at y=0 starts
+   underneath it -- but those utilities could not have fixed it here.
+   responsive.css is imported at the TOP of this file, so an `.am-*` class loses
+   to any equal-specificity rule below it, and `padding` shorthand resets
+   padding-top outright. responsive.css says so in its own header: a rule that
+   has to beat a globals.css declaration belongs next to it, not there. */
 .auth-form-col {
-  padding: 40px 56px;
+  padding: calc(40px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 56px
+    calc(40px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
   overflow: auto;
 }
+/* The form's own width. It was an inline `maxWidth: 360` on the element, which
+   no media query could have reached -- the same trap that has cost this repo
+   four dead CSS rules. The inline value is gone so this can own it. */
+.auth-card {
+  width: 100%;
+  max-width: 360px;
+}
+
 @media (max-width: 900px) {
   .auth-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -535,10 +569,28 @@ body {
   .auth-aside {
     display: none;
   }
+  /* Collapsing the grid was only half of it. The column kept `40px 56px` of
+     desktop padding down to 520px, so between those widths the result was a
+     360px card floating in a wide shell rather than a screen. The padding
+     follows the collapse now, and the card is allowed to use the width it
+     just gained. */
+  .auth-form-col {
+    padding: calc(28px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 24px
+      calc(28px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  }
+  .auth-card {
+    max-width: 420px;
+  }
 }
 @media (max-width: 520px) {
   .auth-form-col {
-    padding: 24px 20px;
+    padding: calc(20px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 20px
+      calc(24px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  }
+  /* On a phone the form IS the screen: no card, no centred column, just the
+     full width inside the padding. */
+  .auth-card {
+    max-width: none;
   }
 }
 

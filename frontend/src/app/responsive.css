@@ -9,7 +9,28 @@
 
      <= 1024px   compact  — the studio collapses from three columns to one
      <=  768px   mobile   — wide tables become cards, the top nav collapses
-     <=  480px   small    — tightest padding, single column everywhere
+     <=  520px   small    — tightest padding, single column everywhere
+
+   That third number said 480px here and 520px in globals.css, which disagreed
+   for no reason anyone recorded. 520 is canonical: it is what globals.css
+   declares, and it is used seven times against 480's two.
+
+   THE OUTLIERS, AND WHY THEY ARE NOT DRIFT. Seven distinct widths exist in the
+   app, not three. The four below are deliberate, because they are driven by
+   what a specific piece of CONTENT stops fitting at, not by a class of device
+   — and rounding them to the nearest rung would break the layout they exist
+   for. Anything not on this list is drift and should move to the scale.
+
+     900px   the studio topbar, the auth split, the billing grid. Three
+             independent two-column layouts that each stop fitting just under
+             900. See the studio-topbar note at the bottom of this file.
+     860px   .checkout-split, for the same reason at a slightly narrower point.
+     640px   the landing pillars and the marquee row, which go single-column
+             while the rest of that page is still comfortable in two.
+     480px   .am-grid-4 and .bz-toolbar, the two places where a four-up grid
+             has to give up before the generic phone rung.
+
+   Adding a NEW width means adding it here with its reason, or using the scale.
 
    Imported from the top of globals.css, so these rules land BEFORE it: every
    selector here is a new `.am-*` class with nothing to override. A rule that

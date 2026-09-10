@@ -188,7 +188,17 @@ function HeroSection({
           top: "50%",
           left: "50%",
           transform: "translate(-50%, -50%)",
-          width: 984,
+          // The width was a hardcoded 984px. This sits behind the hero headline
+          // to darken what is behind it, and the headline is a clamp -- so at
+          // 375px the bloom was 2.6 screens wide and its blurred edge bled into
+          // the sections above and below instead of pooling behind the text.
+          //
+          // Width only. The height is left at 527px on purpose: the hero is
+          // min-height 100dvh, so 527 was never the dimension that overflowed,
+          // and making it viewport-relative would have shrunk the bloom on
+          // desktop too (42vh is 378px in a 900px-tall window). The cap keeps
+          // desktop byte-identical -- measured, not assumed.
+          width: "min(984px, 105vw)",
           height: 527,
           opacity: 0.88,
           background: "hsl(260 60% 4%)",
@@ -536,7 +546,8 @@ function LandingPillars() {
           <h2
             style={{
               margin: "16px 0 0",
-              fontSize: 48,
+              // Was a flat 48px. Same floor/slope/ceiling shape as the hero.
+              fontSize: "clamp(28px, 6vw, 48px)",
               fontWeight: 500,
               letterSpacing: "-0.028em",
               maxWidth: 680,
@@ -694,7 +705,11 @@ function LandingFlow() {
       style={{
         borderTop: "1px solid var(--border)",
         background: "rgba(4, 3, 12, 0.62)",
-        padding: "112px 32px",
+        // Was a hardcoded "112px 32px" at every width -- the only section of
+        // the four not on the shared token, so on a phone it kept 112px of
+        // desktop breathing room above and below while its neighbours dropped
+        // to 72px.
+        padding: "var(--lp-section-pad)",
         position: "relative",
         zIndex: 1,
       }}
@@ -705,7 +720,8 @@ function LandingFlow() {
           <h2
             style={{
               margin: "16px 0 0",
-              fontSize: 40,
+              // Was a flat 40px. Same floor/slope/ceiling shape as the hero.
+              fontSize: "clamp(26px, 6vw, 40px)",
               fontWeight: 500,
               letterSpacing: "-0.025em",
               fontFamily: "var(--font-sans)",
@@ -859,7 +875,8 @@ function LandingWaitlist() {
         <h2
           style={{
             margin: "20px 0 14px",
-            fontSize: 48,
+            // Was a flat 48px. Same floor/slope/ceiling shape as the hero.
+            fontSize: "clamp(28px, 6vw, 48px)",
             fontWeight: 500,
             letterSpacing: "-0.028em",
             fontFamily: "var(--font-sans)",
@@ -890,7 +907,7 @@ function LandingWaitlist() {
               "0 0 60px rgba(167,140,250,0.07), inset 0 1px 0 rgba(255,255,255,0.06)",
           }}
         >
-          <form onSubmit={handleSubmit} style={{ display: "flex", gap: 8 }}>
+          <form onSubmit={handleSubmit} className="lp-waitlist">
             <input
               name="email"
               type="email"
@@ -904,7 +921,10 @@ function LandingWaitlist() {
                 borderRadius: "var(--r-2)",
                 color: "var(--fg)",
                 fontFamily: "var(--font-sans)",
-                fontSize: 14,
+                // 16px for the same reason as the sign-in fields: under 16,
+                // Safari on iOS zooms the page on focus and maximumScale is
+                // deliberately unset, so nothing else can refuse it.
+                fontSize: 16,
                 padding: "0 12px",
                 outline: "none",
               }}
