@@ -9,14 +9,66 @@
         <item name="colorAccent">@color/colorAccent</item>
     </style>
 
+    <!-- postSplashScreenTheme points here, so this is the window the launch
+         hands over TO, and its background is what is on screen for any moment
+         when neither the system splash nor the WebView is drawing.
+
+         It was the platform default. The parent is DayNight and the app has no
+         light theme at all, so on a phone in light mode that default is
+         near-white: the seam between the two splash screens, and the moment
+         before the first web paint, could both show a pale frame on an app that
+         is black everywhere else.
+
+         Painting it with the same colour the two splashes use makes that seam
+         unobservable rather than merely brief. It cannot be timed away, because
+         how long the WebView takes to paint is not something this app controls.
+         The answer is to make the gap the right colour rather than to try to
+         make it short.
+
+         windowBackground and not android:statusBarColor: from API 35 the
+         platform enforces edge-to-edge and ignores statusBarColor, and
+         targetSdkVersion is 36. See #195. -->
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <item name="android:windowBackground">@color/splashBackground</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 
 
+    <!-- The launch window, and the only part of startup Android lets an app
+         style. From Android 12 the system draws this itself: an icon on a
+         colour, with the icon capped at 288dp and any animation capped at
+         1000ms. There is no way to put a wordmark here, which is why the
+         animated one lives in the WebView (AppSplash.tsx) and this exists only
+         to make the seam between them invisible.
+
+         The stock template set android:background to a full-screen
+         @drawable/splash PNG. That attribute is not what Theme.SplashScreen
+         reads, so on every device running 12 or newer it did nothing at all:
+         the app was showing the platform default. The three items below are the
+         ones that actually paint.
+
+         postSplashScreenTheme matters as much as the colour: without it the
+         window keeps the splash theme after handing over, and the first WebView
+         frame draws against the wrong background.
+
+         REPLACING THE ICON. drawable/splash_icon.png is the only file to swap,
+         and there are two rules it has to keep, both learned the hard way:
+
+           1. Whatever fills the space around the mark must be exactly the same
+              colour as windowSplashScreenBackground, or fully transparent.
+              Android masks this drawable to a CIRCLE, so any plate that differs
+              from the background renders as a visible disc with its corners cut
+              off. The artwork shipped here originally had a dark slate plate on
+              a black background and did exactly that.
+           2. Keep the mark inside the middle two thirds of the canvas. The
+              outer third is what the circular mask eats. -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">@color/splashBackground</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>

@@ -234,13 +234,100 @@ body {
   pointer-events: none;
 }
 
+/* The brand sweep, shared by the hero headline and the app's loading screen so
+   the two cannot drift apart. Only AppSplash animates it -- adding a
+   background-size here would change how the static hero renders, which is why
+   the size lives on .splash__sweep rather than on the token. */
+:root {
+  --brand-sweep: linear-gradient(
+    to left,
+    #6366f1 0%,
+    #a855f7 50%,
+    #fcd34d 100%
+  );
+}
+
 /* ── Hero gradient ────────────────────────────────────────────────────── */
 .hero-gradient {
-  background: linear-gradient(to left, #6366f1 0%, #a855f7 50%, #fcd34d 100%);
+  background: var(--brand-sweep);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
+}
+
+/* ── App loading screen ───────────────────────────────────────────────────
+   AppSplash.tsx. Native only, and the first thing the WebView paints -- the
+   shell is a static export, so this markup is in index.html rather than
+   arriving after a render.
+
+   z-index 2000 puts it above everything including modals (1000): during boot
+   there is nothing legitimate to be above it, and a route that mounted a dialog
+   underneath must not peek through. */
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  transition: opacity 0.22s var(--ease);
+}
+.splash[data-leaving] {
+  opacity: 0;
+}
+.splash__mark {
+  font: 600 34px/1 var(--font-sans);
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+
+/* The sweep. background-size is here and not on --brand-sweep so the static
+   hero headline keeps rendering exactly as it did -- the token is shared, the
+   animation is not.
+
+   220% rather than 200%: at exactly 200 the gradient's own end stops line up
+   with the travel, so the loop shows a seam where amber meets indigo. The extra
+   fifth keeps a solid run of colour off-screen at each end. */
+.splash__sweep {
+  background: var(--brand-sweep);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: wordmark-sweep 1.6s var(--ease) infinite;
+}
+
+/* Animating background-position rather than transform: the glyphs must stay put
+   while the colour moves through them.
+
+   This repaints; it is not composited, and an earlier version of this comment
+   claimed otherwise. background-position is a paint property, and with
+   background-clip: text the glyph mask is re-rasterised every frame. It is
+   affordable only because the painted area is the word "Mesh" at 34px -- about
+   90x34 CSS pixels. Do not reach for this technique on a large surface, and do
+   not trust the old claim if you are copying from here. */
+@keyframes wordmark-sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* Reduced motion holds a frame rather than removing the gradient: someone who
+   asked for less movement still gets the same wordmark, in colour. Removing it
+   would give them a plainer screen than everyone else for no reason. */
+@media (prefers-reduced-motion: reduce) {
+  .splash {
+    transition: none;
+  }
+  .splash__sweep {
+    animation: none;
+    background-position: 50% 0;
+  }
 }
 
 /* ── Canvas dot grid ──────────────────────────────────────────────────── */

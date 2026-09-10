@@ -18,7 +18,8 @@
     "@capacitor/core": "^8.5.0",
     "@capacitor/network": "^8.0.1",
     "@capacitor/preferences": "^8.0.1",
-    "@capacitor/push-notifications": "^8.1.2"
+    "@capacitor/push-notifications": "^8.1.2",
+    "@capacitor/splash-screen": "^8.0.2"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.0",

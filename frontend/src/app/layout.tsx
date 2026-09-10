@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { NativeBoot } from "@/components/native/NativeBoot";
+import { AppSplash } from "@/components/native/AppSplash";
 import { BottomNav } from "@/components/nav/BottomNav";
 import { IS_NATIVE } from "@/lib/nativeAuth";
 import { buildCsp } from "@/lib/csp";
@@ -124,6 +125,11 @@ export default function RootLayout({
         }}
       >
         <NativeBoot />
+        {/* Above NativeBoot in the tree on purpose: NativeBoot renders null and
+            does the work, this covers the screen while it happens. Both are
+            mounted here rather than per-route so the launch frame is the same
+            whichever route the app opens on. */}
+        <AppSplash />
         {children}
         {/* Renders itself only on a handheld, and only at a section root. One
             mount point rather than one per page: it is app-wide chrome, and

@@ -31,6 +31,27 @@ const config: CapacitorConfig = {
   // MainActivity re-asserts the safe answer natively, so a future edit to this
   // file cannot ship an inspectable release by accident.
 
+  plugins: {
+    SplashScreen: {
+      // launchAutoHide false, and this is the whole point of adding the plugin.
+      //
+      // Left true, the native splash hides after its own timer whether or not
+      // the WebView has drawn anything. Android removes a launch window "as
+      // soon as the first frame is drawn", and the first frame is the empty
+      // WebView, not the mounted app -- so the gap between them shows as a
+      // flash of nothing. With auto-hide off, AppSplash.tsx calls hide() once
+      // it has actually painted, and there is no gap to see.
+      launchAutoHide: false,
+      // The same literal as values/colors.xml and layout.tsx's themeColor. All
+      // three are #08070c, and they have to stay that way: this one covers the
+      // moment between the system splash and the first web paint.
+      backgroundColor: "#08070c",
+      // The branded wordmark is the loading indicator. A platform spinner
+      // underneath it would be a second one, saying the same thing worse.
+      showSpinner: false,
+    },
+  },
+
   server: {
     // https, not the default capacitor:// -- the WebView treats an https
     // origin as a secure context, which the geolocation and notification APIs
