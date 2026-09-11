@@ -673,3 +673,70 @@ func TestBuildWorkflowSavesOverADeployAndADragDuringTheBuild(t *testing.T) {
 		t.Fatalf("the drag made during the build must be kept, got x=%v y=%v", n.X, n.Y)
 	}
 }
+
+// Review finding: the conflict check compared against the graph the build
+// started from, but the builder shared that graph's edges and settings maps
+// and edited them in place -- so removing a connection or changing a setting
+// made an untouched workflow look changed, and the build got a 409 instead
+// of being saved.
+func TestBuildWorkflowSavesAnEdgeRemovalAndASettingsChange(t *testing.T) {
+	d := testDeps(t)
+	d.PlatformGeminiAPIKey = "test-key"
+	ctx := context.Background()
+
+	user, err := d.Store.CreateUser(ctx, "wf-inplace-"+randSuffix(t)+"@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wf, err := d.Store.CreateWorkflow(ctx, "In Place", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Store.DeleteWorkflow(context.Background(), wf.ID) })
+	start := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "t1", Type: models.NodeTypeTrigger, Template: "manual"},
+			{ID: "s1", Type: models.NodeTypeAction, Template: "slack", Config: map[string]string{"slackChannel": "#old"}},
+			{ID: "end1", Type: models.NodeTypeEnd},
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "e1", From: "t1", To: "s1", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "e2", From: "s1", To: "end1", Kind: models.EdgeKindFlow, ToPort: "in"},
+		},
+	}
+	if _, err := d.Store.UpdateWorkflow(ctx, wf.ID, "In Place", start); err != nil {
+		t.Fatal(err)
+	}
+
+	turn := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		turn++
+		w.Header().Set("Content-Type", "application/json")
+		if turn == 1 {
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[`+
+				`{"functionCall":{"name":"remove_edge","args":{"id":"e1"}}},`+
+				`{"functionCall":{"name":"update_node","args":{"id":"s1","config":{"slackChannel":"#new"}}}}`+
+				`]}}]}`)
+			return
+		}
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"done"}]}}]}`)
+	}))
+	defer srv.Close()
+	nodes.SetGeminiBaseURL(srv.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	rec := buildWorkflowReq(d, wf.ID, user.ID, "unhook slack and use #new")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("nobody else touched the workflow, want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	saved, err := d.Store.GetWorkflow(ctx, wf.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Edges) != 1 || saved.Edges[0].ID != "e2" {
+		t.Fatalf("want only e2 left, got %+v", saved.Edges)
+	}
+	if got := saved.Nodes[1].Config["slackChannel"]; got != "#new" {
+		t.Fatalf("want the new channel saved, got %q", got)
+	}
+}

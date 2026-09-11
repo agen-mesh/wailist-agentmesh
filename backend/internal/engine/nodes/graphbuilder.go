@@ -1029,13 +1029,32 @@ type BuildRequest struct {
 	OnProgress func(BuildProgress)
 }
 
+// cloneGraph copies a graph down to every slice and map a node holds, so
+// nothing written to the copy shows through in the original.
+func cloneGraph(g models.WorkflowGraph) models.WorkflowGraph {
+	out := models.WorkflowGraph{Nodes: slices.Clone(g.Nodes), Edges: slices.Clone(g.Edges)}
+	for i := range out.Nodes {
+		n := &out.Nodes[i]
+		n.Config = maps.Clone(n.Config)
+		n.Secrets = maps.Clone(n.Secrets)
+		n.ParamDefaults = maps.Clone(n.ParamDefaults)
+		n.DiscoveredParams = slices.Clone(n.DiscoveredParams)
+		n.CustomParams = slices.Clone(n.CustomParams)
+	}
+	return out
+}
+
 // BuildGraph runs a bounded tool-calling loop against the Gemini Flash
 // meta-agent, letting it edit the graph via the graphToolDecls tools, look
 // things up with web_search/describe_node/search_x402, until it responds
 // with plain text instead of a function call. Running out of rounds returns
 // the partial graph rather than an error -- see the tail of the loop.
 func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error) {
-	apiKey, userMessage, graph, history := req.APIKey, req.Message, req.Graph, req.History
+	// A deep copy: the tools edit the graph in place (remove_edge filters
+	// Edges into its own backing array, update_node merges into a node's
+	// Config map), and the caller's graph -- which BuildWorkflow later
+	// compares against the stored one -- must come out of this untouched.
+	apiKey, userMessage, graph, history := req.APIKey, req.Message, cloneGraph(req.Graph), req.History
 	x402 := newX402Session(req.X402Catalog)
 	// probed caches fetchURL results per url for this build, so the model's
 	// own fetch_url and the automatic check on add_node share one request.
@@ -1110,9 +1129,8 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		"tools": []map[string]any{{"functionDeclarations": graphToolDecls()}},
 	}
 
-	// Taken before any tool runs: update_node edits graph.Nodes in place, and
-	// graph shares its backing array with req.Graph, so the "before" graph
-	// cannot be re-read later.
+	// Taken before any tool runs: the tools edit graph in place, so the
+	// "before" graph cannot be re-read later.
 	baselineFindings := auditGraph(graph)
 	auditRetried := false
 	for iter := 0; iter < maxBuildIterations; iter++ {

@@ -1350,3 +1350,53 @@ func TestUpdateNodeRefusesToRedirectACredentialedNode(t *testing.T) {
 		})
 	}
 }
+
+// Review finding: the tools edit the graph in place, and the graph BuildGraph
+// was handed shared its edge array and every node's Config map with the
+// caller's. remove_edge on the first edge rewrote the caller's edges to
+// [e2 e2], and a settings update showed through too -- so BuildWorkflow's
+// "did the graph change during the build" check compared the stored graph
+// against one the build itself had edited, and refused to save.
+func TestBuildGraphLeavesTheCallersGraphUntouched(t *testing.T) {
+	turn := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		turn++
+		w.Header().Set("Content-Type", "application/json")
+		if turn == 1 {
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[`+
+				`{"functionCall":{"name":"remove_edge","args":{"id":"e1"}}},`+
+				`{"functionCall":{"name":"update_node","args":{"id":"s1","config":{"slackChannel":"#new"}}}}`+
+				`]}}]}`)
+			return
+		}
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"done"}]}}]}`)
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	caller := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "t1", Type: models.NodeTypeTrigger, Template: "manual"},
+			{ID: "s1", Type: models.NodeTypeAction, Template: "slack", Config: map[string]string{"slackChannel": "#old"}},
+			{ID: "end1", Type: models.NodeTypeEnd},
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "e1", From: "t1", To: "s1", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "e2", From: "s1", To: "end1", Kind: models.EdgeKindFlow, ToPort: "in"},
+		},
+	}
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "unhook slack and use #new", Graph: caller})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Graph.Edges) != 1 || res.Graph.Edges[0].ID != "e2" || res.Graph.Nodes[1].Config["slackChannel"] != "#new" {
+		t.Fatalf("the build's own result is wrong: %+v", res.Graph)
+	}
+	if caller.Edges[0].ID != "e1" || caller.Edges[1].ID != "e2" {
+		t.Fatalf("the caller's edges were rewritten: %+v", caller.Edges)
+	}
+	if got := caller.Nodes[1].Config["slackChannel"]; got != "#old" {
+		t.Fatalf("the caller's node settings were changed: slackChannel=%q", got)
+	}
+}

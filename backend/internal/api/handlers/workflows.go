@@ -313,6 +313,10 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 		history = append(history, nodes.BuildTurn{Role: m.Role, Text: m.Text})
 	}
 
+	// Taken before the build, not after: what the build started from is
+	// what a mid-build save is compared against, and nothing the build does
+	// may be able to change it.
+	startedFrom := graphFingerprint(decryptNodes(existing.Nodes, d.EncryptionKey), existing.Edges)
 	maskedGraph := models.WorkflowGraph{Nodes: redactNodesForBuildAgent(existing.Nodes), Edges: existing.Edges}
 	// Detached from the request: if the client goes away mid-build (a proxy
 	// timeout, a closed tab), the build still finishes and is saved, so the
@@ -358,8 +362,7 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusInternalServerError, "could not save the updated workflow")
 		return
 	}
-	if graphFingerprint(decryptNodes(current.Nodes, d.EncryptionKey), current.Edges) !=
-		graphFingerprint(decryptNodes(existing.Nodes, d.EncryptionKey), existing.Edges) {
+	if graphFingerprint(decryptNodes(current.Nodes, d.EncryptionKey), current.Edges) != startedFrom {
 		log.Printf("build workflow %s: workflow changed during the build; not saving", id)
 		respond.Error(w, http.StatusConflict, "the workflow changed while the builder was working, so nothing was saved -- send your message again")
 		return
