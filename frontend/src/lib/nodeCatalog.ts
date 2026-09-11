@@ -200,6 +200,15 @@ const EMAIL_FIELDS: CatalogField[] = [
   { key: "emailApiKey", where: "secret", label: "API key", hint: "the chosen email provider's API key" },
 ];
 
+// Action notes, keyed by template.
+const ACTION_NOTES: Record<string, string> = {
+  // A live build turned the user's "myrad" into "myriad" and then "myria" --
+  // two other coins -- by web-searching for the id. CoinGecko's own search
+  // resolves "myrad" to exactly one coin.
+  coingecko:
+    "cgIDs are CoinGecko coin ids, not names or symbols. Look each one up with fetch_url https://api.coingecko.com/api/v3/search?query=<the name the user gave> and use the id of the result whose name or symbol matches what they said -- never a similar-sounding coin, and never web_search for an id.",
+};
+
 const TRIGGER_NOTES: Record<string, string> = {
   manual:
     "Started by the Run button -- and by the workflow's schedule, if one is set. Use this for anything that should run on a timetable.",
@@ -278,6 +287,7 @@ export function buildNodeCatalog(): NodeCatalog {
           id: t.id,
           name: t.name,
           desc: t.desc,
+          ...(ACTION_NOTES[t.id] ? { note: ACTION_NOTES[t.id] } : {}),
           fields: t.id === "email" ? EMAIL_FIELDS : [...fromConnectorTable(t.id), MESSAGE_TEMPLATE],
           ...(auth ? { authDocUrl: auth.docUrl } : {}),
           ...(oauth ? { oauthProvider: oauth } : {}),

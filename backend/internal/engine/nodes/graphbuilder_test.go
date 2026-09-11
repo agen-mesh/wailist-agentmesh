@@ -1517,3 +1517,70 @@ func TestBuilderAgentsAreToldNeverToInventValues(t *testing.T) {
 		t.Fatalf("the rule must appear once, got %q", graph.Nodes[0].SystemPrompt)
 	}
 }
+
+// A retest still wrote "For example, '... is $0.00001266 USD.'" into an
+// agent's instructions -- the prompt rule alone was ignored, and that exact
+// pattern is what an agent handed {} repeats as a real price.
+func TestBuilderRejectsExampleValuesInAgentInstructions(t *testing.T) {
+	for _, prompt := range []string{
+		"Report the price. For example, 'The price is $0.00001266 USD.'",
+		"Say the price, e.g. 0.00123456 USD",
+		"Respond like: ₹45.20",
+	} {
+		graph := &models.WorkflowGraph{}
+		_, err := applyGraphOp(graph, "add_node", map[string]any{
+			"type": "agent", "template": "agent", "fields": map[string]any{"systemPrompt": prompt},
+		})
+		if err == nil || !strings.Contains(err.Error(), "example") {
+			t.Errorf("instructions with an example value must be rejected: %q (err %v)", prompt, err)
+		}
+	}
+	for _, ok := range []string{
+		"State the coin's USD price in one sentence, under 30 words.",
+		// A threshold is an instruction, not an example -- it must stay legal.
+		"Only report it if the price is above $100.",
+	} {
+		graph := &models.WorkflowGraph{}
+		if _, err := applyGraphOp(graph, "add_node", map[string]any{
+			"type": "agent", "template": "agent", "fields": map[string]any{"systemPrompt": ok},
+		}); err != nil {
+			t.Fatalf("ordinary instructions must be accepted: %q: %v", ok, err)
+		}
+	}
+}
+
+// The same retest ended with the agent's "answer" being a JSON block, and the
+// gate accepted it because it was not empty.
+func TestBuildGraphSendsBackAnAnswerThatIsRawData(t *testing.T) {
+	bodies := scriptedGemini(t, []string{callTestRun, text("done"), text("done again")})
+	_, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "myrad price", Graph: wiredAgentGraph(),
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
+			return DryRunResult{Answer: "```json\n{\"myrad\":{\"usd\":0.0002}}\n```", FinalOutput: "{}"}
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(strings.Join(*bodies, "\n"), "raw data") {
+		t.Fatal("an answer that is just JSON must be sent back as not an answer")
+	}
+}
+
+// The reply that said "Here's the test run output:" and then nothing. The
+// user must always see what the test actually produced.
+func TestBuildGraphReplyAlwaysIncludesTheTestedAnswer(t *testing.T) {
+	scriptedGemini(t, []string{callTestRun, text("I built it. Here is the test run output:")})
+	res, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "myrad price", Graph: wiredAgentGraph(),
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
+			return DryRunResult{Answer: "MYRAD is trading at 0.00021 USD.", FinalOutput: "MYRAD is trading at 0.00021 USD."}
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(res.Reply, "MYRAD is trading at 0.00021 USD.") {
+		t.Fatalf("the reply must include the tested answer, got %q", res.Reply)
+	}
+}

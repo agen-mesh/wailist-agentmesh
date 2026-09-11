@@ -318,6 +318,13 @@ func (r nodeRules) validateValue(k, v string) error {
 			}
 			return fmt.Errorf("%s", msg)
 		}
+	case "systemPrompt":
+		// A live build's agent, handed {}, answered with a price it copied
+		// from an example in these instructions -- and a retest wrote another
+		// one in despite the prompt forbidding it. So reject the pattern.
+		if m := exampleValueIn(v); m != "" {
+			return fmt.Errorf("systemPrompt contains an example value (%q) -- remove it. An agent handed empty data repeats example numbers as if they were real; describe the format in words instead, such as \"state the price in USD in one sentence\"", m)
+		}
 	case "jsonPath":
 		// walkPath splits on dots and nothing else, so JSONPath syntax (the
 		// "$.data[0].lastPrice" a live build wrote) fails on the "$" segment.
@@ -378,6 +385,38 @@ func validateTemplateRefs(graph *models.WorkflowGraph, values map[string]string)
 		}
 	}
 	return nil
+}
+
+// exampleValue matches the money-like sample numbers an agent would repeat as
+// real: a currency symbol before a number, a number before a currency code,
+// or a long decimal.
+var exampleValue = regexp.MustCompile(`[$₹€£¥]\s?\d[\d,]*(\.\d+)?|\d[\d,]*(\.\d+)?\s?(USD|INR|EUR|GBP|usd|inr|eur|gbp)\b|\d+\.\d{4,}`)
+
+// exampleMarker introduces a sample. Only a value right after one counts as
+// an example: "report it if the price is above $100" is a real instruction
+// and has to stay legal.
+var exampleMarker = regexp.MustCompile(`(?i)for example|for instance|e\.g\.|such as|example:|like:`)
+
+// exampleValueIn returns the first money-like value that follows an example
+// marker within the next 120 characters, or "".
+func exampleValueIn(prompt string) string {
+	for _, loc := range exampleMarker.FindAllStringIndex(prompt, -1) {
+		end := loc[1] + 120
+		if end > len(prompt) {
+			end = len(prompt)
+		}
+		if m := exampleValue.FindString(prompt[loc[1]:end]); m != "" {
+			return m
+		}
+	}
+	return ""
+}
+
+// looksLikeRawData reports whether an answer is data rather than a sentence
+// the user can read: a JSON object or array, or a fenced code block.
+func looksLikeRawData(s string) bool {
+	t := strings.TrimSpace(s)
+	return strings.HasPrefix(t, "{") || strings.HasPrefix(t, "[") || strings.HasPrefix(t, "```")
 }
 
 // toDotPath converts JSONPath-style syntax into the dot path walkPath reads:
@@ -867,6 +906,15 @@ func withAnswerGuard(prompt string) string {
 	return strings.TrimRight(prompt, " \n") + "\n\n" + agentAnswerGuard
 }
 
+// testedAnswer is what the user would read from a test run: the last agent's
+// reply, or the run's final output when there is no agent.
+func testedAnswer(r DryRunResult) string {
+	if strings.TrimSpace(r.Answer) != "" {
+		return r.Answer
+	}
+	return r.FinalOutput
+}
+
 // testProblem says, in one line, what went wrong in a test run.
 func testProblem(r DryRunResult) string {
 	for _, s := range r.Steps {
@@ -1270,6 +1318,9 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 				case tester.last.Failed || tester.last.Empty:
 					nudge = "The test run did not produce a real answer: " + testProblem(*tester.last) +
 						". Find the cause -- a wrong id or symbol, a wrong path, a source that returned nothing -- fix the workflow, run test_run again, and only then answer. If you truly cannot make it work, say so plainly instead of claiming it works."
+				case looksLikeRawData(testedAnswer(*tester.last)):
+					nudge = "The test run's answer is raw data, not a sentence the user can read: " + clip(testedAnswer(*tester.last), 200) +
+						". Make sure the workflow ends in an agent, and change that agent's systemPrompt so it writes the answer in plain words. Then run test_run again."
 				}
 				if nudge != "" {
 					tester.rounds++
@@ -1280,6 +1331,14 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 					)
 					payload["contents"] = contents
 					continue
+				}
+			}
+			// The user must see what the test actually produced. A reply that
+			// ended "Here is the test run output:" and then nothing did not
+			// show it, so append it whenever the model's own reply omits it.
+			if req.TestRun != nil && tester.last != nil && !tester.dirty && !tester.last.Failed && !tester.last.Empty {
+				if answer := strings.TrimSpace(testedAnswer(*tester.last)); answer != "" && !strings.Contains(text, answer) {
+					text = strings.TrimRight(text, " \n") + "\n\n**Test run answer:** " + answer
 				}
 			}
 			return BuildGraphResult{Reply: text, Graph: graph}, nil

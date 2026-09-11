@@ -1742,6 +1742,7 @@
           "id": "coingecko",
           "name": "CoinGecko Price",
           "desc": "Spot prices (no key)",
+          "note": "cgIDs are CoinGecko coin ids, not names or symbols. Look each one up with fetch_url https://api.coingecko.com/api/v3/search?query=<the name the user gave> and use the id of the result whose name or symbol matches what they said -- never a similar-sounding coin, and never web_search for an id.",
           "fields": [
             {
               "key": "cgIDs",
