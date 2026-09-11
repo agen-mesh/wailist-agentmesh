@@ -176,6 +176,51 @@ func auditGraph(graph models.WorkflowGraph) []string {
 		}
 	}
 
+	// A graph can have every node "connected" -- the agent to its provider --
+	// and still never run the agent, because nothing the trigger starts ever
+	// flows into it. Only checked when there is a trigger to start from: with
+	// none, the missing-trigger finding above already says what to fix.
+	//
+	// Same rule as isGraphRunnable (frontend/src/components/canvas/
+	// buildModeRelease.ts), which gates the switch back to run mode. If this
+	// called such a graph clean, the builder would declare it finished while
+	// the canvas refused to leave build mode.
+	if hasTrigger && len(agents) > 0 && !agentReachableFromTrigger(graph, byID) {
+		findings = append(findings, "no agent can be reached from a trigger: nothing the trigger starts ever flows into an agent -- add flow edges from the trigger (directly, or through tool steps) to the agent")
+	}
+
 	sort.Strings(findings)
 	return findings
+}
+
+// agentReachableFromTrigger walks forward from every trigger along flow edges
+// only. Attach edges are not part of the execution path -- counting them
+// would let a provider shared by two agents look like a route between them.
+func agentReachableFromTrigger(graph models.WorkflowGraph, byID map[string]models.WorkflowNode) bool {
+	next := map[string][]string{}
+	for _, e := range graph.Edges {
+		if e.Kind == models.EdgeKindFlow {
+			next[e.From] = append(next[e.From], e.To)
+		}
+	}
+	seen := map[string]bool{}
+	var queue []string
+	for _, n := range graph.Nodes {
+		if n.Type == models.NodeTypeTrigger {
+			queue = append(queue, n.ID)
+		}
+	}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		if byID[id].Type == models.NodeTypeAgent {
+			return true
+		}
+		queue = append(queue, next[id]...)
+	}
+	return false
 }

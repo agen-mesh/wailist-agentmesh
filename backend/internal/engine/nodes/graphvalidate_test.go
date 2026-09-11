@@ -153,3 +153,49 @@ func TestAuditGraphReportsOrphanNode(t *testing.T) {
 		t.Fatalf("want a finding naming the orphan node, got %v", findings)
 	}
 }
+
+// Every node here is "connected" -- the agent to its provider -- so the
+// orphan check passes, yet nothing the trigger starts ever reaches the agent.
+// isGraphRunnable (frontend) refuses to release build mode for this graph, so
+// if the audit called it clean the builder would declare it finished and the
+// user would be stuck.
+func TestAuditGraphReportsAgentUnreachableFromTrigger(t *testing.T) {
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			gn("t1", models.NodeTypeTrigger),
+			gn("e1", models.NodeTypeEnd),
+			gn("a1", models.NodeTypeAgent),
+			gn("p1", models.NodeTypeProvider),
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "x1", From: "t1", To: "e1", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "x2", From: "p1", To: "a1", Kind: models.EdgeKindAttach, ToPort: "model"},
+		},
+	}
+	findings := auditGraph(g)
+	if !strings.Contains(strings.Join(findings, " "), "reach") {
+		t.Fatalf("want a finding about the agent being unreachable, got %v", findings)
+	}
+}
+
+// The builder's API-backed shape: the agent is reached through tool steps.
+// Must stay clean -- flagging it would send the model to "repair" a graph
+// that already works.
+func TestAuditGraphAgentReachedThroughToolsIsClean(t *testing.T) {
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			gn("t1", models.NodeTypeTrigger),
+			gn("h1", models.NodeTypeTool),
+			gn("a1", models.NodeTypeAgent),
+			gn("p1", models.NodeTypeProvider),
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "x1", From: "t1", To: "h1", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "x2", From: "h1", To: "a1", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "x3", From: "p1", To: "a1", Kind: models.EdgeKindAttach, ToPort: "model"},
+		},
+	}
+	if got := auditGraph(g); len(got) != 0 {
+		t.Fatalf("want no findings, got %v", got)
+	}
+}
