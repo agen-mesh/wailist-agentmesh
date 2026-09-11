@@ -1,0 +1,2228 @@
+{
+  "version": 1,
+  "types": [
+    {
+      "type": "trigger",
+      "desc": "Where a run starts. Exactly one per workflow. There is no schedule/cron trigger: a timetable is a workflow-level setting (see the manual trigger).",
+      "templates": [
+        {
+          "id": "manual",
+          "name": "Manual Trigger",
+          "desc": "Click to test",
+          "note": "Started by the Run button -- and by the workflow's schedule, if one is set. Use this for anything that should run on a timetable.",
+          "fields": []
+        },
+        {
+          "id": "chat",
+          "name": "On Chat Message",
+          "desc": "Inbound chat",
+          "note": "Started by a message typed into the chat console; that message is the run's input.",
+          "fields": []
+        },
+        {
+          "id": "webhook",
+          "name": "Webhook",
+          "desc": "HTTP POST endpoint",
+          "note": "Started by an HTTP POST to the workflow's webhook URL, shown in the Inspector once deployed. The signing secret is generated automatically.",
+          "fields": []
+        }
+      ]
+    },
+    {
+      "type": "agent",
+      "desc": "An LLM step. Needs a provider attached to its \"model\" port; tools attach to its \"tools\" port.",
+      "templates": [
+        {
+          "id": "agent",
+          "name": "AI Agent",
+          "desc": "Reasoning + tool use",
+          "fields": [
+            {
+              "key": "systemPrompt",
+              "where": "field",
+              "label": "System prompt",
+              "hint": "instructions the agent follows on every run"
+            }
+          ]
+        },
+        {
+          "id": "router",
+          "name": "Router Agent",
+          "desc": "Classify + dispatch",
+          "note": "Runs exactly like a plain AI agent today -- the engine has no routing step. Do not promise the user classification-based dispatch.",
+          "fields": [
+            {
+              "key": "systemPrompt",
+              "where": "field",
+              "label": "System prompt",
+              "hint": "instructions the agent follows on every run"
+            }
+          ]
+        },
+        {
+          "id": "human",
+          "name": "Human-in-loop",
+          "desc": "Approval gate",
+          "note": "Runs exactly like a plain AI agent today -- the engine has no approval gate and never pauses for a human. Do not promise the user an approval step.",
+          "fields": [
+            {
+              "key": "systemPrompt",
+              "where": "field",
+              "label": "System prompt",
+              "hint": "instructions the agent follows on every run"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "provider",
+      "desc": "The model behind an agent. Only ever attached to an agent's \"model\" port, never part of the flow.",
+      "templates": [
+        {
+          "id": "gemini",
+          "name": "Google Gemini",
+          "desc": "Google Gemini models",
+          "presets": {
+            "model": "gemini-2.5-flash"
+          },
+          "fields": [
+            {
+              "key": "model",
+              "where": "field",
+              "label": "Model",
+              "placeholder": "gemini-2.5-flash"
+            },
+            {
+              "key": "keyMode",
+              "where": "field",
+              "label": "Key mode",
+              "hint": "\"platform\" uses AgentMesh's key and bills credits (the default); \"byok\" uses the user's own key"
+            },
+            {
+              "key": "apiKey",
+              "where": "secret",
+              "label": "API key",
+              "hint": "only for keyMode \"byok\""
+            }
+          ]
+        },
+        {
+          "id": "openai",
+          "name": "OpenAI",
+          "desc": "OpenAI models",
+          "presets": {
+            "model": "gpt-4.1"
+          },
+          "fields": [
+            {
+              "key": "model",
+              "where": "field",
+              "label": "Model",
+              "placeholder": "gpt-4.1"
+            },
+            {
+              "key": "keyMode",
+              "where": "field",
+              "label": "Key mode",
+              "hint": "\"platform\" uses AgentMesh's key and bills credits (the default); \"byok\" uses the user's own key"
+            },
+            {
+              "key": "apiKey",
+              "where": "secret",
+              "label": "API key",
+              "hint": "only for keyMode \"byok\""
+            }
+          ]
+        },
+        {
+          "id": "anthropic",
+          "name": "Anthropic",
+          "desc": "Anthropic models",
+          "presets": {
+            "model": "claude-sonnet-4-6"
+          },
+          "fields": [
+            {
+              "key": "model",
+              "where": "field",
+              "label": "Model",
+              "placeholder": "claude-sonnet-4-6"
+            },
+            {
+              "key": "keyMode",
+              "where": "field",
+              "label": "Key mode",
+              "hint": "\"platform\" uses AgentMesh's key and bills credits (the default); \"byok\" uses the user's own key"
+            },
+            {
+              "key": "apiKey",
+              "where": "secret",
+              "label": "API key",
+              "hint": "only for keyMode \"byok\""
+            }
+          ]
+        },
+        {
+          "id": "mistral",
+          "name": "Mistral",
+          "desc": "Mistral models",
+          "presets": {
+            "model": "mistral-large-latest"
+          },
+          "fields": [
+            {
+              "key": "model",
+              "where": "field",
+              "label": "Model",
+              "placeholder": "mistral-large-latest"
+            },
+            {
+              "key": "keyMode",
+              "where": "field",
+              "label": "Key mode",
+              "hint": "\"platform\" uses AgentMesh's key and bills credits (the default); \"byok\" uses the user's own key"
+            },
+            {
+              "key": "apiKey",
+              "where": "secret",
+              "label": "API key",
+              "hint": "only for keyMode \"byok\""
+            }
+          ]
+        },
+        {
+          "id": "groq",
+          "name": "Groq",
+          "desc": "Groq models",
+          "presets": {
+            "model": "llama-3.3-70b-versatile"
+          },
+          "fields": [
+            {
+              "key": "model",
+              "where": "field",
+              "label": "Model",
+              "placeholder": "llama-3.3-70b-versatile"
+            },
+            {
+              "key": "keyMode",
+              "where": "field",
+              "label": "Key mode",
+              "hint": "\"platform\" uses AgentMesh's key and bills credits (the default); \"byok\" uses the user's own key"
+            },
+            {
+              "key": "apiKey",
+              "where": "secret",
+              "label": "API key",
+              "hint": "only for keyMode \"byok\""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "tool",
+      "desc": "A deterministic step. Attach to an agent's \"tools\" port for the agent to call, or place directly in the flow.",
+      "templates": [
+        {
+          "id": "http",
+          "name": "HTTP Request",
+          "desc": "GET/POST any URL",
+          "fields": [
+            {
+              "key": "url",
+              "where": "field",
+              "label": "URL",
+              "placeholder": "https://api.example.com/v1/"
+            },
+            {
+              "key": "method",
+              "where": "field",
+              "label": "Method",
+              "placeholder": "GET"
+            },
+            {
+              "key": "httpBodyTemplate",
+              "where": "config",
+              "label": "Body template",
+              "hint": "only sent on POST/PUT/PATCH/DELETE -- {{ result }} or {{ result.field }}"
+            },
+            {
+              "key": "httpHeadersJSON",
+              "where": "secret",
+              "label": "Headers",
+              "hint": "JSON object of header -> value, e.g. {\"X-Api-Key\": \"…\"}"
+            },
+            {
+              "key": "httpBasicUser",
+              "where": "secret",
+              "label": "Basic auth username"
+            },
+            {
+              "key": "httpBasicPass",
+              "where": "secret",
+              "label": "Basic auth password"
+            }
+          ]
+        },
+        {
+          "id": "calc",
+          "name": "Calculator",
+          "desc": "Math expressions",
+          "fields": [
+            {
+              "key": "url",
+              "where": "field",
+              "label": "Expression",
+              "hint": "a math expression such as (2+3)*4 -- the calculator stores it in the url field"
+            }
+          ]
+        },
+        {
+          "id": "set",
+          "name": "Edit Fields",
+          "desc": "Build an object from refs",
+          "fields": [
+            {
+              "key": "setFields",
+              "where": "config",
+              "label": "Fields (JSON)",
+              "hint": "String values may use {{ result }}, {{ input }}, {{ node.<id>.<field> }}",
+              "placeholder": "{\"city\":\"{{ node.n1.city }}\",\"asked\":\"{{ input }}\"}"
+            }
+          ]
+        },
+        {
+          "id": "json_extract",
+          "name": "JSON Extract",
+          "desc": "Pick a value by path",
+          "fields": [
+            {
+              "key": "jsonPath",
+              "where": "config",
+              "label": "Path",
+              "hint": "Dot path; numeric segments index arrays",
+              "placeholder": "data.items.0.name"
+            }
+          ]
+        },
+        {
+          "id": "crypto",
+          "name": "Crypto",
+          "desc": "Hash / HMAC / base64",
+          "fields": [
+            {
+              "key": "cryptoAction",
+              "where": "config",
+              "label": "Action",
+              "hint": "sha256 · sha512 · sha1 · md5 · hmac-sha256 · base64 · base64decode",
+              "placeholder": "sha256"
+            },
+            {
+              "key": "cryptoSecret",
+              "where": "secret",
+              "label": "HMAC secret",
+              "hint": "only for hmac-sha256",
+              "placeholder": "shared secret"
+            }
+          ]
+        },
+        {
+          "id": "datetime",
+          "name": "Date & Time",
+          "desc": "Now, offset, timezone",
+          "fields": [
+            {
+              "key": "dtFormat",
+              "where": "config",
+              "label": "Format",
+              "hint": "rfc3339 · unix · date · time · or a Go layout",
+              "placeholder": "rfc3339"
+            },
+            {
+              "key": "dtOffset",
+              "where": "config",
+              "label": "Offset",
+              "hint": "optional",
+              "placeholder": "-24h"
+            },
+            {
+              "key": "dtZone",
+              "where": "config",
+              "label": "Timezone",
+              "hint": "optional, IANA name",
+              "placeholder": "Asia/Kolkata"
+            }
+          ]
+        },
+        {
+          "id": "xml",
+          "name": "XML → JSON",
+          "desc": "Parse XML payloads",
+          "note": "Parses the previous step's XML output into JSON. No settings.",
+          "fields": []
+        },
+        {
+          "id": "template",
+          "name": "Text Template",
+          "desc": "Compose with {{ refs }}",
+          "fields": [
+            {
+              "key": "templateText",
+              "where": "config",
+              "label": "Template",
+              "hint": "Supports {{ result }}, {{ input }}, {{ node.<id>.<field> }}",
+              "placeholder": "Result: {{ result }}"
+            }
+          ]
+        },
+        {
+          "id": "html_extract",
+          "name": "HTML Extract",
+          "desc": "CSS selector → text",
+          "fields": [
+            {
+              "key": "htmlSelector",
+              "where": "config",
+              "label": "CSS selector",
+              "placeholder": "h1.title"
+            },
+            {
+              "key": "htmlAttr",
+              "where": "config",
+              "label": "Attribute",
+              "hint": "optional, blank = text",
+              "placeholder": "href"
+            },
+            {
+              "key": "htmlMode",
+              "where": "config",
+              "label": "Mode",
+              "hint": "first · all",
+              "placeholder": "first"
+            }
+          ]
+        },
+        {
+          "id": "markdown",
+          "name": "Markdown → HTML",
+          "desc": "Render agent output",
+          "fields": [
+            {
+              "key": "mdGFM",
+              "where": "config",
+              "label": "GitHub Flavored",
+              "hint": "true · false — tables, strikethrough, autolinks",
+              "placeholder": "true"
+            }
+          ]
+        },
+        {
+          "id": "quickchart",
+          "name": "QuickChart",
+          "desc": "Chart image URL",
+          "fields": [
+            {
+              "key": "qcConfig",
+              "where": "config",
+              "label": "Chart.js config (JSON)",
+              "placeholder": "{\"type\":\"bar\",\"data\":{\"labels\":[\"a\",\"b\"],\"datasets\":[{\"data\":[1,2]}]}}"
+            },
+            {
+              "key": "qcWidth",
+              "where": "config",
+              "label": "Width",
+              "hint": "optional",
+              "placeholder": "600"
+            },
+            {
+              "key": "qcHeight",
+              "where": "config",
+              "label": "Height",
+              "hint": "optional",
+              "placeholder": "400"
+            }
+          ]
+        },
+        {
+          "id": "websearch",
+          "name": "Web Search",
+          "desc": "Search the live web (Gemini grounding)",
+          "note": "Answers with a live Google Search. Attached to an agent it searches whatever the agent asks; as a flow step it searches the previous step's output.",
+          "fields": []
+        }
+      ]
+    },
+    {
+      "type": "action",
+      "desc": "Sends something somewhere, or fetches from a service. Usually a flow step after the agent.",
+      "templates": [
+        {
+          "id": "email",
+          "name": "Send Email",
+          "desc": "Postmark / Resend",
+          "fields": [
+            {
+              "key": "emailProvider",
+              "where": "field",
+              "label": "Provider",
+              "hint": "resend, postmark, sendgrid or brevo",
+              "placeholder": "resend"
+            },
+            {
+              "key": "emailFrom",
+              "where": "field",
+              "label": "From",
+              "hint": "must be verified with the provider",
+              "placeholder": "AgentMesh <you@yourdomain.com>"
+            },
+            {
+              "key": "emailTo",
+              "where": "field",
+              "label": "To",
+              "hint": "{{ variables }} supported",
+              "placeholder": "recipient@example.com"
+            },
+            {
+              "key": "emailSubject",
+              "where": "field",
+              "label": "Subject"
+            },
+            {
+              "key": "emailBody",
+              "where": "field",
+              "label": "Body",
+              "hint": "blank sends the previous step's output; {{ variables }} supported"
+            },
+            {
+              "key": "emailApiKey",
+              "where": "secret",
+              "label": "API key",
+              "hint": "the chosen email provider's API key"
+            }
+          ]
+        },
+        {
+          "id": "slack",
+          "name": "Slack Message",
+          "desc": "Post to channel",
+          "fields": [
+            {
+              "key": "slackWebhookURL",
+              "where": "secret",
+              "label": "Webhook URL",
+              "hint": "or connect above for bot-token mode",
+              "placeholder": "https://hooks.slack.com/services/…"
+            },
+            {
+              "key": "slackChannel",
+              "where": "config",
+              "label": "Channel ID (bot-token mode)",
+              "placeholder": "C0123456789"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://api.slack.com/apps",
+          "oauthProvider": "slack"
+        },
+        {
+          "id": "db",
+          "name": "Database Insert",
+          "desc": "Write to Postgres",
+          "fields": [
+            {
+              "key": "pgConnString",
+              "where": "secret",
+              "label": "Connection string",
+              "placeholder": "postgres://user:pass@host:5432/dbname"
+            },
+            {
+              "key": "pgTable",
+              "where": "config",
+              "label": "Table",
+              "placeholder": "events"
+            },
+            {
+              "key": "pgColumn",
+              "where": "config",
+              "label": "Output column",
+              "hint": "receives the run output",
+              "placeholder": "payload"
+            },
+            {
+              "key": "pgExtraColumns",
+              "where": "config",
+              "label": "Extra columns (JSON)",
+              "hint": "optional",
+              "placeholder": "{\"source\":\"agentmesh\",\"city\":\"{{ node.n1.city }}\"}"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ]
+        },
+        {
+          "id": "discord",
+          "name": "Discord Message",
+          "desc": "Webhook post",
+          "fields": [
+            {
+              "key": "discordWebhookURL",
+              "where": "secret",
+              "label": "Webhook URL",
+              "placeholder": "https://discord.com/api/webhooks/…"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks"
+        },
+        {
+          "id": "teams",
+          "name": "Teams Message",
+          "desc": "Webhook post",
+          "fields": [
+            {
+              "key": "teamsWebhookURL",
+              "where": "secret",
+              "label": "Webhook URL",
+              "placeholder": "https://…webhook.office.com/webhookb2/…"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook"
+        },
+        {
+          "id": "google_chat",
+          "name": "Google Chat Message",
+          "desc": "Webhook post",
+          "fields": [
+            {
+              "key": "googleChatWebhookURL",
+              "where": "secret",
+              "label": "Webhook URL",
+              "placeholder": "https://chat.googleapis.com/v1/spaces/…"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://developers.google.com/workspace/chat/quickstart/webhooks"
+        },
+        {
+          "id": "ntfy",
+          "name": "Ntfy Push",
+          "desc": "Topic notification",
+          "fields": [
+            {
+              "key": "ntfyTopic",
+              "where": "config",
+              "label": "Topic",
+              "placeholder": "agentmesh-alerts"
+            },
+            {
+              "key": "ntfyServerURL",
+              "where": "config",
+              "label": "Server URL",
+              "placeholder": "https://ntfy.sh (default)"
+            },
+            {
+              "key": "ntfyAuthToken",
+              "where": "secret",
+              "label": "Auth Token",
+              "hint": "optional, for private topics",
+              "placeholder": "tk_xxxxxxxxxxxx"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://docs.ntfy.sh/publish/"
+        },
+        {
+          "id": "telegram",
+          "name": "Telegram Message",
+          "desc": "Bot API send",
+          "fields": [
+            {
+              "key": "telegramBotToken",
+              "where": "secret",
+              "label": "Bot Token",
+              "placeholder": "123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "key": "telegramChatID",
+              "where": "config",
+              "label": "Chat ID",
+              "placeholder": "-1001234567890"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://t.me/BotFather"
+        },
+        {
+          "id": "telegram_get_updates",
+          "name": "Telegram Get Updates",
+          "desc": "Read new bot messages",
+          "fields": [
+            {
+              "key": "telegramBotToken",
+              "where": "secret",
+              "label": "Bot Token",
+              "placeholder": "123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "key": "telegramOffset",
+              "where": "config",
+              "label": "Offset",
+              "hint": "optional -- only updates after this ID",
+              "placeholder": "e.g. 481231"
+            },
+            {
+              "key": "telegramLimit",
+              "where": "config",
+              "label": "Limit",
+              "hint": "optional, default 100",
+              "placeholder": "e.g. 20"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://t.me/BotFather"
+        },
+        {
+          "id": "github",
+          "name": "GitHub Issue",
+          "desc": "Create an issue",
+          "fields": [
+            {
+              "key": "githubToken",
+              "where": "secret",
+              "label": "Personal Access Token",
+              "placeholder": "ghp_xxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "key": "githubRepo",
+              "where": "config",
+              "label": "Repository",
+              "placeholder": "owner/repo"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://github.com/settings/tokens",
+          "oauthProvider": "github"
+        },
+        {
+          "id": "notion",
+          "name": "Notion Block",
+          "desc": "Append to a page",
+          "fields": [
+            {
+              "key": "notionAPIKey",
+              "where": "secret",
+              "label": "Internal Integration Secret",
+              "placeholder": "secret_xxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "key": "notionPageID",
+              "where": "config",
+              "label": "Page ID",
+              "placeholder": "the target page's UUID"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://www.notion.so/my-integrations",
+          "oauthProvider": "notion"
+        },
+        {
+          "id": "airtable",
+          "name": "Airtable Record",
+          "desc": "Create a record",
+          "fields": [
+            {
+              "key": "airtableAPIKey",
+              "where": "secret",
+              "label": "Personal Access Token",
+              "placeholder": "pat_xxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "key": "airtableBaseID",
+              "where": "config",
+              "label": "Base ID",
+              "placeholder": "appXXXXXXXXXXXXXX"
+            },
+            {
+              "key": "airtableTable",
+              "where": "config",
+              "label": "Table",
+              "placeholder": "Tasks"
+            },
+            {
+              "key": "airtableFieldName",
+              "where": "config",
+              "label": "Field Name",
+              "placeholder": "Notes (default)"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://airtable.com/create/tokens",
+          "oauthProvider": "airtable"
+        },
+        {
+          "id": "hubspot",
+          "name": "HubSpot Note",
+          "desc": "Log a CRM note",
+          "fields": [
+            {
+              "key": "hubspotAPIKey",
+              "where": "secret",
+              "label": "Private App Token",
+              "placeholder": "pat-na1-xxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://app.hubspot.com/private-apps",
+          "oauthProvider": "hubspot"
+        },
+        {
+          "id": "trello",
+          "name": "Trello Card",
+          "desc": "Create a card",
+          "fields": [
+            {
+              "key": "trelloAPIKey",
+              "where": "secret",
+              "label": "API Key",
+              "placeholder": "your Trello API key"
+            },
+            {
+              "key": "trelloToken",
+              "where": "secret",
+              "label": "Token",
+              "placeholder": "your Trello token"
+            },
+            {
+              "key": "trelloListID",
+              "where": "config",
+              "label": "List ID",
+              "placeholder": "target list id"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://trello.com/power-ups/admin"
+        },
+        {
+          "id": "asana",
+          "name": "Asana Task",
+          "desc": "Create a task",
+          "fields": [
+            {
+              "key": "asanaAPIKey",
+              "where": "secret",
+              "label": "Personal Access Token",
+              "placeholder": "1/1234567890:xxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "key": "asanaProjectID",
+              "where": "config",
+              "label": "Project ID",
+              "placeholder": "target project id"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://app.asana.com/0/my-apps",
+          "oauthProvider": "asana"
+        },
+        {
+          "id": "clickup",
+          "name": "ClickUp Task",
+          "desc": "Create a task",
+          "fields": [
+            {
+              "key": "clickupAPIKey",
+              "where": "secret",
+              "label": "API Token",
+              "placeholder": "pk_xxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "key": "clickupListID",
+              "where": "config",
+              "label": "List ID",
+              "placeholder": "target list id"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://app.clickup.com/settings/apps",
+          "oauthProvider": "clickup"
+        },
+        {
+          "id": "jira",
+          "name": "Jira Issue",
+          "desc": "Create an issue",
+          "fields": [
+            {
+              "key": "jiraAPIToken",
+              "where": "secret",
+              "label": "API Token",
+              "placeholder": "your Atlassian API token"
+            },
+            {
+              "key": "jiraEmail",
+              "where": "config",
+              "label": "Account Email",
+              "placeholder": "bot@yourcompany.com"
+            },
+            {
+              "key": "jiraDomain",
+              "where": "config",
+              "label": "Site Domain",
+              "placeholder": "yourcompany (as in yourcompany.atlassian.net)"
+            },
+            {
+              "key": "jiraProjectKey",
+              "where": "config",
+              "label": "Project Key",
+              "placeholder": "ENG"
+            },
+            {
+              "key": "jiraIssueType",
+              "where": "config",
+              "label": "Issue Type",
+              "placeholder": "Task (default)"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://id.atlassian.com/manage-profile/security/api-tokens",
+          "oauthProvider": "jira"
+        },
+        {
+          "id": "mailchimp",
+          "name": "Mailchimp Subscriber",
+          "desc": "Add to a list",
+          "fields": [
+            {
+              "key": "mailchimpAPIKey",
+              "where": "secret",
+              "label": "API Key",
+              "placeholder": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-us21"
+            },
+            {
+              "key": "mailchimpListID",
+              "where": "config",
+              "label": "Audience (List) ID",
+              "placeholder": "target list id"
+            },
+            {
+              "key": "mailchimpEmail",
+              "where": "config",
+              "label": "Email",
+              "hint": "optional, defaults to the run's output",
+              "placeholder": "leave blank to use the agent's message as the email"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://admin.mailchimp.com/account/api/",
+          "oauthProvider": "mailchimp"
+        },
+        {
+          "id": "linear",
+          "name": "Linear Issue",
+          "desc": "Create an issue",
+          "fields": [
+            {
+              "key": "linearAPIKey",
+              "where": "secret",
+              "label": "Personal API Key",
+              "placeholder": "lin_api_xxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "key": "linearTeamID",
+              "where": "config",
+              "label": "Team ID",
+              "placeholder": "target team id"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://linear.app/settings/api",
+          "oauthProvider": "linear"
+        },
+        {
+          "id": "todoist",
+          "name": "Todoist Task",
+          "desc": "Create a task",
+          "fields": [
+            {
+              "key": "todoistAPIKey",
+              "where": "secret",
+              "label": "API Token",
+              "placeholder": "your Todoist API token"
+            },
+            {
+              "key": "todoistProjectID",
+              "where": "config",
+              "label": "Project ID",
+              "hint": "optional",
+              "placeholder": "leave blank for Inbox"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://todoist.com/app/settings/integrations/developer",
+          "oauthProvider": "todoist"
+        },
+        {
+          "id": "gitlab",
+          "name": "GitLab Issue",
+          "desc": "Create an issue",
+          "fields": [
+            {
+              "key": "gitlabAPIToken",
+              "where": "secret",
+              "label": "Personal Access Token",
+              "placeholder": "glpat-xxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "key": "gitlabProjectID",
+              "where": "config",
+              "label": "Project ID",
+              "placeholder": "numeric project id"
+            },
+            {
+              "key": "gitlabBaseURL",
+              "where": "config",
+              "label": "Base URL",
+              "hint": "optional, for self-hosted",
+              "placeholder": "https://gitlab.com (default)"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://gitlab.com/-/user_settings/personal_access_tokens",
+          "oauthProvider": "gitlab"
+        },
+        {
+          "id": "sentry",
+          "name": "Sentry Event",
+          "desc": "Capture a message",
+          "fields": [
+            {
+              "key": "sentryDSN",
+              "where": "secret",
+              "label": "DSN",
+              "placeholder": "https://xxxx@o000000.ingest.sentry.io/000000"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://docs.sentry.io/product/sentry-basics/concepts/dsn-explainer/"
+        },
+        {
+          "id": "supabase",
+          "name": "Supabase Insert",
+          "desc": "Insert a row",
+          "fields": [
+            {
+              "key": "supabaseAPIKey",
+              "where": "secret",
+              "label": "Service Role Key",
+              "placeholder": "eyJhbGciOi…"
+            },
+            {
+              "key": "supabaseProjectURL",
+              "where": "config",
+              "label": "Project URL",
+              "placeholder": "https://xxxxxxxx.supabase.co"
+            },
+            {
+              "key": "supabaseTable",
+              "where": "config",
+              "label": "Table",
+              "placeholder": "logs"
+            },
+            {
+              "key": "supabaseColumn",
+              "where": "config",
+              "label": "Column",
+              "placeholder": "content (default)"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://supabase.com/dashboard/project/_/settings/api"
+        },
+        {
+          "id": "woocommerce",
+          "name": "WooCommerce Note",
+          "desc": "Add an order note",
+          "fields": [
+            {
+              "key": "woocommerceConsumerKey",
+              "where": "secret",
+              "label": "Consumer Key",
+              "placeholder": "ck_xxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "key": "woocommerceConsumerSecret",
+              "where": "secret",
+              "label": "Consumer Secret",
+              "placeholder": "cs_xxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "key": "woocommerceStoreURL",
+              "where": "config",
+              "label": "Store URL",
+              "placeholder": "https://yourstore.com"
+            },
+            {
+              "key": "woocommerceOrderID",
+              "where": "config",
+              "label": "Order ID",
+              "placeholder": "target order id"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://woocommerce.com/document/woocommerce-rest-api/"
+        },
+        {
+          "id": "elevenlabs",
+          "name": "ElevenLabs Speech",
+          "desc": "Text to speech",
+          "fields": [
+            {
+              "key": "elevenlabsAPIKey",
+              "where": "secret",
+              "label": "API Key",
+              "placeholder": "your ElevenLabs API key"
+            },
+            {
+              "key": "elevenlabsVoiceID",
+              "where": "config",
+              "label": "Voice ID",
+              "placeholder": "21m00Tcm4TlvDq8ikWAM (Rachel, default)"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://elevenlabs.io/app/settings/api-keys"
+        },
+        {
+          "id": "twilio",
+          "name": "Twilio SMS",
+          "desc": "Send a text message",
+          "fields": [
+            {
+              "key": "twilioAuthToken",
+              "where": "secret",
+              "label": "Auth Token",
+              "placeholder": "your Twilio auth token"
+            },
+            {
+              "key": "twilioAccountSID",
+              "where": "config",
+              "label": "Account SID",
+              "placeholder": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "key": "twilioFrom",
+              "where": "config",
+              "label": "From",
+              "placeholder": "+15551234567 (a number on your account)"
+            },
+            {
+              "key": "twilioTo",
+              "where": "config",
+              "label": "To",
+              "placeholder": "+15559876543"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://console.twilio.com"
+        },
+        {
+          "id": "stripe",
+          "name": "Stripe Customer",
+          "desc": "Create a customer",
+          "fields": [
+            {
+              "key": "stripeAPIKey",
+              "where": "secret",
+              "label": "Secret Key",
+              "placeholder": "sk_live_xxxxxxxxxxxx"
+            },
+            {
+              "key": "stripeEmail",
+              "where": "config",
+              "label": "Customer email",
+              "placeholder": "buyer@example.com"
+            },
+            {
+              "key": "stripeName",
+              "where": "config",
+              "label": "Customer name",
+              "hint": "optional",
+              "placeholder": "leave blank to omit"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://dashboard.stripe.com/apikeys"
+        },
+        {
+          "id": "shopify",
+          "name": "Shopify Order Note",
+          "desc": "Add a note to an order",
+          "fields": [
+            {
+              "key": "shopifyAccessToken",
+              "where": "secret",
+              "label": "Admin API Access Token",
+              "placeholder": "shpat_…"
+            },
+            {
+              "key": "shopifyShopDomain",
+              "where": "config",
+              "label": "Shop Domain",
+              "placeholder": "mystore.myshopify.com"
+            },
+            {
+              "key": "shopifyOrderID",
+              "where": "config",
+              "label": "Order ID",
+              "placeholder": "target order id"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens"
+        },
+        {
+          "id": "shopify_customer",
+          "name": "Shopify Customer",
+          "desc": "Create a customer",
+          "fields": [
+            {
+              "key": "shopifyAccessToken",
+              "where": "secret",
+              "label": "Admin API Access Token",
+              "placeholder": "shpat_xxxxxxxxxxxx"
+            },
+            {
+              "key": "shopifyStore",
+              "where": "config",
+              "label": "Store handle",
+              "placeholder": "acme-store (from acme-store.myshopify.com)"
+            },
+            {
+              "key": "shopifyEmail",
+              "where": "config",
+              "label": "Customer email",
+              "placeholder": "buyer@example.com"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens"
+        },
+        {
+          "id": "zendesk",
+          "name": "Zendesk Ticket",
+          "desc": "Create a support ticket",
+          "fields": [
+            {
+              "key": "zendeskAPIToken",
+              "where": "secret",
+              "label": "API Token",
+              "placeholder": "your Zendesk API token"
+            },
+            {
+              "key": "zendeskSubdomain",
+              "where": "config",
+              "label": "Subdomain",
+              "hint": "the part before .zendesk.com",
+              "placeholder": "yourcompany"
+            },
+            {
+              "key": "zendeskEmail",
+              "where": "config",
+              "label": "Agent Email",
+              "placeholder": "agent@yourcompany.com"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://support.zendesk.com/hc/en-us/articles/4408889192858"
+        },
+        {
+          "id": "intercom",
+          "name": "Intercom Lead",
+          "desc": "Create a lead contact",
+          "fields": [
+            {
+              "key": "intercomAccessToken",
+              "where": "secret",
+              "label": "Access Token",
+              "placeholder": "your Intercom access token"
+            },
+            {
+              "key": "intercomEmail",
+              "where": "config",
+              "label": "Lead Email",
+              "hint": "optional, defaults to the upstream message"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://app.intercom.com/a/apps/_/settings/api-keys"
+        },
+        {
+          "id": "pagerduty",
+          "name": "PagerDuty Incident",
+          "desc": "Trigger an incident",
+          "fields": [
+            {
+              "key": "pagerdutyRoutingKey",
+              "where": "secret",
+              "label": "Events API v2 Integration Key",
+              "placeholder": "32-character routing key"
+            },
+            {
+              "key": "pagerdutySeverity",
+              "where": "config",
+              "label": "Severity",
+              "hint": "critical · error · warning · info",
+              "placeholder": "info (default)"
+            },
+            {
+              "key": "pagerdutySource",
+              "where": "config",
+              "label": "Source",
+              "hint": "optional",
+              "placeholder": "agentmesh"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://support.pagerduty.com/docs/services-and-integrations"
+        },
+        {
+          "id": "calendly",
+          "name": "Calendly Events",
+          "desc": "List scheduled events",
+          "fields": [
+            {
+              "key": "calendlyAccessToken",
+              "where": "secret",
+              "label": "Personal Access Token",
+              "placeholder": "your Calendly PAT"
+            },
+            {
+              "key": "calendlyUserURI",
+              "where": "config",
+              "label": "User URI",
+              "placeholder": "https://api.calendly.com/users/…"
+            },
+            {
+              "key": "calendlyCount",
+              "where": "config",
+              "label": "Count",
+              "placeholder": "10 (default)"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://calendly.com/integrations/api_webhooks"
+        },
+        {
+          "id": "baserow",
+          "name": "Baserow Row",
+          "desc": "Create a row",
+          "fields": [
+            {
+              "key": "baserowAPIToken",
+              "where": "secret",
+              "label": "API Token",
+              "placeholder": "your Baserow database token"
+            },
+            {
+              "key": "baserowTableID",
+              "where": "config",
+              "label": "Table ID",
+              "placeholder": "the numeric table id"
+            },
+            {
+              "key": "baserowFieldName",
+              "where": "config",
+              "label": "Field Name",
+              "placeholder": "Notes (default)"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://baserow.io/user/settings/tokens"
+        },
+        {
+          "id": "openweathermap",
+          "name": "OpenWeatherMap",
+          "desc": "Get current weather",
+          "fields": [
+            {
+              "key": "openWeatherAPIKey",
+              "where": "secret",
+              "label": "API Key",
+              "placeholder": "your OpenWeatherMap API key"
+            },
+            {
+              "key": "weatherCity",
+              "where": "config",
+              "label": "City",
+              "hint": "optional, defaults to the upstream message",
+              "placeholder": "London"
+            },
+            {
+              "key": "weatherUnits",
+              "where": "config",
+              "label": "Units",
+              "placeholder": "metric (default) · imperial · standard"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ],
+          "authDocUrl": "https://home.openweathermap.org/api_keys"
+        },
+        {
+          "id": "mattermost",
+          "name": "Mattermost Message",
+          "desc": "Webhook post",
+          "fields": [
+            {
+              "key": "mattermostWebhookURL",
+              "where": "secret",
+              "label": "Incoming Webhook URL",
+              "placeholder": "https://mattermost.example.com/hooks/xxx"
+            },
+            {
+              "key": "mattermostChannel",
+              "where": "config",
+              "label": "Channel",
+              "hint": "optional",
+              "placeholder": "town-square"
+            },
+            {
+              "key": "mattermostUsername",
+              "where": "config",
+              "label": "Post as",
+              "hint": "optional",
+              "placeholder": "AgentMesh"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ]
+        },
+        {
+          "id": "monday",
+          "name": "Monday.com Item",
+          "desc": "Create a board item",
+          "fields": [
+            {
+              "key": "mondayAPIKey",
+              "where": "secret",
+              "label": "API Token",
+              "placeholder": "your Monday.com v2 token"
+            },
+            {
+              "key": "mondayBoardID",
+              "where": "config",
+              "label": "Board ID",
+              "placeholder": "123456789"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ]
+        },
+        {
+          "id": "pipedrive",
+          "name": "Pipedrive Note",
+          "desc": "Log a CRM note",
+          "fields": [
+            {
+              "key": "pipedriveAPIToken",
+              "where": "secret",
+              "label": "API Token",
+              "placeholder": "your Pipedrive API token"
+            },
+            {
+              "key": "pipedriveCompanyDomain",
+              "where": "config",
+              "label": "Company domain",
+              "placeholder": "acme (from acme.pipedrive.com)"
+            },
+            {
+              "key": "pipedriveDealID",
+              "where": "config",
+              "label": "Deal ID",
+              "hint": "optional",
+              "placeholder": "attach the note to a deal"
+            },
+            {
+              "key": "pipedrivePersonID",
+              "where": "config",
+              "label": "Person ID",
+              "hint": "optional",
+              "placeholder": "attach the note to a person"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ]
+        },
+        {
+          "id": "rss",
+          "name": "RSS Feed",
+          "desc": "Read a feed (no key)",
+          "fields": [
+            {
+              "key": "rssURL",
+              "where": "config",
+              "label": "Feed URL",
+              "placeholder": "https://example.com/feed.xml"
+            },
+            {
+              "key": "rssLimit",
+              "where": "config",
+              "label": "Max items",
+              "hint": "optional, default 10",
+              "placeholder": "10"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ]
+        },
+        {
+          "id": "graphql",
+          "name": "GraphQL Query",
+          "desc": "Any GraphQL endpoint",
+          "fields": [
+            {
+              "key": "graphqlEndpoint",
+              "where": "config",
+              "label": "Endpoint",
+              "placeholder": "https://api.github.com/graphql"
+            },
+            {
+              "key": "graphqlQuery",
+              "where": "config",
+              "label": "Query",
+              "placeholder": "query { viewer { login } }"
+            },
+            {
+              "key": "graphqlVariables",
+              "where": "config",
+              "label": "Variables (JSON)",
+              "hint": "optional",
+              "placeholder": "{\"first\":10,\"search\":\"{{ result }}\"}"
+            },
+            {
+              "key": "graphqlAuthHeader",
+              "where": "secret",
+              "label": "Authorization header",
+              "hint": "sent verbatim — include Bearer if the API wants it",
+              "placeholder": "Bearer ghp_xxxxxxxx"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ]
+        },
+        {
+          "id": "hackernews",
+          "name": "Hacker News",
+          "desc": "Search stories (no key)",
+          "fields": [
+            {
+              "key": "hnQuery",
+              "where": "config",
+              "label": "Search query",
+              "placeholder": "{{ result }}"
+            },
+            {
+              "key": "hnTags",
+              "where": "config",
+              "label": "Tags",
+              "hint": "optional",
+              "placeholder": "story · comment · show_hn · ask_hn"
+            },
+            {
+              "key": "hnLimit",
+              "where": "config",
+              "label": "Max items",
+              "hint": "optional, default 10",
+              "placeholder": "10"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ]
+        },
+        {
+          "id": "coingecko",
+          "name": "CoinGecko Price",
+          "desc": "Spot prices (no key)",
+          "fields": [
+            {
+              "key": "cgIDs",
+              "where": "config",
+              "label": "Coin IDs",
+              "placeholder": "bitcoin,ethereum"
+            },
+            {
+              "key": "cgCurrencies",
+              "where": "config",
+              "label": "Currencies",
+              "hint": "optional, default usd",
+              "placeholder": "usd,eur"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "google",
+      "desc": "Gmail, Sheets, Calendar and Drive, through one Google account the user links in the Inspector.",
+      "templates": [
+        {
+          "id": "gmail_list",
+          "name": "Gmail: List Messages",
+          "desc": "Search/list inbox messages",
+          "fields": [
+            {
+              "key": "oauthCredentialID",
+              "where": "connection",
+              "label": "Google account",
+              "hint": "the user links a Google account in the Inspector"
+            },
+            {
+              "key": "gmailQuery",
+              "where": "config",
+              "label": "Query",
+              "hint": "Gmail search syntax, e.g. is:unread from:someone@x.com"
+            },
+            {
+              "key": "gmailMaxResults",
+              "where": "config",
+              "label": "Max results",
+              "placeholder": "10"
+            }
+          ]
+        },
+        {
+          "id": "gmail_get",
+          "name": "Gmail: Get Message",
+          "desc": "Read one message's content",
+          "fields": [
+            {
+              "key": "oauthCredentialID",
+              "where": "connection",
+              "label": "Google account",
+              "hint": "the user links a Google account in the Inspector"
+            },
+            {
+              "key": "gmailMessageID",
+              "where": "config",
+              "label": "Message ID",
+              "hint": "e.g. {{ result.id }} from an upstream Gmail: List step"
+            }
+          ]
+        },
+        {
+          "id": "gmail_send",
+          "name": "Gmail: Send Message",
+          "desc": "Send a new email",
+          "fields": [
+            {
+              "key": "oauthCredentialID",
+              "where": "connection",
+              "label": "Google account",
+              "hint": "the user links a Google account in the Inspector"
+            },
+            {
+              "key": "gmailTo",
+              "where": "config",
+              "label": "To",
+              "placeholder": "recipient@example.com"
+            },
+            {
+              "key": "gmailSubject",
+              "where": "config",
+              "label": "Subject"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ]
+        },
+        {
+          "id": "gmail_reply",
+          "name": "Gmail: Reply",
+          "desc": "Reply within a thread",
+          "fields": [
+            {
+              "key": "oauthCredentialID",
+              "where": "connection",
+              "label": "Google account",
+              "hint": "the user links a Google account in the Inspector"
+            },
+            {
+              "key": "gmailTo",
+              "where": "config",
+              "label": "To",
+              "placeholder": "recipient@example.com"
+            },
+            {
+              "key": "gmailSubject",
+              "where": "config",
+              "label": "Subject"
+            },
+            {
+              "key": "gmailThreadID",
+              "where": "config",
+              "label": "Thread ID",
+              "hint": "keeps the reply in the original thread, e.g. {{ result.threadId }}"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ]
+        },
+        {
+          "id": "sheets_read",
+          "name": "Sheets: Read Range",
+          "desc": "Read cell values",
+          "fields": [
+            {
+              "key": "oauthCredentialID",
+              "where": "connection",
+              "label": "Google account",
+              "hint": "the user links a Google account in the Inspector"
+            },
+            {
+              "key": "sheetsSpreadsheetID",
+              "where": "config",
+              "label": "Spreadsheet ID",
+              "hint": "the long id in the sheet's URL"
+            },
+            {
+              "key": "sheetsRange",
+              "where": "config",
+              "label": "Range",
+              "placeholder": "Sheet1!A1:Z1000"
+            }
+          ]
+        },
+        {
+          "id": "sheets_append",
+          "name": "Sheets: Append Row",
+          "desc": "Add a row of data",
+          "fields": [
+            {
+              "key": "oauthCredentialID",
+              "where": "connection",
+              "label": "Google account",
+              "hint": "the user links a Google account in the Inspector"
+            },
+            {
+              "key": "sheetsSpreadsheetID",
+              "where": "config",
+              "label": "Spreadsheet ID",
+              "hint": "the long id in the sheet's URL"
+            },
+            {
+              "key": "sheetsRange",
+              "where": "config",
+              "label": "Range",
+              "placeholder": "Sheet1!A1:Z1000"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ]
+        },
+        {
+          "id": "calendar_list",
+          "name": "Calendar: List Events",
+          "desc": "List upcoming events",
+          "fields": [
+            {
+              "key": "oauthCredentialID",
+              "where": "connection",
+              "label": "Google account",
+              "hint": "the user links a Google account in the Inspector"
+            },
+            {
+              "key": "calendarID",
+              "where": "config",
+              "label": "Calendar ID",
+              "hint": "leave blank for the primary calendar",
+              "placeholder": "primary"
+            }
+          ]
+        },
+        {
+          "id": "calendar_create",
+          "name": "Calendar: Create Event",
+          "desc": "Schedule a new event",
+          "fields": [
+            {
+              "key": "oauthCredentialID",
+              "where": "connection",
+              "label": "Google account",
+              "hint": "the user links a Google account in the Inspector"
+            },
+            {
+              "key": "calendarID",
+              "where": "config",
+              "label": "Calendar ID",
+              "hint": "leave blank for the primary calendar",
+              "placeholder": "primary"
+            },
+            {
+              "key": "calendarSummary",
+              "where": "config",
+              "label": "Title",
+              "hint": "leave blank to use the Message field"
+            },
+            {
+              "key": "calendarStart",
+              "where": "config",
+              "label": "Start",
+              "placeholder": "2026-08-10T10:00:00Z"
+            },
+            {
+              "key": "calendarEnd",
+              "where": "config",
+              "label": "End",
+              "placeholder": "2026-08-10T11:00:00Z"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ]
+        },
+        {
+          "id": "drive_list",
+          "name": "Drive: List Files",
+          "desc": "Search/list files",
+          "fields": [
+            {
+              "key": "oauthCredentialID",
+              "where": "connection",
+              "label": "Google account",
+              "hint": "the user links a Google account in the Inspector"
+            },
+            {
+              "key": "driveQuery",
+              "where": "config",
+              "label": "Query",
+              "hint": "Drive search syntax, e.g. name contains 'report'"
+            }
+          ]
+        },
+        {
+          "id": "drive_get",
+          "name": "Drive: Get File Info",
+          "desc": "Read file metadata",
+          "fields": [
+            {
+              "key": "oauthCredentialID",
+              "where": "connection",
+              "label": "Google account",
+              "hint": "the user links a Google account in the Inspector"
+            },
+            {
+              "key": "driveFileID",
+              "where": "config",
+              "label": "File ID",
+              "hint": "e.g. {{ result.id }} from an upstream Drive: List step"
+            }
+          ]
+        },
+        {
+          "id": "drive_download",
+          "name": "Drive: Download File",
+          "desc": "Fetch file contents",
+          "fields": [
+            {
+              "key": "oauthCredentialID",
+              "where": "connection",
+              "label": "Google account",
+              "hint": "the user links a Google account in the Inspector"
+            },
+            {
+              "key": "driveFileID",
+              "where": "config",
+              "label": "File ID",
+              "hint": "e.g. {{ result.id }} from an upstream Drive: List step"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "state",
+      "desc": "Values that persist between runs of this workflow (a cursor, a counter, the last price seen). Read anywhere as {{state.key}}.",
+      "templates": [
+        {
+          "id": "get",
+          "name": "Read State",
+          "desc": "Load a saved value",
+          "presets": {
+            "stateOp": "get"
+          },
+          "fields": [
+            {
+              "key": "stateKey",
+              "where": "field",
+              "label": "Key",
+              "hint": "persists across runs",
+              "placeholder": "lastRowId"
+            }
+          ]
+        },
+        {
+          "id": "set",
+          "name": "Write State",
+          "desc": "Save a value for next run",
+          "presets": {
+            "stateOp": "set"
+          },
+          "fields": [
+            {
+              "key": "stateKey",
+              "where": "field",
+              "label": "Key",
+              "hint": "persists across runs",
+              "placeholder": "lastRowId"
+            },
+            {
+              "key": "stateValue",
+              "where": "field",
+              "label": "Value",
+              "hint": "blank stores the previous step's output"
+            }
+          ]
+        },
+        {
+          "id": "increment",
+          "name": "Counter",
+          "desc": "Add to a running total",
+          "presets": {
+            "stateOp": "increment"
+          },
+          "fields": [
+            {
+              "key": "stateKey",
+              "where": "field",
+              "label": "Key",
+              "hint": "persists across runs",
+              "placeholder": "lastRowId"
+            },
+            {
+              "key": "stateValue",
+              "where": "field",
+              "label": "Amount",
+              "hint": "defaults to 1"
+            }
+          ]
+        },
+        {
+          "id": "delete",
+          "name": "Clear State",
+          "desc": "Remove a saved value",
+          "presets": {
+            "stateOp": "delete"
+          },
+          "fields": [
+            {
+              "key": "stateKey",
+              "where": "field",
+              "label": "Key",
+              "hint": "persists across runs",
+              "placeholder": "lastRowId"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "tendril",
+      "desc": "Rented Tendril compute: buy credit, rent a machine, run code on it, release it.",
+      "templates": [
+        {
+          "id": "tendril_topup",
+          "name": "Buy Tendril Credit",
+          "desc": "AgentMesh credits → Tendril credit",
+          "presets": {
+            "tendrilAction": "topup",
+            "tendrilHours": "1",
+            "tendrilAmount": "10"
+          },
+          "fields": [
+            {
+              "key": "tendrilAmount",
+              "where": "field",
+              "label": "Amount (USD)",
+              "placeholder": "10"
+            }
+          ]
+        },
+        {
+          "id": "tendril_rent",
+          "name": "Rent a Machine",
+          "desc": "Open a metered SSH session",
+          "presets": {
+            "tendrilAction": "rent",
+            "tendrilHours": "1",
+            "tendrilAmount": "10"
+          },
+          "fields": [
+            {
+              "key": "tendrilHours",
+              "where": "field",
+              "label": "Hours",
+              "placeholder": "1"
+            }
+          ]
+        },
+        {
+          "id": "tendril_run",
+          "name": "Run a Job",
+          "desc": "Execute Python on the machine",
+          "presets": {
+            "tendrilAction": "run",
+            "tendrilHours": "1",
+            "tendrilAmount": "10"
+          },
+          "fields": []
+        },
+        {
+          "id": "tendril_release",
+          "name": "Release",
+          "desc": "Stop the meter and bill",
+          "presets": {
+            "tendrilAction": "release",
+            "tendrilHours": "1",
+            "tendrilAmount": "10"
+          },
+          "fields": []
+        }
+      ]
+    },
+    {
+      "type": "end",
+      "desc": "Where the run finishes.",
+      "templates": [
+        {
+          "id": "http",
+          "name": "Respond to Webhook",
+          "desc": "Return JSON",
+          "note": "Finishes the run and passes the last output through. The http and done templates behave identically.",
+          "fields": []
+        },
+        {
+          "id": "done",
+          "name": "End",
+          "desc": "Mark complete",
+          "note": "Finishes the run and passes the last output through. The http and done templates behave identically.",
+          "fields": []
+        }
+      ]
+    }
+  ]
+}

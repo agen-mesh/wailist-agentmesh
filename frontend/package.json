@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gen:node-catalog": "UPDATE_NODE_CATALOG=1 vitest run src/lib/nodeCatalog.sync.test.ts"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.1",
