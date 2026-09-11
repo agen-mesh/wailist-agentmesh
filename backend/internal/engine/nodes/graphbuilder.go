@@ -21,12 +21,18 @@ var graphEdgeKinds = map[string]bool{"flow": true, "attach": true}
 // the corresponding WorkflowNode string field. Deliberately excludes
 // DiscoveredParams/CustomParams/Secrets/Config/tendril* fields -- those are
 // advanced per-node authoring surfaces out of scope for a first cut of
-// chat-built graphs.
+// chat-built graphs. Config is reachable separately, through the
+// nodeConfigKeys allowlist below.
+//
+// APIKey is deliberately absent too. It used to be here, which let
+// update_node overwrite a provider's real key: the model only ever sees the
+// "__enc__" sentinel (redactNodesForBuildAgent), so whatever it wrote was
+// invented, and encryptField encrypted that over the top of the user's real
+// credential. See secretConfigKeys for what the model is told instead.
 var nodeFieldSetters = map[string]func(n *models.WorkflowNode, v string){
 	"systemPrompt":  func(n *models.WorkflowNode, v string) { n.SystemPrompt = v },
 	"model":         func(n *models.WorkflowNode, v string) { n.Model = v },
 	"keyMode":       func(n *models.WorkflowNode, v string) { n.KeyMode = v },
-	"apiKey":        func(n *models.WorkflowNode, v string) { n.APIKey = v },
 	"url":           func(n *models.WorkflowNode, v string) { n.URL = v },
 	"method":        func(n *models.WorkflowNode, v string) { n.Method = v },
 	"endpoint":      func(n *models.WorkflowNode, v string) { n.Endpoint = v },
@@ -70,6 +76,64 @@ func argString(args map[string]any, key string) string {
 	return v
 }
 
+// nodeConfigKeys is the allowlist of Config keys a chat-built node may set.
+//
+// Config is non-secret by definition (see WorkflowNode.Config) and is read
+// through configVal, while anything credential-bearing lives in Secrets and
+// is read through secretVal. The split is what makes this safe to open up:
+// a body template is structure, and without one the builder cannot produce a
+// working POST node no matter how well it researched the API.
+//
+// An allowlist rather than "anything not in Secrets" because Config is a
+// free-form map shared by every connector -- a typo'd key would be accepted
+// silently, saved, and then read back as "" by the connector that wanted it.
+var nodeConfigKeys = map[string]bool{
+	// The JSON (or other) body an http tool node sends. See callHTTP.
+	"httpBodyTemplate": true,
+	// The message body a connector action sends. See messageTemplateKey.
+	"messageTemplate": true,
+}
+
+// secretConfigKeys are the keys a model is most likely to reach for when it
+// wants to configure authentication. They are never model-settable, through
+// either "fields" or "config" -- named explicitly so the rejection can say
+// what to do instead, rather than the generic "not an allowed key" that
+// would leave the model retrying variations of the same call.
+var secretConfigKeys = map[string]bool{
+	"httpHeadersJSON": true, "httpBasicUser": true, "httpBasicPass": true,
+	"apiKey": true, "apiToken": true, "authorization": true, "token": true,
+}
+
+func credentialKeyError(k string) error {
+	return fmt.Errorf(
+		"%q holds a credential and cannot be set by you -- credentials are never sent to you and you must not invent one; instead set the node's description to name exactly which credential the user has to add in the Inspector, and say so in your reply",
+		k)
+}
+
+// argConfig reads and validates the optional "config" object on a node tool
+// call.
+func argConfig(args map[string]any) (map[string]string, error) {
+	out := map[string]string{}
+	raw, ok := args["config"].(map[string]any)
+	if !ok {
+		return out, nil
+	}
+	for k, v := range raw {
+		if secretConfigKeys[k] {
+			return nil, credentialKeyError(k)
+		}
+		if !nodeConfigKeys[k] {
+			return nil, fmt.Errorf("config key %q is not settable; allowed keys are httpBodyTemplate and messageTemplate", k)
+		}
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("config value %q must be a string, got %T", k, v)
+		}
+		out[k] = s
+	}
+	return out, nil
+}
+
 func argFields(args map[string]any) (map[string]string, error) {
 	out := map[string]string{}
 	raw, ok := args["fields"].(map[string]any)
@@ -77,6 +141,9 @@ func argFields(args map[string]any) (map[string]string, error) {
 		return out, nil
 	}
 	for k, v := range raw {
+		if secretConfigKeys[k] {
+			return nil, credentialKeyError(k)
+		}
 		if s, ok := v.(string); ok {
 			out[k] = s
 		} else {
@@ -108,6 +175,13 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 		if set, ok := nodeFieldSetters[k]; ok {
 			set(&node, v)
 		}
+	}
+	cfg, err := argConfig(args)
+	if err != nil {
+		return "", err
+	}
+	if len(cfg) > 0 {
+		node.Config = cfg
 	}
 	// Default a new Provider node to platform-key mode unless the model
 	// explicitly chose "byok" -- resolveAPIKey (provider.go) treats any
@@ -143,6 +217,20 @@ func updateGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, 
 		for k, v := range fields {
 			if set, ok := nodeFieldSetters[k]; ok {
 				set(&graph.Nodes[i], v)
+			}
+		}
+		cfg, err := argConfig(args)
+		if err != nil {
+			return "", err
+		}
+		// Merge rather than replace: the user may have set a key by hand in
+		// the Inspector, and an unrelated update from chat must not wipe it.
+		if len(cfg) > 0 {
+			if graph.Nodes[i].Config == nil {
+				graph.Nodes[i].Config = map[string]string{}
+			}
+			for k, v := range cfg {
+				graph.Nodes[i].Config[k] = v
 			}
 		}
 		return fmt.Sprintf("updated node %s", id), nil
@@ -236,6 +324,17 @@ func graphToolDecls() []funcDecl {
 		"description": "Extra node fields, all optional strings. keyMode is either \"byok\" or \"platform\" -- a new Provider node defaults to \"platform\" already, only set this to \"byok\" if the user specifically asks to use their own API key.",
 		"properties":  fieldProperties,
 	}
+	configSchema := map[string]any{
+		"type": "OBJECT",
+		"description": "Non-secret node settings. \"httpBodyTemplate\" is the request body an http tool node " +
+			"sends (a JSON string; {{ result }} interpolates the previous step's output). \"messageTemplate\" " +
+			"is the body a connector action sends. Credentials are NOT settable here -- name them on the " +
+			"node's description instead.",
+		"properties": map[string]any{
+			"httpBodyTemplate": map[string]any{"type": "string"},
+			"messageTemplate":  map[string]any{"type": "string"},
+		},
+	}
 	return []funcDecl{
 		{
 			Name:        "add_node",
@@ -247,6 +346,7 @@ func graphToolDecls() []funcDecl {
 					"template": map[string]any{"type": "string", "description": "Template id within the type, e.g. \"chat\" for trigger, \"gemini\" for provider, \"agent\" for agent, \"email\" for action."},
 					"name":     map[string]any{"type": "string", "description": "Display name for the node."},
 					"fields":   fieldsSchema,
+					"config":   configSchema,
 				},
 				"required": []string{"type", "template"},
 			},
@@ -261,6 +361,7 @@ func graphToolDecls() []funcDecl {
 					"name":     map[string]any{"type": "string"},
 					"template": map[string]any{"type": "string"},
 					"fields":   fieldsSchema,
+					"config":   configSchema,
 				},
 				"required": []string{"id"},
 			},
@@ -336,8 +437,11 @@ Node types and their templates:
 - trigger: manual, chat, webhook, cron
 - agent: agent, router, human
 - provider: gemini, openai, anthropic, mistral, groq (attach to an agent's "model" port via an attach edge)
-- tool: http, calc, datetime, websearch (attach to an agent's "tools" port via an attach edge). websearch answers
-  a query grounded in a live Google Search via the platform's own Gemini key -- use it for anything needing
+- tool: http, calc, set, json_extract, crypto, datetime, xml, template, html_extract, markdown, quickchart, websearch
+  (attach to an agent's "tools" port via an attach edge). http calls any URL -- set fields url and
+  method, and config httpBodyTemplate for the request body. json_extract pulls one value out of a
+  response by path, which is usually what you want right after an http call. websearch answers a query
+  grounded in a live Google Search via the platform's own Gemini key -- use it for anything needing
   current/real-world information, regardless of which provider the agent itself uses.
 - tool402: no preset templates -- every x402 tool is a real, live endpoint the workflow owner supplies (a
   fictitious provider name like "tavily" or "firecrawl" is NOT wired to anything real). Only add one when the
@@ -369,6 +473,12 @@ When the workflow needs to call an API:
    pull the one value you wanted out of the response.
 3. Do NOT use a tool402 node for an API you found by searching. tool402 is for paid x402 endpoints, and only
    ever when the user hands you a real endpoint URL themselves.
+
+Credentials: you are never shown a user's API keys and you must never invent one. If an API you wired needs
+a key, a token or a basic-auth login, set that node's description to name exactly what is needed and where it
+goes -- for example "needs an OpenWeatherMap API key in the appid query parameter" -- and say the same thing
+in your reply so the user knows to add it in the Inspector. A node with a fabricated key looks configured and
+is not, which is worse than one that is plainly incomplete.
 
 Wiring rules -- these are enforced, an illegal edge is rejected and you must fix it:
 - An attach edge always runs SOURCE -> AGENT, never the other way round: add_edge(from=<provider id>,

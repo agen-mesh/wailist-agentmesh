@@ -347,3 +347,141 @@ func TestBuildGraphRunsWebSearchAndKeepsGoing(t *testing.T) {
 		t.Fatalf("want 1 node, got %d", len(res.Graph.Nodes))
 	}
 }
+
+func TestApplyGraphOpAddNodeSetsAllowedConfigKey(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type":     "tool",
+		"template": "http",
+		"name":     "Weather API",
+		"fields":   map[string]any{"url": "https://api.example.com/v1/weather", "method": "POST"},
+		"config":   map[string]any{"httpBodyTemplate": `{"city":"{{ result }}"}`},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := graph.Nodes[0].Config["httpBodyTemplate"]
+	if got != `{"city":"{{ result }}"}` {
+		t.Fatalf("httpBodyTemplate not set, got %q", got)
+	}
+}
+
+// The redaction that keeps credentials away from Gemini
+// (redactNodesForBuildAgent) is only worth anything if the model cannot
+// write them back. A rejected call, not a silently ignored key: the model
+// must learn to disclose the credential instead of trying to set it.
+func TestApplyGraphOpRejectsSecretBearingConfigKeys(t *testing.T) {
+	for _, key := range []string{"httpHeadersJSON", "httpBasicUser", "httpBasicPass", "apiKey"} {
+		graph := &models.WorkflowGraph{}
+		_, err := applyGraphOp(graph, "add_node", map[string]any{
+			"type":     "tool",
+			"template": "http",
+			"config":   map[string]any{key: "secret-value"},
+		})
+		if err == nil {
+			t.Fatalf("config key %q should be rejected", key)
+		}
+		if !strings.Contains(err.Error(), "description") {
+			t.Fatalf("the error for %q should tell the model to disclose it on the description instead, got: %v", key, err)
+		}
+	}
+}
+
+func TestApplyGraphOpUpdateNodeMergesConfig(t *testing.T) {
+	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{{
+		ID:       "n1",
+		Type:     models.NodeTypeTool,
+		Template: "http",
+		Config:   map[string]string{"httpBodyTemplate": "old"},
+	}}}
+	_, err := applyGraphOp(graph, "update_node", map[string]any{
+		"id":     "n1",
+		"config": map[string]any{"messageTemplate": "hello"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Merge, not replace: an update that sets one key must not wipe a key
+	// the user configured by hand in the Inspector.
+	if graph.Nodes[0].Config["httpBodyTemplate"] != "old" {
+		t.Fatal("update_node replaced Config instead of merging into it")
+	}
+	if graph.Nodes[0].Config["messageTemplate"] != "hello" {
+		t.Fatal("update_node did not apply the new config key")
+	}
+}
+
+func TestApplyGraphOpRejectsNonStringConfigValue(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type":     "tool",
+		"template": "http",
+		"config":   map[string]any{"httpBodyTemplate": 42},
+	})
+	if err == nil {
+		t.Fatal("expected an error for a non-string config value")
+	}
+}
+
+func TestBuildSystemPromptListsEveryToolTemplate(t *testing.T) {
+	// The prompt advertised 4 of the 12 templates executeTool implements, so
+	// the builder could not reach the other 8. Asserted here because this is
+	// a list that silently rots every time a template is added.
+	//
+	// Scoped to the "- tool:" line and matched as whole comma-separated
+	// tokens, not with a bare strings.Contains over the whole prompt: "set",
+	// "http", "template" and "xml" are all substrings of words the prompt
+	// uses elsewhere ("settable", "httpBodyTemplate", "Template id"), so a
+	// Contains check would pass for templates the list does not actually
+	// name -- the precise failure this test exists to catch.
+	var list string
+	for _, line := range strings.Split(buildSystemPrompt, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "- tool:") {
+			list = strings.TrimPrefix(strings.TrimSpace(line), "- tool:")
+			break
+		}
+	}
+	if list == "" {
+		t.Fatal(`no "- tool:" line in the system prompt`)
+	}
+	// The line may end with prose after the template list; cut at the first "(".
+	if i := strings.Index(list, "("); i >= 0 {
+		list = list[:i]
+	}
+	named := map[string]bool{}
+	for _, tok := range strings.Split(list, ",") {
+		named[strings.TrimSpace(tok)] = true
+	}
+	for _, tmpl := range []string{
+		"http", "calc", "set", "json_extract", "crypto", "datetime",
+		"xml", "template", "html_extract", "markdown", "quickchart", "websearch",
+	} {
+		if !named[tmpl] {
+			t.Errorf("the tool template list does not name %q (got %v)", tmpl, named)
+		}
+	}
+}
+
+// The same guarantee through the other door. nodeFieldSetters used to map
+// "apiKey" straight onto node.APIKey, so update_node(fields={apiKey:...}) on
+// a provider holding a real key handed encryptField a plain value, which it
+// encrypted over the top of the user's real credential. The model has never
+// seen that key (the graph it gets is redacted) -- anything it writes there
+// is invented.
+func TestApplyGraphOpRejectsAPIKeyInFields(t *testing.T) {
+	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{{
+		ID:     "p1",
+		Type:   models.NodeTypeProvider,
+		APIKey: "__enc__",
+	}}}
+	_, err := applyGraphOp(graph, "update_node", map[string]any{
+		"id":     "p1",
+		"fields": map[string]any{"apiKey": "sk-invented-by-the-model"},
+	})
+	if err == nil {
+		t.Fatal("expected update_node to reject an apiKey field")
+	}
+	if graph.Nodes[0].APIKey != "__enc__" {
+		t.Fatalf("the stored key sentinel must be untouched, got %q", graph.Nodes[0].APIKey)
+	}
+}
