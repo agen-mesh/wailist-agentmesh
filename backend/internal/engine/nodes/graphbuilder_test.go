@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/agentmesh/backend/internal/bazaar"
 	"github.com/agentmesh/backend/internal/models"
@@ -975,4 +976,65 @@ func TestGraphToolDeclsIncludesFetchURL(t *testing.T) {
 		}
 	}
 	t.Fatal("expected a fetch_url declaration")
+}
+
+// A live build of "fetch nifty 50 and sensex prices and give me a summary"
+// ran past the frontend proxy's 120s limit. The proxy cut the request, the
+// build's context was cancelled mid-loop, and everything built so far was
+// thrown away. The builder now stops starting rounds once its time budget is
+// spent and returns what it has, like the round cap does.
+func TestBuildGraphStopsAtItsTimeBudgetAndKeepsWhatItBuilt(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(30 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"tool","template":"calc"}}}]}}]}`)
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	start := time.Now()
+	res, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "build something slow",
+		TimeBudget: 200 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("running out of time must not be an error: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("the budget was not honoured: took %v", elapsed)
+	}
+	if len(res.Graph.Nodes) == 0 || len(res.Graph.Nodes) >= maxBuildIterations {
+		t.Fatalf("want the partial graph built before the budget ran out, got %d nodes", len(res.Graph.Nodes))
+	}
+	if !strings.Contains(strings.ToLower(res.Reply), "time") {
+		t.Fatalf("the reply should say it ran out of time, got: %q", res.Reply)
+	}
+}
+
+// If a single model call is still in flight when the hard deadline hits,
+// the nodes already built must still come back, not an error.
+func TestBuildGraphHardDeadlineMidCallKeepsWhatItBuilt(t *testing.T) {
+	turn := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		turn++
+		if turn > 1 {
+			time.Sleep(2 * time.Second) // outlives the hard deadline below
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"tool","template":"calc"}}}]}}]}`)
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "x", TimeBudget: 300 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("a deadline mid-call must not be an error when work exists: %v", err)
+	}
+	if len(res.Graph.Nodes) != 1 {
+		t.Fatalf("want the one node built before the stalled call, got %d", len(res.Graph.Nodes))
+	}
 }

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -302,12 +303,18 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	maskedGraph := models.WorkflowGraph{Nodes: redactNodesForBuildAgent(existing.Nodes), Edges: existing.Edges}
-	result, err := nodes.BuildGraph(r.Context(), nodes.BuildRequest{
+	// Detached from the request: if the client goes away mid-build (a proxy
+	// timeout, a closed tab), the build still finishes and is saved, so the
+	// work shows up on reload instead of vanishing. BuildGraph bounds its own
+	// running time, so nothing here can run away.
+	buildCtx := context.WithoutCancel(r.Context())
+	result, err := nodes.BuildGraph(buildCtx, nodes.BuildRequest{
 		APIKey:      d.PlatformGeminiAPIKey,
 		Message:     body.Message,
 		Graph:       maskedGraph,
 		History:     history,
 		X402Catalog: d.catalog,
+		TraceID:     id,
 	})
 	if err != nil {
 		// The upstream text (a raw Gemini error body, keys and all) lands
@@ -328,7 +335,7 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 	encryptedNodes := encryptNodes(result.Graph.Nodes, d.EncryptionKey, existing.Nodes)
 	encryptedNodes = ensureWebhookSecrets(encryptedNodes, d.EncryptionKey)
 	graph := models.WorkflowGraph{Nodes: encryptedNodes, Edges: result.Graph.Edges}
-	wf, err := d.Store.UpdateWorkflow(r.Context(), id, existing.Name, graph)
+	wf, err := d.Store.UpdateWorkflow(buildCtx, id, existing.Name, graph)
 	if err != nil {
 		log.Printf("build workflow %s: save: %v", id, err)
 		respond.Error(w, http.StatusInternalServerError, "could not save the updated workflow")
@@ -342,9 +349,9 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 	// reason about nodes that are not there. A failure here is logged, not
 	// surfaced: the build itself succeeded, and losing one turn of memory is
 	// not worth failing a request whose work is already persisted.
-	if err := d.Store.AppendBuildMessage(r.Context(), id, "user", body.Message); err != nil {
+	if err := d.Store.AppendBuildMessage(buildCtx, id, "user", body.Message); err != nil {
 		log.Printf("build workflow %s: save user turn: %v", id, err)
-	} else if err := d.Store.AppendBuildMessage(r.Context(), id, "model", result.Reply); err != nil {
+	} else if err := d.Store.AppendBuildMessage(buildCtx, id, "model", result.Reply); err != nil {
 		log.Printf("build workflow %s: save model turn: %v", id, err)
 	}
 	decrypted := decryptNodes(wf.Nodes, d.EncryptionKey)

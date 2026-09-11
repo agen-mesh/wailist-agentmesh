@@ -3,7 +3,9 @@ package nodes
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"regexp"
 	"slices"
@@ -751,6 +753,13 @@ const buildAgentModel = "gemini-2.5-flash"
 // billed agent run and has nothing to do with this.
 const maxBuildIterations = 25
 
+// defaultBuildTimeBudget keeps a build inside the frontend's proxy window
+// (next.config.ts proxyTimeout: 120s). A build that ran past it had its
+// request cut off, its context cancelled mid-loop, and everything it had
+// built discarded -- research tools (web_search, fetch_url) make long builds
+// common enough that this has to be a hard property, not a hope.
+const defaultBuildTimeBudget = 100 * time.Second
+
 // buildSystemPrompt is the builder's standing instructions with the node
 // catalog spliced in. A var built at init rather than a hand-typed const:
 // the old hand-typed node list drifted (a cron trigger that never existed,
@@ -797,6 +806,9 @@ func catalogPromptSection() string {
 
 const builderPromptTemplate = `You are the workflow builder for AgentMesh, a visual agent-workflow canvas.
 You edit a workflow graph with the add_node, update_node, remove_node, add_edge and remove_edge tools.
+Work in as few rounds as you can -- every round is a full model call, and a build has a time limit. Put all
+the independent tool calls you can in the same turn: all your research at once, then all add_node calls
+together, then all add_edge calls together (edges need the node ids add_node returned).
 
 Use ONLY the node types, templates and settings in the NODE CATALOG below. It is generated from the canvas
 and the engine, so anything not in it does not exist and will be rejected. For each template it lists the
@@ -926,6 +938,11 @@ type BuildRequest struct {
 	// build and only if the model searches for an endpoint; nil makes
 	// search_x402/add_x402_node report the catalog as unavailable.
 	X402Catalog func(ctx context.Context) ([]bazaar.Resource, error)
+	// TimeBudget bounds the whole build; zero means defaultBuildTimeBudget.
+	TimeBudget time.Duration
+	// TraceID, when set, logs one line per round (tool names, elapsed time)
+	// under that id -- without it a slow build cannot be diagnosed.
+	TraceID string
 }
 
 // BuildGraph runs a bounded tool-calling loop against the Gemini Flash
@@ -936,6 +953,30 @@ type BuildRequest struct {
 func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error) {
 	apiKey, userMessage, graph, history := req.APIKey, req.Message, req.Graph, req.History
 	x402 := newX402Session(req.X402Catalog)
+
+	// Two limits. The context ends at the budget, so a model call or fetch
+	// still in flight cannot outlive it; and no new round starts once three
+	// quarters of it are gone, since one round (a model call plus any
+	// fetch_url or web_search it asks for) can take several seconds and has
+	// to finish inside the budget. Either way the partial graph is returned
+	// -- like the round cap -- so nothing already built is thrown away.
+	budget := req.TimeBudget
+	if budget <= 0 {
+		budget = defaultBuildTimeBudget
+	}
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	ranOutOfTime := func() BuildGraphResult {
+		if req.TraceID != "" {
+			log.Printf("build %s: stopped at the time budget after %.1fs", req.TraceID, time.Since(started).Seconds())
+		}
+		return BuildGraphResult{
+			Reply: "I ran out of time partway through this one. What I built so far is on the canvas — " +
+				"tell me what to finish and I'll carry on from there.",
+			Graph: graph,
+		}
+	}
 	apiURL := fmt.Sprintf("%s/v1beta/models/%s:generateContent", geminiBaseURL, buildAgentModel)
 	apiHeaders := map[string]string{"x-goog-api-key": apiKey}
 
@@ -973,8 +1014,14 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 
 	auditRetried := false
 	for iter := 0; iter < maxBuildIterations; iter++ {
+		if iter > 0 && time.Since(started) > budget*3/4 {
+			return ranOutOfTime(), nil
+		}
 		resp, err := postLLMJSON(ctx, apiURL, apiHeaders, payload)
 		if err != nil {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return ranOutOfTime(), nil
+			}
 			return BuildGraphResult{}, err
 		}
 		calls := extractGeminiFunctionCalls(resp)
@@ -1006,8 +1053,13 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		}
 
 		modelParts := make([]map[string]any, len(calls))
+		names := make([]string, len(calls))
 		for i, c := range calls {
 			modelParts[i] = map[string]any{"functionCall": map[string]any{"name": c.name, "args": c.args}}
+			names[i] = c.name
+		}
+		if req.TraceID != "" {
+			log.Printf("build %s: round %d at %.1fs: %s", req.TraceID, iter+1, time.Since(started).Seconds(), strings.Join(names, ", "))
 		}
 		contents = append(contents, map[string]any{"role": "model", "parts": modelParts})
 
