@@ -344,21 +344,33 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 	// change that lets the chat-driven builder set these fields (or a raw
 	// JSON passthrough bug) can't silently bypass the retry-storm cap.
 	// The build ran detached and can take up to a couple of minutes; the
-	// graph it edited is the one read when the request arrived. If the
-	// workflow was saved since (an edit after a reload, another tab, another
-	// build), saving now would silently overwrite that work -- so don't, and
-	// don't remember a build that never landed.
-	if current, err := d.Store.GetWorkflow(buildCtx, id); err == nil && !current.UpdatedAt.Equal(existing.UpdatedAt) {
+	// graph it edited is the one read when the request arrived. If that
+	// graph was changed since (an edit in another tab, another build),
+	// saving now would silently overwrite that work -- so don't, and don't
+	// remember a build that never landed.
+	//
+	// The graph is compared, not updated_at: deploying, renaming or dragging
+	// a node all bump updated_at without touching anything the builder
+	// edited, and none of those should throw away a minute of build work.
+	current, err := d.Store.GetWorkflow(buildCtx, id)
+	if err != nil {
+		log.Printf("build workflow %s: reload before save: %v", id, err)
+		respond.Error(w, http.StatusInternalServerError, "could not save the updated workflow")
+		return
+	}
+	if graphFingerprint(decryptNodes(current.Nodes, d.EncryptionKey), current.Edges) !=
+		graphFingerprint(decryptNodes(existing.Nodes, d.EncryptionKey), existing.Edges) {
 		log.Printf("build workflow %s: workflow changed during the build; not saving", id)
 		respond.Error(w, http.StatusConflict, "the workflow changed while the builder was working, so nothing was saved -- send your message again")
 		return
 	}
 
+	keepLayout(result.Graph.Nodes, current.Nodes)
 	clampRetryFields(result.Graph.Nodes)
-	encryptedNodes := encryptNodes(result.Graph.Nodes, d.EncryptionKey, existing.Nodes)
+	encryptedNodes := encryptNodes(result.Graph.Nodes, d.EncryptionKey, current.Nodes)
 	encryptedNodes = ensureWebhookSecrets(encryptedNodes, d.EncryptionKey)
 	graph := models.WorkflowGraph{Nodes: encryptedNodes, Edges: result.Graph.Edges}
-	wf, err := d.Store.UpdateWorkflow(buildCtx, id, existing.Name, graph)
+	wf, err := d.Store.UpdateWorkflow(buildCtx, id, current.Name, graph)
 	if err != nil {
 		log.Printf("build workflow %s: save: %v", id, err)
 		respond.Error(w, http.StatusInternalServerError, "could not save the updated workflow")
@@ -380,4 +392,36 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 	decrypted := decryptNodes(wf.Nodes, d.EncryptionKey)
 	wf.Nodes = unmaskWebhookSecrets(maskNodes(wf.Nodes), decrypted)
 	respond.JSON(w, http.StatusOK, map[string]any{"reply": result.Reply, "workflow": wf})
+}
+
+// graphFingerprint is a graph's nodes and edges with canvas positions left
+// out: what BuildWorkflow compares to tell whether the graph a build edited
+// was changed while it ran. Pass decrypted nodes. The canvas is handed a
+// webhook trigger's real secret (unmaskWebhookSecrets) and sends it back on
+// every save, where it is encrypted again under a fresh nonce -- compared as
+// ciphertext, a plain drag would look like a changed secret. The result holds
+// plaintext secrets: compare it, never log or store it.
+func graphFingerprint(nodes []models.WorkflowNode, edges []models.WorkflowEdge) string {
+	unplaced := make([]models.WorkflowNode, len(nodes))
+	copy(unplaced, nodes)
+	for i := range unplaced {
+		unplaced[i].X, unplaced[i].Y = 0, 0
+	}
+	b, _ := json.Marshal(models.WorkflowGraph{Nodes: unplaced, Edges: edges})
+	return string(b)
+}
+
+// keepLayout gives each built node that already existed its current canvas
+// position, so a node dragged while the build ran stays where it was put.
+// Nodes the build added keep the position the builder gave them.
+func keepLayout(built, current []models.WorkflowNode) {
+	pos := make(map[string][2]float64, len(current))
+	for _, n := range current {
+		pos[n.ID] = [2]float64{n.X, n.Y}
+	}
+	for i, n := range built {
+		if p, ok := pos[n.ID]; ok {
+			built[i].X, built[i].Y = p[0], p[1]
+		}
+	}
 }

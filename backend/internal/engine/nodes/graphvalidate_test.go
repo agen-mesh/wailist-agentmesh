@@ -280,3 +280,46 @@ func TestAuditGraphReportsALoop(t *testing.T) {
 		t.Fatalf("want a finding about the loop, got %v", auditGraph(g))
 	}
 }
+
+// Review finding: the repair round used to get every finding on the graph,
+// so a turn that only asked a question would have the builder quietly delete
+// or rewire a node the user had parked unconnected. Only what the turn itself
+// broke is handed back.
+func TestNewAuditFindingsIgnoresWhatTheUserLeft(t *testing.T) {
+	before := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{gn("t1", models.NodeTypeTrigger), gn("parked", models.NodeTypeTool)},
+	}
+	baseline := auditGraph(before)
+	if len(baseline) == 0 {
+		t.Fatal("setup: the parked node should be a finding on its own")
+	}
+	if got := newAuditFindings(baseline, before); len(got) != 0 {
+		t.Fatalf("an unchanged graph has nothing new to repair, got %v", got)
+	}
+
+	after := before
+	after.Nodes = append(append([]models.WorkflowNode{}, before.Nodes...), gn("added", models.NodeTypeTool))
+	got := newAuditFindings(baseline, after)
+	if len(got) != 1 || !strings.Contains(got[0], `"added"`) {
+		t.Fatalf("want only the node this turn added, got %v", got)
+	}
+}
+
+// The loop finding names whichever edge closes the loop first, which an
+// unrelated edit can shift. The loop the user already had is still not new.
+func TestNewAuditFindingsMatchesAnExistingLoopByKind(t *testing.T) {
+	baseline := []string{loopFindingPrefix + ` through node "a" -- the engine cannot run a loop`}
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{gn("t1", models.NodeTypeTrigger), gn("a", models.NodeTypeAction), gn("b", models.NodeTypeAction)},
+		Edges: []models.WorkflowEdge{
+			{ID: "e0", From: "t1", To: "a", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "e1", From: "b", To: "a", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "e2", From: "a", To: "b", Kind: models.EdgeKindFlow, ToPort: "in"},
+		},
+	}
+	for _, f := range newAuditFindings(baseline, g) {
+		if strings.HasPrefix(f, loopFindingPrefix) {
+			t.Fatalf("a loop that was already there must not count as new: %v", f)
+		}
+	}
+}

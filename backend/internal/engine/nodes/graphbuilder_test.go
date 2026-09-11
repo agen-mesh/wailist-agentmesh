@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -1261,5 +1262,91 @@ func TestWebSearchFailureShowsNoRawUpstreamError(t *testing.T) {
 	}
 	if strings.Contains(step.Detail, "LLM API") || strings.Contains(step.Detail, "{") {
 		t.Fatalf("raw upstream error text must not reach the chat: %q", step.Detail)
+	}
+}
+
+// A question-only turn changes nothing, so it must not spend a repair round
+// on the user's own unfinished graph -- that round is where a parked node got
+// removed without anyone asking.
+func TestBuildGraphQuestionTurnLeavesTheUsersGraphAlone(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"It posts the summary."}]}}]}`)
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	graph := models.WorkflowGraph{Nodes: []models.WorkflowNode{
+		{ID: "t1", Type: models.NodeTypeTrigger, Template: "manual"},
+		{ID: "parked", Type: models.NodeTypeTool, Template: "json_extract"},
+	}}
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "what does the slack node send?", Graph: graph})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("a question needs one model call and no repair round, got %d", calls)
+	}
+	if len(res.Graph.Nodes) != 2 {
+		t.Fatalf("the user's graph must come back untouched, got %+v", res.Graph.Nodes)
+	}
+}
+
+// Review finding: fetched pages and search results reach the builder, and
+// update_node could point a node that holds the user's credentials at another
+// server while those credentials stayed in place.
+func TestUpdateNodeRefusesToRedirectACredentialedNode(t *testing.T) {
+	httpNode := func(secrets map[string]string) models.WorkflowNode {
+		return models.WorkflowNode{ID: "h1", Type: models.NodeTypeTool, Template: "http", URL: "https://api.example.com/v1", Secrets: secrets}
+	}
+	graphqlNode := models.WorkflowNode{
+		ID: "g1", Type: models.NodeTypeAction, Template: "graphql",
+		Config:  map[string]string{"graphqlEndpoint": "https://api.example.com/graphql"},
+		Secrets: map[string]string{"graphqlAuthHeader": "__enc__"},
+	}
+	cases := []struct {
+		name    string
+		node    models.WorkflowNode
+		args    map[string]any
+		refused bool
+	}{
+		{"url on a node with stored headers", httpNode(map[string]string{"httpHeadersJSON": "__enc__"}),
+			map[string]any{"id": "h1", "fields": map[string]any{"url": "https://attacker.example/steal"}}, true},
+		{"url on a node with no credentials", httpNode(nil),
+			map[string]any{"id": "h1", "fields": map[string]any{"url": "https://other.example.com/v2"}}, false},
+		{"same url again", httpNode(map[string]string{"httpHeadersJSON": "__enc__"}),
+			map[string]any{"id": "h1", "fields": map[string]any{"url": "https://api.example.com/v1"}}, false},
+		{"rename a credentialed node", httpNode(map[string]string{"httpHeadersJSON": "__enc__"}),
+			map[string]any{"id": "h1", "name": "Fetch prices"}, false},
+		{"graphql endpoint with an auth header", graphqlNode,
+			map[string]any{"id": "g1", "config": map[string]any{"graphqlEndpoint": "https://attacker.example/graphql"}}, true},
+		{"graphql query with an auth header", graphqlNode,
+			map[string]any{"id": "g1", "config": map[string]any{"graphqlQuery": "{ viewer { login } }"}}, false},
+		{"template change on a credentialed node", graphqlNode,
+			map[string]any{"id": "g1", "template": "slack"}, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			n := c.node
+			n.Config = maps.Clone(c.node.Config)
+			graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{n}}
+			_, err := applyGraphOp(graph, "update_node", c.args)
+			if c.refused {
+				if err == nil || !strings.Contains(err.Error(), "credentials") {
+					t.Fatalf("want a refusal naming the credentials, got %v", err)
+				}
+				if got := graph.Nodes[0]; got.URL != c.node.URL || got.Template != c.node.Template ||
+					got.Config["graphqlEndpoint"] != c.node.Config["graphqlEndpoint"] {
+					t.Fatalf("a refused update must change nothing, got %+v", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("want this update allowed, got %v", err)
+			}
+		})
 	}
 }

@@ -3,6 +3,7 @@ package nodes
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/agentmesh/backend/internal/models"
 )
@@ -236,7 +237,7 @@ func auditGraph(graph models.WorkflowGraph) []string {
 	// the canvas refused to leave build mode.
 	if loop := flowLoopNode(graph); loop != "" {
 		findings = append(findings, fmt.Sprintf(
-			"the flow loops back on itself through node %q -- the engine cannot run a loop; remove the edge that closes it",
+			loopFindingPrefix+" through node %q -- the engine cannot run a loop; remove the edge that closes it",
 			loop))
 	}
 
@@ -264,6 +265,38 @@ func auditGraph(graph models.WorkflowGraph) []string {
 
 	sort.Strings(findings)
 	return findings
+}
+
+// loopFindingPrefix starts auditGraph's loop finding. The node it names is
+// whichever edge closes the loop first in edge order, which an unrelated edit
+// can change, so newAuditFindings compares loop findings by this prefix.
+const loopFindingPrefix = "the flow loops back on itself"
+
+// newAuditFindings is what auditGraph reports for the graph after a turn
+// that it did not already report before it: the problems this turn made.
+// A problem the user left on the canvas themselves -- a parked node wired to
+// nothing, an agent they have not given a model yet -- is theirs to finish.
+// Handing it to the repair round would have the builder quietly rewire or
+// delete it on a turn that never asked about it, and that edit is saved.
+// A turn that changed nothing therefore never triggers a repair round.
+func newAuditFindings(baseline []string, after models.WorkflowGraph) []string {
+	key := func(f string) string {
+		if strings.HasPrefix(f, loopFindingPrefix) {
+			return loopFindingPrefix
+		}
+		return f
+	}
+	had := make(map[string]bool, len(baseline))
+	for _, f := range baseline {
+		had[key(f)] = true
+	}
+	var out []string
+	for _, f := range auditGraph(after) {
+		if !had[key(f)] {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // alwaysFlowStep are node types that only ever run as steps in the flow.

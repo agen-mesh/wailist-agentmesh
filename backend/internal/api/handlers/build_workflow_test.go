@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/agentmesh/backend/internal/api/handlers"
 	"github.com/agentmesh/backend/internal/engine/nodes"
@@ -606,5 +607,69 @@ func TestBuildWorkflowDoesNotOverwriteAnEditMadeDuringTheBuild(t *testing.T) {
 	}
 	if msgs, _ := d.Store.GetBuildMessages(ctx, wf.ID, 20); len(msgs) != 0 {
 		t.Fatalf("a build that was not saved must not be remembered, got %d turns", len(msgs))
+	}
+}
+
+// Review finding: the conflict check compared updated_at, which a deploy, a
+// rename and a dragged node all bump without touching anything the builder
+// edited -- so clicking "Deploy now" mid-build threw the whole build away.
+// Only a change to the graph itself is a conflict; a node dragged meanwhile
+// keeps the position it was dragged to.
+func TestBuildWorkflowSavesOverADeployAndADragDuringTheBuild(t *testing.T) {
+	d := testDeps(t)
+	d.PlatformGeminiAPIKey = "test-key"
+	ctx := context.Background()
+
+	user, err := d.Store.CreateUser(ctx, "wf-deploy-race-"+randSuffix(t)+"@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wf, err := d.Store.CreateWorkflow(ctx, "Deploy Race", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Store.DeleteWorkflow(context.Background(), wf.ID) })
+	start := models.WorkflowGraph{Nodes: []models.WorkflowNode{{ID: "user-node", Type: models.NodeTypeTrigger, Template: "manual", Name: "Mine", X: 10, Y: 10}}}
+	if _, err := d.Store.UpdateWorkflow(ctx, wf.ID, "Deploy Race", start); err != nil {
+		t.Fatal(err)
+	}
+
+	turn := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		turn++
+		if turn == 1 {
+			// Mid-build: the user drags their node, then deploys.
+			moved := models.WorkflowGraph{Nodes: []models.WorkflowNode{{ID: "user-node", Type: models.NodeTypeTrigger, Template: "manual", Name: "Mine", X: 500, Y: 300}}}
+			if _, err := d.Store.UpdateWorkflow(context.Background(), wf.ID, "Deploy Race", moved); err != nil {
+				t.Errorf("simulated drag failed: %v", err)
+			}
+			if err := d.Store.SetWorkflowDeployed(context.Background(), wf.ID, "/run/"+wf.ID, time.Now()); err != nil {
+				t.Errorf("simulated deploy failed: %v", err)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if turn == 1 {
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"update_node","args":{"id":"user-node","name":"Renamed by builder"}}}]}}]}`)
+			return
+		}
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"done"}]}}]}`)
+	}))
+	defer srv.Close()
+	nodes.SetGeminiBaseURL(srv.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	rec := buildWorkflowReq(d, wf.ID, user.ID, "rename my trigger")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a deploy or a drag mid-build is not a conflict, got %d: %s", rec.Code, rec.Body.String())
+	}
+	saved, err := d.Store.GetWorkflow(ctx, wf.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Nodes) != 1 || saved.Nodes[0].Name != "Renamed by builder" {
+		t.Fatalf("the build must be saved, got %+v", saved.Nodes)
+	}
+	if n := saved.Nodes[0]; n.X != 500 || n.Y != 300 {
+		t.Fatalf("the drag made during the build must be kept, got x=%v y=%v", n.X, n.Y)
 	}
 }
