@@ -289,8 +289,20 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Prior turns give a follow-up something to refer back to. A failure to
+	// load them is not a reason to refuse the build -- degrade to a cold turn
+	// rather than blocking the user on a history read.
+	var history []nodes.BuildTurn
+	stored, err := d.Store.GetBuildMessages(r.Context(), id, db.DefaultBuildHistoryTurns)
+	if err != nil {
+		log.Printf("build workflow %s: load history: %v", id, err)
+	}
+	for _, m := range stored {
+		history = append(history, nodes.BuildTurn{Role: m.Role, Text: m.Text})
+	}
+
 	maskedGraph := models.WorkflowGraph{Nodes: redactNodesForBuildAgent(existing.Nodes), Edges: existing.Edges}
-	result, err := nodes.BuildGraph(r.Context(), d.PlatformGeminiAPIKey, body.Message, maskedGraph)
+	result, err := nodes.BuildGraph(r.Context(), d.PlatformGeminiAPIKey, body.Message, maskedGraph, history)
 	if err != nil {
 		// The upstream text (a raw Gemini error body, keys and all) lands
 		// straight in the user's chat bubble if forwarded -- same anti-pattern
@@ -315,6 +327,19 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 		log.Printf("build workflow %s: save: %v", id, err)
 		respond.Error(w, http.StatusInternalServerError, "could not save the updated workflow")
 		return
+	}
+
+	// Recorded only once the graph is actually saved, and only as a pair.
+	// Before the build call, a model error would leave an unanswered question
+	// in the history; before the save, a save failure would leave the model
+	// "remembering" a build the canvas never got -- and the next turn would
+	// reason about nodes that are not there. A failure here is logged, not
+	// surfaced: the build itself succeeded, and losing one turn of memory is
+	// not worth failing a request whose work is already persisted.
+	if err := d.Store.AppendBuildMessage(r.Context(), id, "user", body.Message); err != nil {
+		log.Printf("build workflow %s: save user turn: %v", id, err)
+	} else if err := d.Store.AppendBuildMessage(r.Context(), id, "model", result.Reply); err != nil {
+		log.Printf("build workflow %s: save model turn: %v", id, err)
 	}
 	decrypted := decryptNodes(wf.Nodes, d.EncryptionKey)
 	wf.Nodes = unmaskWebhookSecrets(maskNodes(wf.Nodes), decrypted)

@@ -496,6 +496,18 @@ without one cannot run. Make small, sensible workflows unless asked for somethin
 done making changes, reply with a short plain-text summary of what you built or changed -- do not call any more
 tools once you're done.`
 
+// BuildTurn is one prior turn of the builder conversation, replayed into the
+// model's context so a follow-up ("use the specs I gave you") has something
+// to refer to. Role is "user" or "model".
+//
+// Declared here rather than reusing db.BuildMessage so this package keeps its
+// existing independence from the database package -- the handler converts at
+// the boundary.
+type BuildTurn struct {
+	Role string
+	Text string
+}
+
 // BuildGraphResult is what a build-mode chat turn resolves to: a
 // user-facing summary plus the graph after every requested tool call has
 // been applied.
@@ -505,18 +517,40 @@ type BuildGraphResult struct {
 }
 
 // BuildGraph runs a bounded tool-calling loop against the Gemini Flash
-// meta-agent, letting it edit graph via the 5 graph_tool_decls tools until
-// it responds with plain text instead of a function call (or the iteration
-// cap is hit). graph should already be masked by the caller -- see
+// meta-agent, letting it edit graph via the graphToolDecls tools and research
+// via web_search until it responds with plain text instead of a function call.
+// Running out of rounds returns the partial graph rather than an error -- see
+// the tail of the loop. history is the prior conversation, oldest first; nil
+// is a cold first turn. graph should already be masked by the caller -- see
 // handlers.BuildWorkflow's doc comment for why.
-func BuildGraph(ctx context.Context, apiKey, userMessage string, graph models.WorkflowGraph) (BuildGraphResult, error) {
+func BuildGraph(ctx context.Context, apiKey, userMessage string, graph models.WorkflowGraph, history []BuildTurn) (BuildGraphResult, error) {
 	apiURL := fmt.Sprintf("%s/v1beta/models/%s:generateContent", geminiBaseURL, buildAgentModel)
 	apiHeaders := map[string]string{"x-goog-api-key": apiKey}
 
 	graphJSON, _ := json.Marshal(graph)
-	contents := []map[string]any{
-		{"role": "user", "parts": []map[string]any{{"text": fmt.Sprintf("Current graph:\n%s\n\nRequest: %s", graphJSON, userMessage)}}},
+	// Prior turns first, then the current one carrying a FRESH graph
+	// snapshot. The snapshot rides with the newest turn on purpose: the graph
+	// changes between turns, and replaying an old one would leave the model
+	// reasoning about nodes that have since been renamed or removed.
+	contents := make([]map[string]any, 0, len(history)+1)
+	for _, h := range history {
+		// Gemini rejects any role other than user/model, and one bad row
+		// replayed here would fail every build on this workflow from then on.
+		if h.Role != "user" && h.Role != "model" {
+			continue
+		}
+		if strings.TrimSpace(h.Text) == "" {
+			continue
+		}
+		contents = append(contents, map[string]any{
+			"role":  h.Role,
+			"parts": []map[string]any{{"text": h.Text}},
+		})
 	}
+	contents = append(contents, map[string]any{
+		"role":  "user",
+		"parts": []map[string]any{{"text": fmt.Sprintf("Current graph:\n%s\n\nRequest: %s", graphJSON, userMessage)}},
+	})
 	payload := map[string]any{
 		"contents": contents,
 		"systemInstruction": map[string]any{

@@ -220,7 +220,7 @@ func TestBuildGraphAddsNodeThenReturnsReply(t *testing.T) {
 	SetGeminiBaseURL(srv.URL)
 	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
 
-	result, err := BuildGraph(context.Background(), "test-key", "add a chat trigger", models.WorkflowGraph{})
+	result, err := BuildGraph(context.Background(), "test-key", "add a chat trigger", models.WorkflowGraph{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestBuildGraphOutOfIterationsKeepsWhatItBuilt(t *testing.T) {
 	SetGeminiBaseURL(srv.URL)
 	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
 
-	res, err := BuildGraph(context.Background(), "test-key", "build something endless", models.WorkflowGraph{})
+	res, err := BuildGraph(context.Background(), "test-key", "build something endless", models.WorkflowGraph{}, nil)
 	if err != nil {
 		t.Fatalf("running out of rounds must not be an error: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestBuildGraphRunsWebSearchAndKeepsGoing(t *testing.T) {
 	SetGeminiBaseURL(srv.URL)
 	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
 
-	res, err := BuildGraph(context.Background(), "k", "build a phone search agent", models.WorkflowGraph{})
+	res, err := BuildGraph(context.Background(), "k", "build a phone search agent", models.WorkflowGraph{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -483,5 +483,88 @@ func TestApplyGraphOpRejectsAPIKeyInFields(t *testing.T) {
 	}
 	if graph.Nodes[0].APIKey != "__enc__" {
 		t.Fatalf("the stored key sentinel must be untouched, got %q", graph.Nodes[0].APIKey)
+	}
+}
+
+func TestBuildGraphReplaysPriorTurns(t *testing.T) {
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}`)
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	history := []BuildTurn{
+		{Role: "user", Text: "the phone must have 16GB RAM"},
+		{Role: "model", Text: "Noted."},
+	}
+	if _, err := BuildGraph(context.Background(), "k", "now add an email step", models.WorkflowGraph{}, history); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(body, "16GB RAM") {
+		t.Fatal("prior user turn was not replayed into the request")
+	}
+	if !strings.Contains(body, "now add an email step") {
+		t.Fatal("the current message is missing from the request")
+	}
+	// The graph snapshot must ride with the CURRENT turn, not the oldest one:
+	// replaying a stale graph as the first user turn would have the model
+	// reasoning about nodes that no longer exist.
+	if strings.Index(body, "16GB RAM") > strings.Index(body, "Current graph") {
+		t.Fatal("the graph snapshot must come after the replayed history")
+	}
+}
+
+func TestBuildGraphWithNoHistoryStillWorks(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}`)
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), "k", "hello", models.WorkflowGraph{}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Reply != "ok" {
+		t.Fatalf("want reply ok, got %q", res.Reply)
+	}
+}
+
+// Stored history is replayed verbatim into Gemini's contents, where a role
+// other than user/model is rejected by the API and fails the whole build.
+// Skipped rather than trusted: the DB CHECK guards writes today, but this is
+// the boundary where a bad row would otherwise take down every later turn.
+func TestBuildGraphSkipsMalformedHistoryTurns(t *testing.T) {
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}`)
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	history := []BuildTurn{
+		{Role: "system", Text: "BAD-ROLE"},
+		{Role: "user", Text: "   "},
+		{Role: "user", Text: "keep me"},
+	}
+	if _, err := BuildGraph(context.Background(), "k", "go", models.WorkflowGraph{}, history); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(body, "BAD-ROLE") {
+		t.Fatal("a turn with an invalid role was replayed")
+	}
+	if !strings.Contains(body, "keep me") {
+		t.Fatal("a valid turn was dropped")
 	}
 }

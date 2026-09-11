@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -272,5 +273,108 @@ func TestBuildWorkflowOtherUserGets404(t *testing.T) {
 	rec := buildWorkflowReq(d, wf.ID, other.ID, "add a trigger")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("other user got %d, want 404 (body: %s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBuildWorkflowRecordsBothTurnsAndReplaysThem(t *testing.T) {
+	d := testDeps(t)
+	d.PlatformGeminiAPIKey = "test-key"
+	ctx := context.Background()
+
+	user, err := d.Store.CreateUser(ctx, "wf-hist-"+randSuffix(t)+"@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wf, err := d.Store.CreateWorkflow(ctx, "Remember Me", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Store.DeleteWorkflow(context.Background(), wf.ID) })
+
+	// Always answer with plain text: this test is about what goes INTO the
+	// request and what lands in the history, not about tool calling.
+	var lastBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		lastBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"candidates": []map[string]any{
+				{"content": map[string]any{"parts": []map[string]any{
+					{"text": "Noted."},
+				}}},
+			},
+		})
+	}))
+	defer srv.Close()
+	nodes.SetGeminiBaseURL(srv.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	if rec := buildWorkflowReq(d, wf.ID, user.ID, "the phone must have 16GB RAM"); rec.Code != http.StatusOK {
+		t.Fatalf("first build got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	msgs, err := d.Store.GetBuildMessages(ctx, wf.ID, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("want the user turn and the model turn recorded, got %d", len(msgs))
+	}
+	if msgs[0].Role != "user" || msgs[0].Text != "the phone must have 16GB RAM" {
+		t.Fatalf("user turn wrong: %+v", msgs[0])
+	}
+	if msgs[1].Role != "model" || msgs[1].Text != "Noted." {
+		t.Fatalf("model turn wrong: %+v", msgs[1])
+	}
+
+	// The second turn must carry the first one into the request -- this is
+	// the whole point of the history, and it is the assertion that would
+	// catch the handler loading history but forgetting to pass it on.
+	if rec := buildWorkflowReq(d, wf.ID, user.ID, "now add an email step"); rec.Code != http.StatusOK {
+		t.Fatalf("second build got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(lastBody, "16GB RAM") {
+		t.Fatal("the first turn was not replayed into the second request")
+	}
+	if !strings.Contains(lastBody, "now add an email step") {
+		t.Fatal("the current message is missing from the second request")
+	}
+}
+
+// A build that fails must leave the history untouched. Recording the user's
+// message up front would leave an unanswered question behind, and the next
+// build would replay it with no reply after it.
+func TestBuildWorkflowFailedBuildRecordsNothing(t *testing.T) {
+	d := testDeps(t)
+	d.PlatformGeminiAPIKey = "test-key"
+	ctx := context.Background()
+
+	user, err := d.Store.CreateUser(ctx, "wf-histfail-"+randSuffix(t)+"@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wf, err := d.Store.CreateWorkflow(ctx, "Fails", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Store.DeleteWorkflow(context.Background(), wf.ID) })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "upstream exploded", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	nodes.SetGeminiBaseURL(srv.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	if rec := buildWorkflowReq(d, wf.ID, user.ID, "this will fail"); rec.Code == http.StatusOK {
+		t.Fatalf("expected the build to fail, got 200")
+	}
+	msgs, err := d.Store.GetBuildMessages(ctx, wf.ID, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("a failed build must record nothing, got %d turns: %+v", len(msgs), msgs)
 	}
 }
