@@ -390,9 +390,9 @@ func TestApplyGraphOpRejectsSecretBearingConfigKeys(t *testing.T) {
 func TestApplyGraphOpUpdateNodeMergesConfig(t *testing.T) {
 	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{{
 		ID:       "n1",
-		Type:     models.NodeTypeTool,
-		Template: "http",
-		Config:   map[string]string{"httpBodyTemplate": "old"},
+		Type:     models.NodeTypeAction,
+		Template: "slack",
+		Config:   map[string]string{"slackChannel": "C0123"},
 	}}}
 	_, err := applyGraphOp(graph, "update_node", map[string]any{
 		"id":     "n1",
@@ -403,7 +403,7 @@ func TestApplyGraphOpUpdateNodeMergesConfig(t *testing.T) {
 	}
 	// Merge, not replace: an update that sets one key must not wipe a key
 	// the user configured by hand in the Inspector.
-	if graph.Nodes[0].Config["httpBodyTemplate"] != "old" {
+	if graph.Nodes[0].Config["slackChannel"] != "C0123" {
 		t.Fatal("update_node replaced Config instead of merging into it")
 	}
 	if graph.Nodes[0].Config["messageTemplate"] != "hello" {
@@ -423,42 +423,28 @@ func TestApplyGraphOpRejectsNonStringConfigValue(t *testing.T) {
 	}
 }
 
-func TestBuildSystemPromptListsEveryToolTemplate(t *testing.T) {
-	// The prompt advertised 4 of the 12 templates executeTool implements, so
-	// the builder could not reach the other 8. Asserted here because this is
-	// a list that silently rots every time a template is added.
-	//
-	// Scoped to the "- tool:" line and matched as whole comma-separated
-	// tokens, not with a bare strings.Contains over the whole prompt: "set",
-	// "http", "template" and "xml" are all substrings of words the prompt
-	// uses elsewhere ("settable", "httpBodyTemplate", "Template id"), so a
-	// Contains check would pass for templates the list does not actually
-	// name -- the precise failure this test exists to catch.
-	var list string
-	for _, line := range strings.Split(buildSystemPrompt, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "- tool:") {
-			list = strings.TrimPrefix(strings.TrimSpace(line), "- tool:")
-			break
+// The node section of the prompt is generated from the catalog, so every
+// template the canvas offers must appear -- this is what the old hand-typed
+// list got wrong (4 of 12 tools, 24 of 42 connectors, a cron trigger that
+// never existed).
+func TestBuildSystemPromptListsEveryCatalogTemplate(t *testing.T) {
+	for _, typ := range NodeCatalogData().Types {
+		for _, tpl := range typ.Templates {
+			if !strings.Contains(buildSystemPrompt, "\n  "+tpl.ID+" ") {
+				t.Errorf("system prompt does not list %s/%s", typ.Type, tpl.ID)
+			}
 		}
 	}
-	if list == "" {
-		t.Fatal(`no "- tool:" line in the system prompt`)
+}
+
+func TestBuildSystemPromptHasNoCronAndExplainsSchedules(t *testing.T) {
+	// What matters is that no catalog entry offers one; the prompt is
+	// expected to MENTION cron, to say there is no such trigger.
+	if strings.Contains(buildSystemPrompt, "\n  cron ") || strings.Contains(buildSystemPrompt, "\n  schedule ") {
+		t.Fatal("the node catalog in the prompt offers a cron/schedule trigger")
 	}
-	// The line may end with prose after the template list; cut at the first "(".
-	if i := strings.Index(list, "("); i >= 0 {
-		list = list[:i]
-	}
-	named := map[string]bool{}
-	for _, tok := range strings.Split(list, ",") {
-		named[strings.TrimSpace(tok)] = true
-	}
-	for _, tmpl := range []string{
-		"http", "calc", "set", "json_extract", "crypto", "datetime",
-		"xml", "template", "html_extract", "markdown", "quickchart", "websearch",
-	} {
-		if !named[tmpl] {
-			t.Errorf("the tool template list does not name %q (got %v)", tmpl, named)
-		}
+	if !strings.Contains(buildSystemPrompt, "Schedule") || !strings.Contains(buildSystemPrompt, "UTC") {
+		t.Fatal("the prompt must say schedules are set on the Workflows page, in UTC")
 	}
 }
 
@@ -470,9 +456,10 @@ func TestBuildSystemPromptListsEveryToolTemplate(t *testing.T) {
 // is invented.
 func TestApplyGraphOpRejectsAPIKeyInFields(t *testing.T) {
 	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{{
-		ID:     "p1",
-		Type:   models.NodeTypeProvider,
-		APIKey: "__enc__",
+		ID:       "p1",
+		Type:     models.NodeTypeProvider,
+		Template: "gemini",
+		APIKey:   "__enc__",
 	}}}
 	_, err := applyGraphOp(graph, "update_node", map[string]any{
 		"id":     "p1",
@@ -566,5 +553,147 @@ func TestBuildGraphSkipsMalformedHistoryTurns(t *testing.T) {
 	}
 	if !strings.Contains(body, "keep me") {
 		t.Fatal("a valid turn was dropped")
+	}
+}
+
+func TestAddNodeRejectsCronTrigger(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := applyGraphOp(graph, "add_node", map[string]any{"type": "trigger", "template": "cron"})
+	if err == nil {
+		t.Fatal("a cron trigger does not exist and must be rejected")
+	}
+	for _, want := range []string{"manual", "chat", "webhook"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the error should list the real triggers, got: %v", err)
+		}
+	}
+}
+
+func TestAddNodeCreatesStateAndGoogleNodes(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	if _, err := applyGraphOp(graph, "add_node", map[string]any{"type": "state", "template": "set"}); err != nil {
+		t.Fatalf("state node: %v", err)
+	}
+	if _, err := applyGraphOp(graph, "add_node", map[string]any{"type": "google", "template": "gmail_list"}); err != nil {
+		t.Fatalf("google node: %v", err)
+	}
+}
+
+// A "Write State" node with no stateOp silently runs get; a Tendril node with
+// no tendrilAction fails outright. The palette sets both on drop.
+func TestAddNodeAppliesCatalogPresets(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	applyGraphOp(graph, "add_node", map[string]any{"type": "state", "template": "set"})
+	applyGraphOp(graph, "add_node", map[string]any{"type": "tendril", "template": "tendril_rent"})
+	applyGraphOp(graph, "add_node", map[string]any{"type": "provider", "template": "gemini"})
+	if graph.Nodes[0].StateOp != "set" {
+		t.Fatalf("state/set must preset stateOp=set, got %q", graph.Nodes[0].StateOp)
+	}
+	if graph.Nodes[1].TendrilAction != "rent" || graph.Nodes[1].TendrilHours != "1" {
+		t.Fatalf("tendril_rent presets not applied: %+v", graph.Nodes[1])
+	}
+	if graph.Nodes[2].Model != "gemini-2.5-flash" {
+		t.Fatalf("provider/gemini must preset its default model, got %q", graph.Nodes[2].Model)
+	}
+}
+
+// The bug from the Nifty-50 build: the path had nowhere to go.
+func TestAddNodeSetsTemplateSpecificConfig(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type": "tool", "template": "json_extract",
+		"config": map[string]any{"jsonPath": "data.0.lastPrice"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if graph.Nodes[0].Config["jsonPath"] != "data.0.lastPrice" {
+		t.Fatalf("jsonPath not set: %+v", graph.Nodes[0].Config)
+	}
+}
+
+func TestAddNodeRejectsSettingsTheTemplateDoesNotHave(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type": "tool", "template": "http",
+		"config": map[string]any{"jsonPath": "x"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "httpBodyTemplate") {
+		t.Fatalf("want a rejection listing http's real settings, got: %v", err)
+	}
+	_, err = applyGraphOp(graph, "add_node", map[string]any{
+		"type": "tool", "template": "http",
+		"fields": map[string]any{"bogusField": "x"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "url") {
+		t.Fatalf("want a rejection listing http's real fields, got: %v", err)
+	}
+}
+
+// A connector credential is disclosed, never set -- and the error points at
+// where the user gets it, so the reply can too.
+func TestAddNodeRejectsConnectorCredentialWithItsSource(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type": "action", "template": "slack",
+		"config": map[string]any{"slackWebhookURL": "https://hooks.slack.com/x"},
+	})
+	if err == nil {
+		t.Fatal("a Slack webhook URL is a credential and must not be settable")
+	}
+	if !strings.Contains(err.Error(), "api.slack.com") {
+		t.Fatalf("the error should say where the credential comes from, got: %v", err)
+	}
+}
+
+func TestAddNodeRejectsGoogleAccountConnection(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type": "google", "template": "gmail_list",
+		"config": map[string]any{"oauthCredentialID": "whatever"},
+	})
+	if err == nil {
+		t.Fatal("the Google account is linked by the user, never set by the builder")
+	}
+}
+
+func TestUpdateNodeTemplateChangeReappliesPresets(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	applyGraphOp(graph, "add_node", map[string]any{"type": "state", "template": "get"})
+	id := graph.Nodes[0].ID
+	if _, err := applyGraphOp(graph, "update_node", map[string]any{"id": id, "template": "set"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if graph.Nodes[0].StateOp != "set" {
+		t.Fatalf("changing state get->set must move stateOp too, got %q", graph.Nodes[0].StateOp)
+	}
+}
+
+// x402 nodes are custom endpoints, not catalog templates -- the pasted-URL
+// path must keep working.
+func TestAddNodeTool402StillAcceptsEndpointFields(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type": "tool402", "template": "custom",
+		"fields": map[string]any{"url": "https://x402.example.com/data", "method": "GET"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if graph.Nodes[0].URL != "https://x402.example.com/data" {
+		t.Fatalf("url not set: %+v", graph.Nodes[0])
+	}
+}
+
+func TestDescribeNodeReturnsTemplateDetail(t *testing.T) {
+	out, err := describeNode("tool", "json_extract")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "jsonPath") {
+		t.Fatalf("describe_node should detail jsonPath, got %s", out)
+	}
+	if _, err := describeNode("trigger", "cron"); err == nil {
+		t.Fatal("describe_node must reject a template that does not exist")
 	}
 }

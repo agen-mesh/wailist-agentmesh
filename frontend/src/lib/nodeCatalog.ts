@@ -338,7 +338,10 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: t.desc,
-        note: "Finishes the run and passes the last output through. The http and done templates behave identically.",
+        // "Respond to Webhook" reads as if the webhook caller gets this
+        // output back. It does not: the public trigger answers 202 {runId}
+        // before the run even finishes (handlers/runs.go PublicTrigger).
+        note: "Finishes the run and passes the last output through; the http and done templates behave identically. A webhook caller never receives run output -- the webhook answers 202 with a runId immediately -- so do not promise a response body.",
         fields: [],
       })),
     },

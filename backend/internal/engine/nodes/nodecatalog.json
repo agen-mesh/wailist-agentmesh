@@ -2212,14 +2212,14 @@
           "id": "http",
           "name": "Respond to Webhook",
           "desc": "Return JSON",
-          "note": "Finishes the run and passes the last output through. The http and done templates behave identically.",
+          "note": "Finishes the run and passes the last output through; the http and done templates behave identically. A webhook caller never receives run output -- the webhook answers 202 with a runId immediately -- so do not promise a response body.",
           "fields": []
         },
         {
           "id": "done",
           "name": "End",
           "desc": "Mark complete",
-          "note": "Finishes the run and passes the last output through. The http and done templates behave identically.",
+          "note": "Finishes the run and passes the last output through; the http and done templates behave identically. A webhook caller never receives run output -- the webhook answers 202 with a runId immediately -- so do not promise a response body.",
           "fields": []
         }
       ]

@@ -4,47 +4,78 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/agentmesh/backend/internal/models"
 )
 
-var graphNodeTypes = map[string]bool{
-	"trigger": true, "agent": true, "provider": true, "tool": true,
-	"tool402": true, "action": true, "end": true, "tendril": true,
-}
+// graphNodeTypes is every node type the builder may create: each type in the
+// node catalog, plus tool402. An x402 endpoint is deliberately not a catalog
+// template -- every one is a different real endpoint charging real money --
+// so it is added from the Bazaar catalog (add_x402_node) or from a URL the
+// user supplies, never picked from a fixed list.
+var graphNodeTypes = func() map[string]bool {
+	m := map[string]bool{"tool402": true}
+	for _, t := range NodeCatalogData().Types {
+		m[t.Type] = true
+	}
+	return m
+}()
 
 var graphEdgeKinds = map[string]bool{"flow": true, "attach": true}
 
-// nodeFieldSetters maps the config keys a build-mode tool call may set onto
-// the corresponding WorkflowNode string field. Deliberately excludes
-// DiscoveredParams/CustomParams/Secrets/Config/tendril* fields -- those are
-// advanced per-node authoring surfaces out of scope for a first cut of
-// chat-built graphs. Config is reachable separately, through the
-// nodeConfigKeys allowlist below.
+// tool402FieldKeys are the settable fields of a hand-specified x402 node --
+// the one node type the catalog does not describe.
+var tool402FieldKeys = []string{"url", "endpoint", "method", "price", "unit", "provider", "description"}
+
+// secretConfigKeys are credentials the builder may never set, whatever the
+// catalog says, through either "fields" or "config". Named explicitly so the
+// rejection can say what to do instead, rather than the generic "not a
+// setting" that would leave the model retrying variations of the same call.
 //
-// APIKey is deliberately absent too. It used to be here, which let
-// update_node overwrite a provider's real key: the model only ever sees the
-// "__enc__" sentinel (redactNodesForBuildAgent), so whatever it wrote was
-// invented, and encryptField encrypted that over the top of the user's real
-// credential. See secretConfigKeys for what the model is told instead.
-var nodeFieldSetters = map[string]func(n *models.WorkflowNode, v string){
-	"systemPrompt":  func(n *models.WorkflowNode, v string) { n.SystemPrompt = v },
-	"model":         func(n *models.WorkflowNode, v string) { n.Model = v },
-	"keyMode":       func(n *models.WorkflowNode, v string) { n.KeyMode = v },
-	"url":           func(n *models.WorkflowNode, v string) { n.URL = v },
-	"method":        func(n *models.WorkflowNode, v string) { n.Method = v },
-	"endpoint":      func(n *models.WorkflowNode, v string) { n.Endpoint = v },
-	"price":         func(n *models.WorkflowNode, v string) { n.Price = v },
-	"unit":          func(n *models.WorkflowNode, v string) { n.Unit = v },
-	"provider":      func(n *models.WorkflowNode, v string) { n.Provider = v },
-	"description":   func(n *models.WorkflowNode, v string) { n.Description = v },
-	"emailTo":       func(n *models.WorkflowNode, v string) { n.EmailTo = v },
-	"emailFrom":     func(n *models.WorkflowNode, v string) { n.EmailFrom = v },
-	"emailSubject":  func(n *models.WorkflowNode, v string) { n.EmailSubject = v },
-	"emailBody":     func(n *models.WorkflowNode, v string) { n.EmailBody = v },
-	"emailProvider": func(n *models.WorkflowNode, v string) { n.EmailProvider = v },
+// apiKey and emailApiKey are here because they are top-level encrypted
+// properties: the model only ever sees the "__enc__" sentinel
+// (redactNodesForBuildAgent), so anything it wrote would be invented, and
+// encryptField would encrypt it over the top of the user's real credential.
+var secretConfigKeys = map[string]bool{
+	"httpHeadersJSON": true, "httpBasicUser": true, "httpBasicPass": true,
+	"apiKey": true, "emailApiKey": true, "tendrilLeaseToken": true,
+	"apiToken": true, "authorization": true, "token": true,
+}
+
+// scheduleTriggerNames are what a model reaches for when asked for a
+// recurring workflow. None exists; the rejection explains what does.
+var scheduleTriggerNames = map[string]bool{
+	"cron": true, "schedule": true, "scheduled": true, "interval": true, "timer": true,
+}
+
+// nodeStringFields maps each top-level string property of WorkflowNode, by
+// its json name, to its struct index. The catalog decides WHICH of these a
+// given template may set; this only performs the assignment, so a new
+// catalog field needs no hand-written setter.
+var nodeStringFields = func() map[string]int {
+	out := map[string]int{}
+	rt := reflect.TypeOf(models.WorkflowNode{})
+	for i := 0; i < rt.NumField(); i++ {
+		f := rt.Field(i)
+		if f.Type.Kind() != reflect.String {
+			continue
+		}
+		if name := strings.Split(f.Tag.Get("json"), ",")[0]; name != "" && name != "-" {
+			out[name] = i
+		}
+	}
+	return out
+}()
+
+func setNodeField(n *models.WorkflowNode, key, v string) {
+	if idx, ok := nodeStringFields[key]; ok {
+		reflect.ValueOf(n).Elem().Field(idx).SetString(v)
+	}
 }
 
 func newGraphID(prefix string) string {
@@ -76,89 +107,139 @@ func argString(args map[string]any, key string) string {
 	return v
 }
 
-// nodeConfigKeys is the allowlist of Config keys a chat-built node may set.
-//
-// Config is non-secret by definition (see WorkflowNode.Config) and is read
-// through configVal, while anything credential-bearing lives in Secrets and
-// is read through secretVal. The split is what makes this safe to open up:
-// a body template is structure, and without one the builder cannot produce a
-// working POST node no matter how well it researched the API.
-//
-// An allowlist rather than "anything not in Secrets" because Config is a
-// free-form map shared by every connector -- a typo'd key would be accepted
-// silently, saved, and then read back as "" by the connector that wanted it.
-var nodeConfigKeys = map[string]bool{
-	// The JSON (or other) body an http tool node sends. See callHTTP.
-	"httpBodyTemplate": true,
-	// The message body a connector action sends. See messageTemplateKey.
-	"messageTemplate": true,
+// nodeRules is what one node may have set on it: its catalog template (zero
+// for tool402 and for a custom node with no template), and the keys it
+// accepts through "fields" and through "config".
+type nodeRules struct {
+	nodeType string
+	tpl      CatalogTemplate
+	fields   []string
+	config   []string
 }
 
-// secretConfigKeys are the keys a model is most likely to reach for when it
-// wants to configure authentication. They are never model-settable, through
-// either "fields" or "config" -- named explicitly so the rejection can say
-// what to do instead, rather than the generic "not an allowed key" that
-// would leave the model retrying variations of the same call.
-var secretConfigKeys = map[string]bool{
-	"httpHeadersJSON": true, "httpBasicUser": true, "httpBasicPass": true,
-	"apiKey": true, "apiToken": true, "authorization": true, "token": true,
+func typeNames() string {
+	var out []string
+	for t := range graphNodeTypes {
+		out = append(out, t)
+	}
+	sort.Strings(out)
+	return strings.Join(out, ", ")
 }
 
-func credentialKeyError(k string) error {
-	return fmt.Errorf(
+// rulesFor returns the rules for a node of this type and template, or an
+// error that names the real options -- the model can only correct a mistake
+// it can see the right answer to.
+func rulesFor(nodeType, template string) (nodeRules, error) {
+	if nodeType == "tool402" {
+		return nodeRules{nodeType: nodeType, fields: tool402FieldKeys}, nil
+	}
+	tpl, ok := catalogTemplate(nodeType, template)
+	if !ok {
+		t, _ := catalogType(nodeType)
+		ids := make([]string, 0, len(t.Templates))
+		for _, x := range t.Templates {
+			ids = append(ids, x.ID)
+		}
+		msg := fmt.Sprintf("%s has no template %q; its templates are: %s", nodeType, template, strings.Join(ids, ", "))
+		if nodeType == "trigger" && scheduleTriggerNames[template] {
+			msg += ". There is no schedule or cron trigger: use a manual trigger, and tell the user to deploy the workflow and set the timetable from its Schedule option on the Workflows page (a 5-field cron expression, in UTC)"
+		}
+		return nodeRules{}, fmt.Errorf("%s", msg)
+	}
+	fields := tpl.keysWhere("field")
+	if !slices.Contains(fields, "description") {
+		fields = append(fields, "description")
+	}
+	return nodeRules{nodeType: nodeType, tpl: tpl, fields: fields, config: tpl.keysWhere("config")}, nil
+}
+
+// credentialError says the key is the user's to supply, and where they get it.
+func (r nodeRules) credentialError(k string) error {
+	msg := fmt.Sprintf(
 		"%q holds a credential and cannot be set by you -- credentials are never sent to you and you must not invent one; instead set the node's description to name exactly which credential the user has to add in the Inspector, and say so in your reply",
 		k)
+	if f, ok := r.tpl.field(k); ok && f.Where == "connection" {
+		msg = fmt.Sprintf("%q is an account the user links in the Inspector (%s); you cannot set it -- say in your reply that they need to connect it", k, f.Label)
+	}
+	if r.tpl.AuthDocURL != "" {
+		msg += fmt.Sprintf(" (they get it from %s)", r.tpl.AuthDocURL)
+	}
+	return fmt.Errorf("%s", msg)
 }
 
-// argConfig reads and validates the optional "config" object on a node tool
-// call.
-func argConfig(args map[string]any) (map[string]string, error) {
+// parse reads and validates the string map under args[param] ("fields" or
+// "config") against the keys this node accepts there.
+func (r nodeRules) parse(args map[string]any, param string, allowed []string) (map[string]string, error) {
 	out := map[string]string{}
-	raw, ok := args["config"].(map[string]any)
+	raw, ok := args[param].(map[string]any)
 	if !ok {
 		return out, nil
 	}
 	for k, v := range raw {
 		if secretConfigKeys[k] {
-			return nil, credentialKeyError(k)
+			return nil, r.credentialError(k)
 		}
-		if !nodeConfigKeys[k] {
-			return nil, fmt.Errorf("config key %q is not settable; allowed keys are httpBodyTemplate and messageTemplate", k)
+		if f, ok := r.tpl.field(k); ok && (f.Where == "secret" || f.Where == "connection") {
+			return nil, r.credentialError(k)
+		}
+		if !slices.Contains(allowed, k) {
+			have := "none"
+			if len(allowed) > 0 {
+				have = strings.Join(allowed, ", ")
+			}
+			label := r.nodeType
+			if r.tpl.ID != "" {
+				label += "/" + r.tpl.ID
+			}
+			hint := ""
+			if f, ok := r.tpl.field(k); ok {
+				hint = fmt.Sprintf(" (%q is a %s key, not a %s key)", k, f.Where, param)
+			}
+			return nil, fmt.Errorf("%s has no %s key %q%s; its %s keys are: %s -- call describe_node for details", label, param, k, hint, param, have)
 		}
 		s, ok := v.(string)
 		if !ok {
-			return nil, fmt.Errorf("config value %q must be a string, got %T", k, v)
+			return nil, fmt.Errorf("%s value %q must be a string, got %T", param, k, v)
 		}
 		out[k] = s
 	}
 	return out, nil
 }
 
-func argFields(args map[string]any) (map[string]string, error) {
-	out := map[string]string{}
-	raw, ok := args["fields"].(map[string]any)
-	if !ok {
-		return out, nil
-	}
-	for k, v := range raw {
-		if secretConfigKeys[k] {
-			return nil, credentialKeyError(k)
-		}
-		if s, ok := v.(string); ok {
-			out[k] = s
-		} else {
-			return nil, fmt.Errorf("field %q must be a string, got %T", k, v)
+// userSupplied lists the credentials and connections this node can take, so
+// the tool result reminds the model to disclose the ones the workflow needs.
+func (r nodeRules) userSupplied() string {
+	var keys []string
+	for _, f := range r.tpl.Fields {
+		if f.Where == "secret" || f.Where == "connection" {
+			keys = append(keys, f.Key)
 		}
 	}
-	return out, nil
+	if len(keys) == 0 {
+		return ""
+	}
+	s := " -- the user supplies its credentials (you cannot): " + strings.Join(keys, ", ")
+	if r.tpl.AuthDocURL != "" {
+		s += " from " + r.tpl.AuthDocURL
+	}
+	return s + "; name the ones this workflow needs on the node's description and in your reply"
 }
 
 func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, error) {
 	nodeType := argString(args, "type")
 	if !graphNodeTypes[nodeType] {
-		return "", fmt.Errorf("add_node: invalid type %q", nodeType)
+		return "", fmt.Errorf("add_node: invalid type %q; valid types: %s", nodeType, typeNames())
 	}
-	fields, err := argFields(args)
+	template := argString(args, "template")
+	rules, err := rulesFor(nodeType, template)
+	if err != nil {
+		return "", fmt.Errorf("add_node: %w", err)
+	}
+	fields, err := rules.parse(args, "fields", rules.fields)
+	if err != nil {
+		return "", err
+	}
+	cfg, err := rules.parse(args, "config", rules.config)
 	if err != nil {
 		return "", err
 	}
@@ -166,19 +247,21 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 	node := models.WorkflowNode{
 		ID:       id,
 		Type:     models.NodeType(nodeType),
-		Template: argString(args, "template"),
+		Template: template,
 		Name:     argString(args, "name"),
 		X:        80 + 240*float64(len(graph.Nodes)%4),
 		Y:        120 + 160*float64(len(graph.Nodes)/4),
 	}
-	for k, v := range fields {
-		if set, ok := nodeFieldSetters[k]; ok {
-			set(&node, v)
-		}
+	// Presets first, exactly as the palette applies them on drop: a state
+	// node runs on stateOp and a Tendril node on tendrilAction, not on the
+	// template, so without these the node silently does the wrong thing or
+	// fails outright. The identity presets are not in the template's
+	// "fields", so an explicit field below can only refine the defaults.
+	for k, v := range rules.tpl.Presets {
+		setNodeField(&node, k, v)
 	}
-	cfg, err := argConfig(args)
-	if err != nil {
-		return "", err
+	for k, v := range fields {
+		setNodeField(&node, k, v)
 	}
 	if len(cfg) > 0 {
 		node.Config = cfg
@@ -186,56 +269,89 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 	// Default a new Provider node to platform-key mode unless the model
 	// explicitly chose "byok" -- resolveAPIKey (provider.go) treats any
 	// KeyMode other than "platform" as BYOK and reads node.APIKey, which a
-	// chat-built node never has. Left to the model's own judgment (via the
-	// fieldsSchema description alone) this defaulted to "" == BYOK in
-	// practice, so every chat-built agent needed a manual Inspector trip
-	// before it could run at all. Deterministic here rather than relying on
+	// chat-built node never has. Deterministic here rather than relying on
 	// prompt compliance -- this must hold every time, not most of the time.
 	if node.Type == models.NodeTypeProvider && node.KeyMode == "" {
 		node.KeyMode = "platform"
 	}
 	graph.Nodes = append(graph.Nodes, node)
-	return fmt.Sprintf("added node %s (%s/%s)", id, nodeType, node.Template), nil
+	return fmt.Sprintf("added node %s (%s/%s)%s", id, nodeType, node.Template, rules.userSupplied()), nil
 }
 
 func updateGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, error) {
 	id := argString(args, "id")
 	for i := range graph.Nodes {
-		if graph.Nodes[i].ID != id {
+		n := &graph.Nodes[i]
+		if n.ID != id {
 			continue
 		}
-		if name := argString(args, "name"); name != "" {
-			graph.Nodes[i].Name = name
+		template := n.Template
+		newTemplate := argString(args, "template")
+		if newTemplate != "" {
+			template = newTemplate
 		}
-		if template := argString(args, "template"); template != "" {
-			graph.Nodes[i].Template = template
+		rules, err := rulesFor(string(n.Type), template)
+		if err != nil {
+			// A node the user made from a palette "custom" item has no
+			// template. It can still be renamed and described, but anything
+			// else needs a real template first so there is something to
+			// validate against.
+			if newTemplate != "" {
+				return "", fmt.Errorf("update_node: %w", err)
+			}
+			rules = nodeRules{nodeType: string(n.Type), fields: []string{"description"}}
 		}
-		fields, err := argFields(args)
+		fields, err := rules.parse(args, "fields", rules.fields)
+		if err != nil {
+			if rules.tpl.ID == "" && n.Type != models.NodeTypeTool402 {
+				err = fmt.Errorf("%w (node %s has no template -- set one with update_node template=... before configuring it)", err, id)
+			}
+			return "", err
+		}
+		cfg, err := rules.parse(args, "config", rules.config)
 		if err != nil {
 			return "", err
 		}
-		for k, v := range fields {
-			if set, ok := nodeFieldSetters[k]; ok {
-				set(&graph.Nodes[i], v)
+		if newTemplate != "" && newTemplate != n.Template {
+			n.Template = newTemplate
+			for k, v := range rules.tpl.Presets {
+				setNodeField(n, k, v)
 			}
 		}
-		cfg, err := argConfig(args)
-		if err != nil {
-			return "", err
+		if name := argString(args, "name"); name != "" {
+			n.Name = name
+		}
+		for k, v := range fields {
+			setNodeField(n, k, v)
 		}
 		// Merge rather than replace: the user may have set a key by hand in
 		// the Inspector, and an unrelated update from chat must not wipe it.
 		if len(cfg) > 0 {
-			if graph.Nodes[i].Config == nil {
-				graph.Nodes[i].Config = map[string]string{}
+			if n.Config == nil {
+				n.Config = map[string]string{}
 			}
 			for k, v := range cfg {
-				graph.Nodes[i].Config[k] = v
+				n.Config[k] = v
 			}
 		}
 		return fmt.Sprintf("updated node %s", id), nil
 	}
 	return "", fmt.Errorf("update_node: node %q not found", id)
+}
+
+// describeNode returns the full catalog entry for one template -- labels,
+// hints, placeholders, presets and where credentials come from -- for when
+// the compact list in the prompt is not enough to fill a setting correctly.
+func describeNode(nodeType, template string) (string, error) {
+	if nodeType == "tool402" {
+		return "tool402 is an x402 endpoint, not a catalog template. Prefer add_x402_node with an id from search_x402; with a URL the user gave you, add_node type=tool402 fields: " + strings.Join(tool402FieldKeys, ", "), nil
+	}
+	rules, err := rulesFor(nodeType, template)
+	if err != nil {
+		return "", err
+	}
+	out, _ := json.Marshal(rules.tpl)
+	return string(out), nil
 }
 
 func removeGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, error) {
@@ -310,30 +426,41 @@ func removeGraphEdge(graph *models.WorkflowGraph, args map[string]any) (string, 
 	return fmt.Sprintf("removed edge %s", id), nil
 }
 
-func graphToolDecls() []funcDecl {
-	// The legal keys are enumerated structurally from nodeFieldSetters rather
-	// than listed in prose: an OBJECT schema with no declared properties is
-	// rejected by some Gemini schema validators, and all five declarations go
-	// up in one tools array, so a rejection here would fail every build call.
-	fieldProperties := make(map[string]any, len(nodeFieldSetters))
-	for k := range nodeFieldSetters {
-		fieldProperties[k] = map[string]any{"type": "string"}
+// catalogKeyUnion collects every settable key of one kind across the whole
+// catalog, for the tool schemas below.
+func catalogKeyUnion(where string, extra ...string) map[string]any {
+	props := map[string]any{}
+	for _, k := range extra {
+		props[k] = map[string]any{"type": "string"}
 	}
+	for _, t := range NodeCatalogData().Types {
+		for _, tpl := range t.Templates {
+			for _, k := range tpl.keysWhere(where) {
+				props[k] = map[string]any{"type": "string"}
+			}
+		}
+	}
+	return props
+}
+
+func graphToolDecls() []funcDecl {
+	// The legal keys are enumerated structurally from the node catalog rather
+	// than listed in prose: an OBJECT schema with no declared properties is
+	// rejected by some Gemini schema validators, and every declaration goes
+	// up in one tools array, so a rejection here would fail every build call.
+	// This is the union across all templates; which keys a particular
+	// template accepts is checked per call (rulesFor) and listed in the prompt.
 	fieldsSchema := map[string]any{
-		"type":        "OBJECT",
-		"description": "Extra node fields, all optional strings. keyMode is either \"byok\" or \"platform\" -- a new Provider node defaults to \"platform\" already, only set this to \"byok\" if the user specifically asks to use their own API key.",
-		"properties":  fieldProperties,
+		"type": "OBJECT",
+		"description": "Top-level node fields, all strings. Only the keys listed for this template in the node catalog are accepted. " +
+			"keyMode is \"platform\" (the default for a new provider) or \"byok\" -- only use byok if the user asks to use their own key.",
+		"properties": catalogKeyUnion("field", tool402FieldKeys...),
 	}
 	configSchema := map[string]any{
 		"type": "OBJECT",
-		"description": "Non-secret node settings. \"httpBodyTemplate\" is the request body an http tool node " +
-			"sends (a JSON string; {{ result }} interpolates the previous step's output). \"messageTemplate\" " +
-			"is the body a connector action sends. Credentials are NOT settable here -- name them on the " +
-			"node's description instead.",
-		"properties": map[string]any{
-			"httpBodyTemplate": map[string]any{"type": "string"},
-			"messageTemplate":  map[string]any{"type": "string"},
-		},
+		"description": "Non-secret node settings (node.config), all strings. Only the keys listed for this template in the node catalog are accepted. " +
+			"Credentials are never settable -- name them on the node's description instead.",
+		"properties": catalogKeyUnion("config"),
 	}
 	return []funcDecl{
 		{
@@ -342,8 +469,8 @@ func graphToolDecls() []funcDecl {
 			Parameters: map[string]any{
 				"type": "OBJECT",
 				"properties": map[string]any{
-					"type":     map[string]any{"type": "string", "description": "One of: trigger, agent, provider, tool, tool402, action, end, tendril."},
-					"template": map[string]any{"type": "string", "description": "Template id within the type, e.g. \"chat\" for trigger, \"gemini\" for provider, \"agent\" for agent, \"email\" for action."},
+					"type":     map[string]any{"type": "string", "description": "A node type from the node catalog, or tool402."},
+					"template": map[string]any{"type": "string", "description": "A template id of that type from the node catalog (for tool402, any short label)."},
 					"name":     map[string]any{"type": "string", "description": "Display name for the node."},
 					"fields":   fieldsSchema,
 					"config":   configSchema,
@@ -399,6 +526,18 @@ func graphToolDecls() []funcDecl {
 			},
 		},
 		{
+			Name:        "describe_node",
+			Description: "Get the full detail of one node template from the catalog: every setting with its label, hint and example, its presets, and where its credentials come from. Call this when the compact catalog list is not enough to fill a setting correctly.",
+			Parameters: map[string]any{
+				"type": "OBJECT",
+				"properties": map[string]any{
+					"type":     map[string]any{"type": "string"},
+					"template": map[string]any{"type": "string"},
+				},
+				"required": []string{"type", "template"},
+			},
+		},
+		{
 			Name: "web_search",
 			Description: "Search the live web and get back a grounded answer with its sources. " +
 				"This is your general-purpose way of finding anything out. Use it whenever you need " +
@@ -431,25 +570,76 @@ const buildAgentModel = "gemini-2.5-flash"
 // billed agent run and has nothing to do with this.
 const maxBuildIterations = 25
 
-const buildSystemPrompt = `You are the workflow builder for AgentMesh, a visual agent-workflow canvas.
-You edit a workflow graph by calling the add_node, update_node, remove_node, add_edge, and remove_edge tools.
-Node types and their templates:
-- trigger: manual, chat, webhook, cron
-- agent: agent, router, human
-- provider: gemini, openai, anthropic, mistral, groq (attach to an agent's "model" port via an attach edge)
-- tool: http, calc, set, json_extract, crypto, datetime, xml, template, html_extract, markdown, quickchart, websearch
-  (attach to an agent's "tools" port via an attach edge). http calls any URL -- set fields url and
-  method, and config httpBodyTemplate for the request body. json_extract pulls one value out of a
-  response by path, which is usually what you want right after an http call. websearch answers a query
-  grounded in a live Google Search via the platform's own Gemini key -- use it for anything needing
-  current/real-world information, regardless of which provider the agent itself uses.
+// buildSystemPrompt is the builder's standing instructions with the node
+// catalog spliced in. A var built at init rather than a hand-typed const:
+// the old hand-typed node list drifted (a cron trigger that never existed,
+// 4 of 12 tools, 24 of 42 connectors, no settings at all), and generating it
+// from the same catalog that validates every tool call means what the model
+// is told and what it is allowed can never disagree.
+var buildSystemPrompt = strings.Replace(builderPromptTemplate, "{{NODE_CATALOG}}", catalogPromptSection(), 1)
+
+// catalogPromptSection renders the catalog compactly: one line per template
+// with the keys the model may set, the credentials it must leave to the
+// user, and any NOTE about real behaviour. Full detail (labels, hints,
+// examples) is one describe_node call away, which keeps this short enough to
+// resend on every round of the tool loop.
+func catalogPromptSection() string {
+	var b strings.Builder
+	for _, t := range NodeCatalogData().Types {
+		fmt.Fprintf(&b, "%s -- %s\n", t.Type, t.Desc)
+		for _, tpl := range t.Templates {
+			fmt.Fprintf(&b, "  %s %q -- %s", tpl.ID, tpl.Name, tpl.Desc)
+			if f := tpl.keysWhere("field"); len(f) > 0 {
+				fmt.Fprintf(&b, "; fields: %s", strings.Join(f, ", "))
+			}
+			if c := tpl.keysWhere("config"); len(c) > 0 {
+				fmt.Fprintf(&b, "; config: %s", strings.Join(c, ", "))
+			}
+			user := append(tpl.keysWhere("secret"), tpl.keysWhere("connection")...)
+			if tpl.OAuthProvider != "" {
+				user = append(user, "or connect "+tpl.OAuthProvider)
+			}
+			if len(user) > 0 {
+				fmt.Fprintf(&b, "; user supplies: %s", strings.Join(user, ", "))
+				if tpl.AuthDocURL != "" {
+					fmt.Fprintf(&b, " (from %s)", tpl.AuthDocURL)
+				}
+			}
+			if tpl.Note != "" {
+				fmt.Fprintf(&b, "; NOTE: %s", tpl.Note)
+			}
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+const builderPromptTemplate = `You are the workflow builder for AgentMesh, a visual agent-workflow canvas.
+You edit a workflow graph with the add_node, update_node, remove_node, add_edge and remove_edge tools.
+
+Use ONLY the node types, templates and settings in the NODE CATALOG below. It is generated from the canvas
+and the engine, so anything not in it does not exist and will be rejected. For each template it lists the
+keys you may set: "fields" (top-level, via add_node fields) and "config" (node settings, via add_node
+config); "description" is always settable. Keys under "user supplies" are credentials or linked accounts:
+you cannot set them, so name the ones this workflow needs on the node's description and in your reply,
+together with where the user gets them. Read every NOTE -- it describes what the node really does, which
+can differ from its name. Presets (a state node's operation, a provider's default model) are applied for
+you. Call describe_node for a template's full detail whenever you need the exact format a setting expects;
+configure every node you add so it can actually run, instead of describing settings you did not set.
+
+Schedules: there is no schedule or cron trigger. For anything that should run on a timetable (daily,
+hourly, every Monday, ...), use a manual trigger, then tell the user to deploy the workflow and set the
+timetable from its Schedule option on the Workflows page. It takes a standard 5-field cron expression
+evaluated in UTC -- give them the exact expression, converted from their time zone (09:00 IST every day is
+"30 3 * * *"). Never claim you set a schedule yourself.
+
 - tool402: no preset templates -- every x402 tool is a real, live endpoint the workflow owner supplies (a
   fictitious provider name like "tavily" or "firecrawl" is NOT wired to anything real). Only add one when the
   user gives you an actual endpoint URL; set node fields url/endpoint accordingly and pick a short descriptive
   template label. Prefer websearch for search unless the user specifically wants a paid x402 data source.
-- action: email, slack, db, discord, teams, google_chat, ntfy, telegram, github, notion, airtable, hubspot, trello, asana, clickup, jira, mailchimp, linear, todoist, gitlab, sentry, supabase, woocommerce, elevenlabs
-- end: http, done
-- tendril: tendril_topup, tendril_rent, tendril_run, tendril_release
+
+NODE CATALOG
+{{NODE_CATALOG}}
 
 You have web_search, your own live web search. It is YOUR research tool, for finding things out while you
 work. It is not the same thing as the "websearch" tool node you can add to a workflow for the finished agent
@@ -622,6 +812,21 @@ func BuildGraph(ctx context.Context, apiKey, userMessage string, graph models.Wo
 					"functionResponse": map[string]any{
 						"name":     c.name,
 						"response": payloadResp,
+					},
+				})
+				continue
+			}
+			// describe_node reads the catalog; like web_search it never edits
+			// the graph, so it stays out of applyGraphOp.
+			if c.name == "describe_node" {
+				out, err := describeNode(argString(c.args, "type"), argString(c.args, "template"))
+				if err != nil {
+					out = "error: " + err.Error()
+				}
+				responseParts = append(responseParts, map[string]any{
+					"functionResponse": map[string]any{
+						"name":     c.name,
+						"response": map[string]any{"result": out},
 					},
 				})
 				continue
