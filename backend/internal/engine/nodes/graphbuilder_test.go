@@ -876,3 +876,26 @@ func TestBuildSystemPromptShowsSettingExamples(t *testing.T) {
 		t.Fatal("the catalog line for json_extract should show a jsonPath example")
 	}
 }
+
+// From the live Slack build: the provider was correctly on the platform key,
+// yet the reply told the user to paste a Gemini API key -- because the
+// catalog line and the add_node result both listed apiKey under "user
+// supplies". The builder can never set byok, so a builder-made provider
+// never needs a key, and must not be described as needing one.
+func TestProviderIsNotDescribedAsNeedingAKey(t *testing.T) {
+	for _, line := range strings.Split(buildSystemPrompt, "\n") {
+		// The NOTE may mention apiKey to say it is NOT needed; what must go is
+		// listing it as something the user supplies.
+		if strings.HasPrefix(line, "  gemini ") && strings.Contains(line, "user supplies: apiKey") {
+			t.Fatalf("the gemini catalog line still lists apiKey as user-supplied: %s", line)
+		}
+	}
+	graph := &models.WorkflowGraph{}
+	res, err := applyGraphOp(graph, "add_node", map[string]any{"type": "provider", "template": "gemini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(res, "apiKey") || strings.Contains(res, "credential") {
+		t.Fatalf("adding a platform-key provider must not ask for credentials: %s", res)
+	}
+}

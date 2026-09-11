@@ -83,6 +83,7 @@
           "id": "gemini",
           "name": "Google Gemini",
           "desc": "Google Gemini models",
+          "note": "Runs on the platform key by default and needs nothing from the user. Its apiKey applies only if the user switches to their own key in the Inspector -- never tell them they must supply one.",
           "presets": {
             "model": "gemini-2.5-flash"
           },
@@ -111,6 +112,7 @@
           "id": "openai",
           "name": "OpenAI",
           "desc": "OpenAI models",
+          "note": "Runs on the platform key by default and needs nothing from the user. Its apiKey applies only if the user switches to their own key in the Inspector -- never tell them they must supply one.",
           "presets": {
             "model": "gpt-4.1"
           },
@@ -139,6 +141,7 @@
           "id": "anthropic",
           "name": "Anthropic",
           "desc": "Anthropic models",
+          "note": "Runs on the platform key by default and needs nothing from the user. Its apiKey applies only if the user switches to their own key in the Inspector -- never tell them they must supply one.",
           "presets": {
             "model": "claude-sonnet-4-6"
           },
@@ -167,6 +170,7 @@
           "id": "mistral",
           "name": "Mistral",
           "desc": "Mistral models",
+          "note": "Runs on the platform key by default and needs nothing from the user. Its apiKey applies only if the user switches to their own key in the Inspector -- never tell them they must supply one.",
           "presets": {
             "model": "mistral-large-latest"
           },
@@ -195,6 +199,7 @@
           "id": "groq",
           "name": "Groq",
           "desc": "Groq models",
+          "note": "Runs on the platform key by default and needs nothing from the user. Its apiKey applies only if the user switches to their own key in the Inspector -- never tell them they must supply one.",
           "presets": {
             "model": "llama-3.3-70b-versatile"
           },

@@ -248,6 +248,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: `${t.name} models`,
+        note: "Runs on the platform key by default and needs nothing from the user. Its apiKey applies only if the user switches to their own key in the Inspector -- never tell them they must supply one.",
         presets: { model: t.model },
         fields: [
           { key: "model", where: "field" as const, label: "Model", placeholder: t.model },

@@ -269,15 +269,29 @@ func toDotPath(p string) string {
 	return strings.Trim(p, ".")
 }
 
+// userSuppliedKeys lists the credentials and connections a node of this type
+// can take from the user. A provider's apiKey is left out: it only applies
+// in byok mode, which the builder can never set, so a builder-made provider
+// never needs one -- and a live build that saw it listed told the user to
+// paste a Gemini key for a provider running on the platform key.
+func userSuppliedKeys(nodeType string, tpl CatalogTemplate) []string {
+	var keys []string
+	for _, f := range tpl.Fields {
+		if f.Where != "secret" && f.Where != "connection" {
+			continue
+		}
+		if nodeType == "provider" && f.Key == "apiKey" {
+			continue
+		}
+		keys = append(keys, f.Key)
+	}
+	return keys
+}
+
 // userSupplied lists the credentials and connections this node can take, so
 // the tool result reminds the model to disclose the ones the workflow needs.
 func (r nodeRules) userSupplied() string {
-	var keys []string
-	for _, f := range r.tpl.Fields {
-		if f.Where == "secret" || f.Where == "connection" {
-			keys = append(keys, f.Key)
-		}
-	}
+	keys := userSuppliedKeys(r.nodeType, r.tpl)
 	if len(keys) == 0 {
 		return ""
 	}
@@ -684,7 +698,7 @@ func catalogPromptSection() string {
 			if c := tpl.keysWithExamples("config"); len(c) > 0 {
 				fmt.Fprintf(&b, "; config: %s", strings.Join(c, ", "))
 			}
-			user := append(tpl.keysWhere("secret"), tpl.keysWhere("connection")...)
+			user := userSuppliedKeys(t.Type, tpl)
 			if tpl.OAuthProvider != "" {
 				user = append(user, "or connect "+tpl.OAuthProvider)
 			}
