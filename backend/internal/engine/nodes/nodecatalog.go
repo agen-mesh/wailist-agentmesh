@@ -99,6 +99,25 @@ func (t CatalogTemplate) field(key string) (CatalogField, bool) {
 	return CatalogField{}, false
 }
 
+// keysWithExamples is keysWhere with each key's placeholder appended as a
+// short example -- "jsonPath (e.g. data.items.0.name)" -- because a key's
+// expected format, not its name, is what the model gets wrong. Long
+// placeholders are left out to keep the prompt compact.
+func (t CatalogTemplate) keysWithExamples(where string) []string {
+	var out []string
+	for _, f := range t.Fields {
+		if f.Where != where {
+			continue
+		}
+		if f.Placeholder != "" && len(f.Placeholder) <= 40 {
+			out = append(out, fmt.Sprintf("%s (e.g. %s)", f.Key, f.Placeholder))
+		} else {
+			out = append(out, f.Key)
+		}
+	}
+	return out
+}
+
 // keysWhere lists this template's field keys that live in where.
 func (t CatalogTemplate) keysWhere(where string) []string {
 	var out []string

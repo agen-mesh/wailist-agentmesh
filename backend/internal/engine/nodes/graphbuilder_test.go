@@ -61,22 +61,6 @@ func TestApplyGraphOpAddNodeDefaultsProviderToPlatformKeyMode(t *testing.T) {
 	}
 }
 
-func TestApplyGraphOpAddNodeRespectsExplicitByokKeyMode(t *testing.T) {
-	graph := &models.WorkflowGraph{}
-	_, err := applyGraphOp(graph, "add_node", map[string]any{
-		"type":     "provider",
-		"template": "gemini",
-		"name":     "Gemini Model",
-		"fields":   map[string]any{"keyMode": "byok"},
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if graph.Nodes[0].KeyMode != "byok" {
-		t.Fatalf("want explicit byok preserved, got %q", graph.Nodes[0].KeyMode)
-	}
-}
-
 func TestApplyGraphOpAddNodeNonProviderKeyModeUnset(t *testing.T) {
 	graph := &models.WorkflowGraph{}
 	_, err := applyGraphOp(graph, "add_node", map[string]any{
@@ -811,5 +795,84 @@ func TestX402ToolsWithoutACatalogFailSoftly(t *testing.T) {
 	x := newX402Session(nil)
 	if _, err := x.search(context.Background(), map[string]any{"query": "weather"}); err == nil {
 		t.Fatal("with no catalog configured, search_x402 must report that rather than succeed empty")
+	}
+}
+
+// From the live Nifty-50 build: the model set keyMode=byok unprompted and
+// then told the user to paste a Gemini key. The platform key needs nothing
+// from the user, and anyone who does want their own key switches the mode in
+// the Inspector, where they paste it -- so the builder never sets byok.
+func TestAddNodeRejectsByokKeyMode(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type": "provider", "template": "gemini",
+		"fields": map[string]any{"keyMode": "byok"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "Inspector") {
+		t.Fatalf("byok must be rejected with where the user switches it, got: %v", err)
+	}
+	if _, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type": "provider", "template": "gemini",
+		"fields": map[string]any{"keyMode": "platform"},
+	}); err != nil {
+		t.Fatalf("platform must stay settable: %v", err)
+	}
+}
+
+// Also from the live build: model "gemini-pro", a retired name that 404s.
+func TestAddNodeRejectsAModelTheEngineDoesNotKnow(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type": "provider", "template": "gemini",
+		"fields": map[string]any{"model": "gemini-pro"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "gemini-2.5-flash") {
+		t.Fatalf("an unknown model must be rejected with the real ones listed, got: %v", err)
+	}
+	if _, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type": "provider", "template": "gemini",
+		"fields": map[string]any{"model": "gemini-2.5-pro"},
+	}); err != nil {
+		t.Fatalf("a known model must be accepted: %v", err)
+	}
+}
+
+// And: jsonPath "$.data[0].lastPrice". walkPath splits on dots only, so that
+// fails on the "$" segment at run time. Reject it with the form that works.
+func TestAddNodeRejectsJSONPathSyntaxWithTheDotPathThatWorks(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type": "tool", "template": "json_extract",
+		"config": map[string]any{"jsonPath": "$.data[0].lastPrice"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "data.0.lastPrice") {
+		t.Fatalf("want a rejection suggesting data.0.lastPrice, got: %v", err)
+	}
+	if _, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type": "tool", "template": "json_extract",
+		"config": map[string]any{"jsonPath": "data.0.lastPrice"},
+	}); err != nil {
+		t.Fatalf("a dot path must be accepted: %v", err)
+	}
+}
+
+func TestJSONPathToDotPath(t *testing.T) {
+	for in, want := range map[string]string{
+		"$.data[0].lastPrice":     "data.0.lastPrice",
+		"$['data'][2]['price']":   "data.2.price",
+		"data.items.0.name":       "data.items.0.name",
+		"$.records.data[10].last": "records.data.10.last",
+	} {
+		if got := toDotPath(in); got != want {
+			t.Errorf("toDotPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The compact catalog lists key names; a key's expected FORMAT is what the
+// model got wrong, so a short example rides along where the catalog has one.
+func TestBuildSystemPromptShowsSettingExamples(t *testing.T) {
+	if !strings.Contains(buildSystemPrompt, "jsonPath (e.g. data.items.0.name)") {
+		t.Fatal("the catalog line for json_extract should show a jsonPath example")
 	}
 }

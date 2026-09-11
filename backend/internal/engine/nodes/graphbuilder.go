@@ -207,9 +207,66 @@ func (r nodeRules) parse(args map[string]any, param string, allowed []string) (m
 		if !ok {
 			return nil, fmt.Errorf("%s value %q must be a string, got %T", param, k, v)
 		}
+		if err := r.validateValue(k, s); err != nil {
+			return nil, err
+		}
 		out[k] = s
 	}
 	return out, nil
+}
+
+// validateValue catches values that are the right key but a wrong shape --
+// each one a mistake a live build actually made, which fails only later, at
+// run time, where nobody is watching. Rejecting here puts the fix in front of
+// the model while it is still building.
+func (r nodeRules) validateValue(k, v string) error {
+	switch k {
+	case "keyMode":
+		// The platform key needs nothing from the user. A live build set
+		// byok unprompted and then asked the user for a Gemini key; someone
+		// who does want their own key pastes it in the Inspector, which is
+		// where the mode toggle is too.
+		if v != "platform" {
+			return fmt.Errorf(`keyMode %q cannot be set by you: leave it unset (a provider uses the platform key by default and needs nothing from the user); a user who wants their own key switches the key mode in the Inspector, where they paste it`, v)
+		}
+	case "model":
+		// Only a model the engine prices for this provider. A live build
+		// chose "gemini-pro", a retired name that fails the call.
+		known := modelTiers[r.tpl.ID]
+		if len(known) == 0 || v == "" {
+			return nil
+		}
+		if _, ok := known[v]; !ok {
+			names := make([]string, 0, len(known))
+			for m := range known {
+				names = append(names, m)
+			}
+			sort.Strings(names)
+			msg := fmt.Sprintf("model %q is not a %s model this platform supports; use one of: %s", v, r.tpl.ID, strings.Join(names, ", "))
+			if def := r.tpl.Presets["model"]; def != "" {
+				msg += fmt.Sprintf(" -- or leave model unset for the default, %s", def)
+			}
+			return fmt.Errorf("%s", msg)
+		}
+	case "jsonPath":
+		// walkPath splits on dots and nothing else, so JSONPath syntax (the
+		// "$.data[0].lastPrice" a live build wrote) fails on the "$" segment.
+		if strings.ContainsAny(v, "$[]") {
+			return fmt.Errorf("jsonPath %q uses JSONPath syntax, which json_extract does not read: it takes a plain dot path where numbers index arrays -- use %q", v, toDotPath(v))
+		}
+	}
+	return nil
+}
+
+// toDotPath converts JSONPath-style syntax into the dot path walkPath reads:
+// "$.data[0].lastPrice" -> "data.0.lastPrice", "$['data'][2]" -> "data.2".
+func toDotPath(p string) string {
+	p = strings.TrimPrefix(p, "$")
+	p = strings.NewReplacer("['", ".", "']", "", `["`, ".", `"]`, "", "[", ".", "]", "").Replace(p)
+	for strings.Contains(p, "..") {
+		p = strings.ReplaceAll(p, "..", ".")
+	}
+	return strings.Trim(p, ".")
 }
 
 // userSupplied lists the credentials and connections this node can take, so
@@ -621,10 +678,10 @@ func catalogPromptSection() string {
 		fmt.Fprintf(&b, "%s -- %s\n", t.Type, t.Desc)
 		for _, tpl := range t.Templates {
 			fmt.Fprintf(&b, "  %s %q -- %s", tpl.ID, tpl.Name, tpl.Desc)
-			if f := tpl.keysWhere("field"); len(f) > 0 {
+			if f := tpl.keysWithExamples("field"); len(f) > 0 {
 				fmt.Fprintf(&b, "; fields: %s", strings.Join(f, ", "))
 			}
-			if c := tpl.keysWhere("config"); len(c) > 0 {
+			if c := tpl.keysWithExamples("config"); len(c) > 0 {
 				fmt.Fprintf(&b, "; config: %s", strings.Join(c, ", "))
 			}
 			user := append(tpl.keysWhere("secret"), tpl.keysWhere("connection")...)
@@ -658,6 +715,16 @@ together with where the user gets them. Read every NOTE -- it describes what the
 can differ from its name. Presets (a state node's operation, a provider's default model) are applied for
 you. Call describe_node for a template's full detail whenever you need the exact format a setting expects;
 configure every node you add so it can actually run, instead of describing settings you did not set.
+
+Designing the flow: every flow step receives the previous step's output. The canvas only runs a workflow
+with an agent that has a provider, so every workflow needs one -- but place it where language or judgement
+is needed, AFTER the data steps it should read: fetch and shape data with tools in the flow first, e.g.
+trigger -> http -> json_extract -> agent -> end. A tool attached to an agent's "tools" port is called BY
+the agent and its result goes back to the agent, not to the next flow step -- so never put json_extract,
+xml, html_extract or markdown after an agent expecting fetched data; an agent outputs prose. Leave a
+provider's keyMode and model unset unless the user asks for a specific model: the defaults run on the
+platform key and need nothing from the user. A public API you found may still block server requests or
+need headers, so say in your reply that its step should be checked with a manual run.
 
 Schedules: there is no schedule or cron trigger. For anything that should run on a timetable (daily,
 hourly, every Monday, ...), use a manual trigger, then tell the user to deploy the workflow and set the
