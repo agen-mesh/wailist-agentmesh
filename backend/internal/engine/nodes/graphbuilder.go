@@ -912,7 +912,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 					contents = append(contents,
 						map[string]any{"role": "model", "parts": []map[string]any{{"text": text}}},
 						map[string]any{"role": "user", "parts": []map[string]any{{"text": fmt.Sprintf(
-							"Before you answer: the graph still has these problems.\n- %s\nFix them with the graph tools, then summarise.",
+							"Before you answer: the graph still has these problems.\n- %s\nFix them with the graph tools. Then reply to the user with a summary of the finished workflow as a whole -- do not mention these problems or the fixes, which the user never saw.",
 							strings.Join(findings, "\n- "))}}},
 					)
 					payload["contents"] = contents
