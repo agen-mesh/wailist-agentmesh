@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isGraphRunnable, agentMissingModel } from "./buildModeRelease";
+import { isGraphRunnable, agentMissingModel, firstUnreachedStep } from "./buildModeRelease";
 import type { WorkflowNode, WorkflowEdge, NodeType, PortName } from "@/lib/types";
 
 const node = (id: string, type: NodeType): WorkflowNode => ({
@@ -139,8 +139,10 @@ describe("isGraphRunnable", () => {
       edge("e2", "p1", "a1", "attach", "model"),
       edge("e3", "p2", "a2", "attach", "model"),
     ];
-    // a1 is reachable and modelled, a2 is modelled but unreached: runnable.
-    expect(isGraphRunnable(nodes, edges)).toBe(true);
+    // The provider edges must not make a2 reachable from a1. And an agent
+    // nothing flows into is not skipped at run time -- the engine runs it
+    // first, on an empty input -- so a2 makes the graph not runnable.
+    expect(isGraphRunnable(nodes, edges)).toBe(false);
   });
 
   // The shape the builder now produces for "fetch the Nifty 50 price daily":
@@ -162,6 +164,54 @@ describe("isGraphRunnable", () => {
     expect(isGraphRunnable(nodes, edges)).toBe(true);
   });
 
+  // The failed Nifty/Sensex run: "Fetch Sensex" was never wired into
+  // "Extract Sensex Price". Nothing flowed into the extract step, so the
+  // engine ran it first on an empty input and the run died in 3ms. The canvas
+  // let it through because some other step was reachable.
+  it("is false when a flow step has nothing flowing into it", () => {
+    const nodes = [
+      node("start", "trigger"),
+      node("fetchN", "tool"),
+      node("extractN", "tool"),
+      node("fetchS", "tool"),
+      node("extractS", "tool"),
+      node("combine", "tool"),
+      node("agent", "agent"),
+      node("model", "provider"),
+    ];
+    const edges = [
+      edge("1", "start", "fetchN", "flow", "in"),
+      edge("2", "fetchN", "extractN", "flow", "in"),
+      edge("3", "start", "fetchS", "flow", "in"),
+      edge("4", "extractN", "combine", "flow", "in"),
+      edge("5", "extractS", "combine", "flow", "in"),
+      edge("6", "combine", "agent", "flow", "in"),
+      edge("7", "model", "agent", "attach", "model"),
+    ];
+    expect(isGraphRunnable(nodes, edges)).toBe(false);
+    // ...and wiring the missing edge makes it runnable.
+    expect(
+      isGraphRunnable(nodes, [...edges, edge("8", "fetchS", "extractS", "flow", "in")]),
+    ).toBe(true);
+  });
+
+  // A tool attached to an agent's tools port is called by the agent, not run
+  // as a flow step, so it needs no flow edge into it.
+  it("does not require an agent-attached tool to be reached", () => {
+    const nodes = [
+      node("t1", "trigger"),
+      node("a1", "agent"),
+      node("p1", "provider"),
+      node("search", "tool"),
+    ];
+    const edges = [
+      edge("1", "t1", "a1", "flow", "in"),
+      edge("2", "p1", "a1", "attach", "model"),
+      edge("3", "search", "a1", "attach", "tools"),
+    ];
+    expect(isGraphRunnable(nodes, edges)).toBe(true);
+  });
+
   it("is false for a trigger wired to nothing", () => {
     expect(isGraphRunnable([node("t1", "trigger")], [])).toBe(false);
   });
@@ -177,5 +227,26 @@ describe("agentMissingModel", () => {
     const nodes = [node("a1", "agent"), node("p1", "provider")];
     expect(agentMissingModel(nodes, [edge("x", "p1", "a1", "attach", "model")])).toBe(false);
     expect(agentMissingModel([node("t1", "trigger"), node("h1", "tool")], [])).toBe(false);
+  });
+});
+
+describe("firstUnreachedStep", () => {
+  it("names the step nothing flows into", () => {
+    const nodes = [
+      node("start", "trigger"),
+      node("fetchS", "tool"),
+      { ...node("extractS", "tool"), name: "Extract Sensex Price" },
+      node("end", "end"),
+    ];
+    const edges = [
+      edge("1", "start", "fetchS", "flow", "in"),
+      edge("2", "extractS", "end", "flow", "in"),
+    ];
+    expect(firstUnreachedStep(nodes, edges)?.name).toBe("Extract Sensex Price");
+  });
+
+  it("is null when every flow step is reached", () => {
+    const nodes = [node("t", "trigger"), node("h", "tool")];
+    expect(firstUnreachedStep(nodes, [edge("1", "t", "h", "flow", "in")])).toBeNull();
   });
 });

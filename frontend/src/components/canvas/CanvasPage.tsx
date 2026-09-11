@@ -28,7 +28,11 @@ import { can } from "@/lib/readonly";
 import { ghostBtnSm, primaryBtnSm } from "@/components/ui/buttons";
 import { useIsCompact } from "@/hooks/useIsCompact";
 import { runBlockedReason } from "./runBlocked";
-import { isGraphRunnable, agentMissingModel } from "./buildModeRelease";
+import {
+  isGraphRunnable,
+  agentMissingModel,
+  firstUnreachedStep,
+} from "./buildModeRelease";
 import { RunBlockedCard } from "./chat/RunBlockedCard";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import { ShareModal } from "@/components/workflows/ShareModal";
@@ -479,6 +483,11 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     () => (workflow ? agentMissingModel(workflow.nodes, workflow.edges) : false),
     [workflow],
   );
+  const unreachedStep = useMemo(() => {
+    if (!workflow) return undefined;
+    const n = firstUnreachedStep(workflow.nodes, workflow.edges);
+    return n ? n.name || n.label || n.template || n.type : undefined;
+  }, [workflow]);
 
   // Null when a run can proceed. Naming the real obstacle matters most to a
   // viewer, who cannot deploy and so cannot act on "deploy first" at all.
@@ -488,9 +497,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         deployed,
         graphReady,
         agentMissingModel: missingModel,
+        unreachedStep,
         canDeploy: can("workflow.deploy", readOnly),
       }),
-    [deployed, graphReady, missingModel, readOnly],
+    [deployed, graphReady, missingModel, unreachedStep, readOnly],
   );
   const runBlocked = blockedReason?.detail ?? null;
   const showBlockedCard =

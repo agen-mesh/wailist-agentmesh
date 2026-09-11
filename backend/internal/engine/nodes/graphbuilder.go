@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -258,6 +259,58 @@ func (r nodeRules) validateValue(k, v string) error {
 	return nil
 }
 
+// anyTemplateRef finds every {{ ... }} in a value -- deliberately looser than
+// the engine's templateRef, so malformed references are caught too.
+var anyTemplateRef = regexp.MustCompile(`\{\{\s*([^{}]*?)\s*\}\}`)
+
+// templatePath matches a dotted field path after "result." or "node.<id>.".
+var templatePath = regexp.MustCompile(`^[A-Za-z0-9_\-]+(\.[A-Za-z0-9_\-]+)*$`)
+
+// validateTemplateRefs checks every {{ ... }} reference in values against
+// what the engine actually resolves (resolveTemplate / ExpandState). An
+// unsupported reference is not an error at run time -- it is left in the
+// output verbatim -- which is why it has to be caught while building: a
+// live build wrote {{n_<id>.output}}, and the step would have produced
+// literal braces instead of prices.
+func validateTemplateRefs(graph *models.WorkflowGraph, values map[string]string) error {
+	forms := "{{ result }}, {{ result.field }}, {{ input }}, {{ node.<id> }}, {{ node.<id>.field }} or {{ state.key }}"
+	for key, v := range values {
+		for _, m := range anyTemplateRef.FindAllStringSubmatch(v, -1) {
+			ref := m[1]
+			switch {
+			case ref == "result" || ref == "input":
+				continue
+			case strings.HasPrefix(ref, "result.") && templatePath.MatchString(ref[len("result."):]):
+				continue
+			case stateRef.MatchString(m[0]):
+				continue
+			case strings.HasPrefix(ref, "param:"), strings.HasPrefix(ref, "file:"),
+				strings.HasPrefix(ref, "fileName:"), strings.HasPrefix(ref, "fileType:"):
+				continue // tool402 body placeholders, expanded separately
+			case strings.HasPrefix(ref, "node."):
+				id, path, _ := strings.Cut(ref[len("node."):], ".")
+				if _, ok := findGraphNode(graph, id); !ok {
+					return fmt.Errorf("%s: {{ %s }} refers to node %q, which is not in the graph -- use the id add_node returned", key, ref, id)
+				}
+				if path == "output" {
+					return fmt.Errorf("%s: {{ %s }} -- a node's output is {{ node.%s }} itself; \".output\" would look for a field named output", key, ref, id)
+				}
+				if path != "" && !templatePath.MatchString(path) {
+					return fmt.Errorf("%s: {{ %s }} has an invalid field path; use a dot path such as {{ node.%s.data.0.price }}", key, ref, id)
+				}
+				continue
+			}
+			if id, _, _ := strings.Cut(ref, "."); id != "" {
+				if _, ok := findGraphNode(graph, id); ok {
+					return fmt.Errorf("%s: {{%s}} is not a reference the engine resolves -- it would be left in the text as-is. Write {{ node.%s }} for that node's output, or {{ node.%s.field }} for one field of it", key, ref, id, id)
+				}
+			}
+			return fmt.Errorf("%s: {{%s}} is not a reference the engine resolves -- it would be left in the text as-is. Use %s", key, ref, forms)
+		}
+	}
+	return nil
+}
+
 // toDotPath converts JSONPath-style syntax into the dot path walkPath reads:
 // "$.data[0].lastPrice" -> "data.0.lastPrice", "$['data'][2]" -> "data.2".
 func toDotPath(p string) string {
@@ -318,6 +371,12 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 	}
 	cfg, err := rules.parse(args, "config", rules.config)
 	if err != nil {
+		return "", err
+	}
+	if err := validateTemplateRefs(graph, fields); err != nil {
+		return "", err
+	}
+	if err := validateTemplateRefs(graph, cfg); err != nil {
 		return "", err
 	}
 	id := newGraphID("n_")
@@ -387,6 +446,12 @@ func updateGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, 
 		}
 		cfg, err := rules.parse(args, "config", rules.config)
 		if err != nil {
+			return "", err
+		}
+		if err := validateTemplateRefs(graph, fields); err != nil {
+			return "", err
+		}
+		if err := validateTemplateRefs(graph, cfg); err != nil {
 			return "", err
 		}
 		if newTemplate != "" && newTemplate != n.Template {
@@ -641,6 +706,19 @@ func graphToolDecls() []funcDecl {
 			},
 		},
 		{
+			Name: "fetch_url",
+			Description: "Call a URL with a plain GET, exactly as a workflow http step would at run time, and see the status and body. " +
+				"Call it on every API before you wire an http node to it: it tells you whether the endpoint answers a server at all, " +
+				"and shows the real JSON you must read any jsonPath from.",
+			Parameters: map[string]any{
+				"type": "OBJECT",
+				"properties": map[string]any{
+					"url": map[string]any{"type": "string", "description": "The exact URL the http node will call."},
+				},
+				"required": []string{"url"},
+			},
+		},
+		{
 			Name: "web_search",
 			Description: "Search the live web and get back a grounded answer with its sources. " +
 				"This is your general-purpose way of finding anything out. Use it whenever you need " +
@@ -779,11 +857,16 @@ is a complete and correct turn.
 When the workflow needs to call an API:
 1. Search for the API first. Find its base URL and path, its HTTP method, how it authenticates, and what its
    request body and response look like.
-2. Add a tool node with template "http", and set url and method from what you actually found. Never invent a
-   URL and never adapt one you half-remember -- if the search did not turn up a real endpoint, say so in your
-   reply instead of wiring a node that will 404. json_extract right after an http node is usually how you
-   pull the one value you wanted out of the response.
-3. Do NOT use a tool402 node for an API you found by searching. tool402 is for paid x402 endpoints, and only
+2. Call fetch_url on the exact URL before wiring anything. If it does not answer status 200 with the data you
+   need, the workflow's http step will fail the same way -- do not wire it; find another source, or tell the
+   user you could not find one that works. Never invent a URL or adapt one you half-remember.
+3. Add a tool node with template "http" set to that URL, then json_extract with a jsonPath read from the body
+   fetch_url actually returned -- never from memory.
+4. Wire every step you add: each flow step needs a flow edge INTO it from the step whose output it reads.
+   A step nothing flows into is not skipped -- the engine runs it first, on an empty input, and the run fails.
+   To combine several values, reference each earlier step as {{ node.<id> }} (or {{ node.<id>.field }}),
+   using the ids add_node returned.
+5. Do NOT use a tool402 node for an API you found by searching. tool402 is for paid x402 endpoints, and only
    ever when the user hands you a real endpoint URL themselves.
 
 Credentials: you are never shown a user's API keys and you must never invent one. If an API you wired needs
@@ -974,6 +1057,16 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 					"functionResponse": map[string]any{
 						"name":     c.name,
 						"response": map[string]any{"result": out},
+					},
+				})
+				continue
+			}
+			// fetch_url reads the world, never the graph.
+			if c.name == "fetch_url" {
+				responseParts = append(responseParts, map[string]any{
+					"functionResponse": map[string]any{
+						"name":     c.name,
+						"response": map[string]any{"result": fetchURL(ctx, argString(c.args, "url"))},
 					},
 				})
 				continue

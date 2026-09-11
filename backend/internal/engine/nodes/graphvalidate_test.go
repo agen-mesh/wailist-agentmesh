@@ -199,3 +199,55 @@ func TestAuditGraphAgentReachedThroughToolsIsClean(t *testing.T) {
 		t.Fatalf("want no findings, got %v", got)
 	}
 }
+
+// The exact shape of the failed Nifty/Sensex run: "Fetch Sensex" was never
+// connected to "Extract Sensex Price". Nothing flowed into the extract step,
+// so the engine ran it FIRST, beside the trigger, on an empty input -- it
+// failed in 3ms and dead-lettered the run before either fetch happened.
+// Every node was connected to something, so the orphan check missed it.
+func TestAuditGraphReportsAStepNothingFlowsInto(t *testing.T) {
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			gn("start", models.NodeTypeTrigger),
+			gn("fetchN", models.NodeTypeTool), gn("extractN", models.NodeTypeTool),
+			gn("fetchS", models.NodeTypeTool), gn("extractS", models.NodeTypeTool),
+			gn("combine", models.NodeTypeTool),
+			gn("agent", models.NodeTypeAgent), gn("model", models.NodeTypeProvider),
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "1", From: "start", To: "fetchN", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "2", From: "fetchN", To: "extractN", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "3", From: "start", To: "fetchS", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "4", From: "extractN", To: "combine", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "5", From: "extractS", To: "combine", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "6", From: "combine", To: "agent", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "7", From: "model", To: "agent", Kind: models.EdgeKindAttach, ToPort: "model"},
+		},
+	}
+	joined := strings.Join(auditGraph(g), " ")
+	if !strings.Contains(joined, `"extractS"`) {
+		t.Fatalf("want a finding naming extractS, got: %s", joined)
+	}
+	if strings.Contains(joined, `"model"`) {
+		t.Fatalf("a provider attached to an agent is not a flow step and must not be flagged: %s", joined)
+	}
+}
+
+// A tool attached only to an agent's tools port is called by the agent, not
+// run as a flow step, so it is never "unreached".
+func TestAuditGraphDoesNotFlagAnAgentAttachedTool(t *testing.T) {
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			gn("t1", models.NodeTypeTrigger), gn("a1", models.NodeTypeAgent),
+			gn("p1", models.NodeTypeProvider), gn("search", models.NodeTypeTool),
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "1", From: "t1", To: "a1", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "2", From: "p1", To: "a1", Kind: models.EdgeKindAttach, ToPort: "model"},
+			{ID: "3", From: "search", To: "a1", Kind: models.EdgeKindAttach, ToPort: "tools"},
+		},
+	}
+	if got := auditGraph(g); len(got) != 0 {
+		t.Fatalf("want no findings, got %v", got)
+	}
+}

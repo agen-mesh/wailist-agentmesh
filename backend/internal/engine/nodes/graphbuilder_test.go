@@ -899,3 +899,80 @@ func TestProviderIsNotDescribedAsNeedingAKey(t *testing.T) {
 		t.Fatalf("adding a platform-key provider must not ask for credentials: %s", res)
 	}
 }
+
+// From the same failed run: Combine Prices used {{n_<id>.output}}. The engine
+// reads {{ node.<id> }}; anything else is left in the text verbatim, so the
+// step would have produced literal braces instead of the prices.
+func TestAddNodeRejectsTemplateReferencesTheEngineCannotResolve(t *testing.T) {
+	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{
+		{ID: "n_111", Type: models.NodeTypeTool, Template: "json_extract"},
+	}}
+	_, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type": "tool", "template": "set",
+		"config": map[string]any{"setFields": `{"price": "{{n_111.output}}"}`},
+	})
+	if err == nil || !strings.Contains(err.Error(), "{{ node.n_111 }}") {
+		t.Fatalf("want a rejection suggesting {{ node.n_111 }}, got: %v", err)
+	}
+	_, err = applyGraphOp(graph, "add_node", map[string]any{
+		"type": "tool", "template": "set",
+		"config": map[string]any{"setFields": `{"price": "{{ node.n_999 }}"}`},
+	})
+	if err == nil || !strings.Contains(err.Error(), "n_999") {
+		t.Fatalf("a reference to a node that does not exist must be rejected, got: %v", err)
+	}
+	for _, ok := range []string{
+		`{{ result }}`, `{{ result.data.price }}`, `{{ input }}`,
+		`{{ node.n_111 }}`, `{{node.n_111.price}}`, `{{ state.lastPrice }}`,
+	} {
+		if _, err := applyGraphOp(graph, "add_node", map[string]any{
+			"type": "action", "template": "slack",
+			"config": map[string]any{"messageTemplate": "Price: " + ok},
+		}); err != nil {
+			t.Fatalf("%s is a supported reference and must be accepted: %v", ok, err)
+		}
+	}
+}
+
+// fetch_url lets the builder call an API before wiring it, so it can see
+// whether the endpoint answers at all and read the real JSON shape instead of
+// guessing a path. The failed run guessed both, on an endpoint answering 429.
+func TestFetchURLReportsStatusAndBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/blocked" {
+			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"data":[{"symbol":"NIFTY 50","lastPrice":24812.3}]}`)
+	}))
+	defer srv.Close()
+	// Restore the package's test-wide permissive validator, not nil: nil
+	// switches every later test in the package back to production dialing,
+	// which refuses the 127.0.0.1 test servers they all use.
+	SetURLValidatorForTest(func(string) error { return nil })
+	defer SetURLValidatorForTest(func(string) error { return nil })
+
+	out := fetchURL(context.Background(), srv.URL+"/quote")
+	for _, want := range []string{`"status":200`, "lastPrice", "24812.3"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("fetch_url result missing %q: %s", want, out)
+		}
+	}
+	blocked := fetchURL(context.Background(), srv.URL+"/blocked")
+	if !strings.Contains(blocked, `"status":429`) {
+		t.Fatalf("a refused request must report its status, got: %s", blocked)
+	}
+	if got := fetchURL(context.Background(), "file:///etc/passwd"); !strings.Contains(got, "error") {
+		t.Fatalf("a non-http URL must be refused, got: %s", got)
+	}
+}
+
+func TestGraphToolDeclsIncludesFetchURL(t *testing.T) {
+	for _, d := range graphToolDecls() {
+		if d.Name == "fetch_url" {
+			return
+		}
+	}
+	t.Fatal("expected a fetch_url declaration")
+}

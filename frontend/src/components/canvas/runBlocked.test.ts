@@ -89,6 +89,22 @@ describe("runBlockedReason", () => {
     expect(r?.title).toBe("Nothing to run yet");
   });
 
+  // Precise, per the failed Nifty/Sensex run: the graph had plenty of steps,
+  // one of them just had nothing flowing into it. "Nothing to run yet" would
+  // be wrong; name the step.
+  it("names the step that has nothing flowing into it", () => {
+    const r = runBlockedReason({
+      deployed: false,
+      canDeploy: true,
+      graphReady: false,
+      agentMissingModel: false,
+      unreachedStep: "Extract Sensex Price",
+    });
+    expect(r?.code).toBe("not-ready");
+    expect(r?.title).toBe("A step isn't connected");
+    expect(r?.detail).toContain("Extract Sensex Price");
+  });
+
   it("offers a deploy action to someone who may deploy", () => {
     const r = runBlockedReason({ deployed: false, canDeploy: true, ...ready });
     expect(r?.code).toBe("not-deployed");

@@ -24,6 +24,8 @@ export interface RunBlockedInput {
   graphReady: boolean;
   /** Does some agent lack a provider on its model port -- see agentMissingModel. */
   agentMissingModel: boolean;
+  /** Name of a flow step nothing flows into, if any -- see firstUnreachedStep. */
+  unreachedStep?: string;
   /** May THIS client deploy? False for a read-only viewer. */
   canDeploy: boolean;
 }
@@ -48,6 +50,7 @@ export function runBlockedReason({
   deployed,
   graphReady,
   agentMissingModel,
+  unreachedStep,
   canDeploy,
 }: RunBlockedInput): RunBlockedReason | null {
   if (deployed) return null;
@@ -62,16 +65,30 @@ export function runBlockedReason({
     if (!canDeploy) {
       return {
         code: "not-ready",
-        title: agentMissingModel ? "No model attached yet" : "Nothing to run yet",
+        title: agentMissingModel
+          ? "No model attached yet"
+          : unreachedStep
+            ? "A step isn't connected"
+            : "Nothing to run yet",
         detail: "This workflow isn't finished yet — build it in the AgentMesh desktop app",
         action: null,
       };
     }
-    return agentMissingModel
+    if (agentMissingModel) {
+      return {
+        code: "not-ready",
+        title: "No model attached yet",
+        detail: "Attach a provider to the agent's model port before running",
+        action: null,
+      };
+    }
+    // Name the step: a step nothing flows into is run first on an empty
+    // input, so the run would fail there -- say which one to connect.
+    return unreachedStep
       ? {
           code: "not-ready",
-          title: "No model attached yet",
-          detail: "Attach a provider to the agent's model port before running",
+          title: "A step isn't connected",
+          detail: `“${unreachedStep}” has nothing flowing into it — connect its input before running`,
           action: null,
         }
       : {

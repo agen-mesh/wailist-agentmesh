@@ -176,27 +176,61 @@ func auditGraph(graph models.WorkflowGraph) []string {
 		}
 	}
 
-	// A graph can have every node "connected" -- the agent to its provider --
-	// and still never run the agent, because nothing the trigger starts ever
-	// flows into it. Only checked when there is a trigger to start from: with
-	// none, the missing-trigger finding above already says what to fix.
+	// A node can be connected to something and still never be reached: the
+	// failed Nifty/Sensex run wired "Extract Sensex Price" onward into
+	// "Combine Prices" but never wired "Fetch Sensex" into it. With nothing
+	// flowing in, the engine does not skip such a step -- it runs it FIRST,
+	// beside the trigger, on an empty input, and a parser there fails in
+	// milliseconds and dead-letters the whole run before any fetch happens.
+	// So every flow step must be reachable from a trigger.
+	//
+	// A flow step is anything the engine runs in the flow: every agent,
+	// action, state, end, google and tendril node, and any tool with a flow
+	// edge. A provider, or a tool attached only to an agent's tools port, is
+	// not one -- the agent calls it. Orphans are already reported above.
 	//
 	// Same rule as isGraphRunnable (frontend/src/components/canvas/
 	// buildModeRelease.ts), which gates the switch back to run mode. If this
 	// called such a graph clean, the builder would declare it finished while
 	// the canvas refused to leave build mode.
-	if hasTrigger && len(agents) > 0 && !agentReachableFromTrigger(graph, byID) {
-		findings = append(findings, "no agent can be reached from a trigger: nothing the trigger starts ever flows into an agent -- add flow edges from the trigger (directly, or through tool steps) to the agent")
+	if hasTrigger {
+		reached := reachableFromTriggers(graph)
+		onFlowEdge := map[string]bool{}
+		for _, e := range graph.Edges {
+			if e.Kind == models.EdgeKindFlow {
+				onFlowEdge[e.From] = true
+				onFlowEdge[e.To] = true
+			}
+		}
+		for _, n := range graph.Nodes {
+			if n.Type == models.NodeTypeTrigger || !connected[n.ID] || reached[n.ID] {
+				continue
+			}
+			if !alwaysFlowStep[n.Type] && !onFlowEdge[n.ID] {
+				continue
+			}
+			findings = append(findings, fmt.Sprintf(
+				"node %q (%s/%s) is not reached from the trigger -- nothing flows into it, so the engine would run it first with no input; add a flow edge into it from the step whose output it needs",
+				n.ID, n.Type, n.Template))
+		}
 	}
 
 	sort.Strings(findings)
 	return findings
 }
 
-// agentReachableFromTrigger walks forward from every trigger along flow edges
+// alwaysFlowStep are node types that only ever run as steps in the flow.
+// Tools are flow steps only when a flow edge touches them; attached to an
+// agent's tools port, the agent calls them instead.
+var alwaysFlowStep = map[models.NodeType]bool{
+	models.NodeTypeAgent: true, models.NodeTypeAction: true, models.NodeTypeState: true,
+	models.NodeTypeEnd: true, models.NodeTypeGoogle: true, models.NodeTypeTendril: true,
+}
+
+// reachableFromTriggers walks forward from every trigger along flow edges
 // only. Attach edges are not part of the execution path -- counting them
 // would let a provider shared by two agents look like a route between them.
-func agentReachableFromTrigger(graph models.WorkflowGraph, byID map[string]models.WorkflowNode) bool {
+func reachableFromTriggers(graph models.WorkflowGraph) map[string]bool {
 	next := map[string][]string{}
 	for _, e := range graph.Edges {
 		if e.Kind == models.EdgeKindFlow {
@@ -217,10 +251,7 @@ func agentReachableFromTrigger(graph models.WorkflowGraph, byID map[string]model
 			continue
 		}
 		seen[id] = true
-		if byID[id].Type == models.NodeTypeAgent {
-			return true
-		}
 		queue = append(queue, next[id]...)
 	}
-	return false
+	return seen
 }

@@ -33,11 +33,21 @@ export function agentMissingModel(
   return nodes.some((n) => n.type === "agent" && !modelled.has(n.id));
 }
 
+// Node types that only ever run as steps in the flow. A tool is a flow step
+// only when a flow edge touches it; attached to an agent's tools port, the
+// agent calls it instead. Mirrors alwaysFlowStep in graphvalidate.go.
+const ALWAYS_FLOW_STEP = new Set(["agent", "action", "state", "end", "google", "tendril"]);
+
 // Whether the graph has everything a run actually needs: a trigger that
 // flows into at least one step, every agent with a provider on its "model"
-// port, and -- when there are agents -- at least one of them reachable from
-// the trigger. Anything less and starting a run would fail, so chat should
-// stay in build mode.
+// port, and EVERY flow step reachable from the trigger. Anything less and
+// starting a run would fail, so chat should stay in build mode.
+//
+// Every flow step, not just one: a step nothing flows into is not skipped.
+// The engine runs it first, beside the trigger, on an empty input. That is
+// exactly how a builder-made Nifty/Sensex workflow died in 3ms -- one extract
+// step was never wired to its fetch -- while this still said "runnable"
+// because some other step was reachable.
 //
 // No agent is required. A pure data pipeline (trigger -> http -> json_extract
 // -> end) needs no language step, the engine runs tool-only flows, and the
@@ -70,12 +80,40 @@ export function isGraphRunnable(
   const modelled = agentsWithModel(byId, edges);
   if (!agents.every((id) => modelled.has(id))) return false;
 
-  // Walk forward from every trigger along flow edges only. Attach edges are
-  // not part of the execution path -- counting them would let a provider
-  // shared by two agents look like a route between them.
+  if (!flowReach(nodes, edges).reachesStep) return false;
+  return firstUnreachedStep(nodes, edges) === null;
+}
+
+/**
+ * The first flow step the trigger never reaches -- the node the run-blocked
+ * card should name, since "nothing to run" is wrong for a graph full of steps
+ * where one simply has nothing flowing into it. Null when every step is reached.
+ */
+export function firstUnreachedStep(
+  nodes: WorkflowNode[],
+  edges: WorkflowEdge[],
+): WorkflowNode | null {
+  const { seen, onFlowEdge } = flowReach(nodes, edges);
+  return (
+    nodes.find((n) => {
+      if (n.type === "trigger" || n.type === "provider") return false;
+      const isFlowStep = ALWAYS_FLOW_STEP.has(n.type) || onFlowEdge.has(n.id);
+      return isFlowStep && !seen.has(n.id);
+    }) ?? null
+  );
+}
+
+// Walk forward from every trigger along flow edges only. Attach edges are not
+// part of the execution path -- counting them would let a provider shared by
+// two agents look like a route between them.
+function flowReach(nodes: WorkflowNode[], edges: WorkflowEdge[]) {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
   const next = new Map<string, string[]>();
+  const onFlowEdge = new Set<string>();
   for (const e of edges) {
     if (e.kind !== "flow") continue;
+    onFlowEdge.add(e.from);
+    onFlowEdge.add(e.to);
     const out = next.get(e.from);
     if (out) out.push(e.to);
     else next.set(e.from, [e.to]);
@@ -83,16 +121,13 @@ export function isGraphRunnable(
   const seen = new Set<string>();
   const queue = nodes.filter((n) => n.type === "trigger").map((n) => n.id);
   let reachesStep = false;
-  let reachesAgent = false;
   while (queue.length > 0) {
     const id = queue.shift()!;
     if (seen.has(id)) continue;
     seen.add(id);
     const type = byId.get(id)?.type;
     if (type && type !== "trigger") reachesStep = true;
-    if (type === "agent") reachesAgent = true;
     for (const to of next.get(id) ?? []) queue.push(to);
   }
-  if (!reachesStep) return false;
-  return agents.length === 0 || reachesAgent;
+  return { seen, onFlowEdge, reachesStep };
 }
