@@ -323,3 +323,18 @@ func TestNewAuditFindingsMatchesAnExistingLoopByKind(t *testing.T) {
 		}
 	}
 }
+
+// The user: "sometimes the agent generates workflows where there are no
+// agent" -- and the run's output was raw JSON or {}, not an answer.
+func TestAuditGraphReportsAWorkflowWithNoAgent(t *testing.T) {
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{gn("t", models.NodeTypeTrigger), gn("cg", models.NodeTypeAction), gn("e", models.NodeTypeEnd)},
+		Edges: []models.WorkflowEdge{
+			{ID: "1", From: "t", To: "cg", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "2", From: "cg", To: "e", Kind: models.EdgeKindFlow, ToPort: "in"},
+		},
+	}
+	if !strings.Contains(strings.Join(auditGraph(g), " "), "no agent") {
+		t.Fatalf("want a finding that the workflow has no agent, got %v", auditGraph(g))
+	}
+}

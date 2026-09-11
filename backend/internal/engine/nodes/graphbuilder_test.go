@@ -33,7 +33,10 @@ func TestApplyGraphOpAddNode(t *testing.T) {
 		t.Fatalf("want 1 node, got %d", len(graph.Nodes))
 	}
 	n := graph.Nodes[0]
-	if n.Type != models.NodeTypeAgent || n.Template != "agent" || n.Name != "Support Agent" || n.SystemPrompt != "Be helpful" {
+	// A builder-made agent keeps its instructions and gains the no-guessing
+	// rule (see TestBuilderAgentsAreToldNeverToInventValues).
+	if n.Type != models.NodeTypeAgent || n.Template != "agent" || n.Name != "Support Agent" ||
+		!strings.HasPrefix(n.SystemPrompt, "Be helpful") || !strings.Contains(n.SystemPrompt, agentAnswerGuard) {
 		t.Fatalf("unexpected node: %+v", n)
 	}
 	if result == "" {
@@ -1398,5 +1401,119 @@ func TestBuildGraphLeavesTheCallersGraphUntouched(t *testing.T) {
 	}
 	if got := caller.Nodes[1].Config["slackChannel"]; got != "#old" {
 		t.Fatalf("the caller's node settings were changed: slackChannel=%q", got)
+	}
+}
+
+// wiredAgentGraph is a complete, runnable graph: trigger -> agent -> end with
+// a provider on the agent. Nothing for the audit to flag.
+func wiredAgentGraph() models.WorkflowGraph {
+	return models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "t", Type: models.NodeTypeTrigger, Template: "manual", Name: "Start"},
+			{ID: "a", Type: models.NodeTypeAgent, Template: "agent", Name: "Answer"},
+			{ID: "p", Type: models.NodeTypeProvider, Template: "gemini", KeyMode: "platform"},
+			{ID: "e", Type: models.NodeTypeEnd, Template: "done"},
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "1", From: "t", To: "a", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "2", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"},
+			{ID: "3", From: "a", To: "e", Kind: models.EdgeKindFlow, ToPort: "in"},
+		},
+	}
+}
+
+// scriptedGemini answers each builder request from a script and records
+// every request body it received.
+func scriptedGemini(t *testing.T, script []string) *[]string {
+	t.Helper()
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(b))
+		w.Header().Set("Content-Type", "application/json")
+		i := len(bodies) - 1
+		if i >= len(script) {
+			i = len(script) - 1
+		}
+		io.WriteString(w, script[i])
+	}))
+	t.Cleanup(srv.Close)
+	SetGeminiBaseURL(srv.URL)
+	t.Cleanup(func() { SetGeminiBaseURL("https://generativelanguage.googleapis.com") })
+	return &bodies
+}
+
+const (
+	callUpdateAgent = `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"update_node","args":{"id":"a","fields":{"systemPrompt":"Report the MYRAD price."}}}}]}}]}`
+	callTestRun     = `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"test_run","args":{}}}]}}]}`
+)
+
+func text(s string) string {
+	return `{"candidates":[{"content":{"parts":[{"text":"` + s + `"}]}}]}`
+}
+
+// The user asked that the builder make "a workflow which does run and gives
+// the desired answer". So it may not answer until the graph as it now stands
+// has been test-run.
+func TestBuildGraphMustTestTheWorkflowBeforeAnswering(t *testing.T) {
+	bodies := scriptedGemini(t, []string{callUpdateAgent, text("done"), callTestRun, text("Tested: MYRAD is $0.00021.")})
+	runs := 0
+	res, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "myrad price", Graph: wiredAgentGraph(),
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
+			runs++
+			return DryRunResult{Answer: "MYRAD is $0.00021.", FinalOutput: "MYRAD is $0.00021."}
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if runs != 1 {
+		t.Fatalf("want exactly one test run, got %d", runs)
+	}
+	if len(*bodies) < 3 || !strings.Contains((*bodies)[2], "run test_run") {
+		t.Fatalf("an untested answer must be sent back with an instruction to test")
+	}
+	if res.Reply != "Tested: MYRAD is $0.00021." {
+		t.Fatalf("want the reply given after testing, got %q", res.Reply)
+	}
+}
+
+// The user's failure: a lookup returned {} and the workflow was declared done.
+func TestBuildGraphSendsTheModelBackWhenTheTestProducesNothing(t *testing.T) {
+	bodies := scriptedGemini(t, []string{callTestRun, text("done"), text("still done")})
+	_, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "myrad price", Graph: wiredAgentGraph(),
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
+			return DryRunResult{Empty: true, Steps: []DryRunStep{{Name: "CoinGecko Price", Status: "empty", Output: "{}"}}}
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	joined := strings.Join(*bodies, "\n")
+	if !strings.Contains(joined, "did not produce a real answer") || !strings.Contains(joined, "CoinGecko Price") {
+		t.Fatalf("an empty test result must be sent back naming the step that returned nothing")
+	}
+}
+
+// The agent that answered {} with an invented $0.00123456 had copied an
+// example value out of its own instructions.
+func TestBuilderAgentsAreToldNeverToInventValues(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	if _, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type": "agent", "template": "agent",
+		"fields": map[string]any{"systemPrompt": "Report the MYRAD price."},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sp := graph.Nodes[0].SystemPrompt
+	if !strings.HasPrefix(sp, "Report the MYRAD price.") || !strings.Contains(sp, "Never guess") {
+		t.Fatalf("the agent must keep its instructions and gain the no-guessing rule, got %q", sp)
+	}
+	// Updating the prompt again must not stack the rule twice.
+	applyGraphOp(graph, "update_node", map[string]any{"id": graph.Nodes[0].ID, "fields": map[string]any{"systemPrompt": sp}})
+	if strings.Count(graph.Nodes[0].SystemPrompt, "Never guess") != 1 {
+		t.Fatalf("the rule must appear once, got %q", graph.Nodes[0].SystemPrompt)
 	}
 }

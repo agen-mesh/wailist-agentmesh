@@ -22,7 +22,7 @@ import (
 // just because the builder mentions it.
 var builderFiles = map[string]bool{
 	"graphbuilder.go": true, "graphvalidate.go": true, "nodecatalog.go": true, "graphx402.go": true,
-	"graphfetch.go": true, "graphsteps.go": true,
+	"graphfetch.go": true, "graphsteps.go": true, "dryrun.go": true,
 }
 
 // sourceOf concatenates every non-test, non-builder .go file in this package:

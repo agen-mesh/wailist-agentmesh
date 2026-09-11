@@ -471,6 +471,9 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 	if len(cfg) > 0 {
 		node.Config = cfg
 	}
+	if node.Type == models.NodeTypeAgent {
+		node.SystemPrompt = withAnswerGuard(node.SystemPrompt)
+	}
 	// Default a new Provider node to platform-key mode unless the model
 	// explicitly chose "byok" -- resolveAPIKey (provider.go) treats any
 	// KeyMode other than "platform" as BYOK and reads node.APIKey, which a
@@ -537,6 +540,9 @@ func updateGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, 
 		}
 		for k, v := range fields {
 			setNodeField(n, k, v)
+		}
+		if _, ok := fields["systemPrompt"]; ok && n.Type == models.NodeTypeAgent {
+			n.SystemPrompt = withAnswerGuard(n.SystemPrompt)
 		}
 		// Merge rather than replace: the user may have set a key by hand in
 		// the Inspector, and an unrelated update from chat must not wipe it.
@@ -778,6 +784,18 @@ func graphToolDecls() []funcDecl {
 			},
 		},
 		{
+			Name: "test_run",
+			Description: "Execute the workflow as it now stands and see what every step produced and the final answer. " +
+				"Steps that would send, pay or write (Slack, email, x402, Tendril, state, non-GET HTTP) are simulated, not performed; everything else runs for real. " +
+				"Run it before you reply, and again after every fix.",
+			Parameters: map[string]any{
+				"type": "OBJECT",
+				"properties": map[string]any{
+					"input": map[string]any{"type": "string", "description": "The message to start the run with, for a chat or webhook trigger. Leave empty for a manual trigger."},
+				},
+			},
+		},
+		{
 			Name: "fetch_url",
 			Description: "Call a URL with a plain GET, exactly as a workflow http step would at run time, and see the status and body. " +
 				"Call it on every API before you wire an http node to it: it tells you whether the endpoint answers a server at all, " +
@@ -829,6 +847,47 @@ const maxBuildIterations = 25
 // built discarded -- research tools (web_search, fetch_url) make long builds
 // common enough that this has to be a hard property, not a hope.
 const defaultBuildTimeBudget = 100 * time.Second
+
+// maxTestRounds bounds how many times the test gate may send the model back:
+// test, fix, test again -- then an honest reply, even if it still fails.
+const maxTestRounds = 3
+
+// agentAnswerGuard is appended to every builder-made agent's instructions.
+// A live build's agent, handed {} by a CoinGecko lookup on a wrong coin id,
+// answered with a price it copied from an example in its own system prompt.
+const agentAnswerGuard = "If the input you receive is empty, an error, or does not contain what you need, say so plainly. Never guess, estimate or invent values, and never reuse example values from these instructions."
+
+func withAnswerGuard(prompt string) string {
+	if strings.Contains(prompt, agentAnswerGuard) {
+		return prompt
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return agentAnswerGuard
+	}
+	return strings.TrimRight(prompt, " \n") + "\n\n" + agentAnswerGuard
+}
+
+// testProblem says, in one line, what went wrong in a test run.
+func testProblem(r DryRunResult) string {
+	for _, s := range r.Steps {
+		if s.Status == "failed" {
+			return fmt.Sprintf("step %q failed (%s)", s.Name, s.Error)
+		}
+	}
+	var empty []string
+	for _, s := range r.Steps {
+		if s.Status == "empty" {
+			empty = append(empty, fmt.Sprintf("%q returned %s", s.Name, s.Output))
+		}
+	}
+	if len(empty) > 0 {
+		return strings.Join(empty, "; ")
+	}
+	if r.Error != "" {
+		return r.Error
+	}
+	return "the workflow ended with no output"
+}
 
 // buildSystemPrompt is the builder's standing instructions with the node
 // catalog spliced in. A var built at init rather than a hand-typed const:
@@ -890,11 +949,20 @@ can differ from its name. Presets (a state node's operation, a provider's defaul
 you. Call describe_node for a template's full detail whenever you need the exact format a setting expects;
 configure every node you add so it can actually run, instead of describing settings you did not set.
 
-Designing the flow: every flow step receives the previous step's output. Add an agent only where language or
-judgement is needed (summarising, deciding, writing a message) -- each agent call costs credits. A pure data
-job needs no agent and no provider: trigger -> http -> json_extract -> state -> end runs as it is. When an
-agent is needed, put it AFTER the data steps it should read, e.g. trigger -> http -> json_extract -> agent
--> slack -> end. A tool attached to an agent's "tools" port is called BY
+Designing the flow: every flow step receives the previous step's output. Every workflow you build ends in an
+agent (with a provider on its model port) that turns the data into the answer the user asked for -- the run's
+output is what the user reads, and raw JSON or {} is not an answer. Put the agent AFTER the data steps it
+should read: trigger -> http -> json_extract -> agent -> end, or ... -> agent -> slack -> end when the user
+wants the answer delivered somewhere.
+
+Write an agent's systemPrompt as instructions only. Never put example values or sample numbers in it: an
+agent handed empty data repeats them as if they were real. Do not "correct" a name, id or symbol the user gave
+you (a coin, a ticker, a city) into something else unless a test run shows theirs returns nothing.
+
+Testing: before you reply, run test_run. It executes the workflow for real, except steps that would send, pay
+or write, which are simulated. If a step fails or returns nothing, or the answer is not what the user asked
+for, fix the cause and test again. Your reply must quote the answer the test run produced. If you could not
+get a real answer, say so plainly -- never claim a workflow works when its test did not. A tool attached to an agent's "tools" port is called BY
 the agent and its result goes back to the agent, not to the next flow step -- so never put json_extract,
 xml, html_extract or markdown after an agent expecting fetched data; an agent outputs prose. Leave a
 provider's keyMode and model unset unless the user asks for a specific model: the defaults run on the
@@ -1023,6 +1091,10 @@ type BuildRequest struct {
 	// TraceID, when set, logs one line per round (tool names, elapsed time)
 	// under that id -- without it a slow build cannot be diagnosed.
 	TraceID string
+	// TestRun executes the graph without side effects (engine.DryRun) so the
+	// builder can check the workflow really produces an answer before it
+	// replies. Nil disables test_run and the test gate.
+	TestRun func(ctx context.Context, graph models.WorkflowGraph, input string) DryRunResult
 	// OnProgress, when set, receives a snapshot each time a step starts or
 	// finishes, so the chat can show what the builder is doing as it works.
 	// Called synchronously from the build loop; keep it cheap.
@@ -1060,6 +1132,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	// own fetch_url and the automatic check on add_node share one request.
 	probed := map[string]string{}
 	progress := &progressTracker{on: req.OnProgress}
+	tester := &testTracker{run: req.TestRun, dirty: true}
 	defer progress.idle()
 
 	// Two limits. The context ends at the budget, so a model call or fetch
@@ -1182,6 +1255,33 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 					continue
 				}
 			}
+			// The test gate. The user asked for "a workflow which does run and
+			// gives the desired answer", and a graph can pass every structural
+			// check and still answer {} -- or, worse, an agent handed {} can
+			// invent a price. So the builder may not reply until the graph as
+			// it now stands has been test-run and produced something. Bounded
+			// (maxTestRounds) so an unfixable source ends in an honest reply,
+			// not a loop.
+			if req.TestRun != nil && len(graph.Nodes) > 0 && tester.rounds < maxTestRounds {
+				nudge := ""
+				switch {
+				case tester.dirty || tester.last == nil:
+					nudge = "Before you answer: run test_run to execute this workflow and check it really produces the answer the user asked for. Your reply must quote the answer the test produced."
+				case tester.last.Failed || tester.last.Empty:
+					nudge = "The test run did not produce a real answer: " + testProblem(*tester.last) +
+						". Find the cause -- a wrong id or symbol, a wrong path, a source that returned nothing -- fix the workflow, run test_run again, and only then answer. If you truly cannot make it work, say so plainly instead of claiming it works."
+				}
+				if nudge != "" {
+					tester.rounds++
+					lastReply = text
+					contents = append(contents,
+						map[string]any{"role": "model", "parts": []map[string]any{{"text": text}}},
+						map[string]any{"role": "user", "parts": []map[string]any{{"text": nudge}}},
+					)
+					payload["contents"] = contents
+					continue
+				}
+			}
 			return BuildGraphResult{Reply: text, Graph: graph}, nil
 		}
 
@@ -1199,7 +1299,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		responseParts := make([]map[string]any, 0, len(calls))
 		for _, c := range calls {
 			progress.working(runningLabel(&graph, c.name, c.args))
-			response := runBuildCall(ctx, &graph, c, apiKey, x402, probed)
+			response := runBuildCall(ctx, &graph, c, apiKey, x402, probed, tester)
 			progress.finished(finishedStep(&graph, c.name, c.args, response))
 			responseParts = append(responseParts, map[string]any{
 				"functionResponse": map[string]any{

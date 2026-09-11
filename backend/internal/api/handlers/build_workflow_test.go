@@ -740,3 +740,76 @@ func TestBuildWorkflowSavesAnEdgeRemovalAndASettingsChange(t *testing.T) {
 		t.Fatalf("want the new channel saved, got %q", got)
 	}
 }
+
+// The builder edits a redacted graph whose credentials are the "__enc__"
+// sentinel. Its test run must still call the user's step with the real,
+// decrypted credential -- a test with the placeholder would fail every
+// authenticated step and teach the builder that a working workflow is broken.
+func TestBuildWorkflowTestRunUsesTheRealCredential(t *testing.T) {
+	d := testDeps(t)
+	d.PlatformGeminiAPIKey = "test-key"
+	ctx := context.Background()
+	// Restore the permissive validator, not nil: nil switches every later
+	// test in the package back to production dialing of 127.0.0.1 servers.
+	nodes.SetURLValidatorForTest(func(string) error { return nil })
+	defer nodes.SetURLValidatorForTest(func(string) error { return nil })
+
+	var gotKey string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.Header.Get("X-Api-Key")
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"price":1.5}`)
+	}))
+	defer target.Close()
+
+	user, err := d.Store.CreateUser(ctx, "wf-dry-"+randSuffix(t)+"@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wf, err := d.Store.CreateWorkflow(ctx, "Dry", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Store.DeleteWorkflow(context.Background(), wf.ID) })
+
+	// Saved through the normal handler, so the header is encrypted at rest.
+	body, _ := json.Marshal(map[string]any{
+		"name": "Dry",
+		"nodes": []map[string]any{
+			{"id": "t", "type": "trigger", "template": "manual"},
+			{"id": "h", "type": "tool", "template": "http", "url": target.URL, "method": "GET",
+				"secrets": map[string]string{"httpHeadersJSON": `{"X-Api-Key":"real-secret"}`}},
+			{"id": "e", "type": "end", "template": "done"},
+		},
+		"edges": []map[string]any{
+			{"id": "1", "from": "t", "to": "h", "kind": "flow", "toPort": "in"},
+			{"id": "2", "from": "h", "to": "e", "kind": "flow", "toPort": "in"},
+		},
+	})
+	up := httptest.NewRecorder()
+	d.UpdateWorkflow(up, withUser(withURLParam(httptest.NewRequest(http.MethodPut, "/workflows/"+wf.ID, bytes.NewReader(body)), "id", wf.ID), user.ID))
+	if up.Code != http.StatusOK {
+		t.Fatalf("seeding the workflow got %d: %s", up.Code, up.Body.String())
+	}
+
+	turn := 0
+	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		turn++
+		w.Header().Set("Content-Type", "application/json")
+		if turn == 1 {
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"test_run","args":{}}}]}}]}`)
+			return
+		}
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"tested"}]}}]}`)
+	}))
+	defer gem.Close()
+	nodes.SetGeminiBaseURL(gem.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	if rec := buildWorkflowReq(d, wf.ID, user.ID, "test it"); rec.Code != http.StatusOK {
+		t.Fatalf("build got %d: %s", rec.Code, rec.Body.String())
+	}
+	if gotKey != "real-secret" {
+		t.Fatalf("the test run must send the real decrypted credential, target received %q", gotKey)
+	}
+}

@@ -202,6 +202,18 @@ func auditGraph(graph models.WorkflowGraph) []string {
 		}
 	}
 
+	// No agent at all: the run's output is then whatever the last data step
+	// returned -- raw JSON, or {} -- which is not an answer. A live build
+	// did exactly that, and the user read {}.
+	if len(agents) == 0 {
+		for _, n := range graph.Nodes {
+			if n.Type != models.NodeTypeTrigger && n.Type != models.NodeTypeEnd && n.Type != models.NodeTypeProvider {
+				findings = append(findings, "the workflow has no agent, so the user would read the raw data (or {}) instead of an answer -- add an agent with a provider after the data steps to turn the result into the answer they asked for")
+				break
+			}
+		}
+	}
+
 	for _, id := range agents {
 		if !hasModel[id] {
 			findings = append(findings, fmt.Sprintf(

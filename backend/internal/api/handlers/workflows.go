@@ -331,6 +331,19 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 		X402Catalog: d.catalog,
 		TraceID:     id,
 		OnProgress:  onProgress,
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) nodes.DryRunResult {
+			// The builder edits a redacted copy: credentials are the "__enc__"
+			// sentinel. Merge them back exactly as the save below does, then
+			// decrypt, so the test calls a connector with the user's real key
+			// rather than the placeholder. Nothing here is persisted.
+			merged := encryptNodes(g.Nodes, d.EncryptionKey, existing.Nodes)
+			runnable := models.WorkflowGraph{Nodes: decryptNodes(merged, d.EncryptionKey), Edges: g.Edges}
+			keys := nodes.PlatformKeys()
+			if len(keys) == 0 {
+				keys = map[string]string{"gemini": d.PlatformGeminiAPIKey}
+			}
+			return engine.DryRun(ctx, runnable, input, keys)
+		},
 	})
 	if err != nil {
 		// The upstream text (a raw Gemini error body, keys and all) lands

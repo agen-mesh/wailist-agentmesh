@@ -67,8 +67,52 @@ func (p *progressTracker) emit() {
 // functionResponse payload for it. Every tool's failure comes back as data
 // ({"result": "error: ..."} or {"error": ...}), never as a Go error, because
 // the model needs to see it and try something else.
-func runBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFuncCall, apiKey string, x402 *x402Session, probed map[string]string) map[string]any {
+// graphMutations are the calls that change the graph, and so invalidate the
+// last test run.
+var graphMutations = map[string]bool{
+	"add_node": true, "update_node": true, "remove_node": true,
+	"add_edge": true, "remove_edge": true, "add_x402_node": true,
+}
+
+// testTracker remembers whether the graph, as it now stands, has been
+// test-run and what that run produced.
+type testTracker struct {
+	run    func(ctx context.Context, graph models.WorkflowGraph, input string) DryRunResult
+	dirty  bool
+	last   *DryRunResult
+	rounds int
+}
+
+func runBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFuncCall, apiKey string, x402 *x402Session, probed map[string]string, tester *testTracker) map[string]any {
+	response := dispatchBuildCall(ctx, graph, c, apiKey, x402, probed, tester)
+	if graphMutations[c.name] {
+		if text, _ := response["result"].(string); !strings.HasPrefix(text, "error: ") {
+			tester.dirty = true
+		}
+	}
+	return response
+}
+
+func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFuncCall, apiKey string, x402 *x402Session, probed map[string]string, tester *testTracker) map[string]any {
 	switch c.name {
+	case "test_run":
+		if tester.run == nil {
+			return map[string]any{"result": "error: test runs are not available here"}
+		}
+		res := tester.run(ctx, *graph, argString(c.args, "input"))
+		tester.last, tester.dirty = &res, false
+		out, _ := json.Marshal(res)
+		note := " -- Steps marked simulated were not performed (they would send, pay or write). "
+		switch {
+		case res.Failed:
+			note += "The run FAILED: fix the step that failed and test again."
+		case res.Empty:
+			note += "Something returned NOTHING: find out why (a wrong id, a wrong path, a source with no data), fix it and test again."
+		default:
+			note += "Check the answer really is what the user asked for before you reply, and quote it in your reply."
+		}
+		return map[string]any{"result": string(out) + note}
+
 	case "web_search":
 		// Not a graph mutation: it reads the world, and its answer + sources
 		// shape is richer than a graph op's one-line result.
@@ -168,6 +212,8 @@ func runningLabel(graph *models.WorkflowGraph, name string, args map[string]any)
 		return fmt.Sprintf("Connecting “%s” → “%s”", nodeName(graph, argString(args, "from")), nodeName(graph, argString(args, "to")))
 	case "remove_edge":
 		return "Removing a connection"
+	case "test_run":
+		return "Test-running the workflow"
 	}
 	return "Working"
 }
@@ -272,6 +318,46 @@ func finishedStep(graph *models.WorkflowGraph, name string, args map[string]any,
 		step.Label = "Removed a connection"
 		if failed {
 			step.Label = "Couldn't remove a connection"
+		}
+	case "test_run":
+		step.Kind = "check"
+		var r DryRunResult
+		body := text
+		if i := strings.Index(body, " -- Steps marked simulated"); i >= 0 {
+			body = body[:i]
+		}
+		if failed || json.Unmarshal([]byte(body), &r) != nil {
+			step.Label = "Couldn't test-run the workflow"
+			break
+		}
+		switch {
+		case r.Failed:
+			step.Status = "error"
+			step.Label = "Test run failed"
+			for _, s := range r.Steps {
+				if s.Status == "failed" {
+					step.Label = fmt.Sprintf("Test run failed at “%s”", s.Name)
+					step.Detail = clip(firstSentence(s.Error), 180)
+				}
+			}
+			if step.Detail == "" {
+				step.Detail = clip(firstSentence(r.Error), 180)
+			}
+		case r.Empty:
+			step.Status = "error"
+			step.Label = "Test run: a step returned nothing"
+			for _, s := range r.Steps {
+				if s.Status == "empty" {
+					step.Label = fmt.Sprintf("Test run: “%s” returned nothing", s.Name)
+					break
+				}
+			}
+		default:
+			answer := r.Answer
+			if answer == "" {
+				answer = r.FinalOutput
+			}
+			step.Label = fmt.Sprintf("Test-ran the workflow → “%s”", clip(answer, 110))
 		}
 	default:
 		step.Kind = "look"
