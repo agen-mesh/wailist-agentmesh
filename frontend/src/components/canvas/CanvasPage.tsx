@@ -28,6 +28,7 @@ import { can } from "@/lib/readonly";
 import { ghostBtnSm, primaryBtnSm } from "@/components/ui/buttons";
 import { useIsCompact } from "@/hooks/useIsCompact";
 import { runBlockedMessage } from "./runBlocked";
+import { isGraphRunnable } from "./buildModeRelease";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import { ShareModal } from "@/components/workflows/ShareModal";
 import {
@@ -484,12 +485,13 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   const startBuild = useCallback(
     async (text: string): Promise<{ ok: boolean; reply?: string }> => {
       if (!workflow) return { ok: false };
-      // Latch build mode on for the rest of the session. Without this, the
+      // Latch build mode on for the duration of THIS call. Without it, the
       // provider node this very call is about to add flips hasProviderNode
-      // true, and the next message would route to a run instead of
-      // continuing the conversation. Latching here (rather than defaulting
-      // manualBuildMode to true) keeps an already-populated workflow that is
-      // merely being reopened in run mode until the user actually builds.
+      // true while the request is still in flight, and a message sent in
+      // that window would route to a run instead of continuing the
+      // conversation. Latching here (rather than defaulting manualBuildMode
+      // to true) keeps an already-populated workflow that is merely being
+      // reopened in run mode until the user actually builds.
       setManualBuildMode(true);
       try {
         // The backend loads the graph fresh from the DB, so a drag still
@@ -502,6 +504,14 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
             ? { ...wf, nodes: res.workflow.nodes, edges: res.workflow.edges }
             : wf,
         );
+        // ...and release it the moment the graph can actually run. The latch
+        // used to be permanent, so once the builder had produced a workflow
+        // every later message still went to the builder: the user typed "run
+        // it" and got another build summary back. Released only on a runnable
+        // graph, so a half-built one keeps the conversation going.
+        if (isGraphRunnable(res.workflow.nodes, res.workflow.edges)) {
+          setManualBuildMode(false);
+        }
         return { ok: true, reply: res.reply };
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "unknown error";
