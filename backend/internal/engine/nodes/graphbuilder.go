@@ -953,6 +953,9 @@ type BuildRequest struct {
 func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error) {
 	apiKey, userMessage, graph, history := req.APIKey, req.Message, req.Graph, req.History
 	x402 := newX402Session(req.X402Catalog)
+	// probed caches fetchURL results per url for this build, so the model's
+	// own fetch_url and the automatic check on add_node share one request.
+	probed := map[string]string{}
 
 	// Two limits. The context ends at the budget, so a model call or fetch
 	// still in flight cannot outlive it; and no new round starts once three
@@ -1117,8 +1120,16 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 			if c.name == "fetch_url" {
 				responseParts = append(responseParts, map[string]any{
 					"functionResponse": map[string]any{
-						"name":     c.name,
-						"response": map[string]any{"result": fetchURL(ctx, argString(c.args, "url"))},
+						"name": c.name,
+						"response": map[string]any{"result": func() string {
+							u := strings.TrimSpace(argString(c.args, "url"))
+							if r, ok := probed[u]; ok {
+								return r
+							}
+							r := fetchURL(ctx, u)
+							probed[u] = r
+							return r
+						}()},
 					},
 				})
 				continue
@@ -1138,9 +1149,35 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 				})
 				continue
 			}
+			// An http node's url is checked before the node is added: a live
+			// build wired an address it had never fetched and the run 404'd.
+			// The prompt asking the model to verify first was not enough, so
+			// the builder calls the url itself -- through the same client a
+			// run uses -- and refuses one a run would fail on.
+			probeNote := ""
+			if url := httpNodeURLChange(&graph, c.name, c.args); url != "" {
+				probe, seen := probed[url]
+				if !seen {
+					probe = fetchURL(ctx, url)
+					probed[url] = probe
+				}
+				refuse, note := judgeProbe(url, probe)
+				if refuse != "" {
+					responseParts = append(responseParts, map[string]any{
+						"functionResponse": map[string]any{
+							"name":     c.name,
+							"response": map[string]any{"result": "error: " + refuse},
+						},
+					})
+					continue
+				}
+				probeNote = note
+			}
 			result, err := applyGraphOp(&graph, c.name, c.args)
 			if err != nil {
 				result = "error: " + err.Error()
+			} else {
+				result += probeNote
 			}
 			responseParts = append(responseParts, map[string]any{
 				"functionResponse": map[string]any{

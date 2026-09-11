@@ -3,9 +3,12 @@ package nodes
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/agentmesh/backend/internal/models"
 )
 
 // fetch_url lets the builder call an API before wiring an http node to it.
@@ -73,4 +76,74 @@ func truncateBody(s string) string {
 		return s
 	}
 	return strings.ToValidUTF8(s[:fetchURLBodyShown], "") + "…(truncated)"
+}
+
+// httpNodeURLChange reports the static GET url an add_node/update_node call
+// would set on an http tool node, or "" if the call sets none. Only a static
+// GET is probed: a POST may have side effects and needs a body, and a url
+// containing {{ }} references is only known at run time.
+func httpNodeURLChange(graph *models.WorkflowGraph, name string, args map[string]any) string {
+	fields, _ := args["fields"].(map[string]any)
+	url, _ := fields["url"].(string)
+	url = strings.TrimSpace(url)
+	if url == "" || strings.Contains(url, "{{") {
+		return ""
+	}
+	method, _ := fields["method"].(string)
+	switch name {
+	case "add_node":
+		if argString(args, "type") != "tool" || argString(args, "template") != "http" {
+			return ""
+		}
+	case "update_node":
+		n, ok := findGraphNode(graph, argString(args, "id"))
+		if !ok || n.Type != models.NodeTypeTool {
+			return ""
+		}
+		template := n.Template
+		if t := argString(args, "template"); t != "" {
+			template = t
+		}
+		if template != "http" {
+			return ""
+		}
+		if method == "" {
+			method = n.Method
+		}
+	default:
+		return ""
+	}
+	if method != "" && !strings.EqualFold(method, http.MethodGet) {
+		return ""
+	}
+	return url
+}
+
+// judgeProbe turns a fetchURL result into what the builder does with the
+// node: refuse it (a run would fail on this URL), or add it with a note --
+// the verified body, or a warning that it needs a credential.
+func judgeProbe(url, probe string) (refuse, note string) {
+	var p struct {
+		Status int    `json:"status"`
+		Error  string `json:"error"`
+		Body   string `json:"body"`
+		JSON   bool   `json:"json"`
+	}
+	_ = json.Unmarshal([]byte(probe), &p)
+	switch {
+	case p.Error != "":
+		return fmt.Sprintf("refused: the http url %s could not be reached (%s). A workflow run would fail the same way -- find a working source with web_search, or tell the user you could not find one.", url, p.Error), ""
+	case p.Status >= 200 && p.Status < 300:
+		note := fmt.Sprintf(" -- verified: the url answered HTTP %d.", p.Status)
+		if p.JSON {
+			note += " Read any jsonPath from this real response: " + p.Body
+		} else {
+			note += " It is not JSON, so json_extract cannot read it."
+		}
+		return "", note
+	case p.Status == http.StatusUnauthorized || p.Status == http.StatusForbidden:
+		return "", fmt.Sprintf(" -- note: the url requires authentication (HTTP %d). The user must add the credential (headers) to this node in the Inspector; say so in your reply. Its response shape could not be checked.", p.Status)
+	default:
+		return fmt.Sprintf("refused: the http url %s answered HTTP %d, so a workflow run would fail on it. Do not use it -- find a working source with web_search, or tell the user you could not find one.", url, p.Status), ""
+	}
 }

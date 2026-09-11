@@ -1038,3 +1038,92 @@ func TestBuildGraphHardDeadlineMidCallKeepsWhatItBuilt(t *testing.T) {
 		t.Fatalf("want the one node built before the stalled call, got %d", len(res.Graph.Nodes))
 	}
 }
+
+// The run that 404'd: the builder called fetch_url on one URL, then wired a
+// different one it never checked. The prompt asked it to verify first; it
+// did not. So the builder now probes every static GET url it sets on an http
+// node itself, and refuses a URL a run would fail on.
+func buildOnce(t *testing.T, url string) (BuildGraphResult, string) {
+	t.Helper()
+	turn := 0
+	var secondRequest string
+	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		turn++
+		w.Header().Set("Content-Type", "application/json")
+		if turn == 1 {
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"tool","template":"http","fields":{"url":"`+url+`","method":"GET"}}}}]}}]}`)
+			return
+		}
+		if turn == 2 {
+			secondRequest = string(body)
+		}
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"done"}]}}]}`)
+	}))
+	t.Cleanup(gem.Close)
+	SetGeminiBaseURL(gem.URL)
+	t.Cleanup(func() { SetGeminiBaseURL("https://generativelanguage.googleapis.com") })
+	SetURLValidatorForTest(func(string) error { return nil })
+	t.Cleanup(func() { SetURLValidatorForTest(func(string) error { return nil }) })
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "x"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	return res, secondRequest
+}
+
+func probeTarget(t *testing.T) *httptest.Server {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ok":
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"data":{"nifty":24812.3}}`)
+		case "/auth":
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+		default:
+			http.Error(w, "The page could not be found", http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestBuilderRefusesAnHTTPNodeOnAURLThatFails(t *testing.T) {
+	srv := probeTarget(t)
+	res, sent := buildOnce(t, srv.URL+"/missing")
+	for _, n := range res.Graph.Nodes {
+		if n.Type == models.NodeTypeTool && n.Template == "http" {
+			t.Fatalf("an http node on a 404 url must not be added: %+v", n)
+		}
+	}
+	// A phrase only the probe produces: the prompt itself is in this request.
+	if !strings.Contains(sent, "answered HTTP 404") {
+		t.Fatalf("the model must be told the url answered 404, got: %s", sent)
+	}
+}
+
+func TestBuilderAddsAWorkingHTTPNodeAndShowsItsResponse(t *testing.T) {
+	srv := probeTarget(t)
+	res, sent := buildOnce(t, srv.URL+"/ok")
+	if len(res.Graph.Nodes) != 1 || res.Graph.Nodes[0].URL != srv.URL+"/ok" {
+		t.Fatalf("a url answering 200 must be added: %+v", res.Graph.Nodes)
+	}
+	// The real body goes back to the model so any jsonPath comes from it.
+	if !strings.Contains(sent, "24812.3") {
+		t.Fatalf("the verified response body should reach the model, got: %s", sent)
+	}
+}
+
+// 401/403 means the endpoint is real but wants a credential the user adds in
+// the Inspector -- add it, and say so.
+func TestBuilderAddsAnAuthRequiredHTTPNodeWithAWarning(t *testing.T) {
+	srv := probeTarget(t)
+	res, sent := buildOnce(t, srv.URL+"/auth")
+	if len(res.Graph.Nodes) != 1 {
+		t.Fatalf("an endpoint answering 401 must still be added: %+v", res.Graph.Nodes)
+	}
+	if !strings.Contains(sent, "requires authentication (HTTP 401)") {
+		t.Fatalf("the model must be told the endpoint needs a credential, got: %s", sent)
+	}
+}
