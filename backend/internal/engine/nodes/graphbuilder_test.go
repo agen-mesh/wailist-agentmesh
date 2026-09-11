@@ -1101,6 +1101,12 @@ func TestBuilderRefusesAnHTTPNodeOnAURLThatFails(t *testing.T) {
 	if !strings.Contains(sent, "answered HTTP 404") {
 		t.Fatalf("the model must be told the url answered 404, got: %s", sent)
 	}
+	// A live build then burned its whole time budget hunting for another
+	// free API -- none works for index prices from a server. The refusal
+	// must point at the fallback that does: a websearch tool on the agent.
+	if !strings.Contains(sent, "attach a websearch tool") {
+		t.Fatalf("the refusal should offer the websearch-tool fallback, got: %s", sent)
+	}
 }
 
 func TestBuilderAddsAWorkingHTTPNodeAndShowsItsResponse(t *testing.T) {

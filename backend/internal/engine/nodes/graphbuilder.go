@@ -869,6 +869,12 @@ is a complete and correct turn.
 When the workflow needs to call an API:
 1. Search for the API first. Find its base URL and path, its HTTP method, how it authenticates, and what its
    request body and response look like.
+   Research is limited: a build has a time limit, so use at most three research calls (web_search, fetch_url)
+   before you start adding nodes.
+   For live information -- market or stock prices, exchange rates, news, sports, weather anywhere -- free APIs
+   are usually blocked or rate-limited for servers. Prefer the websearch tool node attached to the agent's
+   "tools" port: the agent looks the information up live on every run, and there is no API to break. Use an
+   http node only when you have a specific API you can verify.
 2. Call fetch_url on the exact URL before wiring anything. If it does not answer status 200 with the data you
    need, the workflow's http step will fail the same way -- do not wire it; find another source, or tell the
    user you could not find one that works. Never invent a URL or adapt one you half-remember.

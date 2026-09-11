@@ -119,6 +119,16 @@ func httpNodeURLChange(graph *models.WorkflowGraph, name string, args map[string
 	return url
 }
 
+// noWorkingURLAdvice is what the model is told when a url is refused. A live
+// build that was only told "find a working source" spent its entire time
+// budget searching for a free Nifty/Sensex API -- none works from a server
+// (Yahoo answers 429, NSE blocks, community mirrors 404) -- and ended with
+// no fetch step at all. For current information the reliable answer is the
+// websearch tool, which looks it up live at run time with no API to break.
+const noWorkingURLAdvice = "Do not keep hunting: free APIs for market prices, news and similar live data are usually blocked for servers. " +
+	"For current information like that, attach a websearch tool to the agent's tools port instead of an http node -- " +
+	"the agent looks it up live on every run. Otherwise try at most one other source you have real evidence for."
+
 // judgeProbe turns a fetchURL result into what the builder does with the
 // node: refuse it (a run would fail on this URL), or add it with a note --
 // the verified body, or a warning that it needs a credential.
@@ -132,7 +142,7 @@ func judgeProbe(url, probe string) (refuse, note string) {
 	_ = json.Unmarshal([]byte(probe), &p)
 	switch {
 	case p.Error != "":
-		return fmt.Sprintf("refused: the http url %s could not be reached (%s). A workflow run would fail the same way -- find a working source with web_search, or tell the user you could not find one.", url, p.Error), ""
+		return fmt.Sprintf("refused: the http url %s could not be reached (%s). A workflow run would fail the same way. %s", url, p.Error, noWorkingURLAdvice), ""
 	case p.Status >= 200 && p.Status < 300:
 		note := fmt.Sprintf(" -- verified: the url answered HTTP %d.", p.Status)
 		if p.JSON {
@@ -144,6 +154,6 @@ func judgeProbe(url, probe string) (refuse, note string) {
 	case p.Status == http.StatusUnauthorized || p.Status == http.StatusForbidden:
 		return "", fmt.Sprintf(" -- note: the url requires authentication (HTTP %d). The user must add the credential (headers) to this node in the Inspector; say so in your reply. Its response shape could not be checked.", p.Status)
 	default:
-		return fmt.Sprintf("refused: the http url %s answered HTTP %d, so a workflow run would fail on it. Do not use it -- find a working source with web_search, or tell the user you could not find one.", url, p.Status), ""
+		return fmt.Sprintf("refused: the http url %s answered HTTP %d, so a workflow run would fail on it. %s", url, p.Status, noWorkingURLAdvice), ""
 	}
 }
