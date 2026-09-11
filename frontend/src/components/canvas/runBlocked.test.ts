@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runBlockedMessage } from "./runBlocked";
+import { runBlockedMessage, runBlockedReason } from "./runBlocked";
 
 // One case per row of the table, named for the situation a user is actually in.
 describe("runBlockedMessage", () => {
@@ -69,5 +69,54 @@ describe("runBlockedMessage", () => {
         expect((msg ?? "").length).toBeGreaterThan(10);
       }
     }
+  });
+});
+
+describe("runBlockedReason", () => {
+  it("is null when the run can proceed", () => {
+    expect(
+      runBlockedReason({
+        deployed: true,
+        hasProviderNode: true,
+        canDeploy: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("names the missing provider, with no deploy action to offer", () => {
+    const r = runBlockedReason({
+      deployed: false,
+      hasProviderNode: false,
+      canDeploy: true,
+    });
+    expect(r?.code).toBe("no-provider");
+    expect(r?.action).toBeNull();
+    expect(r?.title).toBe("No model attached yet");
+  });
+
+  it("offers a deploy action to someone who may deploy", () => {
+    const r = runBlockedReason({
+      deployed: false,
+      hasProviderNode: true,
+      canDeploy: true,
+    });
+    expect(r?.code).toBe("not-deployed");
+    expect(r?.action).toBe("deploy");
+  });
+
+  it("offers no deploy action to a read-only viewer", () => {
+    const r = runBlockedReason({
+      deployed: false,
+      hasProviderNode: true,
+      canDeploy: false,
+    });
+    expect(r?.code).toBe("not-deployed");
+    expect(r?.action).toBeNull();
+    expect(r?.detail).toContain("desktop app");
+  });
+
+  it("keeps runBlockedMessage in sync with the reason's detail", () => {
+    const input = { deployed: false, hasProviderNode: true, canDeploy: true };
+    expect(runBlockedMessage(input)).toBe(runBlockedReason(input)!.detail);
   });
 });
