@@ -302,7 +302,13 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	maskedGraph := models.WorkflowGraph{Nodes: redactNodesForBuildAgent(existing.Nodes), Edges: existing.Edges}
-	result, err := nodes.BuildGraph(r.Context(), d.PlatformGeminiAPIKey, body.Message, maskedGraph, history)
+	result, err := nodes.BuildGraph(r.Context(), nodes.BuildRequest{
+		APIKey:      d.PlatformGeminiAPIKey,
+		Message:     body.Message,
+		Graph:       maskedGraph,
+		History:     history,
+		X402Catalog: d.catalog,
+	})
 	if err != nil {
 		// The upstream text (a raw Gemini error body, keys and all) lands
 		// straight in the user's chat bubble if forwarded -- same anti-pattern

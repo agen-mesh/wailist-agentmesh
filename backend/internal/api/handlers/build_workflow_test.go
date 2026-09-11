@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -377,4 +378,84 @@ func TestBuildWorkflowFailedBuildRecordsNothing(t *testing.T) {
 	if len(msgs) != 0 {
 		t.Fatalf("a failed build must record nothing, got %d turns: %+v", len(msgs), msgs)
 	}
+}
+
+// BuildWorkflow must hand the builder the real Bazaar catalog. Every nodes-
+// level x402 test injects its own loader, so a handler that forgot to wire
+// d.catalog would pass all of them while search_x402 failed on every real
+// build. This drives the handler end to end: a fake Bazaar upstream, a fake
+// model that searches and adds, and a saved workflow checked for the node.
+func TestBuildWorkflowSearchesTheBazaarAndSavesTheX402Node(t *testing.T) {
+	d := testDeps(t)
+	d.PlatformGeminiAPIKey = "test-key"
+	ctx := context.Background()
+
+	bazaarSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		items := []map[string]any{}
+		if r.URL.Query().Get("offset") == "0" {
+			items = append(items, map[string]any{
+				"id":          "idx-feed",
+				"resourceUrl": "https://indexfeed.example/v1/quote",
+				"method":      "GET",
+				"description": "Live stock index quotes",
+				"accepts": []any{map[string]any{
+					"network": "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=",
+					"amount":  "5000", "asset": "31566704", "payTo": "P",
+				}},
+				"settleCount": 12,
+			})
+		}
+		json.NewEncoder(w).Encode(map[string]any{"items": items})
+	}))
+	defer bazaarSrv.Close()
+	d.BazaarBaseURL = bazaarSrv.URL
+
+	user, err := d.Store.CreateUser(ctx, "wf-x402-"+randSuffix(t)+"@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wf, err := d.Store.CreateWorkflow(ctx, "Index feed", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Store.DeleteWorkflow(context.Background(), wf.ID) })
+
+	idRe := regexp.MustCompile(`\\"id\\":\\"([^\\"]+)\\"`)
+	turn := 0
+	geminiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		turn++
+		w.Header().Set("Content-Type", "application/json")
+		switch turn {
+		case 1:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"search_x402","args":{"query":"stock index quotes"}}}]}}]}`)
+		case 2:
+			m := idRe.FindSubmatch(body)
+			if m == nil {
+				t.Errorf("search_x402 returned no result to the model: %s", body)
+				io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"nothing found"}]}}]}`)
+				return
+			}
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_x402_node","args":{"id":"`+string(m[1])+`"}}}]}}]}`)
+		default:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"Added the index feed."}]}}]}`)
+		}
+	}))
+	defer geminiSrv.Close()
+	nodes.SetGeminiBaseURL(geminiSrv.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	if rec := buildWorkflowReq(d, wf.ID, user.ID, "fetch live index quotes"); rec.Code != http.StatusOK {
+		t.Fatalf("build got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+	saved, err := d.Store.GetWorkflow(ctx, wf.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range saved.Nodes {
+		if n.Type == "tool402" && n.Endpoint == "https://indexfeed.example/v1/quote" && n.Price == "0.005" {
+			return
+		}
+	}
+	t.Fatalf("the saved workflow has no tool402 node for the catalog endpoint: %+v", saved.Nodes)
 }

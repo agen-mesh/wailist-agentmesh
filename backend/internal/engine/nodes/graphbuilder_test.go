@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agentmesh/backend/internal/bazaar"
 	"github.com/agentmesh/backend/internal/models"
 )
 
@@ -220,7 +221,7 @@ func TestBuildGraphAddsNodeThenReturnsReply(t *testing.T) {
 	SetGeminiBaseURL(srv.URL)
 	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
 
-	result, err := BuildGraph(context.Background(), "test-key", "add a chat trigger", models.WorkflowGraph{}, nil)
+	result, err := BuildGraph(context.Background(), BuildRequest{APIKey: "test-key", Message: "add a chat trigger", Graph: models.WorkflowGraph{}, History: nil})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -264,7 +265,7 @@ func TestBuildGraphOutOfIterationsKeepsWhatItBuilt(t *testing.T) {
 	SetGeminiBaseURL(srv.URL)
 	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
 
-	res, err := BuildGraph(context.Background(), "test-key", "build something endless", models.WorkflowGraph{}, nil)
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "test-key", Message: "build something endless", Graph: models.WorkflowGraph{}, History: nil})
 	if err != nil {
 		t.Fatalf("running out of rounds must not be an error: %v", err)
 	}
@@ -336,7 +337,7 @@ func TestBuildGraphRunsWebSearchAndKeepsGoing(t *testing.T) {
 	SetGeminiBaseURL(srv.URL)
 	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
 
-	res, err := BuildGraph(context.Background(), "k", "build a phone search agent", models.WorkflowGraph{}, nil)
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "build a phone search agent", Graph: models.WorkflowGraph{}, History: nil})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -489,7 +490,7 @@ func TestBuildGraphReplaysPriorTurns(t *testing.T) {
 		{Role: "user", Text: "the phone must have 16GB RAM"},
 		{Role: "model", Text: "Noted."},
 	}
-	if _, err := BuildGraph(context.Background(), "k", "now add an email step", models.WorkflowGraph{}, history); err != nil {
+	if _, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "now add an email step", Graph: models.WorkflowGraph{}, History: history}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(body, "16GB RAM") {
@@ -515,7 +516,7 @@ func TestBuildGraphWithNoHistoryStillWorks(t *testing.T) {
 	SetGeminiBaseURL(srv.URL)
 	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
 
-	res, err := BuildGraph(context.Background(), "k", "hello", models.WorkflowGraph{}, nil)
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "hello", Graph: models.WorkflowGraph{}, History: nil})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -545,7 +546,7 @@ func TestBuildGraphSkipsMalformedHistoryTurns(t *testing.T) {
 		{Role: "user", Text: "   "},
 		{Role: "user", Text: "keep me"},
 	}
-	if _, err := BuildGraph(context.Background(), "k", "go", models.WorkflowGraph{}, history); err != nil {
+	if _, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "go", Graph: models.WorkflowGraph{}, History: history}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if strings.Contains(body, "BAD-ROLE") {
@@ -675,13 +676,22 @@ func TestAddNodeTool402StillAcceptsEndpointFields(t *testing.T) {
 	graph := &models.WorkflowGraph{}
 	_, err := applyGraphOp(graph, "add_node", map[string]any{
 		"type": "tool402", "template": "custom",
-		"fields": map[string]any{"url": "https://x402.example.com/data", "method": "GET"},
+		"fields": map[string]any{"endpoint": "https://x402.example.com/data", "method": "GET"},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if graph.Nodes[0].URL != "https://x402.example.com/data" {
-		t.Fatalf("url not set: %+v", graph.Nodes[0])
+	if graph.Nodes[0].Endpoint != "https://x402.example.com/data" {
+		t.Fatalf("endpoint not set: %+v", graph.Nodes[0])
+	}
+	// tool402 calls node.Endpoint and nothing else, so "url" -- which the old
+	// prompt told the model to set -- must be refused rather than stored
+	// somewhere the executor never reads.
+	if _, err := applyGraphOp(graph, "add_node", map[string]any{
+		"type": "tool402", "template": "custom",
+		"fields": map[string]any{"url": "https://x402.example.com/data"},
+	}); err == nil || !strings.Contains(err.Error(), "endpoint") {
+		t.Fatalf("a tool402 url must be rejected in favour of endpoint, got: %v", err)
 	}
 }
 
@@ -695,5 +705,111 @@ func TestDescribeNodeReturnsTemplateDetail(t *testing.T) {
 	}
 	if _, err := describeNode("trigger", "cron"); err == nil {
 		t.Fatal("describe_node must reject a template that does not exist")
+	}
+}
+
+func sampleX402() bazaar.Resource {
+	return bazaar.Resource{
+		ID: "res-stocks-1", URL: "https://stocks.example.com/v1/index", Method: "GET",
+		Description: "Live stock market index prices", Host: "stocks.example.com",
+		AmountMicros: 5000, Asset: "31566704", Network: "algorand-mainnet",
+		Params:        []bazaar.Param{{Name: "symbol", Type: "string", Required: true, Description: "index symbol"}},
+		OutputExample: `{"symbol":"NIFTY","price":24812.3}`,
+		SettleCount:   42,
+	}
+}
+
+// The same mapping the frontend's resourceToNode applies when a Bazaar card
+// is added to a canvas (frontend/src/lib/bazaar.ts), so a builder-added
+// endpoint is indistinguishable from one the user added by hand.
+func TestX402NodeFromResourceMatchesTheBazaarMapping(t *testing.T) {
+	n := x402NodeFromResource(sampleX402(), "n_1", 0, 0, "")
+	if n.Type != models.NodeTypeTool402 {
+		t.Fatalf("type = %q", n.Type)
+	}
+	// tool402 calls node.Endpoint, never node.URL.
+	if n.Endpoint != "https://stocks.example.com/v1/index" || n.URL != "" {
+		t.Fatalf("endpoint/url wrong: endpoint=%q url=%q", n.Endpoint, n.URL)
+	}
+	if n.Method != "GET" || n.Price != "0.005" || n.Unit != "call" {
+		t.Fatalf("method/price/unit wrong: %+v", n)
+	}
+	if n.Provider != "stocks.example.com" || n.Name != "stocks.example.com" {
+		t.Fatalf("an unsupported entry is named after its host: %+v", n)
+	}
+	if len(n.DiscoveredParams) != 1 || n.DiscoveredParams[0].Name != "symbol" || !n.DiscoveredParams[0].Required {
+		t.Fatalf("params not carried over: %+v", n.DiscoveredParams)
+	}
+	// Catalog examples are placeholders, never usable values.
+	if v, ok := n.ParamDefaults["symbol"]; !ok || v != "" {
+		t.Fatalf("param defaults must be seeded empty: %+v", n.ParamDefaults)
+	}
+}
+
+// search_x402 -> add_x402_node through the real tool loop: the model never
+// types a URL or a price; it picks an id and the server fills in the rest
+// from the catalog.
+func TestBuildGraphSearchesAndAddsX402Node(t *testing.T) {
+	turn := 0
+	var searchReply string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		turn++
+		w.Header().Set("Content-Type", "application/json")
+		switch turn {
+		case 1:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"search_x402","args":{"query":"stock index prices"}}}]}}]}`)
+		case 2:
+			searchReply = string(body)
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_x402_node","args":{"id":"res-stocks-1"}}}]}}]}`)
+		default:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"Added the stock index endpoint (0.005 USDC per call)."}]}}]}`)
+		}
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "fetch NSE index prices",
+		X402Catalog: func(context.Context) ([]bazaar.Resource, error) {
+			return []bazaar.Resource{sampleX402()}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, want := range []string{"res-stocks-1", "0.005", "USDC", "symbol"} {
+		if !strings.Contains(searchReply, want) {
+			t.Fatalf("search result sent to the model is missing %q", want)
+		}
+	}
+	var x402 *models.WorkflowNode
+	for i := range res.Graph.Nodes {
+		if res.Graph.Nodes[i].Type == models.NodeTypeTool402 {
+			x402 = &res.Graph.Nodes[i]
+		}
+	}
+	if x402 == nil || x402.Endpoint != "https://stocks.example.com/v1/index" {
+		t.Fatalf("want a tool402 node on the catalog endpoint, got %+v", res.Graph.Nodes)
+	}
+}
+
+func TestAddX402NodeRejectsAnIDNotInTheCatalog(t *testing.T) {
+	cat := func(context.Context) ([]bazaar.Resource, error) { return []bazaar.Resource{sampleX402()}, nil }
+	x := newX402Session(cat)
+	graph := &models.WorkflowGraph{}
+	if _, err := x.add(context.Background(), graph, map[string]any{"id": "invented-by-the-model"}); err == nil {
+		t.Fatal("an id that is not in the catalog must be rejected")
+	}
+	if len(graph.Nodes) != 0 {
+		t.Fatal("nothing may be added for a rejected id")
+	}
+}
+
+func TestX402ToolsWithoutACatalogFailSoftly(t *testing.T) {
+	x := newX402Session(nil)
+	if _, err := x.search(context.Background(), map[string]any{"query": "weather"}); err == nil {
+		t.Fatal("with no catalog configured, search_x402 must report that rather than succeed empty")
 	}
 }

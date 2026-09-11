@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/agentmesh/backend/internal/bazaar"
 	"github.com/agentmesh/backend/internal/models"
 )
 
@@ -30,7 +31,12 @@ var graphEdgeKinds = map[string]bool{"flow": true, "attach": true}
 
 // tool402FieldKeys are the settable fields of a hand-specified x402 node --
 // the one node type the catalog does not describe.
-var tool402FieldKeys = []string{"url", "endpoint", "method", "price", "unit", "provider", "description"}
+//
+// "endpoint", never "url": tool402 calls node.Endpoint and does not read
+// node.URL at all, so accepting url here would store the address somewhere
+// no run ever looks -- which is exactly what the old prompt's "set url /
+// endpoint" produced.
+var tool402FieldKeys = []string{"endpoint", "method", "price", "unit", "provider", "description"}
 
 // secretConfigKeys are credentials the builder may never set, whatever the
 // catalog says, through either "fields" or "config". Named explicitly so the
@@ -538,6 +544,32 @@ func graphToolDecls() []funcDecl {
 			},
 		},
 		{
+			Name: "search_x402",
+			Description: "Search the x402 Bazaar: real, pay-per-call endpoints (data feeds, AI services, tools) the platform can pay for. " +
+				"Returns ids, what each does, its inputs, an example output, how often it has actually been paid, and its full per-call cost. " +
+				"Use short keywords (\"stock prices\", \"weather forecast\").",
+			Parameters: map[string]any{
+				"type": "OBJECT",
+				"properties": map[string]any{
+					"query": map[string]any{"type": "string", "description": "A few keywords describing what the endpoint should do."},
+				},
+				"required": []string{"query"},
+			},
+		},
+		{
+			Name: "add_x402_node",
+			Description: "Add an x402 endpoint from search_x402 results as a tool402 node. The endpoint, method, price and inputs are filled in from the catalog -- pass only the id. " +
+				"Attach it to an agent's \"tools\" port so the agent supplies its inputs per call.",
+			Parameters: map[string]any{
+				"type": "OBJECT",
+				"properties": map[string]any{
+					"id":   map[string]any{"type": "string", "description": "An id exactly as search_x402 returned it."},
+					"name": map[string]any{"type": "string", "description": "Optional display name for the node."},
+				},
+				"required": []string{"id"},
+			},
+		},
+		{
 			Name: "web_search",
 			Description: "Search the live web and get back a grounded answer with its sources. " +
 				"This is your general-purpose way of finding anything out. Use it whenever you need " +
@@ -633,10 +665,18 @@ timetable from its Schedule option on the Workflows page. It takes a standard 5-
 evaluated in UTC -- give them the exact expression, converted from their time zone (09:00 IST every day is
 "30 3 * * *"). Never claim you set a schedule yourself.
 
-- tool402: no preset templates -- every x402 tool is a real, live endpoint the workflow owner supplies (a
-  fictitious provider name like "tavily" or "firecrawl" is NOT wired to anything real). Only add one when the
-  user gives you an actual endpoint URL; set node fields url/endpoint accordingly and pick a short descriptive
-  template label. Prefer websearch for search unless the user specifically wants a paid x402 data source.
+x402 endpoints (node type tool402): real pay-per-call services from the x402 Bazaar. Every call costs the user
+the endpoint's price PLUS a 1.50 USD AgentMesh fee -- usually far more than the endpoint itself -- and an agent
+may call an attached tool several times in one run. So reach for x402 only when the data or service is not
+available for free: first consider an http tool node on a free public API, a no-key connector (coingecko,
+openweathermap, hackernews, rss, ...), or websearch. When x402 is the right answer:
+1. search_x402 with a few keywords. Prefer entries with a high timesPaid -- they are proven to work.
+2. add_x402_node with the id it returned. Never add a tool402 node by typing an endpoint yourself.
+3. Attach it to an agent's "tools" port so the agent fills its inputs, and state the full per-call cost
+   (endpoint price + AgentMesh fee) in your reply.
+Only if the user hands you an x402 endpoint URL that is not in the catalog, add it with add_node type=tool402,
+fields endpoint and method, and tell them to press Discover in the Inspector to confirm its live price.
+Never invent a provider: a name like "tavily" or "firecrawl" that is not in search results is wired to nothing.
 
 NODE CATALOG
 {{NODE_CATALOG}}
@@ -706,14 +746,31 @@ type BuildGraphResult struct {
 	Graph models.WorkflowGraph
 }
 
+// BuildRequest is one build-mode chat turn.
+type BuildRequest struct {
+	// APIKey is the platform Gemini key the builder (and web_search) run on.
+	APIKey string
+	// Message is what the user just typed.
+	Message string
+	// Graph is the current graph, already masked by the caller -- see
+	// handlers.BuildWorkflow's doc comment for why.
+	Graph models.WorkflowGraph
+	// History is the prior conversation, oldest first; nil is a cold turn.
+	History []BuildTurn
+	// X402Catalog loads the x402 Bazaar catalog. Called at most once per
+	// build and only if the model searches for an endpoint; nil makes
+	// search_x402/add_x402_node report the catalog as unavailable.
+	X402Catalog func(ctx context.Context) ([]bazaar.Resource, error)
+}
+
 // BuildGraph runs a bounded tool-calling loop against the Gemini Flash
-// meta-agent, letting it edit graph via the graphToolDecls tools and research
-// via web_search until it responds with plain text instead of a function call.
-// Running out of rounds returns the partial graph rather than an error -- see
-// the tail of the loop. history is the prior conversation, oldest first; nil
-// is a cold first turn. graph should already be masked by the caller -- see
-// handlers.BuildWorkflow's doc comment for why.
-func BuildGraph(ctx context.Context, apiKey, userMessage string, graph models.WorkflowGraph, history []BuildTurn) (BuildGraphResult, error) {
+// meta-agent, letting it edit the graph via the graphToolDecls tools, look
+// things up with web_search/describe_node/search_x402, until it responds
+// with plain text instead of a function call. Running out of rounds returns
+// the partial graph rather than an error -- see the tail of the loop.
+func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error) {
+	apiKey, userMessage, graph, history := req.APIKey, req.Message, req.Graph, req.History
+	x402 := newX402Session(req.X402Catalog)
 	apiURL := fmt.Sprintf("%s/v1beta/models/%s:generateContent", geminiBaseURL, buildAgentModel)
 	apiHeaders := map[string]string{"x-goog-api-key": apiKey}
 
@@ -812,6 +869,29 @@ func BuildGraph(ctx context.Context, apiKey, userMessage string, graph models.Wo
 					"functionResponse": map[string]any{
 						"name":     c.name,
 						"response": payloadResp,
+					},
+				})
+				continue
+			}
+			// The x402 tools need the request's catalog loader, which a plain
+			// graph op has no access to. add_x402_node does edit the graph,
+			// but only ever from a catalog entry -- never from model-typed
+			// URL or price fields.
+			if c.name == "search_x402" || c.name == "add_x402_node" {
+				var out string
+				var err error
+				if c.name == "search_x402" {
+					out, err = x402.search(ctx, c.args)
+				} else {
+					out, err = x402.add(ctx, &graph, c.args)
+				}
+				if err != nil {
+					out = "error: " + err.Error()
+				}
+				responseParts = append(responseParts, map[string]any{
+					"functionResponse": map[string]any{
+						"name":     c.name,
+						"response": map[string]any{"result": out},
 					},
 				})
 				continue
