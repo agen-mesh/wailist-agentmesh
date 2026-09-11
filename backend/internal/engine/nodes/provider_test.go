@@ -428,3 +428,30 @@ func TestExecuteAgentByokUnaffectedByPlatformKeysParam(t *testing.T) {
 		t.Fatalf("result = %v, want plain string 'byok hello' (unwrapped, unchanged from pre-platform-key behavior)", result)
 	}
 }
+
+// GEMINI_MODEL_LOCK pins every Gemini provider call to one model, whatever
+// the node says -- a cost guard for running against a personal key. It sits
+// in ResolveModel because that is the one function every provider call AND
+// the billing preflight (runner.go) go through, so the model billed and the
+// model run cannot drift apart.
+func TestResolveModelHonoursGeminiModelLock(t *testing.T) {
+	t.Setenv("GEMINI_MODEL_LOCK", "gemini-2.5-flash")
+	if got := nodes.ResolveModel("gemini", "gemini-2.5-pro"); got != "gemini-2.5-flash" {
+		t.Fatalf("an explicit node model must be overridden by the lock, got %q", got)
+	}
+	if got := nodes.ResolveModel("gemini", ""); got != "gemini-2.5-flash" {
+		t.Fatalf("an empty node model must resolve to the lock, got %q", got)
+	}
+	// Only Gemini is pinned: forcing a Gemini model name onto an OpenAI or
+	// Anthropic call would just break that call.
+	if got := nodes.ResolveModel("openai", "gpt-4.1"); got != "gpt-4.1" {
+		t.Fatalf("a non-Gemini provider must be left alone, got %q", got)
+	}
+}
+
+func TestResolveModelWithoutLockIsUnchanged(t *testing.T) {
+	t.Setenv("GEMINI_MODEL_LOCK", "")
+	if got := nodes.ResolveModel("gemini", "gemini-2.5-pro"); got != "gemini-2.5-pro" {
+		t.Fatalf("with no lock the node's own model must win, got %q", got)
+	}
+}
