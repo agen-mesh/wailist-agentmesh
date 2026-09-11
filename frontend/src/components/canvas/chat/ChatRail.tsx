@@ -44,6 +44,8 @@ interface ChatRailProps {
    *  wins. Used by the compact bottom sheet to open on the node the reader
    *  just selected. */
   forceTab?: RailTab | null;
+  /** Rendered above the chat composer when a run cannot start. */
+  blockedNode?: React.ReactNode;
 }
 
 export function ChatRail({
@@ -60,6 +62,7 @@ export function ChatRail({
   leaseId,
   forceTab = null,
   paletteNode,
+  blockedNode,
 }: ChatRailProps) {
   const [tab, setTab] = useState<RailTab>("chat");
 
@@ -190,6 +193,7 @@ export function ChatRail({
             onSend={onSend}
             busy={busy}
             onShowLogs={onShowLogs}
+            blockedNode={blockedNode}
           />
         </div>
 

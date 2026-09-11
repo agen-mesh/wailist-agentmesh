@@ -405,9 +405,28 @@ export const IconWallet = ({ size = 14 }: { size?: number }) => (
 );
 
 // ── Toast ─────────────────────────────────────────────────────────────────
-export function Toast({ message }: { message: string }) {
+// `tone` is not cosmetic. This used to render StatusDot tone="ok" for every
+// message, so "Run failed", "Build failed" and "Deploy first to run" all
+// arrived under a green success dot -- the single most misleading thing a
+// status affordance can do. "error" maps to StatusDot's own "err" rather
+// than renaming that prop, which a dozen other call sites already pass.
+export function Toast({
+  message,
+  tone = "ok",
+}: {
+  message: string;
+  tone?: "ok" | "warn" | "error";
+}) {
+  const line =
+    tone === "error"
+      ? "var(--danger)"
+      : tone === "warn"
+        ? "var(--warm)"
+        : "var(--accent-line)";
   return (
     <div
+      role={tone === "error" ? "alert" : "status"}
+      aria-live={tone === "error" ? "assertive" : "polite"}
       style={{
         position: "fixed",
         bottom: 24,
@@ -415,12 +434,13 @@ export function Toast({ message }: { message: string }) {
         transform: "translateX(-50%)",
         zIndex: 9999,
         background: "var(--bg-elev-3)",
-        border: "1px solid var(--accent-line)",
+        border: `1px solid ${line}`,
         color: "var(--fg)",
         padding: "10px 16px",
         borderRadius: "var(--r-2)",
         fontFamily: "var(--font-mono)",
         fontSize: 12,
+        maxWidth: "min(520px, calc(100vw - 48px))",
         boxShadow: "0 10px 32px rgba(0,0,0,0.5)",
         display: "flex",
         alignItems: "center",
@@ -428,7 +448,7 @@ export function Toast({ message }: { message: string }) {
         animation: "fade-up 0.25s var(--ease)",
       }}
     >
-      <StatusDot tone="ok" /> {message}
+      <StatusDot tone={tone === "error" ? "err" : tone} /> {message}
     </div>
   );
 }

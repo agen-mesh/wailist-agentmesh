@@ -27,8 +27,9 @@ import { useChatConsole, type ChatConsole } from "./chat/useChatConsole";
 import { can } from "@/lib/readonly";
 import { ghostBtnSm, primaryBtnSm } from "@/components/ui/buttons";
 import { useIsCompact } from "@/hooks/useIsCompact";
-import { runBlockedMessage } from "./runBlocked";
+import { runBlockedReason } from "./runBlocked";
 import { isGraphRunnable } from "./buildModeRelease";
+import { RunBlockedCard } from "./chat/RunBlockedCard";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import { ShareModal } from "@/components/workflows/ShareModal";
 import {
@@ -58,6 +59,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [logOpen, setLogOpen] = useState(false);
   const [manualBuildMode, setManualBuildMode] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  // The card reappears whenever the obstacle changes -- dismissing "not
+  // deployed" should not also silence "no model attached" later.
+  const [dismissedBlock, setDismissedBlock] = useState<string | null>(null);
   // Below the compact breakpoint the studio stacks instead of sitting in
   // three columns, and the rail becomes a sheet. Closed by default: the
   // reader came to look at the graph, so the graph gets the screen until
@@ -73,7 +78,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   // refetches against the freshly persisted graph.
   const [estimateTick, setEstimateTick] = useState(0);
   const [running, setRunning] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    tone: "ok" | "warn" | "error";
+  } | null>(null);
   const [saveLabel, setSaveLabel] = useState("");
   const [runId, setRunId] = useState<string | null>(null);
   const [resumeAttempt, setResumeAttempt] = useState(0);
@@ -317,10 +325,26 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     return out;
   }, [workflow]);
 
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2400);
-  }, []);
+  // Errors dwell longer than confirmations: 2.4s is enough to register "Run
+  // started", not enough to read and act on a failure.
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback(
+    (message: string, tone: "ok" | "warn" | "error" = "ok") => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      setToast({ message, tone });
+      toastTimer.current = setTimeout(
+        () => setToast(null),
+        tone === "ok" ? 2400 : 6000,
+      );
+    },
+    [],
+  );
+  useEffect(
+    () => () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    },
+    [],
+  );
 
   const handleResume = useCallback(
     async (deadLetterRunId: string) => {
@@ -333,7 +357,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       // silently no-opping while the button still looks clickable.
       const targetRunId = runId ?? deadLetterRunId;
       if (!targetRunId) {
-        showToast("Nothing to resume — start the workflow again to retry it.");
+        showToast(
+          "Nothing to resume — start the workflow again to retry it.",
+          "warn",
+        );
         return;
       }
       try {
@@ -345,6 +372,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       } catch (err) {
         showToast(
           `Resume failed · ${err instanceof Error ? err.message : "unknown error"}`,
+          "error",
         );
       }
     },
@@ -406,6 +434,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       showToast("Re-deployed");
       return;
     }
+    setDeploying(true);
     try {
       const res = await workflowsApi.deploy(workflow.id);
       setDeployed(true);
@@ -416,7 +445,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     } catch (err: unknown) {
       showToast(
         `Deploy failed · ${err instanceof Error ? err.message : "unknown error"}`,
+        "error",
       );
+    } finally {
+      setDeploying(false);
     }
   }, [deployed, workflow, showToast]);
 
@@ -437,15 +469,18 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
 
   // Null when a run can proceed. Naming the real obstacle matters most to a
   // viewer, who cannot deploy and so cannot act on "deploy first" at all.
-  const runBlocked = useMemo(
+  const blockedReason = useMemo(
     () =>
-      runBlockedMessage({
+      runBlockedReason({
         deployed,
         hasProviderNode,
         canDeploy: can("workflow.deploy", readOnly),
       }),
     [deployed, hasProviderNode, readOnly],
   );
+  const runBlocked = blockedReason?.detail ?? null;
+  const showBlockedCard =
+    blockedReason !== null && dismissedBlock !== blockedReason.code;
 
   const buildMode =
     can("workflow.buildFromChat", readOnly) &&
@@ -475,6 +510,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       } catch (err: unknown) {
         showToast(
           `Run failed · ${err instanceof Error ? err.message : "unknown error"}`,
+          "error",
         );
         return null;
       }
@@ -515,7 +551,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         return { ok: true, reply: res.reply };
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "unknown error";
-        showToast(`Build failed · ${message}`);
+        showToast(`Build failed · ${message}`, "error");
         return {
           ok: false,
           reply: `Could not update the workflow: ${message}`,
@@ -830,6 +866,16 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                         hasProviderNode
                       }
                       onToggleBuildMode={() => setManualBuildMode((v) => !v)}
+                      blockedNode={
+                        showBlockedCard && blockedReason ? (
+                          <RunBlockedCard
+                            reason={blockedReason}
+                            deploying={deploying}
+                            onDeploy={onDeploy}
+                            onDismiss={() => setDismissedBlock(blockedReason.code)}
+                          />
+                        ) : undefined
+                      }
                       inspectorNode={
                         <Inspector
                           selected={selected}
@@ -885,6 +931,16 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                       can("workflow.buildFromChat", readOnly) && hasProviderNode
                     }
                     onToggleBuildMode={() => setManualBuildMode((v) => !v)}
+                    blockedNode={
+                      showBlockedCard && blockedReason ? (
+                        <RunBlockedCard
+                          reason={blockedReason}
+                          deploying={deploying}
+                          onDeploy={onDeploy}
+                          onDismiss={() => setDismissedBlock(blockedReason.code)}
+                        />
+                      ) : undefined
+                    }
                     inspectorNode={
                       <Inspector
                         selected={selected}
@@ -906,7 +962,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         </ChatConsoleHost>
       </div>
 
-      {toast && <Toast message={toast} />}
+      {toast && <Toast message={toast.message} tone={toast.tone} />}
     </div>
   );
 }
