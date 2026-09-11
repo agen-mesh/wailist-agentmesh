@@ -17,7 +17,7 @@ interface UseChatConsoleArgs {
   workflowId?: string;
   onSendMessage?: (text: string) => Promise<boolean>;
   // Build mode routes a chat turn to graph editing instead of running the
-  // deployed agent -- see CanvasPage's hasProviderNode/buildMode wiring.
+  // deployed agent -- see CanvasPage's graphReady/buildMode wiring.
   buildMode?: boolean;
   onBuildMessage?: (text: string) => Promise<{ ok: boolean; reply?: string }>;
   attempt?: number;

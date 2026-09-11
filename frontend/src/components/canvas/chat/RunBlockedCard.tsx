@@ -12,7 +12,7 @@ export function runBlockedCardCopy(reason: RunBlockedReason): {
   actionLabel: string | null;
 } {
   return {
-    tone: reason.code === "no-provider" ? "warn" : "error",
+    tone: reason.code === "not-ready" ? "warn" : "error",
     actionLabel: reason.action === "deploy" ? "Deploy now" : null,
   };
 }

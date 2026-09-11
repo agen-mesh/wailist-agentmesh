@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isGraphRunnable } from "./buildModeRelease";
+import { isGraphRunnable, agentMissingModel } from "./buildModeRelease";
 import type { WorkflowNode, WorkflowEdge, NodeType, PortName } from "@/lib/types";
 
 const node = (id: string, type: NodeType): WorkflowNode => ({
@@ -141,5 +141,41 @@ describe("isGraphRunnable", () => {
     ];
     // a1 is reachable and modelled, a2 is modelled but unreached: runnable.
     expect(isGraphRunnable(nodes, edges)).toBe(true);
+  });
+
+  // The shape the builder now produces for "fetch the Nifty 50 price daily":
+  // no language step at all, so no agent and no provider. The engine runs a
+  // tool-only flow, and requiring an agent stranded it in build mode with a
+  // "No model attached yet" card for a workflow that needs no model.
+  it("is true for a tool-only pipeline with no agent", () => {
+    const nodes = [
+      node("t1", "trigger"),
+      node("h1", "tool"),
+      node("j1", "tool"),
+      node("e1", "end"),
+    ];
+    const edges = [
+      edge("x1", "t1", "h1", "flow", "in"),
+      edge("x2", "h1", "j1", "flow", "in"),
+      edge("x3", "j1", "e1", "flow", "in"),
+    ];
+    expect(isGraphRunnable(nodes, edges)).toBe(true);
+  });
+
+  it("is false for a trigger wired to nothing", () => {
+    expect(isGraphRunnable([node("t1", "trigger")], [])).toBe(false);
+  });
+});
+
+describe("agentMissingModel", () => {
+  it("is true when an agent has no provider on its model port", () => {
+    const nodes = [node("t1", "trigger"), node("a1", "agent")];
+    expect(agentMissingModel(nodes, [edge("x", "t1", "a1", "flow", "in")])).toBe(true);
+  });
+
+  it("is false when every agent has a model, or there are no agents", () => {
+    const nodes = [node("a1", "agent"), node("p1", "provider")];
+    expect(agentMissingModel(nodes, [edge("x", "p1", "a1", "attach", "model")])).toBe(false);
+    expect(agentMissingModel([node("t1", "trigger"), node("h1", "tool")], [])).toBe(false);
   });
 });

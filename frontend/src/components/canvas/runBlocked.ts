@@ -2,7 +2,7 @@
 //
 // Both entry points (the Run button and a message typed into the console) used
 // to say "Deploy first to run" for every un-deployed workflow. That is only
-// sometimes the real obstacle. A workflow with no provider node has nothing to
+// sometimes the real obstacle. A graph that cannot run yet has nothing to
 // deploy YET -- telling someone to deploy is a dead end, because the button
 // they are being pointed at will not help them. And a read-only viewer cannot
 // deploy at all, so naming deployment as the next step is advice they cannot
@@ -15,8 +15,15 @@
 export interface RunBlockedInput {
   /** Has the workflow been deployed? */
   deployed: boolean;
-  /** Does the graph contain a provider node -- i.e. is there anything to run? */
-  hasProviderNode: boolean;
+  /**
+   * Could the graph run -- see isGraphRunnable. Decided from the graph itself,
+   * not from whether a provider node exists: a tool-only pipeline needs no
+   * provider, and a provider on the canvas does not make an unwired graph
+   * runnable.
+   */
+  graphReady: boolean;
+  /** Does some agent lack a provider on its model port -- see agentMissingModel. */
+  agentMissingModel: boolean;
   /** May THIS client deploy? False for a read-only viewer. */
   canDeploy: boolean;
 }
@@ -31,7 +38,7 @@ export interface RunBlockedInput {
  * pointed at a control the user then had to go find.
  */
 export interface RunBlockedReason {
-  code: "no-provider" | "not-deployed";
+  code: "not-ready" | "not-deployed";
   title: string;
   detail: string;
   action: "deploy" | null;
@@ -39,26 +46,43 @@ export interface RunBlockedReason {
 
 export function runBlockedReason({
   deployed,
-  hasProviderNode,
+  graphReady,
+  agentMissingModel,
   canDeploy,
 }: RunBlockedInput): RunBlockedReason | null {
   if (deployed) return null;
 
-  // Nothing to deploy yet. Say what is actually missing rather than pointing at
-  // a Deploy button that would not help -- and offer no action, because there
-  // is no single click that fixes this.
-  if (!hasProviderNode) {
-    return {
-      code: "no-provider",
-      title: "No model attached yet",
-      detail: canDeploy
-        ? "Add a provider node before running"
-        : "This workflow has no agent yet — build it in the AgentMesh desktop app",
-      action: null,
-    };
+  // Nothing that could run yet. Say what is actually missing rather than
+  // pointing at a Deploy button that would not help -- and offer no action,
+  // because there is no single click that fixes this. "No model" only when an
+  // agent really lacks one: a pipeline with no agent needs no model, and
+  // telling that user to add a provider sends them after something the
+  // workflow does not need.
+  if (!graphReady) {
+    if (!canDeploy) {
+      return {
+        code: "not-ready",
+        title: agentMissingModel ? "No model attached yet" : "Nothing to run yet",
+        detail: "This workflow isn't finished yet — build it in the AgentMesh desktop app",
+        action: null,
+      };
+    }
+    return agentMissingModel
+      ? {
+          code: "not-ready",
+          title: "No model attached yet",
+          detail: "Attach a provider to the agent's model port before running",
+          action: null,
+        }
+      : {
+          code: "not-ready",
+          title: "Nothing to run yet",
+          detail: "Connect the trigger to a step before running",
+          action: null,
+        };
   }
 
-  // Deployable, but not deployed. Only offer the button to someone who has it.
+  // Runnable, but not deployed. Only offer the button to someone who has it.
   return {
     code: "not-deployed",
     title: "Not deployed",

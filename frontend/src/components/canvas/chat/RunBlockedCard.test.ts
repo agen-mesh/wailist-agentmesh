@@ -14,7 +14,7 @@ describe("runBlockedCardCopy", () => {
 
   it("has no action label when there is nothing to click", () => {
     const copy = runBlockedCardCopy({
-      code: "no-provider",
+      code: "not-ready",
       title: "No model attached yet",
       detail: "Add a provider node before running",
       action: null,
@@ -34,7 +34,7 @@ describe("runBlockedCardCopy", () => {
 
   it("uses the warm tone for a workflow still being built", () => {
     const copy = runBlockedCardCopy({
-      code: "no-provider",
+      code: "not-ready",
       title: "No model attached yet",
       detail: "Add a provider node before running",
       action: null,

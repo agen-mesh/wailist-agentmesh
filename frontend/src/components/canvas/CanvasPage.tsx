@@ -28,7 +28,7 @@ import { can } from "@/lib/readonly";
 import { ghostBtnSm, primaryBtnSm } from "@/components/ui/buttons";
 import { useIsCompact } from "@/hooks/useIsCompact";
 import { runBlockedReason } from "./runBlocked";
-import { isGraphRunnable } from "./buildModeRelease";
+import { isGraphRunnable, agentMissingModel } from "./buildModeRelease";
 import { RunBlockedCard } from "./chat/RunBlockedCard";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import { ShareModal } from "@/components/workflows/ShareModal";
@@ -460,10 +460,23 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     [workflow],
   );
 
-  // No provider node yet means there is nothing to run -- chat always
-  // builds in that state. Once one exists, the Build/Run pill decides.
   const hasProviderNode = useMemo(
     () => workflow?.nodes.some((n) => n.type === "provider") ?? false,
+    [workflow],
+  );
+
+  // Whether the graph itself could run -- decided from its wiring, not from
+  // whether a provider node exists. A tool-only pipeline (trigger -> http ->
+  // json_extract -> end) needs no provider and runs fine; the chat builder
+  // now builds exactly that for fetch-and-save requests, and gating on a
+  // provider left such a workflow stuck in build mode behind a "No model
+  // attached yet" card.
+  const graphReady = useMemo(
+    () => (workflow ? isGraphRunnable(workflow.nodes, workflow.edges) : false),
+    [workflow],
+  );
+  const missingModel = useMemo(
+    () => (workflow ? agentMissingModel(workflow.nodes, workflow.edges) : false),
     [workflow],
   );
 
@@ -473,18 +486,25 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     () =>
       runBlockedReason({
         deployed,
-        hasProviderNode,
+        graphReady,
+        agentMissingModel: missingModel,
         canDeploy: can("workflow.deploy", readOnly),
       }),
-    [deployed, hasProviderNode, readOnly],
+    [deployed, graphReady, missingModel, readOnly],
   );
   const runBlocked = blockedReason?.detail ?? null;
   const showBlockedCard =
     blockedReason !== null && dismissedBlock !== blockedReason.code;
 
+  // Nothing that could run yet means chat always builds. Once the graph is
+  // runnable -- or has a provider, which kept the Build/Run choice available
+  // for hand-built workflows before readiness was judged from the graph, and
+  // still does so nothing a user has already made gets newly stuck -- the
+  // Build/Run pill decides.
+  const canLeaveBuildMode = graphReady || hasProviderNode;
   const buildMode =
     can("workflow.buildFromChat", readOnly) &&
-    (!hasProviderNode || manualBuildMode);
+    (!canLeaveBuildMode || manualBuildMode);
 
   // Returns the new run's id, or null when no run started. Callers that own a
   // chat turn need that signal: a failure here only raises a toast, and
@@ -522,10 +542,9 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     async (text: string): Promise<{ ok: boolean; reply?: string }> => {
       if (!workflow) return { ok: false };
       // Latch build mode on for the duration of THIS call. Without it, the
-      // provider node this very call is about to add flips hasProviderNode
-      // true while the request is still in flight, and a message sent in
-      // that window would route to a run instead of continuing the
-      // conversation. Latching here (rather than defaulting manualBuildMode
+      // nodes this very call is about to add can make the graph runnable
+      // while the request is still in flight, and a message sent in that
+      // window would route to a run instead of continuing the conversation. Latching here (rather than defaulting manualBuildMode
       // to true) keeps an already-populated workflow that is merely being
       // reopened in run mode until the user actually builds.
       setManualBuildMode(true);
@@ -863,7 +882,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                       buildMode={buildMode}
                       canToggleBuildMode={
                         can("workflow.buildFromChat", readOnly) &&
-                        hasProviderNode
+                        canLeaveBuildMode
                       }
                       onToggleBuildMode={() => setManualBuildMode((v) => !v)}
                       blockedNode={
@@ -928,7 +947,8 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                     width={inspectorW}
                     buildMode={buildMode}
                     canToggleBuildMode={
-                      can("workflow.buildFromChat", readOnly) && hasProviderNode
+                      can("workflow.buildFromChat", readOnly) &&
+                      canLeaveBuildMode
                     }
                     onToggleBuildMode={() => setManualBuildMode((v) => !v)}
                     blockedNode={
@@ -1074,7 +1094,7 @@ function CanvasTopbar({
   onRun: () => void;
   /** Why the Run button is disabled, or null when a run can proceed --
    *  computed once in CanvasPage (runBlockedMessage) so this component
-   *  doesn't need its own copy of hasProviderNode/canDeploy to derive it. */
+   *  doesn't need its own copy of graphReady/canDeploy to derive it. */
   runBlocked: string | null;
   saveLabel: string;
   /** Bumped by CanvasPage after each successful deploy so the run-cost

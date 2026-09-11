@@ -716,10 +716,11 @@ can differ from its name. Presets (a state node's operation, a provider's defaul
 you. Call describe_node for a template's full detail whenever you need the exact format a setting expects;
 configure every node you add so it can actually run, instead of describing settings you did not set.
 
-Designing the flow: every flow step receives the previous step's output. The canvas only runs a workflow
-with an agent that has a provider, so every workflow needs one -- but place it where language or judgement
-is needed, AFTER the data steps it should read: fetch and shape data with tools in the flow first, e.g.
-trigger -> http -> json_extract -> agent -> end. A tool attached to an agent's "tools" port is called BY
+Designing the flow: every flow step receives the previous step's output. Add an agent only where language or
+judgement is needed (summarising, deciding, writing a message) -- each agent call costs credits. A pure data
+job needs no agent and no provider: trigger -> http -> json_extract -> state -> end runs as it is. When an
+agent is needed, put it AFTER the data steps it should read, e.g. trigger -> http -> json_extract -> agent
+-> slack -> end. A tool attached to an agent's "tools" port is called BY
 the agent and its result goes back to the agent, not to the next flow step -- so never put json_extract,
 xml, html_extract or markdown after an agent expecting fetched data; an agent outputs prose. Leave a
 provider's keyMode and model unset unless the user asks for a specific model: the defaults run on the
