@@ -949,6 +949,10 @@ type BuildRequest struct {
 	// TraceID, when set, logs one line per round (tool names, elapsed time)
 	// under that id -- without it a slow build cannot be diagnosed.
 	TraceID string
+	// OnProgress, when set, receives a snapshot each time a step starts or
+	// finishes, so the chat can show what the builder is doing as it works.
+	// Called synchronously from the build loop; keep it cheap.
+	OnProgress func(BuildProgress)
 }
 
 // BuildGraph runs a bounded tool-calling loop against the Gemini Flash
@@ -962,6 +966,8 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	// probed caches fetchURL results per url for this build, so the model's
 	// own fetch_url and the automatic check on add_node share one request.
 	probed := map[string]string{}
+	progress := &progressTracker{on: req.OnProgress}
+	defer progress.idle()
 
 	// Two limits. The context ends at the budget, so a model call or fetch
 	// still in flight cannot outlive it; and no new round starts once three
@@ -977,6 +983,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	ranOutOfTime := func() BuildGraphResult {
+		progress.finished(BuildStep{Kind: "check", Label: "Stopped: ran out of time", Status: "error"})
 		if req.TraceID != "" {
 			log.Printf("build %s: stopped at the time budget after %.1fs", req.TraceID, time.Since(started).Seconds())
 		}
@@ -1026,6 +1033,11 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		if iter > 0 && time.Since(started) > budget*3/4 {
 			return ranOutOfTime(), nil
 		}
+		if iter == 0 {
+			progress.working("Reading your request")
+		} else {
+			progress.working("Planning the next step")
+		}
 		resp, err := postLLMJSON(ctx, apiURL, apiHeaders, payload)
 		if err != nil {
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -1048,6 +1060,11 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 			if !auditRetried {
 				if findings := auditGraph(graph); len(findings) > 0 {
 					auditRetried = true
+					progress.finished(BuildStep{
+						Kind:   "check",
+						Label:  fmt.Sprintf("Checked the workflow: fixing %d issue%s", len(findings), map[bool]string{true: "", false: "s"}[len(findings) == 1]),
+						Status: "done",
+					})
 					contents = append(contents,
 						map[string]any{"role": "model", "parts": []map[string]any{{"text": text}}},
 						map[string]any{"role": "user", "parts": []map[string]any{{"text": fmt.Sprintf(
@@ -1074,121 +1091,13 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 
 		responseParts := make([]map[string]any, 0, len(calls))
 		for _, c := range calls {
-			// web_search is not a graph mutation, so it does not go through
-			// applyGraphOp -- it reads the world instead of writing the graph,
-			// and its response shape (answer + sources) is richer than the
-			// one-line result string a graph op returns.
-			if c.name == "web_search" {
-				out, err := webSearch(ctx, argString(c.args, "query"), apiKey)
-				payloadResp := map[string]any{}
-				if err != nil {
-					// The query text is the model's own, and webSearch's errors
-					// are its own wrapped messages rather than a raw upstream
-					// body, so this is safe to hand back -- and the model needs
-					// to know the search failed rather than silently proceeding
-					// as though it had returned nothing of interest.
-					payloadResp["error"] = err.Error()
-				} else {
-					payloadResp["result"] = out
-				}
-				responseParts = append(responseParts, map[string]any{
-					"functionResponse": map[string]any{
-						"name":     c.name,
-						"response": payloadResp,
-					},
-				})
-				continue
-			}
-			// The x402 tools need the request's catalog loader, which a plain
-			// graph op has no access to. add_x402_node does edit the graph,
-			// but only ever from a catalog entry -- never from model-typed
-			// URL or price fields.
-			if c.name == "search_x402" || c.name == "add_x402_node" {
-				var out string
-				var err error
-				if c.name == "search_x402" {
-					out, err = x402.search(ctx, c.args)
-				} else {
-					out, err = x402.add(ctx, &graph, c.args)
-				}
-				if err != nil {
-					out = "error: " + err.Error()
-				}
-				responseParts = append(responseParts, map[string]any{
-					"functionResponse": map[string]any{
-						"name":     c.name,
-						"response": map[string]any{"result": out},
-					},
-				})
-				continue
-			}
-			// fetch_url reads the world, never the graph.
-			if c.name == "fetch_url" {
-				responseParts = append(responseParts, map[string]any{
-					"functionResponse": map[string]any{
-						"name": c.name,
-						"response": map[string]any{"result": func() string {
-							u := strings.TrimSpace(argString(c.args, "url"))
-							if r, ok := probed[u]; ok {
-								return r
-							}
-							r := fetchURL(ctx, u)
-							probed[u] = r
-							return r
-						}()},
-					},
-				})
-				continue
-			}
-			// describe_node reads the catalog; like web_search it never edits
-			// the graph, so it stays out of applyGraphOp.
-			if c.name == "describe_node" {
-				out, err := describeNode(argString(c.args, "type"), argString(c.args, "template"))
-				if err != nil {
-					out = "error: " + err.Error()
-				}
-				responseParts = append(responseParts, map[string]any{
-					"functionResponse": map[string]any{
-						"name":     c.name,
-						"response": map[string]any{"result": out},
-					},
-				})
-				continue
-			}
-			// An http node's url is checked before the node is added: a live
-			// build wired an address it had never fetched and the run 404'd.
-			// The prompt asking the model to verify first was not enough, so
-			// the builder calls the url itself -- through the same client a
-			// run uses -- and refuses one a run would fail on.
-			probeNote := ""
-			if url := httpNodeURLChange(&graph, c.name, c.args); url != "" {
-				probe, seen := probed[url]
-				if !seen {
-					probe = fetchURL(ctx, url)
-					probed[url] = probe
-				}
-				refuse, note := judgeProbe(url, probe)
-				if refuse != "" {
-					responseParts = append(responseParts, map[string]any{
-						"functionResponse": map[string]any{
-							"name":     c.name,
-							"response": map[string]any{"result": "error: " + refuse},
-						},
-					})
-					continue
-				}
-				probeNote = note
-			}
-			result, err := applyGraphOp(&graph, c.name, c.args)
-			if err != nil {
-				result = "error: " + err.Error()
-			} else {
-				result += probeNote
-			}
+			progress.working(runningLabel(&graph, c.name, c.args))
+			response := runBuildCall(ctx, &graph, c, apiKey, x402, probed)
+			progress.finished(finishedStep(&graph, c.name, c.args, response))
 			responseParts = append(responseParts, map[string]any{
 				"functionResponse": map[string]any{
 					"name":     c.name,
-					"response": map[string]any{"result": result},
+					"response": response,
 				},
 			})
 		}

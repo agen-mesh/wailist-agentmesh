@@ -279,11 +279,22 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Message string `json:"message"`
+		// BuildID, when the client supplies one, lets it poll
+		// BuildWorkflowProgress for this build's steps while it runs.
+		BuildID string `json:"buildId"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 	if strings.TrimSpace(body.Message) == "" {
 		respond.Error(w, http.StatusBadRequest, "message required")
 		return
+	}
+	var onProgress func(nodes.BuildProgress)
+	if buildIDPattern.MatchString(body.BuildID) {
+		key := buildProgressKey(userID, id, body.BuildID)
+		onProgress = func(p nodes.BuildProgress) { buildProgress.set(key, p) }
+		// Deferred, so "done" is only reported once the workflow has been
+		// saved -- or the build has failed -- never while the save is pending.
+		defer buildProgress.finish(key)
 	}
 	if d.PlatformGeminiAPIKey == "" {
 		respond.Error(w, http.StatusServiceUnavailable, "workflow builder is not configured")
@@ -315,6 +326,7 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 		History:     history,
 		X402Catalog: d.catalog,
 		TraceID:     id,
+		OnProgress:  onProgress,
 	})
 	if err != nil {
 		// The upstream text (a raw Gemini error body, keys and all) lands

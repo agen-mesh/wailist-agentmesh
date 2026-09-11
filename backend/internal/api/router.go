@@ -90,6 +90,7 @@ func NewRouter(d *handlers.Deps) http.Handler {
 
 		r.Post("/workflows/{id}/deploy", d.Deploy)
 		r.Post("/workflows/{id}/build", d.BuildWorkflow)
+		r.Get("/workflows/{id}/build/progress", d.BuildWorkflowProgress)
 		r.Get("/workflows/{id}/agents/{agentId}/balance", d.AgentBalance)
 		r.Post("/workflows/{id}/agents/{agentId}/fund", d.FundAgent)
 

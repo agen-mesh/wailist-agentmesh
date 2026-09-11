@@ -459,3 +459,95 @@ func TestBuildWorkflowSearchesTheBazaarAndSavesTheX402Node(t *testing.T) {
 	}
 	t.Fatalf("the saved workflow has no tool402 node for the catalog endpoint: %+v", saved.Nodes)
 }
+
+// buildProgressReq issues GET /workflows/{id}/build/progress as userID.
+func buildProgressReq(d *handlers.Deps, workflowID, userID, buildID string) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	req := withURLParam(httptest.NewRequest(http.MethodGet, "/workflows/"+workflowID+"/build/progress?buildId="+buildID, nil), "id", workflowID)
+	d.BuildWorkflowProgress(rec, withUser(req, userID))
+	return rec
+}
+
+// The chat polls this while a build runs, to show each step as it happens
+// instead of a bare spinner.
+func TestBuildWorkflowProgressIsPollableByItsOwnerOnly(t *testing.T) {
+	d := testDeps(t)
+	d.PlatformGeminiAPIKey = "test-key"
+	ctx := context.Background()
+
+	user, err := d.Store.CreateUser(ctx, "wf-prog-"+randSuffix(t)+"@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := d.Store.CreateUser(ctx, "wf-prog-other-"+randSuffix(t)+"@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wf, err := d.Store.CreateWorkflow(ctx, "Progress", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Store.DeleteWorkflow(context.Background(), wf.ID) })
+
+	turn := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		turn++
+		w.Header().Set("Content-Type", "application/json")
+		if turn == 1 {
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"trigger","template":"manual","name":"Start"}}}]}}]}`)
+			return
+		}
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"Added a trigger."}]}}]}`)
+	}))
+	defer srv.Close()
+	nodes.SetGeminiBaseURL(srv.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	buildID := "build-" + strings.ReplaceAll(randSuffix(t), ".", "") // the id format allows no dots
+	rec := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]string{"message": "add a trigger", "buildId": buildID})
+	req := withURLParam(httptest.NewRequest(http.MethodPost, "/workflows/"+wf.ID+"/build", bytes.NewReader(body)), "id", wf.ID)
+	d.BuildWorkflow(rec, withUser(req, user.ID))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("build got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var got struct {
+		Steps []struct {
+			Label  string `json:"label"`
+			Status string `json:"status"`
+		} `json:"steps"`
+		Done bool `json:"done"`
+	}
+	pr := buildProgressReq(d, wf.ID, user.ID, buildID)
+	if pr.Code != http.StatusOK {
+		t.Fatalf("progress got %d: %s", pr.Code, pr.Body.String())
+	}
+	json.Unmarshal(pr.Body.Bytes(), &got)
+	if !got.Done {
+		t.Fatal("a finished build must report done")
+	}
+	found := false
+	for _, s := range got.Steps {
+		if strings.Contains(s.Label, "Added Manual Trigger “Start”") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the owner should see the build's steps, got %+v", got.Steps)
+	}
+
+	// Someone else polling the same build id sees nothing.
+	var theirs struct {
+		Steps []any `json:"steps"`
+		Done  bool  `json:"done"`
+	}
+	json.Unmarshal(buildProgressReq(d, wf.ID, other.ID, buildID).Body.Bytes(), &theirs)
+	if len(theirs.Steps) != 0 || theirs.Done {
+		t.Fatalf("another user must not see this build's progress, got %+v", theirs)
+	}
+
+	if bad := buildProgressReq(d, wf.ID, user.ID, "../../etc"); bad.Code != http.StatusBadRequest {
+		t.Fatalf("a malformed build id must be rejected, got %d", bad.Code)
+	}
+}

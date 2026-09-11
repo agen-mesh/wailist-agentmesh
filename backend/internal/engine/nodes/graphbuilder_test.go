@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -1131,5 +1132,90 @@ func TestBuilderAddsAnAuthRequiredHTTPNodeWithAWarning(t *testing.T) {
 	}
 	if !strings.Contains(sent, "requires authentication (HTTP 401)") {
 		t.Fatalf("the model must be told the endpoint needs a credential, got: %s", sent)
+	}
+}
+
+// The chat shows what the builder is doing, step by step, instead of a bare
+// spinner. OnProgress receives a snapshot each time a step starts or ends:
+// the finished steps so far, and what is happening right now.
+func TestBuildGraphReportsReadableProgress(t *testing.T) {
+	target := probeTarget(t)
+	turn := 0
+	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		// The web_search sub-request is not a builder turn: answer it before
+		// counting, or it shifts every scripted turn after it.
+		if strings.Contains(string(body), "google_search") {
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"Nifty is 24812."}]}}]}`)
+			return
+		}
+		turn++
+		switch {
+		case turn == 1:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"web_search","args":{"query":"nifty 50 price api"}}}]}}]}`)
+		case turn == 2:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[`+
+				`{"functionCall":{"name":"add_node","args":{"type":"trigger","template":"manual","name":"Start"}}},`+
+				`{"functionCall":{"name":"add_node","args":{"type":"tool","template":"http","name":"Fetch Nifty","fields":{"url":"`+target.URL+`/ok"}}}},`+
+				`{"functionCall":{"name":"add_node","args":{"type":"tool","template":"http","name":"Dead API","fields":{"url":"`+target.URL+`/gone"}}}}`+
+				`]}}]}`)
+		case turn == 3:
+			// Edge between the two nodes added last round, found by name.
+			var ids []string
+			for _, m := range regexp.MustCompile(`added node (n_\d+)`).FindAllStringSubmatch(string(body), -1) {
+				ids = append(ids, m[1])
+			}
+			if len(ids) < 2 {
+				io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"done"}]}}]}`)
+				return
+			}
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_edge","args":{"from":"`+ids[0]+`","to":"`+ids[1]+`"}}}]}}]}`)
+		default:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"done"}]}}]}`)
+		}
+	}))
+	defer gem.Close()
+	SetGeminiBaseURL(gem.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+	SetURLValidatorForTest(func(string) error { return nil })
+	defer SetURLValidatorForTest(func(string) error { return nil })
+
+	var last BuildProgress
+	var sawCurrent []string
+	_, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "x",
+		OnProgress: func(p BuildProgress) {
+			last = p
+			if p.Current != "" {
+				sawCurrent = append(sawCurrent, p.Current)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	labels := make([]string, len(last.Steps))
+	for i, s := range last.Steps {
+		labels[i] = s.Status + " | " + s.Label + " | " + s.Detail
+	}
+	joined := strings.Join(labels, "\n")
+	for _, want := range []string{
+		`done | Searched the web for “nifty 50 price api”`,
+		`done | Added Manual Trigger “Start”`,
+		`done | Added HTTP Request “Fetch Nifty”`,
+		`error | Couldn't add HTTP Request “Dead API”`,
+		`HTTP 404`,
+		`done | Connected “Start” → “Fetch Nifty”`,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("progress is missing %q; got:\n%s", want, joined)
+		}
+	}
+	if len(sawCurrent) == 0 || !strings.Contains(strings.Join(sawCurrent, "\n"), "Searching the web for") {
+		t.Fatalf("the in-flight step should be reported while it runs, saw: %v", sawCurrent)
+	}
+	if last.Current != "" {
+		t.Fatalf("nothing should be in flight once the build returns, got %q", last.Current)
 	}
 }
