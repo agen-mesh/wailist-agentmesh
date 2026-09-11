@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { setProgressIn, type BuildProgress, type BuildStep } from "./buildProgress";
 
 // The chat transcript for one workflow.
 //
@@ -31,6 +32,13 @@ export interface ChatMessage {
    * isError: the run itself may well have succeeded, we just stopped watching.
    */
   interrupted?: boolean;
+  /**
+   * A chat build's steps so far ("Searched the web for …", "Added HTTP
+   * Request …") and what is in flight -- shown in place of a bare spinner
+   * while pending, and as a collapsible list once settled.
+   */
+  steps?: BuildStep[];
+  current?: string;
   /** Activity-strip figures, filled in when the run finishes. */
   toolCount?: number;
   elapsedS?: number;
@@ -63,6 +71,8 @@ export interface ChatSession {
    * outcome can settle it again. See reopenTurnForRunIn's doc comment.
    */
   reopenTurnForRun: (runId: string) => void;
+  /** Shows a chat build's live steps on its pending turn. */
+  setTurnProgress: (id: string, progress: BuildProgress) => void;
   /** Clears the transcript and starts a new session id. */
   reset: () => void;
   hydrated: boolean;
@@ -322,6 +332,10 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
     setMessages((prev) => reopenTurnForRunIn(prev, runId));
   }, []);
 
+  const setTurnProgress = useCallback((id: string, progress: BuildProgress) => {
+    setMessages((prev) => setProgressIn(prev, id, progress));
+  }, []);
+
   const reset = useCallback(() => {
     setMessages([]);
     setSessionId(newSessionId());
@@ -335,6 +349,7 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
     completeTurnForRun,
     completeTurnById,
     reopenTurnForRun,
+    setTurnProgress,
     reset,
     hydrated,
   };

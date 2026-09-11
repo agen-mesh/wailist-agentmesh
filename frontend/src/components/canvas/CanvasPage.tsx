@@ -34,6 +34,11 @@ import {
   firstUnreachedStep,
 } from "./buildModeRelease";
 import { RunBlockedCard } from "./chat/RunBlockedCard";
+import {
+  newBuildId,
+  startProgressPolling,
+  type BuildProgress,
+} from "./chat/buildProgress";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import { ShareModal } from "@/components/workflows/ShareModal";
 import {
@@ -549,8 +554,23 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   );
 
   const startBuild = useCallback(
-    async (text: string): Promise<{ ok: boolean; reply?: string }> => {
+    async (
+      text: string,
+      onProgress?: (p: BuildProgress) => void,
+    ): Promise<{ ok: boolean; reply?: string }> => {
       if (!workflow) return { ok: false };
+      // Poll the build's steps while it runs so the chat can show them. The
+      // poller is stopped -- with one final flush -- before this returns, so
+      // every step is on the turn before it settles.
+      const buildId = newBuildId();
+      const wfId = workflow.id;
+      const poller = onProgress
+        ? startProgressPolling(
+            () => workflowsApi.buildProgress(wfId, buildId),
+            onProgress,
+            1000,
+          )
+        : null;
       // Latch build mode on for the duration of THIS call. Without it, the
       // nodes this very call is about to add can make the graph runnable
       // while the request is still in flight, and a message sent in that
@@ -563,7 +583,8 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         // sitting in the autosave debounce would be invisible to it and lost
         // when the build response replaces local state.
         await flushPendingSave();
-        const res = await workflowsApi.build(workflow.id, text);
+        const res = await workflowsApi.build(workflow.id, text, buildId);
+        await poller?.stop();
         setWorkflow((wf) =>
           wf
             ? { ...wf, nodes: res.workflow.nodes, edges: res.workflow.edges }
@@ -579,6 +600,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         }
         return { ok: true, reply: res.reply };
       } catch (err: unknown) {
+        await poller?.stop();
         const message = err instanceof Error ? err.message : "unknown error";
         showToast(`Build failed · ${message}`, "error");
         return {
@@ -1022,7 +1044,10 @@ function ChatConsoleHost({
   workflowId?: string;
   onSendMessage?: (text: string) => Promise<boolean>;
   buildMode?: boolean;
-  onBuildMessage?: (text: string) => Promise<{ ok: boolean; reply?: string }>;
+  onBuildMessage?: (
+    text: string,
+    onProgress?: (p: BuildProgress) => void,
+  ) => Promise<{ ok: boolean; reply?: string }>;
   attempt?: number;
   children: (chat: ChatConsole) => React.ReactNode;
 }) {

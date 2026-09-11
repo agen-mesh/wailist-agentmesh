@@ -1,6 +1,7 @@
 // TODO: Replace all stubs with real FastAPI calls when backend is ready.
 // Base URL will come from env: process.env.NEXT_PUBLIC_API_URL
 
+import type { BuildProgress } from "@/components/canvas/chat/buildProgress";
 import {
   Workflow,
   UsageRange,
@@ -369,6 +370,7 @@ export const workflows = {
   build: async (
     id: string,
     message: string,
+    buildId?: string,
   ): Promise<{ reply: string; workflow: Workflow }> => {
     assertWritable("POST", `/workflows/${id}/build`);
     if (BASE) {
@@ -376,7 +378,8 @@ export const workflows = {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        // buildId lets the chat poll buildProgress for this build's steps.
+        body: JSON.stringify(buildId ? { message, buildId } : { message }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "build failed");
@@ -392,6 +395,17 @@ export const workflows = {
         "Mock build response — connect a real backend to build workflows from chat.",
       workflow: current,
     };
+  },
+
+  // The steps a chat build has taken so far -- see chat/buildProgress.ts.
+  buildProgress: async (id: string, buildId: string): Promise<BuildProgress> => {
+    if (!BASE) return { steps: [] };
+    const res = await apiFetch(
+      `${BASE}/workflows/${id}/build/progress?buildId=${encodeURIComponent(buildId)}`,
+      { credentials: "include" },
+    );
+    if (!res.ok) throw new Error(`build progress ${res.status}`);
+    return res.json();
   },
 
   // TODO: POST /workflows/:id/stop
