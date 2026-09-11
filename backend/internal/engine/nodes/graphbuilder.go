@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -185,21 +186,22 @@ func addGraphEdge(graph *models.WorkflowGraph, args map[string]any) (string, err
 	if !graphEdgeKinds[kind] {
 		return "", fmt.Errorf("add_edge: invalid kind %q", kind)
 	}
-	if !graphHasNode(graph, from) {
-		return "", fmt.Errorf("add_edge: node %q not found", from)
-	}
-	if !graphHasNode(graph, to) {
-		return "", fmt.Errorf("add_edge: node %q not found", to)
+	// Legality and port normalisation together -- see graphvalidate.go for
+	// why an unvalidated edge here surfaces as a line on the canvas that the
+	// engine silently ignores at run time.
+	port, err := validateEdge(graph, from, to, kind, argString(args, "toPort"))
+	if err != nil {
+		return "", err
 	}
 	edge := models.WorkflowEdge{
 		ID:     newGraphID("e_"),
 		From:   from,
 		To:     to,
 		Kind:   models.EdgeKind(kind),
-		ToPort: argString(args, "toPort"),
+		ToPort: port,
 	}
 	graph.Edges = append(graph.Edges, edge)
-	return fmt.Sprintf("added edge %s (%s -> %s)", edge.ID, from, to), nil
+	return fmt.Sprintf("added edge %s (%s -%s-> %s, port %s)", edge.ID, from, kind, to, port), nil
 }
 
 func removeGraphEdge(graph *models.WorkflowGraph, args map[string]any) (string, error) {
@@ -218,15 +220,6 @@ func removeGraphEdge(graph *models.WorkflowGraph, args map[string]any) (string, 
 	}
 	graph.Edges = edges
 	return fmt.Sprintf("removed edge %s", id), nil
-}
-
-func graphHasNode(graph *models.WorkflowGraph, id string) bool {
-	for _, n := range graph.Nodes {
-		if n.ID == id {
-			return true
-		}
-	}
-	return false
 }
 
 func graphToolDecls() []funcDecl {
@@ -326,11 +319,21 @@ Node types and their templates:
 - end: http, done
 - tendril: tendril_topup, tendril_rent, tendril_run, tendril_release
 
+Wiring rules -- these are enforced, an illegal edge is rejected and you must fix it:
+- An attach edge always runs SOURCE -> AGENT, never the other way round: add_edge(from=<provider id>,
+  to=<agent id>, kind="attach", toPort="model"). Writing from=<agent> to=<provider> is wrong and will
+  be rejected.
+- A provider attaches to the "model" port. A tool or tool402 attaches to the "tools" port. Nothing else
+  attaches at all.
+- A provider node is NEVER part of the flow chain -- it only ever attaches to an agent.
+- Nothing flows into a trigger; a trigger is where the workflow starts.
+
 A typical workflow: a trigger node, connected via a flow edge to an agent node, with a provider node attached to
 the agent's "model" port and zero or more tool/tool402 nodes attached to its "tools" port, flowing on to an
-action or end node. Make small, sensible workflows unless asked for something more elaborate. When you are done
-making changes, reply with a short plain-text summary of what you built or changed -- do not call any more tools
-once you're done.`
+action or end node. Every agent you add MUST end up with a provider attached to its "model" port -- an agent
+without one cannot run. Make small, sensible workflows unless asked for something more elaborate. When you are
+done making changes, reply with a short plain-text summary of what you built or changed -- do not call any more
+tools once you're done.`
 
 // BuildGraphResult is what a build-mode chat turn resolves to: a
 // user-facing summary plus the graph after every requested tool call has
@@ -361,6 +364,7 @@ func BuildGraph(ctx context.Context, apiKey, userMessage string, graph models.Wo
 		"tools": []map[string]any{{"functionDeclarations": graphToolDecls()}},
 	}
 
+	auditRetried := false
 	for iter := 0; iter < maxToolIterations; iter++ {
 		resp, err := postLLMJSON(ctx, apiURL, apiHeaders, payload)
 		if err != nil {
@@ -371,6 +375,25 @@ func BuildGraph(ctx context.Context, apiKey, userMessage string, graph models.Wo
 			text, err := extractGeminiText(resp)
 			if err != nil {
 				return BuildGraphResult{}, err
+			}
+			// Per-edge validation cannot see an agent that simply never got a
+			// provider, or a node left wired to nothing -- those are made of
+			// legal edges, or of none. Hand the findings back once and let the
+			// model repair before it answers. Once only (auditRetried): if it
+			// cannot fix the graph on a second pass it will not fix it on a
+			// tenth, and the iteration budget is shared with real work.
+			if !auditRetried {
+				if findings := auditGraph(graph); len(findings) > 0 {
+					auditRetried = true
+					contents = append(contents,
+						map[string]any{"role": "model", "parts": []map[string]any{{"text": text}}},
+						map[string]any{"role": "user", "parts": []map[string]any{{"text": fmt.Sprintf(
+							"Before you answer: the graph still has these problems.\n- %s\nFix them with the graph tools, then summarise.",
+							strings.Join(findings, "\n- "))}}},
+					)
+					payload["contents"] = contents
+					continue
+				}
 			}
 			return BuildGraphResult{Reply: text, Graph: graph}, nil
 		}

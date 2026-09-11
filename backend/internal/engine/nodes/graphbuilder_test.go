@@ -144,7 +144,14 @@ func TestApplyGraphOpRemoveNode(t *testing.T) {
 }
 
 func TestApplyGraphOpAddEdge(t *testing.T) {
-	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{{ID: "n_1"}, {ID: "n_2"}}}
+	// Typed nodes, not bare ids: an attach edge is only legal provider ->
+	// agent now (validateEdge), which is the shape this test always meant to
+	// describe -- the untyped fixture it used to carry would have been
+	// dropped by BuildAttachMap at run time.
+	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{
+		{ID: "n_1", Type: models.NodeTypeProvider},
+		{ID: "n_2", Type: models.NodeTypeAgent},
+	}}
 	_, err := applyGraphOp(graph, "add_edge", map[string]any{"from": "n_1", "to": "n_2", "kind": "attach", "toPort": "model"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -221,8 +228,12 @@ func TestBuildGraphAddsNodeThenReturnsReply(t *testing.T) {
 	if len(result.Graph.Nodes) != 1 || result.Graph.Nodes[0].Template != "chat" {
 		t.Fatalf("unexpected graph: %+v", result.Graph.Nodes)
 	}
-	if callCount != 2 {
-		t.Fatalf("expected 2 calls, got %d", callCount)
+	// Three, not two: the graph this builds is a single unconnected trigger,
+	// so auditGraph reports an orphan and spends one extra round giving the
+	// model a chance to repair before answering. The stub replies with the
+	// same text either way, so the assertions above are unaffected.
+	if callCount != 3 {
+		t.Fatalf("expected 3 calls (2 + one audit repair round), got %d", callCount)
 	}
 }
 
