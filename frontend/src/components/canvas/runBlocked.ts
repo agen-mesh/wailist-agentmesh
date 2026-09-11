@@ -26,6 +26,8 @@ export interface RunBlockedInput {
   agentMissingModel: boolean;
   /** Name of a flow step nothing flows into, if any -- see firstUnreachedStep. */
   unreachedStep?: string;
+  /** Does the flow loop back on itself -- see hasFlowLoop. */
+  flowLoop?: boolean;
   /** May THIS client deploy? False for a read-only viewer. */
   canDeploy: boolean;
 }
@@ -51,6 +53,7 @@ export function runBlockedReason({
   graphReady,
   agentMissingModel,
   unreachedStep,
+  flowLoop,
   canDeploy,
 }: RunBlockedInput): RunBlockedReason | null {
   if (deployed) return null;
@@ -67,9 +70,11 @@ export function runBlockedReason({
         code: "not-ready",
         title: agentMissingModel
           ? "No model attached yet"
-          : unreachedStep
-            ? "A step isn't connected"
-            : "Nothing to run yet",
+          : flowLoop
+            ? "The flow loops back on itself"
+            : unreachedStep
+              ? "A step isn't connected"
+              : "Nothing to run yet",
         detail: "This workflow isn't finished yet — build it in the AgentMesh desktop app",
         action: null,
       };
@@ -79,6 +84,14 @@ export function runBlockedReason({
         code: "not-ready",
         title: "No model attached yet",
         detail: "Attach a provider to the agent's model port before running",
+        action: null,
+      };
+    }
+    if (flowLoop) {
+      return {
+        code: "not-ready",
+        title: "The flow loops back on itself",
+        detail: "Remove the connection that closes the loop before running",
         action: null,
       };
     }

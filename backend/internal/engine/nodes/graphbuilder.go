@@ -982,7 +982,15 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	started := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
+	// lastReply is the model's own answer, held while the audit sends it back
+	// for one repair round. If that round then hits the time or round limit,
+	// this -- not a canned "ran out" line -- is what the user gets: it can
+	// carry the credentials to add and the x402 costs.
+	lastReply := ""
 	ranOutOfTime := func() BuildGraphResult {
+		if lastReply != "" {
+			return BuildGraphResult{Reply: lastReply, Graph: graph}
+		}
 		progress.finished(BuildStep{Kind: "check", Label: "Stopped: ran out of time", Status: "error"})
 		if req.TraceID != "" {
 			log.Printf("build %s: stopped at the time budget after %.1fs", req.TraceID, time.Since(started).Seconds())
@@ -1060,6 +1068,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 			if !auditRetried {
 				if findings := auditGraph(graph); len(findings) > 0 {
 					auditRetried = true
+					lastReply = text
 					progress.finished(BuildStep{
 						Kind:   "check",
 						Label:  fmt.Sprintf("Checked the workflow: fixing %d issue%s", len(findings), map[bool]string{true: "", false: "s"}[len(findings) == 1]),
@@ -1111,6 +1120,9 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	// the worst outcome available, and the likeliest one on exactly the
 	// elaborate requests where the user cares most. Say plainly that it is
 	// unfinished so the reply is not mistaken for a completed build.
+	if lastReply != "" {
+		return BuildGraphResult{Reply: lastReply, Graph: graph}, nil
+	}
 	return BuildGraphResult{
 		Reply: "I ran out of steps partway through this one. What I managed to build is on the canvas — " +
 			"tell me what to finish and I'll carry on from there.",

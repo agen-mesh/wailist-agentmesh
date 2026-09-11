@@ -105,6 +105,17 @@ describe("runBlockedReason", () => {
     expect(r?.detail).toContain("Extract Sensex Price");
   });
 
+  it("names a loop in the flow", () => {
+    const r = runBlockedReason({
+      deployed: false,
+      canDeploy: true,
+      graphReady: false,
+      agentMissingModel: false,
+      flowLoop: true,
+    });
+    expect(r?.title).toBe("The flow loops back on itself");
+  });
+
   it("offers a deploy action to someone who may deploy", () => {
     const r = runBlockedReason({ deployed: false, canDeploy: true, ...ready });
     expect(r?.code).toBe("not-deployed");

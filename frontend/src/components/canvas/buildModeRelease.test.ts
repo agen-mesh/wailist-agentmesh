@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { isGraphRunnable, agentMissingModel, firstUnreachedStep } from "./buildModeRelease";
+import {
+  isGraphRunnable,
+  agentMissingModel,
+  firstUnreachedStep,
+  hasFlowLoop,
+  shouldReleaseBuildMode,
+} from "./buildModeRelease";
 import type { WorkflowNode, WorkflowEdge, NodeType, PortName } from "@/lib/types";
 
 const node = (id: string, type: NodeType): WorkflowNode => ({
@@ -248,5 +254,43 @@ describe("firstUnreachedStep", () => {
   it("is null when every flow step is reached", () => {
     const nodes = [node("t", "trigger"), node("h", "tool")];
     expect(firstUnreachedStep(nodes, [edge("1", "t", "h", "flow", "in")])).toBeNull();
+  });
+});
+
+describe("hasFlowLoop / loops", () => {
+  // Review finding: A -> B -> A passed the readiness check and then failed
+  // every run with "cycle detected in workflow graph".
+  const nodes = [node("t", "trigger"), node("a", "tool"), node("b", "tool")];
+  const loop = [
+    edge("1", "t", "a", "flow", "in"),
+    edge("2", "a", "b", "flow", "in"),
+    edge("3", "b", "a", "flow", "in"),
+  ];
+  it("detects a loop in the flow", () => {
+    expect(hasFlowLoop(nodes, loop)).toBe(true);
+    expect(hasFlowLoop(nodes, loop.slice(0, 2))).toBe(false);
+  });
+  it("does not call a looping graph runnable", () => {
+    expect(isGraphRunnable(nodes, loop)).toBe(false);
+  });
+});
+
+describe("shouldReleaseBuildMode", () => {
+  const empty = { nodes: [] as ReturnType<typeof node>[], edges: [] as ReturnType<typeof edge>[] };
+  const ready = {
+    nodes: [node("t", "trigger"), node("h", "tool")],
+    edges: [edge("1", "t", "h", "flow", "in")],
+  };
+  it("releases when a build makes a not-yet-runnable graph runnable", () => {
+    expect(shouldReleaseBuildMode(empty, ready)).toBe(true);
+  });
+  // Review finding: a user who picked Build on a runnable workflow was
+  // flipped back to Run after the build, so their next message started a
+  // real, billed run instead of another edit.
+  it("does not override a Build choice made on an already-runnable graph", () => {
+    expect(shouldReleaseBuildMode(ready, ready)).toBe(false);
+  });
+  it("stays in build mode while the graph still cannot run", () => {
+    expect(shouldReleaseBuildMode(empty, empty)).toBe(false);
   });
 });

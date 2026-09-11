@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/url"
 	"strings"
 
@@ -73,10 +74,12 @@ func runBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFunc
 		// shape is richer than a graph op's one-line result.
 		out, err := webSearch(ctx, argString(c.args, "query"), apiKey)
 		if err != nil {
-			// The query is the model's own and webSearch's errors are its own
-			// wrapped messages, not a raw upstream body -- safe to hand back,
-			// and the model needs to know the search failed.
-			return map[string]any{"error": err.Error()}
+			// The model needs to know the search failed, but not how:
+			// webSearch's error wraps postLLMJSON's, which carries Gemini's raw
+			// response body -- exactly what BuildWorkflow keeps out of the
+			// chat. Logged here in full, reported as a plain failure.
+			log.Printf("builder web_search failed: %v", err)
+			return map[string]any{"error": "web search is unavailable right now"}
 		}
 		return map[string]any{"result": out}
 
@@ -190,6 +193,8 @@ func finishedStep(graph *models.WorkflowGraph, name string, args map[string]any,
 		step.Label = fmt.Sprintf("Searched the web for “%s”", clip(argString(args, "query"), 80))
 		if failed {
 			step.Label = fmt.Sprintf("Web search for “%s” failed", clip(argString(args, "query"), 80))
+			// Never the error text: it can carry a raw upstream body.
+			step.Detail = "the search service returned an error"
 		}
 	case "fetch_url":
 		step.Kind = "check"

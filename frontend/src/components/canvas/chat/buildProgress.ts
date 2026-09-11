@@ -81,7 +81,7 @@ export function startProgressPolling(
   fetchProgress: () => Promise<BuildProgress>,
   onProgress: (p: BuildProgress) => void,
   intervalMs = 1000,
-): { stop: () => Promise<void> } {
+): { stop: (timeoutMs?: number) => Promise<void> } {
   let stopped = false;
   let inFlight: Promise<void> = Promise.resolve();
 
@@ -101,16 +101,29 @@ export function startProgressPolling(
   }, intervalMs);
 
   return {
-    stop: async () => {
+    // Bounded: the build has already finished by the time stop() is called,
+    // and the canvas update and the chat turn both wait on it. A progress
+    // request stalled in the proxy must not hold them hostage.
+    stop: async (timeoutMs = 3000) => {
       if (stopped) return;
       clearInterval(timer);
-      await inFlight;
-      try {
-        const p = await fetchProgress();
-        onProgress(p);
-      } catch {
-        /* the build response still completes the turn */
-      }
+      const flush = (async () => {
+        await inFlight;
+        try {
+          const p = await fetchProgress();
+          if (!stopped) onProgress(p);
+        } catch {
+          /* the build response still completes the turn */
+        }
+      })();
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        flush,
+        new Promise<void>((resolve) => {
+          timeout = setTimeout(resolve, timeoutMs);
+        }),
+      ]);
+      clearTimeout(timeout);
       stopped = true;
     },
   };

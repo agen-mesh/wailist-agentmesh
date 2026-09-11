@@ -81,7 +81,59 @@ export function isGraphRunnable(
   if (!agents.every((id) => modelled.has(id))) return false;
 
   if (!flowReach(nodes, edges).reachesStep) return false;
+  // A loop fails every run: the engine topologically sorts the flow and
+  // rejects a cycle outright.
+  if (hasFlowLoop(nodes, edges)) return false;
   return firstUnreachedStep(nodes, edges) === null;
+}
+
+/**
+ * Whether the flow loops back on itself (A -> B -> A). The engine cannot run
+ * a loop, and one drawn by hand never goes through the builder's own check.
+ */
+export function hasFlowLoop(
+  nodes: WorkflowNode[],
+  edges: WorkflowEdge[],
+): boolean {
+  const flow = edges.filter((e) => e.kind === "flow");
+  const reaches = (src: string, dst: string): boolean => {
+    const seen = new Set<string>();
+    const queue = [src];
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      if (id === dst) return true;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      for (const e of flow) if (e.from === id) queue.push(e.to);
+    }
+    return false;
+  };
+  const ids = new Set(nodes.map((n) => n.id));
+  return flow.some((e) => ids.has(e.from) && reaches(e.to, e.from));
+}
+
+interface GraphShape {
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+}
+
+/**
+ * Whether a finished build should switch chat back to run mode.
+ *
+ * Only when build mode was forced -- the graph could not run, or leave build
+ * mode, before this build -- and the build made it runnable. A user who chose
+ * Build themselves on an already-runnable workflow keeps that choice: flipping
+ * them back to Run meant their next message started a real, billed run instead
+ * of another edit.
+ */
+export function shouldReleaseBuildMode(
+  before: GraphShape,
+  after: GraphShape,
+): boolean {
+  const couldLeaveBefore =
+    isGraphRunnable(before.nodes, before.edges) ||
+    before.nodes.some((n) => n.type === "provider");
+  return !couldLeaveBefore && isGraphRunnable(after.nodes, after.edges);
 }
 
 /**

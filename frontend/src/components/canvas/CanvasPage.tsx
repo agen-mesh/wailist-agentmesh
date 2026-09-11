@@ -32,6 +32,8 @@ import {
   isGraphRunnable,
   agentMissingModel,
   firstUnreachedStep,
+  hasFlowLoop,
+  shouldReleaseBuildMode,
 } from "./buildModeRelease";
 import { RunBlockedCard } from "./chat/RunBlockedCard";
 import {
@@ -488,6 +490,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     () => (workflow ? agentMissingModel(workflow.nodes, workflow.edges) : false),
     [workflow],
   );
+  const flowLoop = useMemo(
+    () => (workflow ? hasFlowLoop(workflow.nodes, workflow.edges) : false),
+    [workflow],
+  );
   const unreachedStep = useMemo(() => {
     if (!workflow) return undefined;
     const n = firstUnreachedStep(workflow.nodes, workflow.edges);
@@ -503,9 +509,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         graphReady,
         agentMissingModel: missingModel,
         unreachedStep,
+        flowLoop,
         canDeploy: can("workflow.deploy", readOnly),
       }),
-    [deployed, graphReady, missingModel, unreachedStep, readOnly],
+    [deployed, graphReady, missingModel, unreachedStep, flowLoop, readOnly],
   );
   const runBlocked = blockedReason?.detail ?? null;
   const showBlockedCard =
@@ -564,6 +571,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       // every step is on the turn before it settles.
       const buildId = newBuildId();
       const wfId = workflow.id;
+      const before = { nodes: workflow.nodes, edges: workflow.edges };
       const poller = onProgress
         ? startProgressPolling(
             () => workflowsApi.buildProgress(wfId, buildId),
@@ -593,9 +601,11 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         // ...and release it the moment the graph can actually run. The latch
         // used to be permanent, so once the builder had produced a workflow
         // every later message still went to the builder: the user typed "run
-        // it" and got another build summary back. Released only on a runnable
-        // graph, so a half-built one keeps the conversation going.
-        if (isGraphRunnable(res.workflow.nodes, res.workflow.edges)) {
+        // it" and got another build summary back. Released only when this
+        // build made a graph that could not run runnable -- a half-built one
+        // keeps the conversation going, and a user who chose Build on an
+        // already-runnable workflow keeps that choice (shouldReleaseBuildMode).
+        if (shouldReleaseBuildMode(before, res.workflow)) {
           setManualBuildMode(false);
         }
         return { ok: true, reply: res.reply };

@@ -13,6 +13,7 @@ import (
 
 	"github.com/agentmesh/backend/internal/api/handlers"
 	"github.com/agentmesh/backend/internal/engine/nodes"
+	"github.com/agentmesh/backend/internal/models"
 )
 
 // buildWorkflowReq issues POST /workflows/{id}/build as userID.
@@ -549,5 +550,61 @@ func TestBuildWorkflowProgressIsPollableByItsOwnerOnly(t *testing.T) {
 
 	if bad := buildProgressReq(d, wf.ID, user.ID, "../../etc"); bad.Code != http.StatusBadRequest {
 		t.Fatalf("a malformed build id must be rejected, got %d", bad.Code)
+	}
+}
+
+// Review finding: the build runs detached from the request and used to save
+// the graph it read at the start, overwriting any edit made meanwhile (a
+// reload and an edit, another tab, a second build). It now refuses to save
+// over a workflow that changed while it was building.
+func TestBuildWorkflowDoesNotOverwriteAnEditMadeDuringTheBuild(t *testing.T) {
+	d := testDeps(t)
+	d.PlatformGeminiAPIKey = "test-key"
+	ctx := context.Background()
+
+	user, err := d.Store.CreateUser(ctx, "wf-race-"+randSuffix(t)+"@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wf, err := d.Store.CreateWorkflow(ctx, "Race", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Store.DeleteWorkflow(context.Background(), wf.ID) })
+
+	turn := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		turn++
+		if turn == 1 {
+			// The user edits the canvas while the builder is mid-build.
+			edit := models.WorkflowGraph{Nodes: []models.WorkflowNode{{ID: "user-node", Type: models.NodeTypeTrigger, Template: "manual", Name: "Mine"}}}
+			if _, err := d.Store.UpdateWorkflow(context.Background(), wf.ID, "Race", edit); err != nil {
+				t.Errorf("simulated edit failed: %v", err)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if turn == 1 {
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"trigger","template":"chat","name":"Builder's"}}}]}}]}`)
+			return
+		}
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"done"}]}}]}`)
+	}))
+	defer srv.Close()
+	nodes.SetGeminiBaseURL(srv.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	rec := buildWorkflowReq(d, wf.ID, user.ID, "add a chat trigger")
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("want 409 when the workflow changed mid-build, got %d: %s", rec.Code, rec.Body.String())
+	}
+	saved, err := d.Store.GetWorkflow(ctx, wf.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Nodes) != 1 || saved.Nodes[0].ID != "user-node" {
+		t.Fatalf("the user's edit must survive, got %+v", saved.Nodes)
+	}
+	if msgs, _ := d.Store.GetBuildMessages(ctx, wf.ID, 20); len(msgs) != 0 {
+		t.Fatalf("a build that was not saved must not be remembered, got %d turns", len(msgs))
 	}
 }

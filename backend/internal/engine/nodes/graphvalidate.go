@@ -103,7 +103,48 @@ func validateEdge(graph *models.WorkflowGraph, from, to, kind, toPort string) (s
 	if from == to {
 		return "", fmt.Errorf("add_edge: a node cannot flow into itself")
 	}
+	// Longer loops too: the engine topologically sorts the flow and fails
+	// every run of a graph that loops ("cycle detected in workflow graph").
+	if flowReaches(*graph, to, from) {
+		return "", fmt.Errorf("add_edge: connecting %q -> %q would create a loop, because %q already leads back to %q -- a workflow's flow cannot loop", from, to, to, from)
+	}
 	return "in", nil
+}
+
+// flowReaches reports whether dst can be reached from src along flow edges.
+func flowReaches(graph models.WorkflowGraph, src, dst string) bool {
+	next := map[string][]string{}
+	for _, e := range graph.Edges {
+		if e.Kind == models.EdgeKindFlow {
+			next[e.From] = append(next[e.From], e.To)
+		}
+	}
+	seen := map[string]bool{}
+	queue := []string{src}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if id == dst {
+			return true
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		queue = append(queue, next[id]...)
+	}
+	return false
+}
+
+// flowLoopNode returns a node that sits on a loop of flow edges, or "" when
+// the flow has none. A loop drawn by hand never passes through validateEdge.
+func flowLoopNode(graph models.WorkflowGraph) string {
+	for _, e := range graph.Edges {
+		if e.Kind == models.EdgeKindFlow && flowReaches(graph, e.To, e.From) {
+			return e.From
+		}
+	}
+	return ""
 }
 
 func findGraphNode(graph *models.WorkflowGraph, id string) (models.WorkflowNode, bool) {
@@ -193,6 +234,12 @@ func auditGraph(graph models.WorkflowGraph) []string {
 	// buildModeRelease.ts), which gates the switch back to run mode. If this
 	// called such a graph clean, the builder would declare it finished while
 	// the canvas refused to leave build mode.
+	if loop := flowLoopNode(graph); loop != "" {
+		findings = append(findings, fmt.Sprintf(
+			"the flow loops back on itself through node %q -- the engine cannot run a loop; remove the edge that closes it",
+			loop))
+	}
+
 	if hasTrigger {
 		reached := reachableFromTriggers(graph)
 		onFlowEdge := map[string]bool{}

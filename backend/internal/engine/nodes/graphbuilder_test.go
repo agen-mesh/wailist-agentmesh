@@ -1219,3 +1219,47 @@ func TestBuildGraphReportsReadableProgress(t *testing.T) {
 		t.Fatalf("nothing should be in flight once the build returns, got %q", last.Current)
 	}
 }
+
+// Review finding: when the final audit sent the model back to fix the graph
+// and the time budget ran out on that extra round, the model's real summary
+// -- credentials to add, x402 costs -- was replaced by "I ran out of time".
+func TestBuildGraphKeepsTheRealReplyWhenTheAuditRoundRunsOutOfTime(t *testing.T) {
+	turn := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		turn++
+		w.Header().Set("Content-Type", "application/json")
+		switch turn {
+		case 1: // a lone trigger: the audit will flag it as unconnected
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"trigger","template":"manual"}}}]}}]}`)
+		case 2: // the real answer arrives late, using up the budget
+			time.Sleep(180 * time.Millisecond)
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"REAL SUMMARY: add your Slack webhook."}]}}]}`)
+		default:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"repaired"}]}}]}`)
+		}
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "x", TimeBudget: 200 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(res.Reply, "REAL SUMMARY") {
+		t.Fatalf("the model's own reply must survive a budget stop on the audit round, got: %q", res.Reply)
+	}
+}
+
+// Review finding: a failed web_search showed Gemini's raw error body
+// ("LLM API 429: {...}") in the chat's progress list.
+func TestWebSearchFailureShowsNoRawUpstreamError(t *testing.T) {
+	step := finishedStep(&models.WorkflowGraph{}, "web_search", map[string]any{"query": "q"},
+		map[string]any{"error": `websearch: LLM API 429: {"error":{"code":429,"message":"Resource exhausted"}}`})
+	if step.Status != "error" {
+		t.Fatalf("want an error step, got %+v", step)
+	}
+	if strings.Contains(step.Detail, "LLM API") || strings.Contains(step.Detail, "{") {
+		t.Fatalf("raw upstream error text must not reach the chat: %q", step.Detail)
+	}
+}

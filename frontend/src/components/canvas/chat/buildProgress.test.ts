@@ -102,6 +102,26 @@ describe("startProgressPolling", () => {
     expect(calls).toBe(beforeStop + 1);
   });
 
+  // Review finding: stop() awaited the in-flight poll and a final one with no
+  // timeout, so a stalled progress request left the canvas un-updated and
+  // the chat composer locked even though the build had already finished.
+  it("stops within its timeout even when a poll never answers", async () => {
+    vi.useFakeTimers();
+    const poller = startProgressPolling(
+      () => new Promise<BuildProgress>(() => {}),
+      () => {},
+      1000,
+    );
+    await vi.advanceTimersByTimeAsync(1500);
+    let stopped = false;
+    const stopping = poller.stop(2000).then(() => {
+      stopped = true;
+    });
+    await vi.advanceTimersByTimeAsync(2500);
+    await stopping;
+    expect(stopped).toBe(true);
+  });
+
   it("keeps polling through a failed request", async () => {
     vi.useFakeTimers();
     let calls = 0;

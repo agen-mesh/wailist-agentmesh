@@ -251,3 +251,32 @@ func TestAuditGraphDoesNotFlagAnAgentAttachedTool(t *testing.T) {
 		t.Fatalf("want no findings, got %v", got)
 	}
 }
+
+// Review finding: only a self-loop was rejected. A->B->A passed every check,
+// released build mode, and then failed every run with "cycle detected".
+func TestValidateEdgeRejectsAnEdgeThatClosesALoop(t *testing.T) {
+	g := graphWith(gn("t", models.NodeTypeTrigger), gn("a", models.NodeTypeTool), gn("b", models.NodeTypeTool))
+	g.Edges = []models.WorkflowEdge{
+		{ID: "1", From: "t", To: "a", Kind: models.EdgeKindFlow, ToPort: "in"},
+		{ID: "2", From: "a", To: "b", Kind: models.EdgeKindFlow, ToPort: "in"},
+	}
+	if _, err := validateEdge(g, "b", "a", "flow", ""); err == nil || !strings.Contains(err.Error(), "loop") {
+		t.Fatalf("an edge closing a loop must be rejected, got: %v", err)
+	}
+}
+
+// A loop drawn by hand on the canvas never passes through validateEdge, so
+// the audit must catch one that already exists.
+func TestAuditGraphReportsALoop(t *testing.T) {
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{gn("t", models.NodeTypeTrigger), gn("a", models.NodeTypeTool), gn("b", models.NodeTypeTool)},
+		Edges: []models.WorkflowEdge{
+			{ID: "1", From: "t", To: "a", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "2", From: "a", To: "b", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "3", From: "b", To: "a", Kind: models.EdgeKindFlow, ToPort: "in"},
+		},
+	}
+	if !strings.Contains(strings.Join(auditGraph(g), " "), "loop") {
+		t.Fatalf("want a finding about the loop, got %v", auditGraph(g))
+	}
+}

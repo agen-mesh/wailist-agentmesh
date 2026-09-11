@@ -343,6 +343,17 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 	// same clamp UpdateWorkflow's own HTTP handler applies, so a future
 	// change that lets the chat-driven builder set these fields (or a raw
 	// JSON passthrough bug) can't silently bypass the retry-storm cap.
+	// The build ran detached and can take up to a couple of minutes; the
+	// graph it edited is the one read when the request arrived. If the
+	// workflow was saved since (an edit after a reload, another tab, another
+	// build), saving now would silently overwrite that work -- so don't, and
+	// don't remember a build that never landed.
+	if current, err := d.Store.GetWorkflow(buildCtx, id); err == nil && !current.UpdatedAt.Equal(existing.UpdatedAt) {
+		log.Printf("build workflow %s: workflow changed during the build; not saving", id)
+		respond.Error(w, http.StatusConflict, "the workflow changed while the builder was working, so nothing was saved -- send your message again")
+		return
+	}
+
 	clampRetryFields(result.Graph.Nodes)
 	encryptedNodes := encryptNodes(result.Graph.Nodes, d.EncryptionKey, existing.Nodes)
 	encryptedNodes = ensureWebhookSecrets(encryptedNodes, d.EncryptionKey)
