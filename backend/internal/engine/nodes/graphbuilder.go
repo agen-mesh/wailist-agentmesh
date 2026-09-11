@@ -297,10 +297,38 @@ func graphToolDecls() []funcDecl {
 				"required":   []string{"id"},
 			},
 		},
+		{
+			Name: "web_search",
+			Description: "Search the live web and get back a grounded answer with its sources. " +
+				"This is your general-purpose way of finding anything out. Use it whenever you need " +
+				"information you do not already reliably have -- what a service's API looks like, which " +
+				"model or version is current, a product's real specifications, how a format or protocol " +
+				"works, whether something the user mentioned actually exists. You may call it several " +
+				"times in a row: search, read, then search again to narrow down or confirm before you " +
+				"act. Prefer searching over guessing. You can also use it to answer a question the user " +
+				"asked without building anything -- not every turn has to edit the graph.",
+			Parameters: map[string]any{
+				"type": "OBJECT",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "What you want to find out, as a natural-language question. Ask for the specifics you actually need rather than a broad topic -- \"OpenWeatherMap current weather endpoint URL, required query parameters and auth header\" beats \"weather API\".",
+					},
+				},
+				"required": []string{"query"},
+			},
+		},
 	}
 }
 
 const buildAgentModel = "gemini-2.5-flash"
+
+// The builder shares a loop with research, so it needs more rounds than the
+// runtime agent's maxToolIterations: a few web_search calls to work out what
+// it is building, then the node and edge calls to build it. Separate
+// constant rather than raising maxToolIterations, which governs a user's own
+// billed agent run and has nothing to do with this.
+const maxBuildIterations = 25
 
 const buildSystemPrompt = `You are the workflow builder for AgentMesh, a visual agent-workflow canvas.
 You edit a workflow graph by calling the add_node, update_node, remove_node, add_edge, and remove_edge tools.
@@ -318,6 +346,29 @@ Node types and their templates:
 - action: email, slack, db, discord, teams, google_chat, ntfy, telegram, github, notion, airtable, hubspot, trello, asana, clickup, jira, mailchimp, linear, todoist, gitlab, sentry, supabase, woocommerce, elevenlabs
 - end: http, done
 - tendril: tendril_topup, tendril_rent, tendril_run, tendril_release
+
+You have web_search, your own live web search. It is YOUR research tool, for finding things out while you
+work. It is not the same thing as the "websearch" tool node you can add to a workflow for the finished agent
+to use at run time -- adding that node is a separate decision.
+
+Use it whenever you need to know something and are not confident you already do. You decide when; nobody has
+to ask you to search. Typical reasons: what a service's API actually looks like, which model or version is
+current, a product's real specifications, how some format or protocol works, whether something the user
+mentioned exists at all. Search more than once when one query is not enough -- read what came back, then ask
+a narrower question. Guessing and being wrong costs the user a broken workflow; searching costs a second.
+
+Not every turn has to change the graph. If the user asks you a question, searching and answering it plainly
+is a complete and correct turn.
+
+When the workflow needs to call an API:
+1. Search for the API first. Find its base URL and path, its HTTP method, how it authenticates, and what its
+   request body and response look like.
+2. Add a tool node with template "http", and set url and method from what you actually found. Never invent a
+   URL and never adapt one you half-remember -- if the search did not turn up a real endpoint, say so in your
+   reply instead of wiring a node that will 404. json_extract right after an http node is usually how you
+   pull the one value you wanted out of the response.
+3. Do NOT use a tool402 node for an API you found by searching. tool402 is for paid x402 endpoints, and only
+   ever when the user hands you a real endpoint URL themselves.
 
 Wiring rules -- these are enforced, an illegal edge is rejected and you must fix it:
 - An attach edge always runs SOURCE -> AGENT, never the other way round: add_edge(from=<provider id>,
@@ -365,7 +416,7 @@ func BuildGraph(ctx context.Context, apiKey, userMessage string, graph models.Wo
 	}
 
 	auditRetried := false
-	for iter := 0; iter < maxToolIterations; iter++ {
+	for iter := 0; iter < maxBuildIterations; iter++ {
 		resp, err := postLLMJSON(ctx, apiURL, apiHeaders, payload)
 		if err != nil {
 			return BuildGraphResult{}, err
@@ -406,6 +457,31 @@ func BuildGraph(ctx context.Context, apiKey, userMessage string, graph models.Wo
 
 		responseParts := make([]map[string]any, 0, len(calls))
 		for _, c := range calls {
+			// web_search is not a graph mutation, so it does not go through
+			// applyGraphOp -- it reads the world instead of writing the graph,
+			// and its response shape (answer + sources) is richer than the
+			// one-line result string a graph op returns.
+			if c.name == "web_search" {
+				out, err := webSearch(ctx, argString(c.args, "query"), apiKey)
+				payloadResp := map[string]any{}
+				if err != nil {
+					// The query text is the model's own, and webSearch's errors
+					// are its own wrapped messages rather than a raw upstream
+					// body, so this is safe to hand back -- and the model needs
+					// to know the search failed rather than silently proceeding
+					// as though it had returned nothing of interest.
+					payloadResp["error"] = err.Error()
+				} else {
+					payloadResp["result"] = out
+				}
+				responseParts = append(responseParts, map[string]any{
+					"functionResponse": map[string]any{
+						"name":     c.name,
+						"response": payloadResp,
+					},
+				})
+				continue
+			}
 			result, err := applyGraphOp(&graph, c.name, c.args)
 			if err != nil {
 				result = "error: " + err.Error()
@@ -421,5 +497,15 @@ func BuildGraph(ctx context.Context, apiKey, userMessage string, graph models.Wo
 		payload["contents"] = contents
 	}
 
-	return BuildGraphResult{}, fmt.Errorf("workflow builder exceeded maximum tool call iterations (%d)", maxToolIterations)
+	// Out of rounds. Return what was actually built instead of an error: the
+	// graph has real nodes and edges on it by now, and an error return means
+	// BuildWorkflow never reaches its save, so every one of them is lost --
+	// the worst outcome available, and the likeliest one on exactly the
+	// elaborate requests where the user cares most. Say plainly that it is
+	// unfinished so the reply is not mistaken for a completed build.
+	return BuildGraphResult{
+		Reply: "I ran out of steps partway through this one. What I managed to build is on the canvas — " +
+			"tell me what to finish and I'll carry on from there.",
+		Graph: graph,
+	}, nil
 }

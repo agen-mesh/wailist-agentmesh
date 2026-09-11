@@ -3,8 +3,10 @@ package nodes
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -237,13 +239,23 @@ func TestBuildGraphAddsNodeThenReturnsReply(t *testing.T) {
 	}
 }
 
-func TestBuildGraphIterationCap(t *testing.T) {
+// Running out of rounds must not throw the graph away. This used to return
+// an error, which made BuildWorkflow skip its save entirely -- every node
+// built across all the rounds discarded, on exactly the requests that
+// produced the most work. Replaces the old TestBuildGraphIterationCap, which
+// asserted that error.
+func TestBuildGraphOutOfIterationsKeepsWhatItBuilt(t *testing.T) {
+	// Always answer with another add_node call, so the loop can never
+	// terminate on its own and must hit the cap.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"candidates": []map[string]any{
 				{"content": map[string]any{"parts": []map[string]any{
-					{"functionCall": map[string]any{"name": "remove_edge", "args": map[string]any{"id": "nope"}}},
+					{"functionCall": map[string]any{
+						"name": "add_node",
+						"args": map[string]any{"type": "tool", "template": "calc"},
+					}},
 				}}},
 			},
 		})
@@ -252,8 +264,86 @@ func TestBuildGraphIterationCap(t *testing.T) {
 	SetGeminiBaseURL(srv.URL)
 	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
 
-	_, err := BuildGraph(context.Background(), "test-key", "loop forever", models.WorkflowGraph{})
-	if err == nil {
-		t.Fatal("expected iteration cap error")
+	res, err := BuildGraph(context.Background(), "test-key", "build something endless", models.WorkflowGraph{})
+	if err != nil {
+		t.Fatalf("running out of rounds must not be an error: %v", err)
+	}
+	if len(res.Graph.Nodes) != maxBuildIterations {
+		t.Fatalf("want the %d nodes it built kept, got %d", maxBuildIterations, len(res.Graph.Nodes))
+	}
+	if res.Reply == "" {
+		t.Fatal("an unfinished build still needs a reply saying so")
+	}
+}
+
+func TestGraphToolDeclsIncludesWebSearch(t *testing.T) {
+	var found bool
+	for _, d := range graphToolDecls() {
+		if d.Name == "web_search" {
+			found = true
+			props, _ := d.Parameters["properties"].(map[string]any)
+			if _, ok := props["query"]; !ok {
+				t.Fatal("web_search must take a query parameter")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected a web_search declaration")
+	}
+}
+
+// web_search is not a graph mutation, so applyGraphOp must not claim it --
+// routing it there would return "unknown graph tool" to the model and the
+// search would silently never happen.
+func TestApplyGraphOpDoesNotHandleWebSearch(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	if _, err := applyGraphOp(graph, "web_search", map[string]any{"query": "x"}); err == nil {
+		t.Fatal("expected applyGraphOp to reject web_search")
+	}
+}
+
+func TestBuildGraphRunsWebSearchAndKeepsGoing(t *testing.T) {
+	// Turn 1: the model asks to search. Turn 2: having "read" the result, it
+	// adds a node. Turn 3: it answers. Asserting the search result actually
+	// reaches the model matters -- a tool whose output is dropped is worse
+	// than no tool, because the model will cite it.
+	turn := 0
+	var sawSearchResult bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "google_search") {
+			// This is the webSearch sub-call, not the builder loop.
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"The Pixel 10 has 16GB RAM."}]}}]}`)
+			return
+		}
+		if strings.Contains(string(body), "Pixel 10 has 16GB") {
+			sawSearchResult = true
+		}
+		turn++
+		w.Header().Set("Content-Type", "application/json")
+		switch turn {
+		case 1:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"web_search","args":{"query":"pixel 10 specs"}}}]}}]}`)
+		case 2:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"agent","template":"agent","name":"Phone Search"}}}]}}]}`)
+		default:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"Built it."}]}}]}`)
+		}
+	}))
+	defer srv.Close()
+
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), "k", "build a phone search agent", models.WorkflowGraph{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !sawSearchResult {
+		t.Fatal("the search result never reached the model")
+	}
+	if len(res.Graph.Nodes) != 1 {
+		t.Fatalf("want 1 node, got %d", len(res.Graph.Nodes))
 	}
 }
