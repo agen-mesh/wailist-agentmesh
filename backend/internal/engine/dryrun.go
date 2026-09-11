@@ -14,16 +14,35 @@ import (
 // the builder to read an answer or spot an empty object, not a whole page.
 const dryRunOutputShown = 700
 
+// DryRunOptions is what a dry run starts from, beyond the graph itself.
+type DryRunOptions struct {
+	// Input is the chat or webhook message to start from ("" for a manual run).
+	Input string
+	// State is the workflow's stored variables, loaded as a run loads them,
+	// so {{state.x}} resolves to what a real run would see.
+	State map[string]any
+	// PlatformKeys is the provider key map a platform-key agent needs.
+	PlatformKeys map[string]string
+	// CheckBalance, when set, gates each platform-key agent on its real fee
+	// exactly as a run's preflight does. A test run that could call any
+	// agent regardless would let a user with no credits run them for free.
+	CheckBalance func(ctx context.Context, amountUSDMicros int64) error
+}
+
+// unverifiable is a step a dry run could not check -- not a failure of the
+// workflow, so the builder is not told to fix it.
+type unverifiable struct{ reason string }
+
+func (u unverifiable) Error() string { return u.reason }
+
 // DryRun executes a workflow graph the way a run does -- same topological
-// order, same attach rules, the real executors -- except that every step
-// nodes.DryRunExecutes rejects is simulated rather than performed, so nothing
-// is sent, paid for, rented or written. Nothing is persisted and nothing is
-// billed. The chat builder calls it to check a workflow actually produces an
-// answer before it tells the user the workflow is done.
-//
-// input is the chat or webhook message to start from ("" for a manual run).
-// platformKeys is the provider key map a platform-key agent needs.
-func DryRun(ctx context.Context, graph models.WorkflowGraph, input string, platformKeys map[string]string) nodes.DryRunResult {
+// order, same attach rules, same variables and {{state.x}} expansion, the
+// real executors -- except that every step nodes.DryRunExecutes rejects is
+// simulated rather than performed, so nothing is sent, paid for, rented or
+// written. Nothing is persisted and nothing is billed. The chat builder calls
+// it to check a workflow actually produces an answer before it tells the user
+// the workflow is done.
+func DryRun(ctx context.Context, graph models.WorkflowGraph, opts DryRunOptions) nodes.DryRunResult {
 	res := nodes.DryRunResult{Steps: []nodes.DryRunStep{}}
 	levels, err := TopologicalSort(graph.Nodes, graph.Edges)
 	if err != nil {
@@ -34,18 +53,31 @@ func DryRun(ctx context.Context, graph models.WorkflowGraph, input string, platf
 	// Nodes attached to an agent are its resources, not steps -- the runner
 	// skips them the same way.
 	attached := map[string]bool{}
+	next := map[string][]string{}
 	for _, e := range graph.Edges {
-		if e.Kind == models.EdgeKindAttach {
+		switch e.Kind {
+		case models.EdgeKindAttach:
 			attached[e.From] = true
+		case models.EdgeKindFlow:
+			next[e.From] = append(next[e.From], e.To)
 		}
 	}
+	// fedBySimulated maps a step to the simulated step whose placeholder
+	// output flows into it. What such a step does with a placeholder says
+	// nothing about the workflow: a json_extract on it fails, an agent
+	// handed it says there is no data. Neither is a fault to fix.
+	fedBySimulated := map[string]string{}
 
 	var inputJSON []byte
-	if input != "" {
-		inputJSON, _ = json.Marshal(map[string]string{"message": input})
+	if opts.Input != "" {
+		inputJSON, _ = json.Marshal(map[string]string{"message": opts.Input})
 	}
 	rc := NewRunContext("dry-run", inputJSON)
+	if opts.State != nil {
+		rc.SetState(opts.State)
+	}
 
+	lastFedBySimulated := false
 	for _, level := range levels {
 		for _, n := range level {
 			if attached[n.ID] {
@@ -56,8 +88,22 @@ func DryRun(ctx context.Context, graph models.WorkflowGraph, input string, platf
 				return res
 			}
 			step := nodes.DryRunStep{NodeID: n.ID, Name: n.Name, Type: string(n.Type), Template: n.Template}
-			out, reason, err := dryRunNode(ctx, n, attachMap[n.ID], rc, platformKeys)
-			if err != nil {
+			source, tainted := fedBySimulated[n.ID]
+			out, reason, err := dryRunNode(ctx, n, attachMap[n.ID], rc, opts)
+			var u unverifiable
+			switch {
+			case errors.As(err, &u):
+				step.Status, step.Reason = "unverified", u.reason
+				res.Steps = append(res.Steps, step)
+				res.Unverified = true
+				return res
+			case err != nil && tainted:
+				step.Status, step.Error = "unverified", nodes.SanitizeRunError(err.Error())
+				step.Reason = fmt.Sprintf("its input comes from %q, which a test run only simulates, so it cannot be checked", source)
+				res.Steps = append(res.Steps, step)
+				res.Unverified = true
+				return res
+			case err != nil:
 				step.Status, step.Error = "failed", nodes.SanitizeRunError(err.Error())
 				res.Steps = append(res.Steps, step)
 				res.Failed = true
@@ -65,15 +111,32 @@ func DryRun(ctx context.Context, graph models.WorkflowGraph, input string, platf
 			}
 			rc.Set(n.ID, out)
 			step.Output = clipOutput(out)
+			isStep := n.Type != models.NodeTypeTrigger && n.Type != models.NodeTypeEnd
 			switch {
 			case reason != "":
 				step.Status, step.Reason = "simulated", reason
-			case n.Type != models.NodeTypeTrigger && n.Type != models.NodeTypeEnd && nodes.IsEmptyOutput(out):
+				source = n.Name
+				if source == "" {
+					source = n.ID
+				}
+			case tainted && isStep:
+				step.Status = "unverified"
+				step.Reason = fmt.Sprintf("its input comes from %q, which a test run only simulates, so its output is not real", source)
+				res.Unverified = true
+			case isStep && nodes.IsEmptyOutput(out):
 				step.Status = "empty"
 				res.Empty = true
 			default:
 				step.Status = "ran"
 			}
+			if reason != "" || tainted {
+				for _, to := range next[n.ID] {
+					if _, seen := fedBySimulated[to]; !seen {
+						fedBySimulated[to] = source
+					}
+				}
+			}
+			lastFedBySimulated = reason != "" || tainted
 			if n.Type == models.NodeTypeAgent {
 				if m, ok := out.(map[string]any); ok {
 					if s, ok := m["message"].(string); ok {
@@ -86,7 +149,7 @@ func DryRun(ctx context.Context, graph models.WorkflowGraph, input string, platf
 	}
 	final := rc.Message()
 	res.FinalOutput = clipText(final)
-	if nodes.IsEmptyOutput(final) {
+	if nodes.IsEmptyOutput(final) && !lastFedBySimulated {
 		res.Empty = true
 	}
 	return res
@@ -94,7 +157,7 @@ func DryRun(ctx context.Context, graph models.WorkflowGraph, input string, platf
 
 // dryRunNode runs or simulates one node. A non-empty reason means it was
 // simulated.
-func dryRunNode(ctx context.Context, n models.WorkflowNode, attach models.AttachConfig, rc *RunContext, platformKeys map[string]string) (any, string, error) {
+func dryRunNode(ctx context.Context, n models.WorkflowNode, attach models.AttachConfig, rc *RunContext, opts DryRunOptions) (any, string, error) {
 	if ok, reason := nodes.DryRunExecutes(n); !ok {
 		sim := map[string]any{"simulated": true, "reason": reason}
 		if n.Type == models.NodeTypeAction || n.Type == models.NodeTypeGoogle {
@@ -102,9 +165,7 @@ func dryRunNode(ctx context.Context, n models.WorkflowNode, attach models.Attach
 		}
 		return sim, reason, nil
 	}
-	state := rc.State()
-	n.URL = nodes.ExpandState(n.URL, state)
-	n.SystemPrompt = nodes.ExpandState(n.SystemPrompt, state)
+	n = expandNodeState(n, rc.State())
 
 	switch n.Type {
 	case models.NodeTypeTrigger:
@@ -123,6 +184,14 @@ func dryRunNode(ctx context.Context, n models.WorkflowNode, attach models.Attach
 		}
 		return out, "", err
 	case models.NodeTypeAgent:
+		// The same preflight a run applies (Runner.executeNode): a
+		// platform-key agent runs only if the user could pay for it.
+		if p := attach.Provider; p != nil && p.KeyMode == "platform" && opts.CheckBalance != nil {
+			fee := nodes.PlatformKeyFeeUSDMicros(nodes.ModelTier(p.Template, nodes.ResolveModel(p.Template, p.Model)))
+			if err := opts.CheckBalance(ctx, fee); err != nil {
+				return nil, "", unverifiable{"this agent runs on AgentMesh credits and the account does not have enough credits to test it"}
+			}
+		}
 		// Only tools a dry run may execute are handed to the agent: a paid
 		// x402 tool, or an HTTP call that could change something, is left
 		// out rather than invoked.
@@ -133,7 +202,7 @@ func dryRunNode(ctx context.Context, n models.WorkflowNode, attach models.Attach
 				safe.Tools = append(safe.Tools, t)
 			}
 		}
-		out, err := nodes.ExecuteAgent(ctx, n, safe, models.AgentWallet{}, nil, rc, nil, platformKeys, nodes.X402RelayConfig{})
+		out, err := nodes.ExecuteAgent(ctx, n, safe, models.AgentWallet{}, nil, rc, nil, opts.PlatformKeys, nodes.X402RelayConfig{})
 		return out, "", err
 	}
 	return nil, "", fmt.Errorf("a %s step cannot be test-run", n.Type)

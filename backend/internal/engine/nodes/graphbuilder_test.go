@@ -1584,3 +1584,97 @@ func TestBuildGraphReplyAlwaysIncludesTheTestedAnswer(t *testing.T) {
 		t.Fatalf("the reply must include the tested answer, got %q", res.Reply)
 	}
 }
+
+// Review finding: every turn was forced through a test run, even one that
+// changed nothing -- "what does this node do?" really ran the user's agents
+// and, on an unfinished graph, pushed the builder to rework it unasked.
+func TestBuildGraphDoesNotTestAWorkflowItDidNotChange(t *testing.T) {
+	bodies := scriptedGemini(t, []string{text("That agent writes the answer.")})
+	runs := 0
+	res, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "what does the agent do?", Graph: wiredAgentGraph(),
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
+			runs++
+			return DryRunResult{Failed: true, Error: "unfinished"}
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if runs != 0 || len(*bodies) != 1 {
+		t.Fatalf("an unchanged workflow must not be test-run or sent back: runs=%d requests=%d", runs, len(*bodies))
+	}
+	if res.Reply != "That agent writes the answer." {
+		t.Fatalf("want the model's answer as is, got %q", res.Reply)
+	}
+}
+
+// Review finding: when the build stopped after the gate had sent back an
+// untested "Done", that "Done" was what the user got, with no hint that
+// nothing had been checked.
+func TestBuildGraphSaysSoWhenItStopsBeforeTesting(t *testing.T) {
+	// The model edits, claims done, and then keeps editing until the rounds
+	// run out, never testing.
+	scriptedGemini(t, []string{callUpdateAgent, text("Done, your workflow reports the MYRAD price."), callUpdateAgent})
+	res, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "myrad price", Graph: wiredAgentGraph(),
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
+			t.Fatal("the model never asked for a test run")
+			return DryRunResult{}
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(res.Reply, "Done, your workflow reports the MYRAD price.") {
+		t.Fatalf("the model's own reply should still be kept, got %q", res.Reply)
+	}
+	if !strings.Contains(res.Reply, "not been test-run") {
+		t.Fatalf("the reply must say the workflow was not tested, got %q", res.Reply)
+	}
+}
+
+// A test run that could not check part of the workflow (a paid or sending
+// step feeds it) is not a failure to fix -- the builder must not be pushed to
+// rework a correct workflow, and the user is told what went unchecked.
+func TestBuildGraphDoesNotSendBackAnUnverifiableTest(t *testing.T) {
+	bodies := scriptedGemini(t, []string{callUpdateAgent, callTestRun, text("Built it.")})
+	res, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "paid quote", Graph: wiredAgentGraph(),
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
+			return DryRunResult{Unverified: true, Steps: []DryRunStep{
+				{Name: "Paid Quote", Status: "simulated", Reason: "a paid x402 call"},
+				{Name: "Extract Price", Status: "unverified", Reason: "its input comes from a simulated step"},
+			}}
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(*bodies) != 3 {
+		t.Fatalf("an unverifiable test must not send the model back, got %d requests", len(*bodies))
+	}
+	if !strings.Contains(res.Reply, "Built it.") || !strings.Contains(res.Reply, "Extract Price") {
+		t.Fatalf("the reply must say which step went unchecked, got %q", res.Reply)
+	}
+}
+
+// Test runs execute real agents and fetches, so one build may not run them
+// without limit however often the model asks.
+func TestBuildGraphCapsTestRunsPerBuild(t *testing.T) {
+	scriptedGemini(t, []string{callTestRun})
+	runs := 0
+	_, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "myrad price", Graph: wiredAgentGraph(),
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
+			runs++
+			return DryRunResult{Answer: "MYRAD is $0.00021."}
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if runs != maxTestRuns {
+		t.Fatalf("want test runs capped at %d, got %d", maxTestRuns, runs)
+	}
+}

@@ -342,7 +342,30 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 			if len(keys) == 0 {
 				keys = map[string]string{"gemini": d.PlatformGeminiAPIKey}
 			}
-			return engine.DryRun(ctx, runnable, input, keys)
+			// Variables loaded as a run loads them, so a test calls the URL a
+			// run would. Unreadable variables degrade to none, as in a run.
+			vars, err := d.Store.GetWorkflowVariables(ctx, id)
+			if err != nil {
+				log.Printf("build workflow %s: load variables for test run: %v", id, err)
+			}
+			return engine.DryRun(ctx, runnable, engine.DryRunOptions{
+				Input:        input,
+				State:        vars,
+				PlatformKeys: keys,
+				// The same gate a run's preflight applies. A test run is not
+				// billed, so without it credits would be the only thing a
+				// platform-key agent did not need here.
+				CheckBalance: func(cctx context.Context, amount int64) error {
+					balance, err := d.Store.GetCreditBalance(cctx, userID)
+					if err != nil {
+						return err
+					}
+					if balance < amount {
+						return errors.New("insufficient credits")
+					}
+					return nil
+				},
+			})
 		},
 	})
 	if err != nil {

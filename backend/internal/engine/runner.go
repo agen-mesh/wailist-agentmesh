@@ -1422,6 +1422,27 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 	r.finishRun(wf, run, models.RunStatusSuccess)
 }
 
+// expandNodeState resolves {{state.x}} in the user-authored fields a run
+// expands (see executeNode for which, and why credentials are not among
+// them). Shared with DryRun, so a test run calls exactly what a run would.
+func expandNodeState(node models.WorkflowNode, state map[string]any) models.WorkflowNode {
+	node.URL = nodes.ExpandState(node.URL, state)
+	node.Endpoint = nodes.ExpandState(node.Endpoint, state)
+	node.SystemPrompt = nodes.ExpandState(node.SystemPrompt, state)
+	node.BodyTemplate = nodes.ExpandState(node.BodyTemplate, state)
+	node.EmailTo = nodes.ExpandState(node.EmailTo, state)
+	node.EmailSubject = nodes.ExpandState(node.EmailSubject, state)
+	node.EmailBody = nodes.ExpandState(node.EmailBody, state)
+	if len(node.ParamDefaults) > 0 {
+		expanded := make(map[string]string, len(node.ParamDefaults))
+		for k, v := range node.ParamDefaults {
+			expanded[k] = nodes.ExpandState(v, state)
+		}
+		node.ParamDefaults = expanded
+	}
+	return node
+}
+
 func (r *Runner) executeNode(
 	ctx context.Context,
 	node models.WorkflowNode,
@@ -1450,21 +1471,7 @@ func (r *Runner) executeNode(
 	// leak the literal placeholder into a real request -- ExpandState's own
 	// fast path (no "{{" in the string) already makes this a no-op for
 	// every field on a workflow that doesn't reference state at all.
-	state := rc.State()
-	node.URL = nodes.ExpandState(node.URL, state)
-	node.Endpoint = nodes.ExpandState(node.Endpoint, state)
-	node.SystemPrompt = nodes.ExpandState(node.SystemPrompt, state)
-	node.BodyTemplate = nodes.ExpandState(node.BodyTemplate, state)
-	node.EmailTo = nodes.ExpandState(node.EmailTo, state)
-	node.EmailSubject = nodes.ExpandState(node.EmailSubject, state)
-	node.EmailBody = nodes.ExpandState(node.EmailBody, state)
-	if len(node.ParamDefaults) > 0 {
-		expanded := make(map[string]string, len(node.ParamDefaults))
-		for k, v := range node.ParamDefaults {
-			expanded[k] = nodes.ExpandState(v, state)
-		}
-		node.ParamDefaults = expanded
-	}
+	node = expandNodeState(node, rc.State())
 
 	switch node.Type {
 	case models.NodeTypeTrigger:

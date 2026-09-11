@@ -915,6 +915,20 @@ func testedAnswer(r DryRunResult) string {
 	return r.FinalOutput
 }
 
+// unverifiedSteps names the steps a test run could not check, and why.
+func unverifiedSteps(r DryRunResult) string {
+	var out []string
+	for _, s := range r.Steps {
+		if s.Status == "unverified" {
+			out = append(out, fmt.Sprintf("%q (%s)", s.Name, s.Reason))
+		}
+	}
+	if len(out) == 0 {
+		return "some steps could not run in a test"
+	}
+	return strings.Join(out, "; ")
+}
+
 // testProblem says, in one line, what went wrong in a test run.
 func testProblem(r DryRunResult) string {
 	for _, s := range r.Steps {
@@ -1180,7 +1194,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	// own fetch_url and the automatic check on add_node share one request.
 	probed := map[string]string{}
 	progress := &progressTracker{on: req.OnProgress}
-	tester := &testTracker{run: req.TestRun, dirty: true}
+	tester := &testTracker{run: req.TestRun}
 	defer progress.idle()
 
 	// Two limits. The context ends at the budget, so a model call or fetch
@@ -1201,9 +1215,36 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	// this -- not a canned "ran out" line -- is what the user gets: it can
 	// carry the credentials to add and the x402 costs.
 	lastReply := ""
+	// withTestStatus makes sure the reply never claims more than the tests
+	// showed. A reply held while the gate sent the model back to test is
+	// exactly the untested "Done" the gate exists to stop -- if the build
+	// then stops, the user is told it was not checked.
+	withTestStatus := func(text string) string {
+		if req.TestRun == nil {
+			return text
+		}
+		text = strings.TrimRight(text, " \n")
+		switch {
+		case tester.dirty:
+			return text + "\n\n_This workflow has not been test-run since it was last changed, so it has not been checked yet._"
+		case tester.last == nil:
+			return text
+		case tester.last.Failed || tester.last.Empty:
+			return text + "\n\n_The last test run did not produce an answer: " + testProblem(*tester.last) + "._"
+		case tester.last.Unverified:
+			return text + "\n\n_Not checked by the test run: " + unverifiedSteps(*tester.last) + "._"
+		}
+		// The user must see what the test actually produced. A reply that
+		// ended "Here is the test run output:" and then nothing did not show
+		// it, so append it whenever the model's own reply omits it.
+		if answer := strings.TrimSpace(testedAnswer(*tester.last)); answer != "" && !strings.Contains(text, answer) {
+			text += "\n\n**Test run answer:** " + answer
+		}
+		return text
+	}
 	ranOutOfTime := func() BuildGraphResult {
 		if lastReply != "" {
-			return BuildGraphResult{Reply: lastReply, Graph: graph}
+			return BuildGraphResult{Reply: withTestStatus(lastReply), Graph: graph}
 		}
 		progress.finished(BuildStep{Kind: "check", Label: "Stopped: ran out of time", Status: "error"})
 		if req.TraceID != "" {
@@ -1310,15 +1351,22 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 			// it now stands has been test-run and produced something. Bounded
 			// (maxTestRounds) so an unfixable source ends in an honest reply,
 			// not a loop.
-			if req.TestRun != nil && len(graph.Nodes) > 0 && tester.rounds < maxTestRounds {
+			//
+			// Only once a test is owed or has run: a turn that changed nothing
+			// is not forced to run the user's workflow (tester.dirty starts
+			// false). An unverified result is not sent back either -- a step
+			// fed by a simulated one may be perfectly right.
+			if req.TestRun != nil && len(graph.Nodes) > 0 && tester.rounds < maxTestRounds && (tester.dirty || tester.last != nil) {
 				nudge := ""
 				switch {
-				case tester.dirty || tester.last == nil:
-					nudge = "Before you answer: run test_run to execute this workflow and check it really produces the answer the user asked for. Your reply must quote the answer the test produced."
+				case tester.dirty:
+					if tester.runs < maxTestRuns {
+						nudge = "Before you answer: run test_run to execute this workflow and check it really produces the answer the user asked for. Your reply must quote the answer the test produced."
+					}
 				case tester.last.Failed || tester.last.Empty:
 					nudge = "The test run did not produce a real answer: " + testProblem(*tester.last) +
 						". Find the cause -- a wrong id or symbol, a wrong path, a source that returned nothing -- fix the workflow, run test_run again, and only then answer. If you truly cannot make it work, say so plainly instead of claiming it works."
-				case looksLikeRawData(testedAnswer(*tester.last)):
+				case !tester.last.Unverified && looksLikeRawData(testedAnswer(*tester.last)):
 					nudge = "The test run's answer is raw data, not a sentence the user can read: " + clip(testedAnswer(*tester.last), 200) +
 						". Make sure the workflow ends in an agent, and change that agent's systemPrompt so it writes the answer in plain words. Then run test_run again."
 				}
@@ -1333,15 +1381,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 					continue
 				}
 			}
-			// The user must see what the test actually produced. A reply that
-			// ended "Here is the test run output:" and then nothing did not
-			// show it, so append it whenever the model's own reply omits it.
-			if req.TestRun != nil && tester.last != nil && !tester.dirty && !tester.last.Failed && !tester.last.Empty {
-				if answer := strings.TrimSpace(testedAnswer(*tester.last)); answer != "" && !strings.Contains(text, answer) {
-					text = strings.TrimRight(text, " \n") + "\n\n**Test run answer:** " + answer
-				}
-			}
-			return BuildGraphResult{Reply: text, Graph: graph}, nil
+			return BuildGraphResult{Reply: withTestStatus(text), Graph: graph}, nil
 		}
 
 		modelParts := make([]map[string]any, len(calls))
@@ -1378,7 +1418,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	// elaborate requests where the user cares most. Say plainly that it is
 	// unfinished so the reply is not mistaken for a completed build.
 	if lastReply != "" {
-		return BuildGraphResult{Reply: lastReply, Graph: graph}, nil
+		return BuildGraphResult{Reply: withTestStatus(lastReply), Graph: graph}, nil
 	}
 	return BuildGraphResult{
 		Reply: "I ran out of steps partway through this one. What I managed to build is on the canvas — " +

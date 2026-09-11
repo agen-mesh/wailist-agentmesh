@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -45,7 +46,7 @@ func TestDryRunRunsReadOnlyStepsForReal(t *testing.T) {
 		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), fetch, extract, dn("e", models.NodeTypeEnd, "done")},
 		Edges: []models.WorkflowEdge{flow("t", "fetch"), flow("fetch", "extract"), flow("extract", "e")},
 	}
-	res := DryRun(context.Background(), g, "", nil)
+	res := DryRun(context.Background(), g, DryRunOptions{})
 	if res.Failed || res.Empty || res.Error != "" {
 		t.Fatalf("want a clean run, got %+v", res)
 	}
@@ -63,7 +64,7 @@ func TestDryRunFlagsAStepThatReturnsNothing(t *testing.T) {
 		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), fetch, dn("e", models.NodeTypeEnd, "done")},
 		Edges: []models.WorkflowEdge{flow("t", "fetch"), flow("fetch", "e")},
 	}
-	res := DryRun(context.Background(), g, "", nil)
+	res := DryRun(context.Background(), g, DryRunOptions{})
 	if !res.Empty {
 		t.Fatalf("an empty {} result must be flagged, got %+v", res)
 	}
@@ -91,7 +92,7 @@ func TestDryRunSimulatesStepsWithSideEffects(t *testing.T) {
 		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "chat"), slack, dn("e", models.NodeTypeEnd, "done")},
 		Edges: []models.WorkflowEdge{flow("t", "slack"), flow("slack", "e")},
 	}
-	res := DryRun(context.Background(), g, "hello", nil)
+	res := DryRun(context.Background(), g, DryRunOptions{Input: "hello"})
 	if hit {
 		t.Fatal("a dry run must never send the Slack message")
 	}
@@ -125,7 +126,7 @@ func TestDryRunReportsTheAgentsAnswer(t *testing.T) {
 		Edges: []models.WorkflowEdge{flow("t", "a"), flow("a", "e"),
 			{ID: "pa", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"}},
 	}
-	res := DryRun(context.Background(), g, "", map[string]string{"gemini": "k"})
+	res := DryRun(context.Background(), g, DryRunOptions{PlatformKeys: map[string]string{"gemini": "k"}})
 	if res.Failed {
 		t.Fatalf("unexpected failure: %+v", res)
 	}
@@ -139,7 +140,115 @@ func TestDryRunReportsALoop(t *testing.T) {
 		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("a", models.NodeTypeTool, "calc"), dn("b", models.NodeTypeTool, "calc")},
 		Edges: []models.WorkflowEdge{flow("t", "a"), flow("a", "b"), flow("b", "a")},
 	}
-	if res := DryRun(context.Background(), g, "", nil); res.Error == "" || !res.Failed {
+	if res := DryRun(context.Background(), g, DryRunOptions{}); res.Error == "" || !res.Failed {
 		t.Fatalf("a loop must fail the dry run, got %+v", res)
+	}
+}
+
+func stepOf(res nodes.DryRunResult, id string) nodes.DryRunStep {
+	for _, s := range res.Steps {
+		if s.NodeID == id {
+			return s
+		}
+	}
+	return nodes.DryRunStep{}
+}
+
+// Review finding: a simulated step hands its placeholder to the step after
+// it, and a json_extract on that placeholder failed -- a correct workflow
+// reported as broken, which sent the builder off to "fix" it.
+func TestDryRunDoesNotBlameAStepFedBySimulatedData(t *testing.T) {
+	paid := dn("paid", models.NodeTypeTool402, "x402")
+	extract := dn("extract", models.NodeTypeTool, "json_extract")
+	extract.Config = map[string]string{"jsonPath": "data.price"}
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), paid, extract, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "paid"), flow("paid", "extract"), flow("extract", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{})
+	if res.Failed || res.Empty {
+		t.Fatalf("a step fed only by simulated data must not fail the test run, got %+v", res)
+	}
+	if !res.Unverified {
+		t.Fatalf("the run must say it could not be checked end to end, got %+v", res)
+	}
+	if s := stepOf(res, "extract"); s.Status != "unverified" || s.Reason == "" {
+		t.Fatalf("the extract step must be marked unverified with a reason, got %+v", s)
+	}
+}
+
+// Review finding: a real run loads the workflow's variables and expands
+// {{state.x}} in the endpoint too; a test run that did neither called the
+// wrong URL and reported a working workflow as broken.
+func TestDryRunExpandsWorkflowVariablesLikeARun(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/quote/btc" {
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, `{"error":"not found"}`)
+			return
+		}
+		io.WriteString(w, `{"price":1.5}`)
+	}))
+	defer srv.Close()
+	nodes.SetURLValidatorForTest(func(string) error { return nil })
+	defer nodes.SetURLValidatorForTest(func(string) error { return nil })
+
+	fetch := dn("fetch", models.NodeTypeTool, "http")
+	fetch.URL = srv.URL + "/quote/{{state.coin}}"
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), fetch, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "fetch"), flow("fetch", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{State: map[string]any{"coin": "btc"}})
+	if res.Failed || res.Empty {
+		t.Fatalf("want a clean run with the variable expanded, got %+v (paths %v)", res, paths)
+	}
+	if len(paths) != 1 || paths[0] != "/quote/btc" {
+		t.Fatalf("want exactly one call to /quote/btc, got %v", paths)
+	}
+}
+
+// Review finding: a test run called platform-key agents with no credit
+// check, so a user with no credits could run them for free just by chatting.
+func TestDryRunDoesNotRunAPlatformAgentTheUserCannotPayFor(t *testing.T) {
+	called := false
+	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}`)
+	}))
+	defer gem.Close()
+	nodes.SetGeminiBaseURL(gem.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	provider := dn("p", models.NodeTypeProvider, "gemini")
+	provider.KeyMode = "platform"
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("a", models.NodeTypeAgent, "agent"), provider, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "a"), flow("a", "e"),
+			{ID: "pa", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"}},
+	}
+	var asked int64
+	res := DryRun(context.Background(), g, DryRunOptions{
+		PlatformKeys: map[string]string{"gemini": "k"},
+		CheckBalance: func(ctx context.Context, amount int64) error {
+			asked = amount
+			return errors.New("insufficient credits")
+		},
+	})
+	if called {
+		t.Fatal("an agent the user cannot pay for must not be called")
+	}
+	if asked <= 0 {
+		t.Fatalf("the check must ask for the agent's real fee, asked for %d", asked)
+	}
+	if res.Failed || !res.Unverified {
+		t.Fatalf("no credits is not a broken workflow: want unverified, got %+v", res)
+	}
+	if s := stepOf(res, "a"); s.Status != "unverified" || !strings.Contains(s.Reason, "credits") {
+		t.Fatalf("the agent step must say it needs credits, got %+v", s)
 	}
 }

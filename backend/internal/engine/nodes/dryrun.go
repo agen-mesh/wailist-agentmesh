@@ -24,7 +24,9 @@ type DryRunStep struct {
 	Name     string `json:"name"`
 	Type     string `json:"type"`
 	Template string `json:"template,omitempty"`
-	// Status is "ran", "simulated", "empty" (ran but produced nothing) or "failed".
+	// Status is "ran", "simulated", "empty" (ran but produced nothing),
+	// "failed", or "unverified" (could not be checked: its input came from a
+	// simulated step, or it needs credits the user does not have).
 	Status string `json:"status"`
 	Reason string `json:"reason,omitempty"`
 	Output string `json:"output,omitempty"`
@@ -40,8 +42,12 @@ type DryRunResult struct {
 	FinalOutput string `json:"finalOutput,omitempty"`
 	Failed      bool   `json:"failed"`
 	// Empty is set when any executed step, or the run's end, produced nothing.
-	Empty bool   `json:"empty"`
-	Error string `json:"error,omitempty"`
+	Empty bool `json:"empty"`
+	// Unverified is set when part of the workflow could not be checked. It
+	// is not a failure: the workflow may well be right, a test run just
+	// cannot show it, so nothing should be "fixed" because of it.
+	Unverified bool   `json:"unverified,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // readOnlyActions are connectors that only fetch public data, so a dry run

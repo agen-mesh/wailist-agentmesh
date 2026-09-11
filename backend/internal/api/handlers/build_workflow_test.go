@@ -92,7 +92,9 @@ func TestBuildWorkflowAddsNode(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Reply != "Added a chat trigger node." {
+	// The stub never test-runs what it built, so the reply keeps its text and
+	// says the workflow went unchecked rather than passing it off as tested.
+	if !strings.HasPrefix(out.Reply, "Added a chat trigger node.") || !strings.Contains(out.Reply, "not been test-run") {
 		t.Fatalf("unexpected reply: %q", out.Reply)
 	}
 	if len(out.Workflow.Nodes) != 1 {
@@ -811,5 +813,129 @@ func TestBuildWorkflowTestRunUsesTheRealCredential(t *testing.T) {
 	}
 	if gotKey != "real-secret" {
 		t.Fatalf("the test run must send the real decrypted credential, target received %q", gotKey)
+	}
+}
+
+// seedBuildTestWorkflow saves a graph through the normal handler and returns
+// the user and workflow ids.
+func seedBuildTestWorkflow(t *testing.T, d *handlers.Deps, graph map[string]any) (string, string) {
+	t.Helper()
+	ctx := context.Background()
+	user, err := d.Store.CreateUser(ctx, "wf-dry-"+randSuffix(t)+"@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wf, err := d.Store.CreateWorkflow(ctx, "Dry", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Store.DeleteWorkflow(context.Background(), wf.ID) })
+	graph["name"] = "Dry"
+	body, _ := json.Marshal(graph)
+	up := httptest.NewRecorder()
+	d.UpdateWorkflow(up, withUser(withURLParam(httptest.NewRequest(http.MethodPut, "/workflows/"+wf.ID, bytes.NewReader(body)), "id", wf.ID), user.ID))
+	if up.Code != http.StatusOK {
+		t.Fatalf("seeding the workflow got %d: %s", up.Code, up.Body.String())
+	}
+	return user.ID, wf.ID
+}
+
+// builderThatTestsOnce stands in for Gemini: the builder's first turn asks
+// for a test run, its second answers. Any other request -- an agent inside
+// the workflow being test-run -- is counted in agentCalls.
+func builderThatTestsOnce(t *testing.T) *int {
+	t.Helper()
+	turn, agentCalls := 0, 0
+	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		if !strings.Contains(string(b), "test_run") {
+			agentCalls++
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"an answer"}]}}]}`)
+			return
+		}
+		turn++
+		if turn == 1 {
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"test_run","args":{}}}]}}]}`)
+			return
+		}
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"tested"}]}}]}`)
+	}))
+	t.Cleanup(gem.Close)
+	nodes.SetGeminiBaseURL(gem.URL)
+	t.Cleanup(func() { nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com") })
+	return &agentCalls
+}
+
+// Review finding: a test run ignored the workflow's stored variables, so a
+// URL built from {{state.x}} was called with the variable blank.
+func TestBuildWorkflowTestRunUsesTheWorkflowsVariables(t *testing.T) {
+	d := testDeps(t)
+	d.PlatformGeminiAPIKey = "test-key"
+	nodes.SetURLValidatorForTest(func(string) error { return nil })
+	defer nodes.SetURLValidatorForTest(func(string) error { return nil })
+
+	var gotPath string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"price":1.5}`)
+	}))
+	defer target.Close()
+
+	userID, wfID := seedBuildTestWorkflow(t, d, map[string]any{
+		"nodes": []map[string]any{
+			{"id": "t", "type": "trigger", "template": "manual"},
+			{"id": "h", "type": "tool", "template": "http", "url": target.URL + "/quote/{{state.coin}}", "method": "GET"},
+			{"id": "e", "type": "end", "template": "done"},
+		},
+		"edges": []map[string]any{
+			{"id": "1", "from": "t", "to": "h", "kind": "flow", "toPort": "in"},
+			{"id": "2", "from": "h", "to": "e", "kind": "flow", "toPort": "in"},
+		},
+	})
+	if err := d.Store.SetWorkflowVariable(context.Background(), wfID, "coin", []byte(`"btc"`)); err != nil {
+		t.Fatal(err)
+	}
+	builderThatTestsOnce(t)
+
+	if rec := buildWorkflowReq(d, wfID, userID, "test it"); rec.Code != http.StatusOK {
+		t.Fatalf("build got %d: %s", rec.Code, rec.Body.String())
+	}
+	if gotPath != "/quote/btc" {
+		t.Fatalf("the test run must expand the stored variable, target received %q", gotPath)
+	}
+}
+
+// Review finding: a test run called platform-key agents with no credit check,
+// so an account with no credits could run them for free through the builder.
+func TestBuildWorkflowTestRunDoesNotRunAgentsWithoutCredits(t *testing.T) {
+	d := testDeps(t)
+	d.PlatformGeminiAPIKey = "test-key"
+
+	userID, wfID := seedBuildTestWorkflow(t, d, map[string]any{
+		"nodes": []map[string]any{
+			{"id": "t", "type": "trigger", "template": "manual"},
+			{"id": "a", "type": "agent", "template": "agent", "systemPrompt": "Answer."},
+			{"id": "p", "type": "provider", "template": "gemini", "keyMode": "platform"},
+			{"id": "e", "type": "end", "template": "done"},
+		},
+		"edges": []map[string]any{
+			{"id": "1", "from": "t", "to": "a", "kind": "flow", "toPort": "in"},
+			{"id": "2", "from": "p", "to": "a", "kind": "attach", "toPort": "model"},
+			{"id": "3", "from": "a", "to": "e", "kind": "flow", "toPort": "in"},
+		},
+	})
+	agentCalls := builderThatTestsOnce(t)
+
+	rec := buildWorkflowReq(d, wfID, userID, "test it")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("build got %d: %s", rec.Code, rec.Body.String())
+	}
+	if *agentCalls != 0 {
+		t.Fatalf("a new account has no credits, so its platform-key agent must not run in a test; it ran %d times", *agentCalls)
+	}
+	if !strings.Contains(rec.Body.String(), "credits") {
+		t.Fatalf("the reply must say the agent went unchecked for lack of credits, got %s", rec.Body.String())
 	}
 }

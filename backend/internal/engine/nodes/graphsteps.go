@@ -74,13 +74,23 @@ var graphMutations = map[string]bool{
 	"add_edge": true, "remove_edge": true, "add_x402_node": true,
 }
 
+// maxTestRuns bounds the test runs one build may make, however often the
+// model asks: each one really calls the workflow's agents and sources.
+const maxTestRuns = 5
+
 // testTracker remembers whether the graph, as it now stands, has been
 // test-run and what that run produced.
 type testTracker struct {
-	run    func(ctx context.Context, graph models.WorkflowGraph, input string) DryRunResult
-	dirty  bool
-	last   *DryRunResult
+	run func(ctx context.Context, graph models.WorkflowGraph, input string) DryRunResult
+	// dirty is set when this build changes the graph and cleared by a test
+	// run. It starts false: a turn that changes nothing (a question, a
+	// clarification) has nothing new to test.
+	dirty bool
+	last  *DryRunResult
+	// rounds counts the times the gate sent the model back; runs counts
+	// the test runs made.
 	rounds int
+	runs   int
 }
 
 func runBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFuncCall, apiKey string, x402 *x402Session, probed map[string]string, tester *testTracker) map[string]any {
@@ -99,6 +109,10 @@ func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c gemin
 		if tester.run == nil {
 			return map[string]any{"result": "error: test runs are not available here"}
 		}
+		if tester.runs >= maxTestRuns {
+			return map[string]any{"result": fmt.Sprintf("error: this build has already used its %d test runs. Reply to the user now, and say plainly whether the last test produced the answer they asked for.", maxTestRuns)}
+		}
+		tester.runs++
 		res := tester.run(ctx, *graph, argString(c.args, "input"))
 		tester.last, tester.dirty = &res, false
 		out, _ := json.Marshal(res)
@@ -108,6 +122,8 @@ func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c gemin
 			note += "The run FAILED: fix the step that failed and test again."
 		case res.Empty:
 			note += "Something returned NOTHING: find out why (a wrong id, a wrong path, a source with no data), fix it and test again."
+		case res.Unverified:
+			note += "Steps marked unverified could not be checked in a test (their input is simulated, or they need credits) -- that is not a fault, do not change the workflow because of it. Tell the user which steps went unchecked."
 		default:
 			note += "Check the answer really is what the user asked for before you reply, and quote it in your reply."
 		}
@@ -351,6 +367,11 @@ func finishedStep(graph *models.WorkflowGraph, name string, args map[string]any,
 					step.Label = fmt.Sprintf("Test run: “%s” returned nothing", s.Name)
 					break
 				}
+			}
+		case r.Unverified:
+			step.Label = "Test run: part of the workflow can't be checked in a test"
+			if names := unverifiedSteps(r); names != "" {
+				step.Detail = clip(names, 180)
 			}
 		default:
 			answer := r.Answer
