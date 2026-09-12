@@ -1678,3 +1678,60 @@ func TestBuildGraphCapsTestRunsPerBuild(t *testing.T) {
 		t.Fatalf("want test runs capped at %d, got %d", maxTestRuns, runs)
 	}
 }
+
+// Review finding: the quoted answer preferred the last agent's reply over the
+// run's final output. For agent -> json_extract -> end the user would be told
+// the agent's sentence, which the workflow never actually emits.
+func TestTestedAnswerIsWhatTheRunEndsWith(t *testing.T) {
+	r := DryRunResult{Answer: "The price is 5 dollars.", FinalOutput: `{"price":5}`}
+	if got := testedAnswer(r); got != `{"price":5}` {
+		t.Fatalf("want the run's final output, got %q", got)
+	}
+	r = DryRunResult{Answer: "The price is 5 dollars."}
+	if got := testedAnswer(r); got != "The price is 5 dollars." {
+		t.Fatalf("with no final output, fall back to the agent's reply, got %q", got)
+	}
+}
+
+// Review finding: the gate forced a test round no matter how little of the
+// build's time was left, so "I ran out of time" became the likely exit. Late
+// in the budget it now replies, with the honest "not checked" note.
+func TestBuildGraphSkipsATestRoundItHasNoTimeFor(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		if calls == 1 {
+			io.WriteString(w, callUpdateAgent)
+			return
+		}
+		// The reply arrives past the first test round's deadline (70% of the
+		// budget) but well inside the budget itself.
+		time.Sleep(1600 * time.Millisecond)
+		io.WriteString(w, text("done"))
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	ran := false
+	res, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "myrad price", Graph: wiredAgentGraph(), TimeBudget: 2 * time.Second,
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
+			ran = true
+			return DryRunResult{FinalOutput: "MYRAD is $0.00021."}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ran {
+		t.Fatal("no test round may start with too little of the budget left")
+	}
+	if strings.Contains(res.Reply, "ran out of time") {
+		t.Fatalf("the build should reply, not run out of time: %q", res.Reply)
+	}
+	if !strings.Contains(res.Reply, "has not been test-run") {
+		t.Fatalf("an untested reply must say so, got %q", res.Reply)
+	}
+}

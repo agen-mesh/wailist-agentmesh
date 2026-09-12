@@ -365,6 +365,14 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 					}
 					return nil
 				},
+				// A test run spends the platform's model credits exactly as
+				// a run does, so it is charged the same fee. The balance
+				// check above only gates the call; without this debit a
+				// single credit would buy unlimited platform-key agent
+				// calls, one build message at a time.
+				ChargeAgent: func(cctx context.Context, nodeID string, amount int64, model string) error {
+					return d.Store.DebitCreditsForBuildTest(cctx, userID, amount, id, nodeID, model)
+				},
 			})
 		},
 	})

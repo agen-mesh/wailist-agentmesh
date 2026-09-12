@@ -208,7 +208,7 @@ func auditGraph(graph models.WorkflowGraph) []string {
 	if len(agents) == 0 {
 		for _, n := range graph.Nodes {
 			if n.Type != models.NodeTypeTrigger && n.Type != models.NodeTypeEnd && n.Type != models.NodeTypeProvider {
-				findings = append(findings, "the workflow has no agent, so the user would read the raw data (or {}) instead of an answer -- add an agent with a provider after the data steps to turn the result into the answer they asked for")
+				findings = append(findings, "the workflow has no agent, so the user would read the raw data (or {}) instead of an answer -- add an agent with a provider after the data steps to turn the result into the answer they asked for. If the user explicitly asked for a workflow with no agent (a pure data pipeline, or one whose output another system reads), leave it as it is and say in your reply that its output is raw data")
 				break
 			}
 		}

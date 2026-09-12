@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"unicode/utf8"
 
 	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/models"
@@ -27,6 +29,13 @@ type DryRunOptions struct {
 	// exactly as a run's preflight does. A test run that could call any
 	// agent regardless would let a user with no credits run them for free.
 	CheckBalance func(ctx context.Context, amountUSDMicros int64) error
+	// ChargeAgent, when set, is called after a platform-key agent call
+	// succeeds, with the same fee a run would charge. A test run costs the
+	// platform exactly what a run does, so checking the balance without ever
+	// debiting it would make those calls free for anyone who keeps a single
+	// credit on the account. A failure to charge is logged, not surfaced:
+	// the call has already happened.
+	ChargeAgent func(ctx context.Context, nodeID string, amountUSDMicros int64, model string) error
 }
 
 // unverifiable is a step a dry run could not check -- not a failure of the
@@ -94,6 +103,15 @@ func DryRun(ctx context.Context, graph models.WorkflowGraph, opts DryRunOptions)
 			switch {
 			case errors.As(err, &u):
 				step.Status, step.Reason = "unverified", u.reason
+				res.Steps = append(res.Steps, step)
+				res.Unverified = true
+				return res
+			case err != nil && nodes.IsMissingCredentialError(err.Error()):
+				// Not a fault to fix: the builder cannot set credentials, so
+				// a 401 here means the node is waiting for the user, not that
+				// the workflow is wrong.
+				step.Status, step.Reason = "unverified", nodes.MissingCredentialReason
+				step.Error = nodes.SanitizeRunError(err.Error())
 				res.Steps = append(res.Steps, step)
 				res.Unverified = true
 				return res
@@ -180,16 +198,25 @@ func dryRunNode(ctx context.Context, n models.WorkflowNode, attach models.Attach
 	case models.NodeTypeAction:
 		out, err := nodes.ExecuteAction(ctx, n, rc)
 		if errors.Is(err, nodes.ErrActionSkipped) {
-			return out, "", nil
+			// A connector skips itself when its credential is missing. In a
+			// run that is a step doing nothing; in a test it means this step
+			// was never checked, which the builder must not read as success.
+			return out, "", unverifiable{nodes.MissingCredentialReason}
 		}
 		return out, "", err
 	case models.NodeTypeAgent:
 		// The same preflight a run applies (Runner.executeNode): a
-		// platform-key agent runs only if the user could pay for it.
-		if p := attach.Provider; p != nil && p.KeyMode == "platform" && opts.CheckBalance != nil {
-			fee := nodes.PlatformKeyFeeUSDMicros(nodes.ModelTier(p.Template, nodes.ResolveModel(p.Template, p.Model)))
-			if err := opts.CheckBalance(ctx, fee); err != nil {
-				return nil, "", unverifiable{"this agent runs on AgentMesh credits and the account does not have enough credits to test it"}
+		// platform-key agent runs only if the user could pay for it -- and,
+		// below, it is charged for it.
+		var platformFee int64
+		var platformModel string
+		if p := attach.Provider; p != nil && p.KeyMode == "platform" {
+			platformModel = nodes.ResolveModel(p.Template, p.Model)
+			platformFee = nodes.PlatformKeyFeeUSDMicros(nodes.ModelTier(p.Template, platformModel))
+			if opts.CheckBalance != nil {
+				if err := opts.CheckBalance(ctx, platformFee); err != nil {
+					return nil, "", unverifiable{"this agent runs on AgentMesh credits and the account does not have enough credits to test it"}
+				}
 			}
 		}
 		// Only tools a dry run may execute are handed to the agent: a paid
@@ -203,6 +230,14 @@ func dryRunNode(ctx context.Context, n models.WorkflowNode, attach models.Attach
 			}
 		}
 		out, err := nodes.ExecuteAgent(ctx, n, safe, models.AgentWallet{}, nil, rc, nil, opts.PlatformKeys, nodes.X402RelayConfig{})
+		// Charged after the call, like a run (Runner.debitOrLog): the model
+		// has already been paid for by then, so a failed charge is logged
+		// rather than turned into a step failure.
+		if err == nil && platformFee > 0 && opts.ChargeAgent != nil {
+			if cerr := opts.ChargeAgent(ctx, n.ID, platformFee, platformModel); cerr != nil {
+				log.Printf("dry run: charge agent %s (%d micros): %v", n.ID, platformFee, cerr)
+			}
+		}
 		return out, "", err
 	}
 	return nil, "", fmt.Errorf("a %s step cannot be test-run", n.Type)
@@ -219,9 +254,16 @@ func clipOutput(v any) string {
 	return clipText(string(b))
 }
 
+// clipText bounds a value at dryRunOutputShown bytes without splitting a
+// rune: the result is marshalled into the payload sent to the model and
+// shown in chat, and half a rune is invalid UTF-8 in both.
 func clipText(s string) string {
 	if len(s) <= dryRunOutputShown {
 		return s
 	}
-	return s[:dryRunOutputShown] + "…"
+	cut := dryRunOutputShown
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
 }

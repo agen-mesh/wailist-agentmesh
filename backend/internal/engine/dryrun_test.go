@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/models"
@@ -250,5 +251,135 @@ func TestDryRunDoesNotRunAPlatformAgentTheUserCannotPayFor(t *testing.T) {
 	}
 	if s := stepOf(res, "a"); s.Status != "unverified" || !strings.Contains(s.Reason, "credits") {
 		t.Fatalf("the agent step must say it needs credits, got %+v", s)
+	}
+}
+
+// Review finding: a 401 from a node whose key the user has not pasted yet was
+// reported as a failed workflow, so the gate sent the builder round the repair
+// loop for a workflow that is correct -- and the builder cannot set the key
+// anyway.
+func TestDryRunTreatsAMissingCredentialAsUncheckable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		io.WriteString(w, `{"message":"missing api key sk-live-should-not-be-echoed"}`)
+	}))
+	defer srv.Close()
+	nodes.SetURLValidatorForTest(func(string) error { return nil })
+	fetch := dn("fetch", models.NodeTypeTool, "http")
+	fetch.URL = srv.URL + "/quote"
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), fetch, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "fetch"), flow("fetch", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{})
+	if res.Failed {
+		t.Fatalf("a missing credential is not a broken workflow: %+v", res)
+	}
+	if !res.Unverified {
+		t.Fatalf("the run must report itself unchecked, got %+v", res)
+	}
+	s := stepOf(res, "fetch")
+	if s.Status != "unverified" || !strings.Contains(s.Reason, "credential") {
+		t.Fatalf("want the step marked unverified with a credential reason, got %+v", s)
+	}
+	if strings.Contains(s.Error, "sk-live") {
+		t.Fatalf("the upstream body must not be carried into the result: %q", s.Error)
+	}
+}
+
+// A read-only connector skips itself when its credential is missing. That is
+// not a step that ran: reporting it as one let the builder claim a workflow
+// was checked when the only thing it proved was that nothing happened.
+func TestDryRunDoesNotCountASkippedConnectorAsRan(t *testing.T) {
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("w", models.NodeTypeAction, "openweathermap"), dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "w"), flow("w", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{})
+	if res.Failed || !res.Unverified {
+		t.Fatalf("want an unverified result, got %+v", res)
+	}
+	if s := stepOf(res, "w"); s.Status != "unverified" {
+		t.Fatalf("want the skipped connector marked unverified, got %+v", s)
+	}
+}
+
+// Review finding: the balance was checked and never debited, so a single
+// credit bought unlimited platform-key agent calls, one build message at a
+// time.
+func TestDryRunChargesForAPlatformKeyAgent(t *testing.T) {
+	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}`)
+	}))
+	defer gem.Close()
+	nodes.SetGeminiBaseURL(gem.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	provider := dn("p", models.NodeTypeProvider, "gemini")
+	provider.KeyMode = "platform"
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("a", models.NodeTypeAgent, "agent"), provider, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "a"), flow("a", "e"),
+			{ID: "pa", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"}},
+	}
+	var charged int64
+	var chargedNode, chargedModel string
+	res := DryRun(context.Background(), g, DryRunOptions{
+		PlatformKeys: map[string]string{"gemini": "k"},
+		CheckBalance: func(ctx context.Context, amount int64) error { return nil },
+		ChargeAgent: func(ctx context.Context, nodeID string, amount int64, model string) error {
+			charged, chargedNode, chargedModel = amount, nodeID, model
+			return nil
+		},
+	})
+	if res.Failed {
+		t.Fatalf("unexpected failure: %+v", res)
+	}
+	if charged <= 0 || chargedNode != "a" || chargedModel == "" {
+		t.Fatalf("the agent call must be charged its real fee: amount=%d node=%q model=%q", charged, chargedNode, chargedModel)
+	}
+}
+
+// A BYOK agent costs the platform nothing, so a test run must not charge for
+// one -- the same rule a real run applies.
+func TestDryRunDoesNotChargeForAByokAgent(t *testing.T) {
+	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}`)
+	}))
+	defer gem.Close()
+	nodes.SetGeminiBaseURL(gem.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	provider := dn("p", models.NodeTypeProvider, "gemini")
+	provider.APIKey = "user-key"
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("a", models.NodeTypeAgent, "agent"), provider, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "a"), flow("a", "e"),
+			{ID: "pa", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"}},
+	}
+	charged := false
+	DryRun(context.Background(), g, DryRunOptions{
+		ChargeAgent: func(ctx context.Context, nodeID string, amount int64, model string) error {
+			charged = true
+			return nil
+		},
+	})
+	if charged {
+		t.Fatal("a BYOK agent must not be charged")
+	}
+}
+
+// Review finding: clipText cut on a byte index, which splits a multi-byte
+// rune -- invalid UTF-8 in the payload sent to the model and in the chat.
+func TestClipTextKeepsValidUTF8(t *testing.T) {
+	long := strings.Repeat("é", dryRunOutputShown)
+	got := clipText(long)
+	if !utf8.ValidString(got) {
+		t.Fatalf("clipped text is not valid UTF-8: %q", got[len(got)-8:])
+	}
+	if len(got) > dryRunOutputShown+len("…") {
+		t.Fatalf("clipped text is longer than the limit: %d bytes", len(got))
 	}
 }

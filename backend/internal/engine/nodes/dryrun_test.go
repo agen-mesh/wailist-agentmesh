@@ -1,6 +1,7 @@
 package nodes
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -67,5 +68,43 @@ func TestSanitizeRunError(t *testing.T) {
 	got := SanitizeRunError(`agent: LLM API 429: {"error":{"message":"quota"}}`)
 	if got != "agent: LLM API 429" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// Review finding: only a single-line "LLM API <code>: " prefix was stripped,
+// so a pretty-printed body survived past its first newline, and callHTTP's
+// "http: GET 401: <body>" and every connector's "<Service> API <code>: <body>"
+// were not stripped at all. All of them reach the model and the user's chat.
+func TestSanitizeRunErrorStripsEveryUpstreamBody(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"agent: LLM API 429: {\"error\":{\n\"message\":\"quota\"}}", "agent: LLM API 429"},
+		{"http: GET 401: {\"message\":\"bad key\"}", "http: GET 401"},
+		{"Slack API 403: {\"error\":\"not_allowed\"}", "Slack API 403"},
+		{"http: invalid headers JSON: unexpected end", "http: invalid headers JSON: unexpected end"},
+	}
+	for _, c := range cases {
+		if got := SanitizeRunError(c.in); got != c.want {
+			t.Errorf("SanitizeRunError(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	long := SanitizeRunError("weird executor: " + strings.Repeat("secret-looking-text ", 50))
+	if len(long) > sanitizedErrorMax+len("…") {
+		t.Errorf("an unknown error shape must still be bounded, got %d bytes", len(long))
+	}
+}
+
+// A step that fails only because the user has not pasted their key yet is not
+// a workflow to fix: the builder is forbidden from setting credentials, so
+// telling it to "fix" this sends it round the repair loop for nothing.
+func TestMissingCredentialErrorsAreNotFailures(t *testing.T) {
+	for _, msg := range []string{"http: GET 401", "http: POST 403", "Airtable API 401"} {
+		if !IsMissingCredentialError(msg) {
+			t.Errorf("%q should read as a missing credential", msg)
+		}
+	}
+	for _, msg := range []string{"http: GET 404", "http: GET 500", "Slack API 400", "json path not found"} {
+		if IsMissingCredentialError(msg) {
+			t.Errorf("%q is a real failure, not a missing credential", msg)
+		}
 	}
 }

@@ -906,13 +906,16 @@ func withAnswerGuard(prompt string) string {
 	return strings.TrimRight(prompt, " \n") + "\n\n" + agentAnswerGuard
 }
 
-// testedAnswer is what the user would read from a test run: the last agent's
-// reply, or the run's final output when there is no agent.
+// testedAnswer is what the user would read from a test run: the run's final
+// output. Answer (the last agent's reply) is only the fallback, for a run
+// that ended with nothing: when a step follows the agent -- agent ->
+// json_extract -> end -- the agent's sentence is not what the workflow
+// emits, and quoting it would promise the user an answer they never get.
 func testedAnswer(r DryRunResult) string {
-	if strings.TrimSpace(r.Answer) != "" {
-		return r.Answer
+	if strings.TrimSpace(r.FinalOutput) != "" {
+		return r.FinalOutput
 	}
-	return r.FinalOutput
+	return r.Answer
 }
 
 // unverifiedSteps names the steps a test run could not check, and why.
@@ -1356,7 +1359,18 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 			// is not forced to run the user's workflow (tester.dirty starts
 			// false). An unverified result is not sent back either -- a step
 			// fed by a simulated one may be perfectly right.
-			if req.TestRun != nil && len(graph.Nodes) > 0 && tester.rounds < maxTestRounds && (tester.dirty || tester.last != nil) {
+			// Time-aware: a test round is a full workflow execution plus
+			// another model call, several seconds at least. Starting one with
+			// little budget left trades a finished reply for "I ran out of
+			// time", which is worse than replying now with the honest "not
+			// checked" note withTestStatus adds. The first round gets the
+			// longer allowance -- one test is worth much more than a retry.
+			testDeadline := budget / 2
+			if tester.rounds == 0 {
+				testDeadline = budget * 7 / 10
+			}
+			if req.TestRun != nil && len(graph.Nodes) > 0 && tester.rounds < maxTestRounds &&
+				time.Since(started) < testDeadline && (tester.dirty || tester.last != nil) {
 				nudge := ""
 				switch {
 				case tester.dirty:
