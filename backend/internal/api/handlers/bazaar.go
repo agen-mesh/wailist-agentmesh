@@ -280,7 +280,7 @@ func (d *Deps) BazaarResources(w http.ResponseWriter, r *http.Request) {
 		}
 		matched := make([]scored, 0, len(items))
 		for _, it := range items {
-			if score, ok := bestFieldFuzzyScore(it, q); ok {
+			if score, ok := bazaar.BestFieldScore(it, q); ok {
 				matched = append(matched, scored{it, score})
 			}
 		}
@@ -340,29 +340,6 @@ func filterSupported(items []bazaar.Resource, want bool) []bazaar.Resource {
 		}
 	}
 	return filtered
-}
-
-// bestFieldFuzzyScore reports whether q fuzzy-matches r in AT LEAST ONE of
-// its own fields, taking the best score among the fields that do.
-//
-// Matched per field, not against one string the caller joins first: a query
-// like "tendril" is short enough that concatenating Provider+Host+URL+
-// Description into one haystack routinely lets it complete as a scattered
-// subsequence spanning several UNRELATED fields (a 't' from the URL, an 'e'
-// from the description, and so on) -- a real false positive this caught in
-// review, matching a Prism entry on a search for "tendril". Checking each
-// field on its own means every letter of the query has to come from the
-// SAME field, which is what "this actually matches" should mean.
-func bestFieldFuzzyScore(r bazaar.Resource, q string) (int, bool) {
-	best := 0
-	matched := false
-	for _, field := range [...]string{r.Provider, r.Host, r.URL, r.Description} {
-		if score, ok := bazaar.FuzzyMatch(field, q); ok && (!matched || score > best) {
-			best = score
-			matched = true
-		}
-	}
-	return best, matched
 }
 
 // sortItems returns items reordered per the sort param, always as a COPY --

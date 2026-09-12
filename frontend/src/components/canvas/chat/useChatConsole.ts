@@ -4,6 +4,7 @@ import { useRunTranscript, type LogEvent } from "../useRunTranscript";
 import { useChatSession, type ChatSession } from "./useChatSession";
 import { resolveReply } from "./resolveReply";
 import { recoverPendingTurn } from "./recoverPendingTurn";
+import type { BuildProgress } from "./buildProgress";
 import {
   runs as runsApi,
   type RunLogRecord,
@@ -17,9 +18,12 @@ interface UseChatConsoleArgs {
   workflowId?: string;
   onSendMessage?: (text: string) => Promise<boolean>;
   // Build mode routes a chat turn to graph editing instead of running the
-  // deployed agent -- see CanvasPage's hasProviderNode/buildMode wiring.
+  // deployed agent -- see CanvasPage's graphReady/buildMode wiring.
   buildMode?: boolean;
-  onBuildMessage?: (text: string) => Promise<{ ok: boolean; reply?: string }>;
+  onBuildMessage?: (
+    text: string,
+    onProgress?: (p: BuildProgress) => void,
+  ) => Promise<{ ok: boolean; reply?: string }>;
   attempt?: number;
 }
 
@@ -186,8 +190,14 @@ export function useChatConsole({
         // Build mode has no runId/SSE transcript to settle against -- it
         // resolves synchronously in one round trip, so settle the turn
         // directly here instead of via the runId-keyed effects above.
-        const res = (await onBuildMessage?.(text)) ?? { ok: false };
+        // Each step the builder takes lands on this turn as it happens, so
+        // the chat shows the work instead of a bare spinner.
+        const res =
+          (await onBuildMessage?.(text, (p) =>
+            session.setTurnProgress(turnId, p),
+          )) ?? { ok: false };
         completeTurnById(turnId, {
+          current: undefined,
           text:
             res.reply ??
             (res.ok

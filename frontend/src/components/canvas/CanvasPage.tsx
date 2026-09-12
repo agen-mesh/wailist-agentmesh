@@ -27,7 +27,20 @@ import { useChatConsole, type ChatConsole } from "./chat/useChatConsole";
 import { can } from "@/lib/readonly";
 import { ghostBtnSm, primaryBtnSm } from "@/components/ui/buttons";
 import { useIsCompact } from "@/hooks/useIsCompact";
-import { runBlockedMessage } from "./runBlocked";
+import { runBlockedReason } from "./runBlocked";
+import {
+  isGraphRunnable,
+  agentMissingModel,
+  firstUnreachedStep,
+  hasFlowLoop,
+  shouldReleaseBuildMode,
+} from "./buildModeRelease";
+import { RunBlockedCard } from "./chat/RunBlockedCard";
+import {
+  newBuildId,
+  startProgressPolling,
+  type BuildProgress,
+} from "./chat/buildProgress";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import { ShareModal } from "@/components/workflows/ShareModal";
 import {
@@ -57,6 +70,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [logOpen, setLogOpen] = useState(false);
   const [manualBuildMode, setManualBuildMode] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  // The card reappears whenever the obstacle changes -- dismissing "not
+  // deployed" should not also silence "no model attached" later.
+  const [dismissedBlock, setDismissedBlock] = useState<string | null>(null);
   // Below the compact breakpoint the studio stacks instead of sitting in
   // three columns, and the rail becomes a sheet. Closed by default: the
   // reader came to look at the graph, so the graph gets the screen until
@@ -72,7 +89,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   // refetches against the freshly persisted graph.
   const [estimateTick, setEstimateTick] = useState(0);
   const [running, setRunning] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    tone: "ok" | "warn" | "error";
+  } | null>(null);
   const [saveLabel, setSaveLabel] = useState("");
   const [runId, setRunId] = useState<string | null>(null);
   const [resumeAttempt, setResumeAttempt] = useState(0);
@@ -316,10 +336,26 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     return out;
   }, [workflow]);
 
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2400);
-  }, []);
+  // Errors dwell longer than confirmations: 2.4s is enough to register "Run
+  // started", not enough to read and act on a failure.
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback(
+    (message: string, tone: "ok" | "warn" | "error" = "ok") => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      setToast({ message, tone });
+      toastTimer.current = setTimeout(
+        () => setToast(null),
+        tone === "ok" ? 2400 : 6000,
+      );
+    },
+    [],
+  );
+  useEffect(
+    () => () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    },
+    [],
+  );
 
   const handleResume = useCallback(
     async (deadLetterRunId: string) => {
@@ -332,7 +368,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       // silently no-opping while the button still looks clickable.
       const targetRunId = runId ?? deadLetterRunId;
       if (!targetRunId) {
-        showToast("Nothing to resume — start the workflow again to retry it.");
+        showToast(
+          "Nothing to resume — start the workflow again to retry it.",
+          "warn",
+        );
         return;
       }
       try {
@@ -344,6 +383,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       } catch (err) {
         showToast(
           `Resume failed · ${err instanceof Error ? err.message : "unknown error"}`,
+          "error",
         );
       }
     },
@@ -405,6 +445,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       showToast("Re-deployed");
       return;
     }
+    setDeploying(true);
     try {
       const res = await workflowsApi.deploy(workflow.id);
       setDeployed(true);
@@ -415,7 +456,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     } catch (err: unknown) {
       showToast(
         `Deploy failed · ${err instanceof Error ? err.message : "unknown error"}`,
+        "error",
       );
+    } finally {
+      setDeploying(false);
     }
   }, [deployed, workflow, showToast]);
 
@@ -427,28 +471,62 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     [workflow],
   );
 
-  // No provider node yet means there is nothing to run -- chat always
-  // builds in that state. Once one exists, the Build/Run pill decides.
   const hasProviderNode = useMemo(
     () => workflow?.nodes.some((n) => n.type === "provider") ?? false,
     [workflow],
   );
 
+  // Whether the graph itself could run -- decided from its wiring, not from
+  // whether a provider node exists. A tool-only pipeline (trigger -> http ->
+  // json_extract -> end) needs no provider and runs fine; the chat builder
+  // now builds exactly that for fetch-and-save requests, and gating on a
+  // provider left such a workflow stuck in build mode behind a "No model
+  // attached yet" card.
+  const graphReady = useMemo(
+    () => (workflow ? isGraphRunnable(workflow.nodes, workflow.edges) : false),
+    [workflow],
+  );
+  const missingModel = useMemo(
+    () => (workflow ? agentMissingModel(workflow.nodes, workflow.edges) : false),
+    [workflow],
+  );
+  const flowLoop = useMemo(
+    () => (workflow ? hasFlowLoop(workflow.nodes, workflow.edges) : false),
+    [workflow],
+  );
+  const unreachedStep = useMemo(() => {
+    if (!workflow) return undefined;
+    const n = firstUnreachedStep(workflow.nodes, workflow.edges);
+    return n ? n.name || n.label || n.template || n.type : undefined;
+  }, [workflow]);
+
   // Null when a run can proceed. Naming the real obstacle matters most to a
   // viewer, who cannot deploy and so cannot act on "deploy first" at all.
-  const runBlocked = useMemo(
+  const blockedReason = useMemo(
     () =>
-      runBlockedMessage({
+      runBlockedReason({
         deployed,
-        hasProviderNode,
+        graphReady,
+        agentMissingModel: missingModel,
+        unreachedStep,
+        flowLoop,
         canDeploy: can("workflow.deploy", readOnly),
       }),
-    [deployed, hasProviderNode, readOnly],
+    [deployed, graphReady, missingModel, unreachedStep, flowLoop, readOnly],
   );
+  const runBlocked = blockedReason?.detail ?? null;
+  const showBlockedCard =
+    blockedReason !== null && dismissedBlock !== blockedReason.code;
 
+  // Nothing that could run yet means chat always builds. Once the graph is
+  // runnable -- or has a provider, which kept the Build/Run choice available
+  // for hand-built workflows before readiness was judged from the graph, and
+  // still does so nothing a user has already made gets newly stuck -- the
+  // Build/Run pill decides.
+  const canLeaveBuildMode = graphReady || hasProviderNode;
   const buildMode =
     can("workflow.buildFromChat", readOnly) &&
-    (!hasProviderNode || manualBuildMode);
+    (!canLeaveBuildMode || manualBuildMode);
 
   // Returns the new run's id, or null when no run started. Callers that own a
   // chat turn need that signal: a failure here only raises a toast, and
@@ -474,6 +552,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       } catch (err: unknown) {
         showToast(
           `Run failed · ${err instanceof Error ? err.message : "unknown error"}`,
+          "error",
         );
         return null;
       }
@@ -482,30 +561,58 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   );
 
   const startBuild = useCallback(
-    async (text: string): Promise<{ ok: boolean; reply?: string }> => {
+    async (
+      text: string,
+      onProgress?: (p: BuildProgress) => void,
+    ): Promise<{ ok: boolean; reply?: string }> => {
       if (!workflow) return { ok: false };
-      // Latch build mode on for the rest of the session. Without this, the
-      // provider node this very call is about to add flips hasProviderNode
-      // true, and the next message would route to a run instead of
-      // continuing the conversation. Latching here (rather than defaulting
-      // manualBuildMode to true) keeps an already-populated workflow that is
-      // merely being reopened in run mode until the user actually builds.
+      // Poll the build's steps while it runs so the chat can show them. The
+      // poller is stopped -- with one final flush -- before this returns, so
+      // every step is on the turn before it settles.
+      const buildId = newBuildId();
+      const wfId = workflow.id;
+      const before = { nodes: workflow.nodes, edges: workflow.edges };
+      const poller = onProgress
+        ? startProgressPolling(
+            () => workflowsApi.buildProgress(wfId, buildId),
+            onProgress,
+            1000,
+          )
+        : null;
+      // Latch build mode on for the duration of THIS call. Without it, the
+      // nodes this very call is about to add can make the graph runnable
+      // while the request is still in flight, and a message sent in that
+      // window would route to a run instead of continuing the conversation. Latching here (rather than defaulting manualBuildMode
+      // to true) keeps an already-populated workflow that is merely being
+      // reopened in run mode until the user actually builds.
       setManualBuildMode(true);
       try {
         // The backend loads the graph fresh from the DB, so a drag still
         // sitting in the autosave debounce would be invisible to it and lost
         // when the build response replaces local state.
         await flushPendingSave();
-        const res = await workflowsApi.build(workflow.id, text);
+        const res = await workflowsApi.build(workflow.id, text, buildId);
+        await poller?.stop();
         setWorkflow((wf) =>
           wf
             ? { ...wf, nodes: res.workflow.nodes, edges: res.workflow.edges }
             : wf,
         );
+        // ...and release it the moment the graph can actually run. The latch
+        // used to be permanent, so once the builder had produced a workflow
+        // every later message still went to the builder: the user typed "run
+        // it" and got another build summary back. Released only when this
+        // build made a graph that could not run runnable -- a half-built one
+        // keeps the conversation going, and a user who chose Build on an
+        // already-runnable workflow keeps that choice (shouldReleaseBuildMode).
+        if (shouldReleaseBuildMode(before, res.workflow)) {
+          setManualBuildMode(false);
+        }
         return { ok: true, reply: res.reply };
       } catch (err: unknown) {
+        await poller?.stop();
         const message = err instanceof Error ? err.message : "unknown error";
-        showToast(`Build failed · ${message}`);
+        showToast(`Build failed · ${message}`, "error");
         return {
           ok: false,
           reply: `Could not update the workflow: ${message}`,
@@ -817,9 +924,19 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                       buildMode={buildMode}
                       canToggleBuildMode={
                         can("workflow.buildFromChat", readOnly) &&
-                        hasProviderNode
+                        canLeaveBuildMode
                       }
                       onToggleBuildMode={() => setManualBuildMode((v) => !v)}
+                      blockedNode={
+                        showBlockedCard && blockedReason ? (
+                          <RunBlockedCard
+                            reason={blockedReason}
+                            deploying={deploying}
+                            onDeploy={onDeploy}
+                            onDismiss={() => setDismissedBlock(blockedReason.code)}
+                          />
+                        ) : undefined
+                      }
                       inspectorNode={
                         <Inspector
                           selected={selected}
@@ -872,9 +989,20 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                     width={inspectorW}
                     buildMode={buildMode}
                     canToggleBuildMode={
-                      can("workflow.buildFromChat", readOnly) && hasProviderNode
+                      can("workflow.buildFromChat", readOnly) &&
+                      canLeaveBuildMode
                     }
                     onToggleBuildMode={() => setManualBuildMode((v) => !v)}
+                    blockedNode={
+                      showBlockedCard && blockedReason ? (
+                        <RunBlockedCard
+                          reason={blockedReason}
+                          deploying={deploying}
+                          onDeploy={onDeploy}
+                          onDismiss={() => setDismissedBlock(blockedReason.code)}
+                        />
+                      ) : undefined
+                    }
                     inspectorNode={
                       <Inspector
                         selected={selected}
@@ -896,7 +1024,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         </ChatConsoleHost>
       </div>
 
-      {toast && <Toast message={toast} />}
+      {toast && <Toast message={toast.message} tone={toast.tone} />}
     </div>
   );
 }
@@ -926,7 +1054,10 @@ function ChatConsoleHost({
   workflowId?: string;
   onSendMessage?: (text: string) => Promise<boolean>;
   buildMode?: boolean;
-  onBuildMessage?: (text: string) => Promise<{ ok: boolean; reply?: string }>;
+  onBuildMessage?: (
+    text: string,
+    onProgress?: (p: BuildProgress) => void,
+  ) => Promise<{ ok: boolean; reply?: string }>;
   attempt?: number;
   children: (chat: ChatConsole) => React.ReactNode;
 }) {
@@ -1008,7 +1139,7 @@ function CanvasTopbar({
   onRun: () => void;
   /** Why the Run button is disabled, or null when a run can proceed --
    *  computed once in CanvasPage (runBlockedMessage) so this component
-   *  doesn't need its own copy of hasProviderNode/canDeploy to derive it. */
+   *  doesn't need its own copy of graphReady/canDeploy to derive it. */
   runBlocked: string | null;
   saveLabel: string;
   /** Bumped by CanvasPage after each successful deploy so the run-cost

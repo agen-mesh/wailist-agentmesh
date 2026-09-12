@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"unicode"
 
@@ -86,7 +87,21 @@ func defaultModel(template string) string {
 // node's own Model if set, else its template's default. Exported so
 // runner.go can compute the same billing tier before the call that
 // provider.go computes for the call itself.
+//
+// GEMINI_MODEL_LOCK, when set, pins every Gemini call to that one model
+// regardless of what the node asks for -- an opt-in cost guard for running
+// the stack against a personal key. Unset (the default, and production)
+// changes nothing. It lives here rather than at each call site because this
+// is the single function every provider call and the billing preflight both
+// use, so the model that runs and the model that is billed stay the same.
+// Non-Gemini templates are left alone: a Gemini model name forced onto an
+// OpenAI or Anthropic call would only break it.
 func ResolveModel(template, model string) string {
+	if template == "gemini" {
+		if lock := os.Getenv("GEMINI_MODEL_LOCK"); lock != "" {
+			return lock
+		}
+	}
 	if model != "" {
 		return model
 	}

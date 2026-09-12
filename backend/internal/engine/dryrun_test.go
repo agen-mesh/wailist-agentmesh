@@ -1,0 +1,516 @@
+package engine
+
+import (
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"unicode/utf8"
+
+	"github.com/agentmesh/backend/internal/engine/nodes"
+	"github.com/agentmesh/backend/internal/models"
+)
+
+func dn(id string, t models.NodeType, template string) models.WorkflowNode {
+	return models.WorkflowNode{ID: id, Type: t, Template: template, Name: id}
+}
+
+func flow(from, to string) models.WorkflowEdge {
+	return models.WorkflowEdge{ID: from + "-" + to, From: from, To: to, Kind: models.EdgeKindFlow, ToPort: "in"}
+}
+
+func dataServer(t *testing.T) *httptest.Server {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/empty" {
+			io.WriteString(w, `{}`)
+			return
+		}
+		io.WriteString(w, `{"data":{"price":1.5}}`)
+	}))
+	t.Cleanup(srv.Close)
+	nodes.SetURLValidatorForTest(func(string) error { return nil })
+	t.Cleanup(func() { nodes.SetURLValidatorForTest(func(string) error { return nil }) })
+	return srv
+}
+
+func TestDryRunRunsReadOnlyStepsForReal(t *testing.T) {
+	srv := dataServer(t)
+	fetch := dn("fetch", models.NodeTypeTool, "http")
+	fetch.URL = srv.URL + "/quote"
+	extract := dn("extract", models.NodeTypeTool, "json_extract")
+	extract.Config = map[string]string{"jsonPath": "data.price"}
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), fetch, extract, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "fetch"), flow("fetch", "extract"), flow("extract", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{})
+	if res.Failed || res.Empty || res.Error != "" {
+		t.Fatalf("want a clean run, got %+v", res)
+	}
+	if res.FinalOutput != "1.5" {
+		t.Fatalf("want the extracted price as the final output, got %q", res.FinalOutput)
+	}
+}
+
+// The user's case: a lookup that "succeeds" with {}.
+func TestDryRunFlagsAStepThatReturnsNothing(t *testing.T) {
+	srv := dataServer(t)
+	fetch := dn("fetch", models.NodeTypeTool, "http")
+	fetch.URL = srv.URL + "/empty"
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), fetch, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "fetch"), flow("fetch", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{})
+	if !res.Empty {
+		t.Fatalf("an empty {} result must be flagged, got %+v", res)
+	}
+	var fetchStep nodes.DryRunStep
+	for _, s := range res.Steps {
+		if s.NodeID == "fetch" {
+			fetchStep = s
+		}
+	}
+	if fetchStep.Status != "empty" {
+		t.Fatalf("the step that returned {} must be marked empty, got %+v", fetchStep)
+	}
+}
+
+func TestDryRunSimulatesStepsWithSideEffects(t *testing.T) {
+	slack := dn("slack", models.NodeTypeAction, "slack")
+	// A real webhook would be called if this were executed; the test server
+	// fails the test if anything reaches it.
+	hit := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hit = true }))
+	defer srv.Close()
+	slack.Secrets = map[string]string{"slackWebhookURL": srv.URL}
+	slack.Config = map[string]string{"messageTemplate": "Price: {{ input }}"}
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "chat"), slack, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "slack"), flow("slack", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{Input: "hello"})
+	if hit {
+		t.Fatal("a dry run must never send the Slack message")
+	}
+	for _, s := range res.Steps {
+		if s.NodeID == "slack" {
+			if s.Status != "simulated" || s.Reason == "" {
+				t.Fatalf("slack must be simulated with a reason, got %+v", s)
+			}
+			if !strings.Contains(s.Output, "Price: hello") {
+				t.Fatalf("a simulated send should show what it would send, got %q", s.Output)
+			}
+			return
+		}
+	}
+	t.Fatal("no slack step in the result")
+}
+
+func TestDryRunReportsTheAgentsAnswer(t *testing.T) {
+	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"MYRAD is $0.00021."}]}}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5}}`)
+	}))
+	defer gem.Close()
+	nodes.SetGeminiBaseURL(gem.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	provider := dn("p", models.NodeTypeProvider, "gemini")
+	provider.KeyMode = "platform"
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("a", models.NodeTypeAgent, "agent"), provider, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "a"), flow("a", "e"),
+			{ID: "pa", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"}},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{PlatformKeys: map[string]string{"gemini": "k"}})
+	if res.Failed {
+		t.Fatalf("unexpected failure: %+v", res)
+	}
+	if res.Answer != "MYRAD is $0.00021." {
+		t.Fatalf("want the agent's reply as the answer, got %q", res.Answer)
+	}
+}
+
+func TestDryRunReportsALoop(t *testing.T) {
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("a", models.NodeTypeTool, "calc"), dn("b", models.NodeTypeTool, "calc")},
+		Edges: []models.WorkflowEdge{flow("t", "a"), flow("a", "b"), flow("b", "a")},
+	}
+	if res := DryRun(context.Background(), g, DryRunOptions{}); res.Error == "" || !res.Failed {
+		t.Fatalf("a loop must fail the dry run, got %+v", res)
+	}
+}
+
+func stepOf(res nodes.DryRunResult, id string) nodes.DryRunStep {
+	for _, s := range res.Steps {
+		if s.NodeID == id {
+			return s
+		}
+	}
+	return nodes.DryRunStep{}
+}
+
+// Review finding: a simulated step hands its placeholder to the step after
+// it, and a json_extract on that placeholder failed -- a correct workflow
+// reported as broken, which sent the builder off to "fix" it.
+func TestDryRunDoesNotBlameAStepFedBySimulatedData(t *testing.T) {
+	paid := dn("paid", models.NodeTypeTool402, "x402")
+	extract := dn("extract", models.NodeTypeTool, "json_extract")
+	extract.Config = map[string]string{"jsonPath": "data.price"}
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), paid, extract, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "paid"), flow("paid", "extract"), flow("extract", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{})
+	if res.Failed || res.Empty {
+		t.Fatalf("a step fed only by simulated data must not fail the test run, got %+v", res)
+	}
+	if !res.Unverified {
+		t.Fatalf("the run must say it could not be checked end to end, got %+v", res)
+	}
+	if s := stepOf(res, "extract"); s.Status != "unverified" || s.Reason == "" {
+		t.Fatalf("the extract step must be marked unverified with a reason, got %+v", s)
+	}
+}
+
+// Review finding: a real run loads the workflow's variables and expands
+// {{state.x}} in the endpoint too; a test run that did neither called the
+// wrong URL and reported a working workflow as broken.
+func TestDryRunExpandsWorkflowVariablesLikeARun(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/quote/btc" {
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, `{"error":"not found"}`)
+			return
+		}
+		io.WriteString(w, `{"price":1.5}`)
+	}))
+	defer srv.Close()
+	nodes.SetURLValidatorForTest(func(string) error { return nil })
+	defer nodes.SetURLValidatorForTest(func(string) error { return nil })
+
+	fetch := dn("fetch", models.NodeTypeTool, "http")
+	fetch.URL = srv.URL + "/quote/{{state.coin}}"
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), fetch, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "fetch"), flow("fetch", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{State: map[string]any{"coin": "btc"}})
+	if res.Failed || res.Empty {
+		t.Fatalf("want a clean run with the variable expanded, got %+v (paths %v)", res, paths)
+	}
+	if len(paths) != 1 || paths[0] != "/quote/btc" {
+		t.Fatalf("want exactly one call to /quote/btc, got %v", paths)
+	}
+}
+
+// Review finding: a test run called platform-key agents with no credit
+// check, so a user with no credits could run them for free just by chatting.
+func TestDryRunDoesNotRunAPlatformAgentTheUserCannotPayFor(t *testing.T) {
+	called := false
+	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}`)
+	}))
+	defer gem.Close()
+	nodes.SetGeminiBaseURL(gem.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	provider := dn("p", models.NodeTypeProvider, "gemini")
+	provider.KeyMode = "platform"
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("a", models.NodeTypeAgent, "agent"), provider, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "a"), flow("a", "e"),
+			{ID: "pa", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"}},
+	}
+	var asked int64
+	res := DryRun(context.Background(), g, DryRunOptions{
+		PlatformKeys: map[string]string{"gemini": "k"},
+		CheckBalance: func(ctx context.Context, amount int64) error {
+			asked = amount
+			return errors.New("insufficient credits")
+		},
+	})
+	if called {
+		t.Fatal("an agent the user cannot pay for must not be called")
+	}
+	if asked <= 0 {
+		t.Fatalf("the check must ask for the agent's real fee, asked for %d", asked)
+	}
+	if res.Failed || !res.Unverified {
+		t.Fatalf("no credits is not a broken workflow: want unverified, got %+v", res)
+	}
+	if s := stepOf(res, "a"); s.Status != "unverified" || !strings.Contains(s.Reason, "credits") {
+		t.Fatalf("the agent step must say it needs credits, got %+v", s)
+	}
+}
+
+// Review finding: a 401 from a node whose key the user has not pasted yet was
+// reported as a failed workflow, so the gate sent the builder round the repair
+// loop for a workflow that is correct -- and the builder cannot set the key
+// anyway.
+func TestDryRunTreatsAMissingCredentialAsUncheckable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		io.WriteString(w, `{"message":"missing api key sk-live-should-not-be-echoed"}`)
+	}))
+	defer srv.Close()
+	nodes.SetURLValidatorForTest(func(string) error { return nil })
+	fetch := dn("fetch", models.NodeTypeTool, "http")
+	fetch.URL = srv.URL + "/quote"
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), fetch, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "fetch"), flow("fetch", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{})
+	if res.Failed {
+		t.Fatalf("a missing credential is not a broken workflow: %+v", res)
+	}
+	if !res.Unverified {
+		t.Fatalf("the run must report itself unchecked, got %+v", res)
+	}
+	s := stepOf(res, "fetch")
+	if s.Status != "unverified" || !strings.Contains(s.Reason, "credential") {
+		t.Fatalf("want the step marked unverified with a credential reason, got %+v", s)
+	}
+	if strings.Contains(s.Error, "sk-live") {
+		t.Fatalf("the upstream body must not be carried into the result: %q", s.Error)
+	}
+}
+
+// A read-only connector skips itself when its credential is missing. That is
+// not a step that ran: reporting it as one let the builder claim a workflow
+// was checked when the only thing it proved was that nothing happened.
+func TestDryRunDoesNotCountASkippedConnectorAsRan(t *testing.T) {
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("w", models.NodeTypeAction, "openweathermap"), dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "w"), flow("w", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{})
+	if res.Failed || !res.Unverified {
+		t.Fatalf("want an unverified result, got %+v", res)
+	}
+	if s := stepOf(res, "w"); s.Status != "unverified" {
+		t.Fatalf("want the skipped connector marked unverified, got %+v", s)
+	}
+}
+
+// Review finding: the balance was checked and never debited, so a single
+// credit bought unlimited platform-key agent calls, one build message at a
+// time.
+func TestDryRunChargesForAPlatformKeyAgent(t *testing.T) {
+	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}`)
+	}))
+	defer gem.Close()
+	nodes.SetGeminiBaseURL(gem.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	provider := dn("p", models.NodeTypeProvider, "gemini")
+	provider.KeyMode = "platform"
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("a", models.NodeTypeAgent, "agent"), provider, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "a"), flow("a", "e"),
+			{ID: "pa", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"}},
+	}
+	var charged int64
+	var chargedNode, chargedModel string
+	res := DryRun(context.Background(), g, DryRunOptions{
+		PlatformKeys: map[string]string{"gemini": "k"},
+		CheckBalance: func(ctx context.Context, amount int64) error { return nil },
+		ChargeAgent: func(ctx context.Context, nodeID string, amount int64, model string) error {
+			charged, chargedNode, chargedModel = amount, nodeID, model
+			return nil
+		},
+	})
+	if res.Failed {
+		t.Fatalf("unexpected failure: %+v", res)
+	}
+	if charged <= 0 || chargedNode != "a" || chargedModel == "" {
+		t.Fatalf("the agent call must be charged its real fee: amount=%d node=%q model=%q", charged, chargedNode, chargedModel)
+	}
+}
+
+// A BYOK agent costs the platform nothing, so a test run must not charge for
+// one -- the same rule a real run applies.
+func TestDryRunDoesNotChargeForAByokAgent(t *testing.T) {
+	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}`)
+	}))
+	defer gem.Close()
+	nodes.SetGeminiBaseURL(gem.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	provider := dn("p", models.NodeTypeProvider, "gemini")
+	provider.APIKey = "user-key"
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("a", models.NodeTypeAgent, "agent"), provider, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "a"), flow("a", "e"),
+			{ID: "pa", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"}},
+	}
+	charged := false
+	DryRun(context.Background(), g, DryRunOptions{
+		ChargeAgent: func(ctx context.Context, nodeID string, amount int64, model string) error {
+			charged = true
+			return nil
+		},
+	})
+	if charged {
+		t.Fatal("a BYOK agent must not be charged")
+	}
+}
+
+// Review finding: clipText cut on a byte index, which splits a multi-byte
+// rune -- invalid UTF-8 in the payload sent to the model and in the chat.
+func TestClipTextKeepsValidUTF8(t *testing.T) {
+	long := strings.Repeat("é", dryRunOutputShown)
+	got := clipText(long)
+	if !utf8.ValidString(got) {
+		t.Fatalf("clipped text is not valid UTF-8: %q", got[len(got)-8:])
+	}
+	if len(got) > dryRunOutputShown+len("…") {
+		t.Fatalf("clipped text is longer than the limit: %d bytes", len(got))
+	}
+}
+
+// Review finding (7374b817): every skipped connector was reported as needing a
+// credential. coingecko_skipped_no_ids is a missing setting the builder can
+// fill in, and CoinGecko has no key -- it must go back for repair.
+func TestDryRunSendsAMissingSettingBackForRepair(t *testing.T) {
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("cg", models.NodeTypeAction, "coingecko"), dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "cg"), flow("cg", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{})
+	if !res.Failed || res.Unverified {
+		t.Fatalf("a missing setting is a fault the builder can fix: want failed, got %+v", res)
+	}
+	if s := stepOf(res, "cg"); s.Status != "failed" || strings.Contains(s.Reason+s.Error, "credential") {
+		t.Fatalf("want a failed step that does not blame a credential, got %+v", s)
+	}
+}
+
+// Review finding: the credential check ran on the raw error, so a 500 whose
+// body happened to mention "API 403" read as a missing key and was hidden
+// from repair.
+func TestDryRunDoesNotHideARealFailureBehindAnAuthWord(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, `upstream API 403 forbidden`)
+	}))
+	defer srv.Close()
+	nodes.SetURLValidatorForTest(func(string) error { return nil })
+	fetch := dn("fetch", models.NodeTypeTool, "http")
+	fetch.URL = srv.URL
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), fetch, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "fetch"), flow("fetch", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{})
+	if !res.Failed || res.Unverified {
+		t.Fatalf("a 500 is a real failure whatever its body says: got %+v", res)
+	}
+}
+
+// Review finding: a revoked platform key surfaced as "the user adds it in the
+// Inspector", which the user cannot do. An agent has no credential of its own
+// to add, so a 401 from its model call is a real failure.
+func TestDryRunReportsAModelKeyRejectionAsAFailure(t *testing.T) {
+	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		io.WriteString(w, `{"error":{"message":"API key not valid"}}`)
+	}))
+	defer gem.Close()
+	nodes.SetGeminiBaseURL(gem.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	provider := dn("p", models.NodeTypeProvider, "gemini")
+	provider.KeyMode = "platform"
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("a", models.NodeTypeAgent, "agent"), provider, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "a"), flow("a", "e"),
+			{ID: "pa", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"}},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{PlatformKeys: map[string]string{"gemini": "revoked"}})
+	if !res.Failed {
+		t.Fatalf("a rejected model key is not something the user adds in the Inspector: want failed, got %+v", res)
+	}
+}
+
+// An http node that already carries the user's credential and still gets 401
+// is not waiting for a key to be added -- the one it has was rejected. Still
+// not the builder's to fix, but it must say so rather than "add a credential".
+func TestDryRunNamesARejectedStoredCredential(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	nodes.SetURLValidatorForTest(func(string) error { return nil })
+	fetch := dn("fetch", models.NodeTypeTool, "http")
+	fetch.URL = srv.URL
+	fetch.Secrets = map[string]string{"httpHeadersJSON": `{"Authorization":"Bearer expired"}`}
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), fetch, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "fetch"), flow("fetch", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{})
+	if res.Failed || !res.Unverified {
+		t.Fatalf("want unverified, got %+v", res)
+	}
+	if s := stepOf(res, "fetch"); !strings.Contains(s.Reason, "rejected") {
+		t.Fatalf("want the reason to say the stored credential was rejected, got %q", s.Reason)
+	}
+}
+
+// Review finding: the charge ran on the build's own context, which ends at
+// the build's time budget. A call that succeeded just before it lost its
+// debit to the cancellation -- the model was paid for, the user was not
+// charged. The charge must outlive the build's context, as the runner's
+// ledger writes do.
+func TestDryRunChargeSurvivesTheBuildContextEnding(t *testing.T) {
+	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}`)
+	}))
+	defer gem.Close()
+	nodes.SetGeminiBaseURL(gem.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	provider := dn("p", models.NodeTypeProvider, "gemini")
+	provider.KeyMode = "platform"
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("a", models.NodeTypeAgent, "agent"), provider, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "a"), flow("a", "e"),
+			{ID: "pa", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"}},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var chargeCtxErr error
+	charged := false
+	DryRun(ctx, g, DryRunOptions{
+		PlatformKeys: map[string]string{"gemini": "k"},
+		ChargeAgent: func(cctx context.Context, nodeID string, amount int64, model string) error {
+			charged = true
+			cancel() // the build's budget runs out right as the charge starts
+			chargeCtxErr = cctx.Err()
+			return nil
+		},
+	})
+	if !charged {
+		t.Fatal("setup: the agent call should have been charged")
+	}
+	if chargeCtxErr != nil {
+		t.Fatalf("the charge must not be cancelled with the build: %v", chargeCtxErr)
+	}
+}

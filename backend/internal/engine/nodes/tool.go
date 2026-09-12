@@ -185,6 +185,11 @@ func SetPlatformKeys(keys map[string]string) { platformKeysForTools = keys }
 
 func platformGeminiKey() string { return platformKeysForTools["gemini"] }
 
+// PlatformKeys returns the provider key map the runner was configured with
+// (SetPlatformKeys), for code outside a run -- the builder's dry run -- that
+// has to call a platform-key agent the same way a run would.
+func PlatformKeys() map[string]string { return platformKeysForTools }
+
 // httpMethodsWithBody are the methods callHTTP attaches rc.Message() to as a
 // request body -- GET/HEAD/OPTIONS never carry one, matching real HTTP
 // semantics rather than the old POST-only special case.

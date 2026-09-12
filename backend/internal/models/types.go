@@ -407,6 +407,11 @@ const (
 	DebitKindX402RelayCost     = "x402_relay_cost"
 	DebitKindPlatformKeyLLMFee = "platform_key_llm_fee"
 	DebitKindTendrilLease      = "tendril_lease"
+	// DebitKindBuildTestLLMFee is a platform-key agent call made by a chat
+	// build's test run. It is the one kind with no run to point at: a test
+	// run persists nothing, but it spends the platform's model credits just
+	// as a real run does, so it is charged the same fee.
+	DebitKindBuildTestLLMFee = "build_test_llm_fee"
 )
 
 // TendrilLease is one rented Tendril machine. A lease deliberately outlives
