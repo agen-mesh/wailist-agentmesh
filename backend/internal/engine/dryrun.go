@@ -106,11 +106,11 @@ func DryRun(ctx context.Context, graph models.WorkflowGraph, opts DryRunOptions)
 				res.Steps = append(res.Steps, step)
 				res.Unverified = true
 				return res
-			case err != nil && nodes.IsMissingCredentialError(err.Error()):
+			case err != nil && credentialReason(n, err) != "":
 				// Not a fault to fix: the builder cannot set credentials, so
-				// a 401 here means the node is waiting for the user, not that
-				// the workflow is wrong.
-				step.Status, step.Reason = "unverified", nodes.MissingCredentialReason
+				// a 401 on a node that takes one means the node is waiting for
+				// the user, not that the workflow is wrong.
+				step.Status, step.Reason = "unverified", credentialReason(n, err)
 				step.Error = nodes.SanitizeRunError(err.Error())
 				res.Steps = append(res.Steps, step)
 				res.Unverified = true
@@ -198,10 +198,16 @@ func dryRunNode(ctx context.Context, n models.WorkflowNode, attach models.Attach
 	case models.NodeTypeAction:
 		out, err := nodes.ExecuteAction(ctx, n, rc)
 		if errors.Is(err, nodes.ErrActionSkipped) {
-			// A connector skips itself when its credential is missing. In a
-			// run that is a step doing nothing; in a test it means this step
-			// was never checked, which the builder must not read as success.
-			return out, "", unverifiable{nodes.MissingCredentialReason}
+			// A connector skips itself when something it needs is missing.
+			// In a run that is a step doing nothing; in a test it means this
+			// step was never checked, which must not read as success. A
+			// missing credential is the user's to add; any other skip (no
+			// coin ids, no query, no city) is a setting the builder left out,
+			// so it goes back for repair as a failure.
+			if nodes.IsCredentialSkip(out) {
+				return out, "", unverifiable{nodes.MissingCredentialReason}
+			}
+			return out, "", fmt.Errorf("%s did not run: a setting it needs is missing (%v)", n.Template, out)
 		}
 		return out, "", err
 	case models.NodeTypeAgent:
@@ -233,14 +239,28 @@ func dryRunNode(ctx context.Context, n models.WorkflowNode, attach models.Attach
 		// Charged after the call, like a run (Runner.debitOrLog): the model
 		// has already been paid for by then, so a failed charge is logged
 		// rather than turned into a step failure.
+		//
+		// Detached from ctx, with its own timeout, as the runner's ledger
+		// writes are (ledgerCompensationTimeout): ctx ends at the build's time
+		// budget, and a call that succeeded just before it must still be
+		// charged.
 		if err == nil && platformFee > 0 && opts.ChargeAgent != nil {
-			if cerr := opts.ChargeAgent(ctx, n.ID, platformFee, platformModel); cerr != nil {
+			cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ledgerCompensationTimeout)
+			if cerr := opts.ChargeAgent(cctx, n.ID, platformFee, platformModel); cerr != nil {
 				log.Printf("dry run: charge agent %s (%d micros): %v", n.ID, platformFee, cerr)
 			}
+			cancel()
 		}
 		return out, "", err
 	}
 	return nil, "", fmt.Errorf("a %s step cannot be test-run", n.Type)
+}
+
+// credentialReason is nodes.CredentialProblem's reason, or "" when the
+// failure is not about a credential the user supplies.
+func credentialReason(n models.WorkflowNode, err error) string {
+	reason, _ := nodes.CredentialProblem(n, err.Error())
+	return reason
 }
 
 func clipOutput(v any) string {

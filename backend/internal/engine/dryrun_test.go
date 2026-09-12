@@ -383,3 +383,134 @@ func TestClipTextKeepsValidUTF8(t *testing.T) {
 		t.Fatalf("clipped text is longer than the limit: %d bytes", len(got))
 	}
 }
+
+// Review finding (7374b817): every skipped connector was reported as needing a
+// credential. coingecko_skipped_no_ids is a missing setting the builder can
+// fill in, and CoinGecko has no key -- it must go back for repair.
+func TestDryRunSendsAMissingSettingBackForRepair(t *testing.T) {
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("cg", models.NodeTypeAction, "coingecko"), dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "cg"), flow("cg", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{})
+	if !res.Failed || res.Unverified {
+		t.Fatalf("a missing setting is a fault the builder can fix: want failed, got %+v", res)
+	}
+	if s := stepOf(res, "cg"); s.Status != "failed" || strings.Contains(s.Reason+s.Error, "credential") {
+		t.Fatalf("want a failed step that does not blame a credential, got %+v", s)
+	}
+}
+
+// Review finding: the credential check ran on the raw error, so a 500 whose
+// body happened to mention "API 403" read as a missing key and was hidden
+// from repair.
+func TestDryRunDoesNotHideARealFailureBehindAnAuthWord(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, `upstream API 403 forbidden`)
+	}))
+	defer srv.Close()
+	nodes.SetURLValidatorForTest(func(string) error { return nil })
+	fetch := dn("fetch", models.NodeTypeTool, "http")
+	fetch.URL = srv.URL
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), fetch, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "fetch"), flow("fetch", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{})
+	if !res.Failed || res.Unverified {
+		t.Fatalf("a 500 is a real failure whatever its body says: got %+v", res)
+	}
+}
+
+// Review finding: a revoked platform key surfaced as "the user adds it in the
+// Inspector", which the user cannot do. An agent has no credential of its own
+// to add, so a 401 from its model call is a real failure.
+func TestDryRunReportsAModelKeyRejectionAsAFailure(t *testing.T) {
+	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		io.WriteString(w, `{"error":{"message":"API key not valid"}}`)
+	}))
+	defer gem.Close()
+	nodes.SetGeminiBaseURL(gem.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	provider := dn("p", models.NodeTypeProvider, "gemini")
+	provider.KeyMode = "platform"
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("a", models.NodeTypeAgent, "agent"), provider, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "a"), flow("a", "e"),
+			{ID: "pa", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"}},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{PlatformKeys: map[string]string{"gemini": "revoked"}})
+	if !res.Failed {
+		t.Fatalf("a rejected model key is not something the user adds in the Inspector: want failed, got %+v", res)
+	}
+}
+
+// An http node that already carries the user's credential and still gets 401
+// is not waiting for a key to be added -- the one it has was rejected. Still
+// not the builder's to fix, but it must say so rather than "add a credential".
+func TestDryRunNamesARejectedStoredCredential(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	nodes.SetURLValidatorForTest(func(string) error { return nil })
+	fetch := dn("fetch", models.NodeTypeTool, "http")
+	fetch.URL = srv.URL
+	fetch.Secrets = map[string]string{"httpHeadersJSON": `{"Authorization":"Bearer expired"}`}
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), fetch, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "fetch"), flow("fetch", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{})
+	if res.Failed || !res.Unverified {
+		t.Fatalf("want unverified, got %+v", res)
+	}
+	if s := stepOf(res, "fetch"); !strings.Contains(s.Reason, "rejected") {
+		t.Fatalf("want the reason to say the stored credential was rejected, got %q", s.Reason)
+	}
+}
+
+// Review finding: the charge ran on the build's own context, which ends at
+// the build's time budget. A call that succeeded just before it lost its
+// debit to the cancellation -- the model was paid for, the user was not
+// charged. The charge must outlive the build's context, as the runner's
+// ledger writes do.
+func TestDryRunChargeSurvivesTheBuildContextEnding(t *testing.T) {
+	gem := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}`)
+	}))
+	defer gem.Close()
+	nodes.SetGeminiBaseURL(gem.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	provider := dn("p", models.NodeTypeProvider, "gemini")
+	provider.KeyMode = "platform"
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{dn("t", models.NodeTypeTrigger, "manual"), dn("a", models.NodeTypeAgent, "agent"), provider, dn("e", models.NodeTypeEnd, "done")},
+		Edges: []models.WorkflowEdge{flow("t", "a"), flow("a", "e"),
+			{ID: "pa", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"}},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var chargeCtxErr error
+	charged := false
+	DryRun(ctx, g, DryRunOptions{
+		PlatformKeys: map[string]string{"gemini": "k"},
+		ChargeAgent: func(cctx context.Context, nodeID string, amount int64, model string) error {
+			charged = true
+			cancel() // the build's budget runs out right as the charge starts
+			chargeCtxErr = cctx.Err()
+			return nil
+		},
+	})
+	if !charged {
+		t.Fatal("setup: the agent call should have been charged")
+	}
+	if chargeCtxErr != nil {
+		t.Fatalf("the charge must not be cancelled with the build: %v", chargeCtxErr)
+	}
+}

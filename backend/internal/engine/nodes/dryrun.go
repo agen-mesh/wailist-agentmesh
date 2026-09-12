@@ -145,20 +145,67 @@ func SanitizeRunError(msg string) string {
 	return msg
 }
 
-// authStatus matches the status code in the error shapes SanitizeRunError
-// keeps ("Slack API 401", "http: GET 403").
-var authStatus = regexp.MustCompile(`(?:API|http: [A-Z]+) (401|403|407)\b`)
-
-// IsMissingCredentialError reports whether a step failed for want of a
-// credential rather than because the workflow is wrong. The builder is
-// forbidden from setting credentials (nodeRules.parse) and a node that 401s
-// is deliberately still allowed onto the canvas -- the user pastes the key
-// in the Inspector afterwards -- so a test run must report this as something
-// it could not check, never as a workflow to "fix".
-func IsMissingCredentialError(msg string) bool {
-	return authStatus.MatchString(msg)
-}
+// authStatus matches an auth rejection in the error shapes SanitizeRunError
+// keeps ("Slack API 401", "http: GET 403"). 407 is deliberately absent: it is
+// a proxy between AgentMesh and the service asking for its own login, not a
+// credential that belongs on the node.
+var authStatus = regexp.MustCompile(`(?:API|http: [A-Z]+) (401|403)$`)
 
 // MissingCredentialReason is what the builder and the user are told when a
-// step could not be tested for want of a credential.
+// step could not be tested because its credential has not been added.
 const MissingCredentialReason = "it needs a credential that has not been added yet, so a test run cannot check it -- the user adds it on the node in the Inspector"
+
+// RejectedCredentialReason is the same situation when the node already has a
+// credential and the service turned it down.
+const RejectedCredentialReason = "the service rejected the credential on this node, so a test run cannot check it -- the user should check that credential in the Inspector"
+
+// CredentialProblem reports whether a step failed for want of a credential
+// the user supplies, rather than because the workflow is wrong, and the
+// reason to give. The builder is forbidden from setting credentials
+// (nodeRules.parse), and judgeProbe deliberately lets an http node that
+// answers 401/403 onto the canvas for the user to add headers to -- so that
+// case must read as something a test run could not check, not a workflow to
+// "fix".
+//
+// Only for a node whose template takes a credential from the user. An agent
+// has none of its own: a 401 from its model call is a revoked or misconfigured
+// key the user cannot add anywhere, and a keyless connector's 403 is a real
+// failure. The status is read from the sanitized message, so an upstream body
+// that merely mentions "API 403" is never mistaken for one.
+func CredentialProblem(n models.WorkflowNode, msg string) (string, bool) {
+	if !authStatus.MatchString(SanitizeRunError(msg)) {
+		return "", false
+	}
+	tpl, ok := catalogTemplate(string(n.Type), n.Template)
+	if !ok || len(userSuppliedKeys(string(n.Type), tpl)) == 0 {
+		return "", false
+	}
+	if hasStoredCredential(n) {
+		return RejectedCredentialReason, true
+	}
+	return MissingCredentialReason, true
+}
+
+// credentialSkips are the skip codes a connector returns when a credential is
+// missing ("weather_skipped_no_api_key"). Every other skip -- no ids, no
+// query, no city, missing config -- is a setting the builder can fill in.
+var credentialSkips = []string{
+	"_skipped_no_api_key", "_skipped_no_api_token", "_skipped_no_access_token",
+	"_skipped_no_token", "_skipped_no_bot_token", "_skipped_no_auth_token",
+	"_skipped_no_credentials", "_skipped_no_webhook_url",
+}
+
+// IsCredentialSkip reports whether a connector's skip code means its
+// credential is missing.
+func IsCredentialSkip(out any) bool {
+	code, ok := out.(string)
+	if !ok {
+		return false
+	}
+	for _, suffix := range credentialSkips {
+		if strings.HasSuffix(code, suffix) {
+			return true
+		}
+	}
+	return false
+}

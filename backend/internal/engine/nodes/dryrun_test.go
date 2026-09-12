@@ -95,16 +95,49 @@ func TestSanitizeRunErrorStripsEveryUpstreamBody(t *testing.T) {
 
 // A step that fails only because the user has not pasted their key yet is not
 // a workflow to fix: the builder is forbidden from setting credentials, so
-// telling it to "fix" this sends it round the repair loop for nothing.
-func TestMissingCredentialErrorsAreNotFailures(t *testing.T) {
-	for _, msg := range []string{"http: GET 401", "http: POST 403", "Airtable API 401"} {
-		if !IsMissingCredentialError(msg) {
-			t.Errorf("%q should read as a missing credential", msg)
+// telling it to "fix" this sends it round the repair loop for nothing. Only a
+// node whose template takes a credential qualifies, and only on the sanitized
+// message.
+func TestCredentialProblem(t *testing.T) {
+	httpNode := models.WorkflowNode{Type: models.NodeTypeTool, Template: "http"}
+	withKey := httpNode
+	withKey.Secrets = map[string]string{"httpHeadersJSON": "{}"}
+	agent := models.WorkflowNode{Type: models.NodeTypeAgent, Template: "agent"}
+	coingecko := models.WorkflowNode{Type: models.NodeTypeAction, Template: "coingecko"}
+	cases := []struct {
+		name   string
+		node   models.WorkflowNode
+		msg    string
+		reason string
+	}{
+		{"http 401, no key yet", httpNode, "http: GET 401: denied", MissingCredentialReason},
+		{"http 403, no key yet", httpNode, "http: POST 403", MissingCredentialReason},
+		{"http 401 with a stored key", withKey, "http: GET 401", RejectedCredentialReason},
+		{"http 404", httpNode, "http: GET 404: not found", ""},
+		{"http 500 whose body mentions API 403", httpNode, "http: GET 500: upstream API 403 forbidden", ""},
+		{"proxy 407 is not the node's credential", httpNode, "http: GET 407", ""},
+		{"an agent has no credential to add", agent, "agent: LLM API 401: bad key", ""},
+		{"a keyless connector's 403 is real", coingecko, "CoinGecko API 403: blocked", ""},
+	}
+	for _, c := range cases {
+		reason, ok := CredentialProblem(c.node, c.msg)
+		if reason != c.reason || ok != (c.reason != "") {
+			t.Errorf("%s: got (%q, %v), want %q", c.name, reason, ok, c.reason)
 		}
 	}
-	for _, msg := range []string{"http: GET 404", "http: GET 500", "Slack API 400", "json path not found"} {
-		if IsMissingCredentialError(msg) {
-			t.Errorf("%q is a real failure, not a missing credential", msg)
+}
+
+// Only a missing credential skip is the user's to fix; any other skip is a
+// setting the builder can fill in.
+func TestIsCredentialSkip(t *testing.T) {
+	for _, code := range []string{"weather_skipped_no_api_key", "telegram_skipped_no_bot_token", "twilio_skipped_no_auth_token", "slack_skipped_no_webhook_url"} {
+		if !IsCredentialSkip(code) {
+			t.Errorf("%q is a missing credential", code)
+		}
+	}
+	for _, code := range []any{"coingecko_skipped_no_ids", "rss_skipped_no_url", "weather_skipped_no_city", "notion_skipped_missing_config", nil, 42} {
+		if IsCredentialSkip(code) {
+			t.Errorf("%v is a missing setting, not a credential", code)
 		}
 	}
 }

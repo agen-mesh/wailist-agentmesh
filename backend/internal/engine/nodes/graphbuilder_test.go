@@ -1735,3 +1735,54 @@ func TestBuildGraphSkipsATestRoundItHasNoTimeFor(t *testing.T) {
 		t.Fatalf("an untested reply must say so, got %q", res.Reply)
 	}
 }
+
+// Review finding (7374b817): in agent -> slack -> end the slack step is only
+// simulated, so the run ends with its placeholder JSON. Quoting that as the
+// answer made a correct workflow look like "raw data" and cost a repair round.
+func TestBuildGraphDoesNotTakeASimulatedStepForTheAnswer(t *testing.T) {
+	bodies := scriptedGemini(t, []string{callTestRun, text("BTC is 60000 dollars."), text("still here")})
+	res, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "btc price to slack", Graph: wiredAgentGraph(),
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
+			return DryRunResult{
+				Answer:      "BTC is 60000 dollars.",
+				FinalOutput: `{"reason":"it would send or change something (slack)","simulated":true}`,
+				Steps: []DryRunStep{
+					{NodeID: "a", Name: "Answer", Type: "agent", Status: "ran"},
+					{NodeID: "s", Name: "Post", Type: "action", Template: "slack", Status: "simulated"},
+					{NodeID: "e", Name: "", Type: "end", Status: "ran"},
+				},
+			}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(*bodies, "\n"), "raw data") {
+		t.Fatal("a simulated last step is not the answer; the workflow must not be sent back as raw data")
+	}
+	if strings.Contains(res.Reply, "simulated") {
+		t.Fatalf("the reply must not quote a simulated placeholder as the answer: %q", res.Reply)
+	}
+}
+
+// Review finding: the tested answer is clipped with a trailing "…", so for a
+// long answer the "is it already in the reply" check never matched and a
+// truncated copy was appended under a reply that already quoted it in full.
+func TestBuildGraphDoesNotRepeatALongAnswerItAlreadyQuoted(t *testing.T) {
+	long := strings.Repeat("price ", 200)
+	bodies := scriptedGemini(t, []string{callTestRun, text("Here it is: " + long)})
+	_ = bodies
+	res, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "long answer", Graph: wiredAgentGraph(),
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
+			return DryRunResult{Answer: long, FinalOutput: long[:700] + "…"}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(res.Reply, "**Test run answer:**") {
+		t.Fatalf("the reply already quotes the answer; a clipped copy must not be appended")
+	}
+}

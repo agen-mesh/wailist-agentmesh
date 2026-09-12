@@ -907,15 +907,31 @@ func withAnswerGuard(prompt string) string {
 }
 
 // testedAnswer is what the user would read from a test run: the run's final
-// output. Answer (the last agent's reply) is only the fallback, for a run
-// that ended with nothing: when a step follows the agent -- agent ->
-// json_extract -> end -- the agent's sentence is not what the workflow
-// emits, and quoting it would promise the user an answer they never get.
+// output, because when a real step follows the agent -- agent ->
+// json_extract -> end -- the agent's sentence is not what the workflow emits.
+//
+// The agent's reply wins in two cases. A run that ended with nothing. And a
+// run whose last step was only simulated (agent -> slack -> end): its output
+// is a placeholder standing in for the message, and the message the user
+// would actually receive is the agent's reply.
 func testedAnswer(r DryRunResult) string {
-	if strings.TrimSpace(r.FinalOutput) != "" {
-		return r.FinalOutput
+	if strings.TrimSpace(r.FinalOutput) == "" || (lastStepNotReal(r) && strings.TrimSpace(r.Answer) != "") {
+		return r.Answer
 	}
-	return r.Answer
+	return r.FinalOutput
+}
+
+// lastStepNotReal reports whether the last step before the end was simulated
+// or unverified, so the run's final output is not something it produced.
+func lastStepNotReal(r DryRunResult) bool {
+	for i := len(r.Steps) - 1; i >= 0; i-- {
+		s := r.Steps[i]
+		if s.Type == string(models.NodeTypeEnd) || s.Type == string(models.NodeTypeTrigger) {
+			continue
+		}
+		return s.Status == "simulated" || s.Status == "unverified"
+	}
+	return false
 }
 
 // unverifiedSteps names the steps a test run could not check, and why.
@@ -1240,7 +1256,10 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		// The user must see what the test actually produced. A reply that
 		// ended "Here is the test run output:" and then nothing did not show
 		// it, so append it whenever the model's own reply omits it.
-		if answer := strings.TrimSpace(testedAnswer(*tester.last)); answer != "" && !strings.Contains(text, answer) {
+		// Compared without the "…" clipText adds: a long answer is clipped,
+		// and a reply quoting it in full contains the clipped prefix but not
+		// the ellipsis, so the plain check would append a duplicate.
+		if answer := strings.TrimSpace(testedAnswer(*tester.last)); answer != "" && !strings.Contains(text, strings.TrimSuffix(answer, "…")) {
 			text += "\n\n**Test run answer:** " + answer
 		}
 		return text
