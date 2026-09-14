@@ -3,6 +3,7 @@ package nodes
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"maps"
 	"net/http"
@@ -237,15 +238,18 @@ func TestBuildGraphAddsNodeThenReturnsReply(t *testing.T) {
 // asserted that error.
 func TestBuildGraphOutOfIterationsKeepsWhatItBuilt(t *testing.T) {
 	// Always answer with another add_node call, so the loop can never
-	// terminate on its own and must hit the cap.
+	// terminate on its own and must hit the cap. Each one is a distinct node
+	// -- re-adding the identical node is refused as a rebuild.
+	var round int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		round++
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"candidates": []map[string]any{
 				{"content": map[string]any{"parts": []map[string]any{
 					{"functionCall": map[string]any{
 						"name": "add_node",
-						"args": map[string]any{"type": "tool", "template": "calc"},
+						"args": map[string]any{"type": "tool", "template": "calc", "name": fmt.Sprintf("Step %d", round)},
 					}},
 				}}},
 			},
@@ -1882,5 +1886,55 @@ func TestAgentSystemPromptWithoutRefsIsAccepted(t *testing.T) {
 		"fields": map[string]any{"systemPrompt": "State the price in USD in one sentence"},
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Live builds rebuilt the whole workflow on later rounds instead of editing
+// what they had: 5 of 16 came back with 2-5 trigger nodes and up to 30 nodes,
+// and every one of those either failed or produced nothing. A workflow has
+// exactly one trigger, so the second add is the signal that it is happening.
+func TestAddNodeRefusesASecondTrigger(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	if _, err := addGraphNode(graph, map[string]any{"type": "trigger", "template": "manual"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := addGraphNode(graph, map[string]any{"type": "trigger", "template": "chat"})
+	if err == nil {
+		t.Fatal("a second trigger was accepted")
+	}
+	if !strings.Contains(err.Error(), "already has a trigger") {
+		t.Errorf("the error must say what to do instead, got %v", err)
+	}
+	if len(graph.Nodes) != 1 {
+		t.Errorf("the graph must be left alone, got %d nodes", len(graph.Nodes))
+	}
+}
+
+// The same rebuild, one step further in: a second copy of a step it already
+// added. Rejecting it hands the model the id of the one that exists.
+func TestAddNodeRefusesAnIdenticalNode(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	args := map[string]any{
+		"type": "action", "template": "coingecko", "name": "Get Price",
+		"config": map[string]any{"cgIDs": "ethereum"},
+	}
+	first, err := addGraphNode(graph, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := strings.Fields(first)[2]
+	_, err = addGraphNode(graph, args)
+	if err == nil {
+		t.Fatal("an identical node was added twice")
+	}
+	if !strings.Contains(err.Error(), id) {
+		t.Errorf("the error must name the node that already exists (%s), got %v", id, err)
+	}
+	// A genuinely different node of the same template is still fine.
+	if _, err := addGraphNode(graph, map[string]any{
+		"type": "action", "template": "coingecko", "name": "Get Bitcoin",
+		"config": map[string]any{"cgIDs": "bitcoin"},
+	}); err != nil {
+		t.Fatalf("a different coingecko node must still be allowed: %v", err)
 	}
 }

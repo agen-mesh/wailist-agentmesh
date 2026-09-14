@@ -364,3 +364,23 @@ func TestValidateEdgeRejectsADuplicate(t *testing.T) {
 		t.Error("a duplicate attach edge with an omitted port was accepted")
 	}
 }
+
+// An agent outputs prose, so a parser downstream of it has nothing to parse.
+// A live build wired agent -> json_extract and the run died on "upstream
+// output is not valid JSON". The prompt already says not to; this enforces it.
+func TestValidateEdgeRejectsAParserAfterAnAgent(t *testing.T) {
+	graph := &models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "a", Type: models.NodeTypeAgent},
+			{ID: "j", Type: models.NodeTypeTool, Template: "json_extract"},
+			{ID: "h", Type: models.NodeTypeTool, Template: "http"},
+		},
+	}
+	if _, err := validateEdge(graph, "a", "j", "flow", ""); err == nil {
+		t.Error("agent -> json_extract was accepted")
+	}
+	// An agent into a tool that does not parse its input is still legal.
+	if _, err := validateEdge(graph, "a", "h", "flow", ""); err != nil {
+		t.Errorf("agent -> http must stay legal: %v", err)
+	}
+}

@@ -110,6 +110,14 @@ func validateEdge(graph *models.WorkflowGraph, from, to, kind, toPort string) (s
 	if from == to {
 		return "", fmt.Errorf("add_edge: a node cannot flow into itself")
 	}
+	// An agent writes prose, so a parser reading its output has nothing to
+	// parse: a live build wired agent -> json_extract and the run died on
+	// "upstream output is not valid JSON".
+	if src.Type == models.NodeTypeAgent && parserTemplates[dst.Template] {
+		return "", fmt.Errorf(
+			"add_edge: %q parses structured data, and %q is an agent, which writes prose -- put the parser between the data step and the agent instead, and let the agent have the last word",
+			to, from)
+	}
 	// Longer loops too: the engine topologically sorts the flow and fails
 	// every run of a graph that loops ("cycle detected in workflow graph").
 	if flowReaches(*graph, to, from) {
@@ -127,6 +135,11 @@ func existingEdge(graph *models.WorkflowGraph, from, to, kind string) string {
 		}
 	}
 	return ""
+}
+
+// parserTemplates read structured input and fail on anything else.
+var parserTemplates = map[string]bool{
+	"json_extract": true, "xml": true, "html_extract": true, "markdown": true,
 }
 
 // flowReaches reports whether dst can be reached from src along flow edges.

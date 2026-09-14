@@ -470,6 +470,33 @@ func (r nodeRules) userSupplied() string {
 	return s + "; name the ones this workflow needs on the node's description and in your reply"
 }
 
+// identicalNode returns the id of a node that is already exactly what is
+// being added -- same type, template, name and settings.
+func identicalNode(graph *models.WorkflowGraph, nodeType, template, name string, fields, cfg map[string]string) string {
+	for _, n := range graph.Nodes {
+		if string(n.Type) != nodeType || n.Template != template || n.Name != name {
+			continue
+		}
+		same := true
+		for k, v := range fields {
+			if idx, ok := nodeStringFields[k]; ok && reflect.ValueOf(n).Field(idx).String() != v {
+				same = false
+				break
+			}
+		}
+		for k, v := range cfg {
+			if n.Config[k] != v {
+				same = false
+				break
+			}
+		}
+		if same && len(cfg) == len(n.Config) {
+			return n.ID
+		}
+	}
+	return ""
+}
+
 func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, error) {
 	nodeType := argString(args, "type")
 	if !graphNodeTypes[nodeType] {
@@ -493,6 +520,21 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 	}
 	if err := validateTemplateRefs(graph, cfg); err != nil {
 		return "", err
+	}
+	// A rebuild guard. Live builds that were sent back to fix a step
+	// re-added the whole workflow instead of editing it -- up to five
+	// triggers and thirty nodes, and every such build failed or produced
+	// nothing. Both rejections name what already exists so the model edits
+	// it instead.
+	if nodeType == "trigger" {
+		for _, n := range graph.Nodes {
+			if n.Type == models.NodeTypeTrigger {
+				return "", fmt.Errorf("add_node: the workflow already has a trigger (%s, %s) and runs from exactly one -- to start it a different way, update that node's template with update_node; everything you have already built is still on the graph", n.ID, n.Template)
+			}
+		}
+	}
+	if dup := identicalNode(graph, nodeType, template, argString(args, "name"), fields, cfg); dup != "" {
+		return "", fmt.Errorf("add_node: node %s is already exactly this %s/%s -- you have added it once; use update_node on %s if it needs changing, and check the graph you have before adding more", dup, nodeType, template, dup)
 	}
 	id := newGraphID("n_")
 	node := models.WorkflowNode{
@@ -1137,6 +1179,15 @@ without one cannot run. Make small, sensible workflows unless asked for somethin
 done making changes, reply with a short plain-text summary of what you built or changed -- do not call any more
 tools once you're done.`
 
+// graphSnapshot restates what is on the canvas right now. Every round that
+// sends the model back to fix something ships it: the only graph in the
+// conversation otherwise is the one from the opening message, and live builds
+// answered a "fix this" round by building the whole workflow a second time.
+func graphSnapshot(graph models.WorkflowGraph) string {
+	b, _ := json.Marshal(graph)
+	return fmt.Sprintf("This is the workflow as it stands now -- everything in it already exists, so edit these nodes rather than adding more:\n%s\n", b)
+}
+
 // BuildTurn is one prior turn of the builder conversation, replayed into the
 // model's context so a follow-up ("use the specs I gave you") has something
 // to refer to. Role is "user" or "model".
@@ -1364,7 +1415,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 					contents = append(contents,
 						map[string]any{"role": "model", "parts": []map[string]any{{"text": text}}},
 						map[string]any{"role": "user", "parts": []map[string]any{{"text": fmt.Sprintf(
-							"Before you answer: the graph still has these problems.\n- %s\nFix them with the graph tools. Then reply to the user with a summary of the finished workflow as a whole -- do not mention these problems or the fixes, which the user never saw.",
+							graphSnapshot(graph)+"Before you answer: the graph still has these problems.\n- %s\nFix them with the graph tools. Then reply to the user with a summary of the finished workflow as a whole -- do not mention these problems or the fixes, which the user never saw.",
 							strings.Join(findings, "\n- "))}}},
 					)
 					payload["contents"] = contents
@@ -1413,7 +1464,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 					lastReply = text
 					contents = append(contents,
 						map[string]any{"role": "model", "parts": []map[string]any{{"text": text}}},
-						map[string]any{"role": "user", "parts": []map[string]any{{"text": nudge}}},
+						map[string]any{"role": "user", "parts": []map[string]any{{"text": graphSnapshot(graph) + nudge}}},
 					)
 					payload["contents"] = contents
 					continue
