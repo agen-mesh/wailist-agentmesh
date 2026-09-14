@@ -94,20 +94,11 @@ func fetchRSS(ctx context.Context, node models.WorkflowNode, rc RunContexter) (a
 	}, nil
 }
 
-// hackerNewsAPIBase is overridden in tests via SetHackerNewsAPIBaseForTest.
-// This is Algolia's HN search API — one request returns matching stories,
+// SetHackerNewsAPIBaseForTest overrides the HN search API base URL. The real
+// base is Algolia's HN search API — one request returns matching stories,
 // unlike the Firebase API which needs an N+1 fetch per item id. No auth.
-var hackerNewsAPIBase = "https://hn.algolia.com/api/v1"
-
-// SetHackerNewsAPIBaseForTest overrides the HN search API base URL. Call only
-// from tests. Pass "" to reset to the real API.
-func SetHackerNewsAPIBaseForTest(base string) {
-	if base == "" {
-		hackerNewsAPIBase = "https://hn.algolia.com/api/v1"
-	} else {
-		hackerNewsAPIBase = base
-	}
-}
+// Call only from tests. Pass "" to reset to the real API.
+func SetHackerNewsAPIBaseForTest(base string) { setAPIBaseForTest("hackernews", base) }
 
 // fetchHackerNews searches Hacker News. No credential of any kind.
 func fetchHackerNews(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
@@ -118,7 +109,7 @@ func fetchHackerNews(ctx context.Context, node models.WorkflowNode, rc RunContex
 	q := url.Values{}
 	q.Set("query", query)
 	q.Set("tags", configVal(node, "hnTags", "story"))
-	target := hackerNewsAPIBase + "/search?" + q.Encode()
+	target := apiBase("hackernews") + "/search?" + q.Encode()
 
 	raw, err := getAndDecode(ctx, target, nil, "HackerNews")
 	if err != nil {
@@ -157,19 +148,10 @@ func fetchHackerNews(ctx context.Context, node models.WorkflowNode, rc RunContex
 	return map[string]any{"count": len(items), "items": items}, nil
 }
 
-// coinGeckoAPIBase is overridden in tests via SetCoinGeckoAPIBaseForTest.
-// CoinGecko's /simple/price endpoint is usable without an API key.
-var coinGeckoAPIBase = "https://api.coingecko.com/api/v3"
-
-// SetCoinGeckoAPIBaseForTest overrides the CoinGecko API base URL. Call only
-// from tests. Pass "" to reset to the real API.
-func SetCoinGeckoAPIBaseForTest(base string) {
-	if base == "" {
-		coinGeckoAPIBase = "https://api.coingecko.com/api/v3"
-	} else {
-		coinGeckoAPIBase = base
-	}
-}
+// SetCoinGeckoAPIBaseForTest overrides the CoinGecko API base URL. CoinGecko's
+// /simple/price endpoint is usable without an API key. Call only from tests.
+// Pass "" to reset to the real API.
+func SetCoinGeckoAPIBaseForTest(base string) { setAPIBaseForTest("coingecko", base) }
 
 // fetchCoinGecko returns spot prices for the configured coin ids. No key.
 func fetchCoinGecko(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
@@ -180,5 +162,5 @@ func fetchCoinGecko(ctx context.Context, node models.WorkflowNode, rc RunContext
 	q := url.Values{}
 	q.Set("ids", ids)
 	q.Set("vs_currencies", configVal(node, "cgCurrencies", "usd"))
-	return getAndDecode(ctx, coinGeckoAPIBase+"/simple/price?"+q.Encode(), nil, "CoinGecko")
+	return getAndDecode(ctx, apiBase("coingecko")+"/simple/price?"+q.Encode(), nil, "CoinGecko")
 }
