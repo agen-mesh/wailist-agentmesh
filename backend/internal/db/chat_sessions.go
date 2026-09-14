@@ -14,6 +14,10 @@ import (
 // cannot grow a row without limit.
 const MaxChatTranscriptBytes = 512 * 1024
 
+// ErrInvalidTranscript marks a transcript the client got wrong, so the
+// handler can answer 400 for those and 500 for a database failure.
+var ErrInvalidTranscript = errors.New("invalid chat transcript")
+
 // ChatSession is one workflow's console transcript.
 type ChatSession struct {
 	SessionID string          `json:"sessionId"`
@@ -40,14 +44,11 @@ func (s *Store) GetChatSession(ctx context.Context, workflowID string) (ChatSess
 // transcript and sends it entire, exactly as it wrote one localStorage key.
 func (s *Store) SaveChatSession(ctx context.Context, workflowID, sessionID string, messages json.RawMessage) error {
 	if len(messages) > MaxChatTranscriptBytes {
-		return fmt.Errorf("chat transcript is %d bytes, over the %d byte limit", len(messages), MaxChatTranscriptBytes)
-	}
-	if !json.Valid(messages) {
-		return errors.New("chat transcript must be valid JSON")
+		return fmt.Errorf("%w: %d bytes, over the %d byte limit", ErrInvalidTranscript, len(messages), MaxChatTranscriptBytes)
 	}
 	var probe []json.RawMessage
 	if err := json.Unmarshal(messages, &probe); err != nil {
-		return errors.New("chat transcript must be a JSON array of messages")
+		return fmt.Errorf("%w: it must be a JSON array of messages", ErrInvalidTranscript)
 	}
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO workflow_chat_sessions (workflow_id, session_id, messages, updated_at)

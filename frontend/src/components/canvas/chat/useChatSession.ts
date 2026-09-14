@@ -201,21 +201,33 @@ function newSessionId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-async function read(
-  workflowId: string | undefined,
-): Promise<StoredSession | null> {
-  if (!workflowId) return null;
+/**
+ * Load result, which must distinguish "this workflow has no transcript yet"
+ * from "the transcript could not be read".
+ *
+ * Both start the console empty, but only the first may be written over. A
+ * failed read that was allowed to persist would replace a conversation the
+ * server still holds with the empty one on screen -- under localStorage a
+ * failed read was inert, so this distinction is new and load-bearing.
+ */
+type LoadResult =
+  | { ok: true; session: StoredSession | null }
+  | { ok: false };
+
+async function read(workflowId: string | undefined): Promise<LoadResult> {
+  if (!workflowId) return { ok: true, session: null };
   try {
     const stored = await workflowsApi.chat.load(workflowId);
-    if (!stored) return null;
+    if (!stored) return { ok: true, session: null };
     return {
-      sessionId: stored.sessionId,
-      messages: stored.messages as ChatMessage[],
+      ok: true,
+      session: {
+        sessionId: stored.sessionId,
+        messages: stored.messages as ChatMessage[],
+      },
     };
   } catch {
-    // An unreachable backend must not block the composer: start empty and
-    // let the next change write the transcript.
-    return null;
+    return { ok: false };
   }
 }
 
@@ -246,13 +258,41 @@ export function serialiseForStorage(session: StoredSession): string {
   }
 }
 
+// Saves run one after another. Two fire-and-forget PUTs can land out of
+// order -- the immediate write of a new turn overtaken by the debounced write
+// of its answer -- and the server keeps whichever arrives last, so an older
+// transcript would silently win.
+let saveChain: Promise<void> = Promise.resolve();
+
 function write(workflowId: string | undefined, session: StoredSession): void {
   if (!workflowId) return;
-  void workflowsApi.chat
-    .save(workflowId, JSON.parse(serialiseForStorage(session)))
+  const body = JSON.parse(serialiseForStorage(session));
+  saveChain = saveChain
+    .catch(() => {})
+    .then(() => workflowsApi.chat.save(workflowId, body))
     .catch(() => {
       /* offline or refused: persistence is best-effort, as it always was */
     });
+}
+
+/**
+ * Whether the transcript in state may be written back.
+ *
+ * Two ways it must not be, both of which end in a saved conversation being
+ * replaced by one that was never really loaded:
+ *  - the last load failed, so the empty console is a read error, not a fact;
+ *  - the workflow changed and its transcript has not loaded yet, so what is
+ *    in state still belongs to the previous one.
+ *
+ * Exported for tests: this is a data-loss path, so its behaviour is asserted
+ * directly rather than inferred.
+ */
+export function canPersist(
+  writable: boolean,
+  loadedFor: string | undefined,
+  workflowId: string | undefined,
+): boolean {
+  return writable && loadedFor === workflowId && workflowId !== undefined;
 }
 
 export function useChatSession(workflowId: string | undefined): ChatSession {
@@ -265,17 +305,35 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
   // straight setState here trips the cascading-render rule.
   const [hydrated, setHydrated] = useState(false);
 
+  // The workflow the transcript on screen belongs to, and whether it can be
+  // written back. Both are refs, not state: the persist effect below must see
+  // the new value on the very run that follows a workflow change, before any
+  // re-render.
+  const loadedFor = useRef<string | undefined>(undefined);
+  const writable = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
+    // Switching workflows makes the transcript in state stale immediately --
+    // set synchronously, so a pending debounced save cannot write the
+    // previous workflow's conversation under this workflow's id. The
+    // rAF below cannot do this job: it is paused in a background tab while
+    // setTimeout keeps firing.
+    writable.current = false;
+    loadedFor.current = undefined;
     // Deferred a frame, as the localStorage version was: a setState in an
     // effect body trips the cascading-render rule.
     const frame = requestAnimationFrame(() => {
       setHydrated(false);
       void (async () => {
-        const stored = await read(workflowId);
+        const result = await read(workflowId);
         if (cancelled) return;
-        setMessages(stored?.messages ?? []);
-        setSessionId(stored?.sessionId || newSessionId());
+        setMessages(result.ok ? (result.session?.messages ?? []) : []);
+        setSessionId(
+          (result.ok && result.session?.sessionId) || newSessionId(),
+        );
+        loadedFor.current = workflowId;
+        writable.current = result.ok;
         setHydrated(true);
       })();
     });
@@ -297,6 +355,10 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
   const countRef = useRef(-1);
   useEffect(() => {
     if (!hydrated || !sessionId) return;
+    // Never write a transcript that was not read back: a load that failed
+    // leaves the console empty, and saving that would destroy the stored
+    // conversation. Never write one belonging to another workflow either.
+    if (!canPersist(writable.current, loadedFor.current, workflowId)) return;
     const isNewTurn = messages.length !== countRef.current;
     countRef.current = messages.length;
     if (isNewTurn) {
@@ -368,10 +430,14 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
     setMessages((prev) => setProgressIn(prev, id, progress));
   }, []);
 
+  // Clearing is the user's own instruction, so it is written even when the
+  // last load failed -- it is the one empty transcript that is intentional.
   const reset = useCallback(() => {
     setMessages([]);
     const next = newSessionId();
     setSessionId(next);
+    loadedFor.current = workflowId;
+    writable.current = true;
     write(workflowId, { sessionId: next, messages: [] });
   }, [workflowId]);
 

@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/agentmesh/backend/internal/db"
@@ -52,7 +54,14 @@ func (d *Deps) SaveChatSession(w http.ResponseWriter, r *http.Request) {
 		body.Messages = json.RawMessage("[]")
 	}
 	if err := d.Store.SaveChatSession(r.Context(), id, body.SessionID, body.Messages); err != nil {
-		respond.Error(w, http.StatusBadRequest, err.Error())
+		if errors.Is(err, db.ErrInvalidTranscript) {
+			respond.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		// A database failure is not the client's to correct, and its text
+		// carries internals the chat should never show.
+		log.Printf("save chat transcript for workflow %s: %v", id, err)
+		respond.Error(w, http.StatusInternalServerError, "could not save the conversation")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

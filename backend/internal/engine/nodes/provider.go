@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/agentmesh/backend/internal/models"
 )
@@ -461,9 +462,26 @@ func paymentReceipt(p *ToolPaymentInfo) map[string]any {
 // of the flow step it follows. An agent that sits after data steps -- the
 // shape the chat builder always builds -- otherwise answers from the trigger
 // input alone and never sees the data it was put there to explain.
+// clipRunes cuts s to at most n bytes on a rune boundary, saying so.
+func clipRunes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "\n… (truncated: the step returned more data than fits in one prompt)"
+}
+
+// maxAgentInputData bounds the upstream output pasted into the prompt. A feed
+// or HTTP step can return megabytes, which is a request past the context
+// window -- billed before it fails.
+const maxAgentInputData = 32000
+
 func agentInput(rc RunContexter) string {
 	ask := strings.TrimSpace(rc.UserInput())
-	data := strings.TrimSpace(rc.Message())
+	data := clipRunes(strings.TrimSpace(rc.Message()), maxAgentInputData)
 	switch {
 	case ask == "" && data == "":
 		// Gemini rejects an empty user part, and a manual trigger sends none.

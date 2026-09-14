@@ -549,3 +549,22 @@ func TestAgentDirectlyAfterTriggerSendsInputOnce(t *testing.T) {
 		t.Errorf("want the user's message verbatim, got %q", got)
 	}
 }
+
+// A feed or HTTP step can return megabytes. Inlined whole, that is a request
+// past the model's context window -- billed on the platform key before it
+// fails -- so the step's output is capped before it reaches the prompt.
+func TestAgentInputCapsAHugeUpstreamOutput(t *testing.T) {
+	rc := engine.NewRunContext("run1", []byte(`{"message":"summarise this"}`))
+	rc.Set("t1", map[string]any{"message": "summarise this"})
+	rc.Set("feed1", strings.Repeat("lorem ipsum ", 200_000))
+	got := runAgentWith(t, false, rc)
+	if len(got) > 64_000 {
+		t.Errorf("prompt was not capped: %d bytes", len(got))
+	}
+	if !strings.Contains(got, "truncated") {
+		t.Error("a capped prompt must say the data was cut")
+	}
+	if !strings.Contains(got, "summarise this") {
+		t.Error("the user's question must survive the cap")
+	}
+}
