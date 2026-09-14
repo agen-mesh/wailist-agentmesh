@@ -420,6 +420,38 @@ export const workflows = {
     await delay(100);
   },
 
+  // The console chat transcript, stored server-side so the conversation
+  // follows the user across browsers and devices. The client owns the whole
+  // transcript and replaces it on every change.
+  chat: {
+    load: async (
+      id: string,
+    ): Promise<{ sessionId: string; messages: unknown[] } | null> => {
+      if (!BASE) return null;
+      const res = await apiFetch(`${BASE}/workflows/${id}/chat`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`chat transcript ${res.status}`);
+      const data = await res.json().catch(() => null);
+      if (!data || !Array.isArray(data.messages)) return null;
+      return { sessionId: data.sessionId ?? "", messages: data.messages };
+    },
+    save: async (
+      id: string,
+      session: { sessionId: string; messages: unknown[] },
+    ): Promise<void> => {
+      assertWritable("PUT", `/workflows/${id}/chat`);
+      if (!BASE) return;
+      const res = await apiFetch(`${BASE}/workflows/${id}/chat`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(session),
+      });
+      if (!res.ok) throw new Error(`chat transcript save ${res.status}`);
+    },
+  },
+
   // Persistent per-workflow key/value state, surviving across runs. Used
   // for incremental sync cursors, counters, and cached tokens.
   variables: {

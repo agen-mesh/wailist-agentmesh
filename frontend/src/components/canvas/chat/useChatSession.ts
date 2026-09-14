@@ -1,12 +1,16 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { workflows as workflowsApi } from "@/lib/api";
 import { setProgressIn, type BuildProgress, type BuildStep } from "./buildProgress";
 
 // The chat transcript for one workflow.
 //
-// Persisted to localStorage so a page reload doesn't lose the conversation,
-// and so a turn stranded mid-run (see useChatConsole's recovery effect) can
-// still be found and settled after the reload. All binding/settling below
+// Persisted server-side (PUT /workflows/:id/chat) so a page reload doesn't
+// lose the conversation, and so a turn stranded mid-run (see useChatConsole's
+// recovery effect) can still be found and settled after the reload. It used
+// to live in localStorage, which made the transcript per-browser: it was gone
+// on sign-out or a device change, and a stranded turn could only be recovered
+// in the browser that started it. All binding/settling below
 // targets messages by predicate (last unbound pending turn, matching runId,
 // matching id) rather than by array position or a freshly-returned handle --
 // that's what lets a turn started before a page reload still resolve
@@ -78,10 +82,10 @@ export interface ChatSession {
   hydrated: boolean;
 }
 
-const CHAT_PREFIX = "agentmesh_chat_";
 // Keep the stored transcript bounded on both axes: a long conversation of
-// large agent answers would otherwise grow without limit in a ~5 MB store
-// shared with the run cache. Only the *stored* history is trimmed.
+// large agent answers would otherwise grow without limit. The server applies
+// its own cap (db.MaxChatTranscriptBytes); this keeps requests well under it.
+// Only the *stored* history is trimmed.
 const MAX_STORED_MESSAGES = 60;
 const MAX_STORED_BYTES = 256 * 1024;
 
@@ -197,14 +201,20 @@ function newSessionId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-function read(workflowId: string | undefined): StoredSession | null {
-  if (!workflowId || typeof window === "undefined") return null;
+async function read(
+  workflowId: string | undefined,
+): Promise<StoredSession | null> {
+  if (!workflowId) return null;
   try {
-    const raw = window.localStorage.getItem(CHAT_PREFIX + workflowId);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredSession;
-    return Array.isArray(parsed.messages) ? parsed : null;
+    const stored = await workflowsApi.chat.load(workflowId);
+    if (!stored) return null;
+    return {
+      sessionId: stored.sessionId,
+      messages: stored.messages as ChatMessage[],
+    };
   } catch {
+    // An unreachable backend must not block the composer: start empty and
+    // let the next change write the transcript.
     return null;
   }
 }
@@ -237,15 +247,12 @@ export function serialiseForStorage(session: StoredSession): string {
 }
 
 function write(workflowId: string | undefined, session: StoredSession): void {
-  if (!workflowId || typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(
-      CHAT_PREFIX + workflowId,
-      serialiseForStorage(session),
-    );
-  } catch {
-    /* quota or unavailable storage: persistence is best-effort */
-  }
+  if (!workflowId) return;
+  void workflowsApi.chat
+    .save(workflowId, JSON.parse(serialiseForStorage(session)))
+    .catch(() => {
+      /* offline or refused: persistence is best-effort, as it always was */
+    });
 }
 
 export function useChatSession(workflowId: string | undefined): ChatSession {
@@ -259,20 +266,45 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    const id = requestAnimationFrame(() => {
-      const stored = read(workflowId);
-      setMessages(stored?.messages ?? []);
-      setSessionId(stored?.sessionId ?? newSessionId());
-      setHydrated(true);
+    let cancelled = false;
+    // Deferred a frame, as the localStorage version was: a setState in an
+    // effect body trips the cascading-render rule.
+    const frame = requestAnimationFrame(() => {
+      setHydrated(false);
+      void (async () => {
+        const stored = await read(workflowId);
+        if (cancelled) return;
+        setMessages(stored?.messages ?? []);
+        setSessionId(stored?.sessionId || newSessionId());
+        setHydrated(true);
+      })();
     });
-    return () => cancelAnimationFrame(id);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
   }, [workflowId]);
 
-  // Persist on every change once hydrated. Guarded on `hydrated` so the
-  // initial empty state can't overwrite a stored transcript before it loads.
+  // Persist once hydrated. Guarded on `hydrated` so the initial empty state
+  // can't overwrite a stored transcript before it loads.
+  //
+  // A new turn is written immediately: useChatConsole's recovery effect can
+  // only settle a turn stranded by a reload if that turn was already stored,
+  // and a run can start within a few hundred milliseconds of it appearing.
+  // Edits to existing turns (progress steps, the settled answer) are
+  // debounced instead -- a build emits one per tool call, and each is a
+  // request.
+  const countRef = useRef(-1);
   useEffect(() => {
     if (!hydrated || !sessionId) return;
-    write(workflowId, { sessionId, messages });
+    const isNewTurn = messages.length !== countRef.current;
+    countRef.current = messages.length;
+    if (isNewTurn) {
+      write(workflowId, { sessionId, messages });
+      return;
+    }
+    const t = setTimeout(() => write(workflowId, { sessionId, messages }), 600);
+    return () => clearTimeout(t);
   }, [hydrated, workflowId, sessionId, messages]);
 
   const startTurn = useCallback((text: string): string => {
@@ -338,8 +370,10 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
 
   const reset = useCallback(() => {
     setMessages([]);
-    setSessionId(newSessionId());
-  }, []);
+    const next = newSessionId();
+    setSessionId(next);
+    write(workflowId, { sessionId: next, messages: [] });
+  }, [workflowId]);
 
   return {
     messages,
