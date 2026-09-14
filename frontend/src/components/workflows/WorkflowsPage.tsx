@@ -14,6 +14,7 @@ import { Topbar } from "@/components/Topbar";
 import { Workflow } from "@/lib/types";
 import { workflows as workflowsApi } from "@/lib/api";
 import { useCredits } from "@/lib/credits/store";
+import { usageHrefForWorkflow } from "@/lib/usageScope";
 import { DEMO_WORKFLOW } from "@/lib/data";
 import { loadTemplateWorkflow } from "@/lib/templateWorkflow";
 import { can } from "@/lib/readonly";
@@ -450,6 +451,7 @@ export function WorkflowsPage() {
               onSetSchedule={handleSetSchedule}
               onClearSchedule={handleClearSchedule}
               onShare={setShareWorkflowId}
+              onViewUsage={(id) => router.push(usageHrefForWorkflow(id))}
             />
           ) : (
             <WorkflowGrid
@@ -579,6 +581,7 @@ function RowMenu({
   workflowId,
   onDelete,
   onShare,
+  onViewUsage,
   deployed,
   scheduleCron,
   onSetSchedule,
@@ -587,6 +590,8 @@ function RowMenu({
   workflowId: string;
   onDelete: () => void;
   onShare: () => void;
+  // Opens the Usage page scoped to this workflow (#9).
+  onViewUsage: () => void;
   deployed: boolean;
   scheduleCron?: string;
   onSetSchedule: (cron: string) => Promise<void>;
@@ -820,6 +825,35 @@ function RowMenu({
                 }}
               >
                 Share
+              </button>
+              <button
+                role="menuitem"
+                onClick={() => {
+                  close();
+                  onViewUsage();
+                }}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "8px 10px",
+                  border: "none",
+                  borderRadius: 5,
+                  background: "transparent",
+                  color: "var(--fg)",
+                  fontSize: 12.5,
+                  fontWeight: 500,
+                  fontFamily: "var(--font-sans)",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--bg-elev-3)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                }}
+              >
+                View usage
               </button>
               <div
                 style={{
@@ -1215,6 +1249,7 @@ function WorkflowRows({
   onSetSchedule,
   onClearSchedule,
   onShare,
+  onViewUsage,
 }: {
   items: Workflow[];
   onOpen: (id: string) => void;
@@ -1223,6 +1258,7 @@ function WorkflowRows({
   onSetSchedule: (id: string, cron: string) => Promise<void>;
   onClearSchedule: (id: string) => Promise<void>;
   onShare: (id: string) => void;
+  onViewUsage: (id: string) => void;
 }) {
   const readOnly = useReadOnly();
   return (
@@ -1391,6 +1427,7 @@ function WorkflowRows({
                 workflowId={wf.id}
                 onDelete={() => onDelete(wf.id)}
                 onShare={() => onShare(wf.id)}
+                onViewUsage={() => onViewUsage(wf.id)}
                 deployed={wf.status === "deployed"}
                 scheduleCron={wf.scheduleCron}
                 onSetSchedule={(cron) => onSetSchedule(wf.id, cron)}
