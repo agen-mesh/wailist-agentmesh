@@ -5,6 +5,7 @@ import {
   type RunLogRecord,
   type DeadLetterRun,
 } from "@/lib/api";
+import { sameRunCosts, type RunCosts } from "@/lib/runCosts";
 
 // This hook owns everything about *what happened in a run*: the live SSE
 // stream, the DB reconciliation that covers the stream's gaps, and the cached
@@ -174,6 +175,12 @@ export interface RunTranscript {
   /** The run was stopped from the UI rather than reaching its own end. */
   stopped: boolean;
   deadLetters: DeadLetterRun[];
+  /**
+   * What the run was charged, per step and in total, from the backend's debit
+   * ledger (#111). Null until the run record has been fetched, and for a
+   * backend that does not report costs yet.
+   */
+  costs: RunCosts | null;
 }
 
 export function useRunTranscript({
@@ -195,6 +202,7 @@ export function useRunTranscript({
   const [deadLetters, setDeadLetters] = useState<DeadLetterRun[]>(
     cached?.deadLetters ?? [],
   );
+  const [costs, setCosts] = useState<RunCosts | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const startRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -249,6 +257,7 @@ export function useRunTranscript({
       setLogs([]);
       setElapsed(null);
       setDeadLetters([]);
+      setCosts(null);
     }
   }
 
@@ -400,9 +409,17 @@ export function useRunTranscript({
             run,
             logs: dbLogs,
             deadLetters: dl,
+            costs: runCosts,
           } = await runsApi.get(runId);
           if (cancelled) return;
           if (dbLogs.length > 0) mergeDBLogs(dbLogs);
+          // What the run was charged so far, from the debit ledger (#111).
+          // Kept as-is when a backend without costs omits the field, and when
+          // a poll returns the same figures, so an unchanged poll does not
+          // re-render the console.
+          if (runCosts) {
+            setCosts((prev) => (sameRunCosts(prev, runCosts) ? prev : runCosts));
+          }
           // Preserve the existing reference when nothing actually changed:
           // this poll runs every 2s for up to 30 minutes, and a fresh array
           // reference on every tick (even an unchanged one) re-fires
@@ -600,5 +617,6 @@ export function useRunTranscript({
     leaseId,
     stopped,
     deadLetters: visibleDeadLetters,
+    costs,
   };
 }
