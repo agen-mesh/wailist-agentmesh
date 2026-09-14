@@ -131,19 +131,49 @@ func (r *Runner) preflightCheck(ctx context.Context, wf models.Workflow, amountU
 	return nil
 }
 
-// debitOrLog charges amountUSDMicros against wf.UserID for nodeID and just
-// logs on failure rather than failing the node — the node already ran
-// successfully by the time this is called, so there's nothing left to roll
-// back (x402 payments in particular can't be undone once sent on-chain).
-func (r *Runner) debitOrLog(ctx context.Context, wf models.Workflow, run models.Run, nodeID string, amountUSDMicros int64, kind string) {
-	if err := r.store.DebitCredits(ctx, wf.UserID, amountUSDMicros, kind, wf.ID, run.ID, nodeID); err != nil {
-		log.Printf("debit failed: user=%s workflow=%s run=%s node=%s kind=%s amount=%d: %v",
-			wf.UserID, wf.ID, run.ID, nodeID, kind, amountUSDMicros, err)
-		return // the DB was never actually charged -- don't settle it on-chain either
+// withReservedFlatFee runs exec for a standalone billable node (an "http"
+// Tool, an Action/connector, or a Google node) with its BYOK flat fee
+// reserved against wf.UserID BEFORE exec makes any real request, then
+// commits the fee if exec succeeds or releases it if exec fails.
+//
+// This replaces the old check-then-debit shape (preflightCheck, run the
+// node, debit afterwards), which left the node's whole real side effect in
+// an unlocked window: sibling nodes at the same topology level run in
+// parallel goroutines, so two of them could both pass the read-only balance
+// check, both fire their request, and only one debit would ever land (#31).
+// Reserving up front uses the same atomic decrement (ReserveCredits) and
+// the same Commit/Release closures agent-attached flat-fee calls already
+// use via X402RelayConfig.FlatFeeLedger, so a node that runs standalone is
+// billed identically to one an agent calls.
+//
+// When billable is false exec simply runs, unbilled. Any error from exec --
+// including nodes.ErrActionSkipped, which callers translate into a
+// successful, unbilled skip -- releases the reservation, so failed or
+// skipped work is never charged. The release is deferred, so a panic in
+// exec cannot strand the reserved fee either.
+func (r *Runner) withReservedFlatFee(ctx context.Context, wf models.Workflow, run models.Run, nodeID string, billable bool, exec func() (any, error)) (any, error) {
+	if !billable {
+		return exec()
 	}
-	// Always a BYOK flat fee (the only kind debitOrLog is ever called with),
-	// never a tool402 kind -- safe to accumulate unconditionally.
-	r.addRunBilling(run.ID, amountUSDMicros)
+	ledger := r.newPaymentLedger(wf, run)
+	if err := ledger.Reserve(ctx, models.ByokFlatFeeUSDMicros); err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			ledger.Release(ctx, models.ByokFlatFeeUSDMicros)
+		}
+	}()
+	result, err := exec()
+	if err != nil {
+		return result, err
+	}
+	// Commit also folds the fee into this run's on-chain run-total
+	// settlement (see newPaymentLedger), as debiting afterwards used to.
+	ledger.Commit(ctx, nodeID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+	committed = true
+	return result, nil
 }
 
 // addRunBilling folds amountUSDMicros into the running total settleRunTotal
@@ -814,8 +844,8 @@ func prependRunFundingReceipt(result map[string]any, rf runFundResult, node mode
 // spends on the user's behalf — platform-key LLM calls, and real x402
 // settlements paid out of the platform wallets. Charging for BYOK billed
 // users for compute they had already bought themselves. Logs on failure
-// rather than failing the node, same rationale as debitOrLog: the call
-// already happened, there's nothing left to roll back.
+// rather than failing the node: the call already happened, there's nothing
+// left to roll back.
 func (r *Runner) debitAgentFee(ctx context.Context, wf models.Workflow, run models.Run, nodeID string, amountUSDMicros int64, platformMode bool, model string, tokensIn, tokensOut int) {
 	if !platformMode {
 		return
@@ -1635,18 +1665,13 @@ func (r *Runner) executeNode(
 	case models.NodeTypeProvider:
 		return rc.Message(), nil
 	case models.NodeTypeTool:
+		// Fee reserved before the request goes out -- see withReservedFlatFee.
 		billable := nodes.BillableFlatFee(node.Type, node.Template)
-		if billable {
-			if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
-				return nil, err
-			}
-		}
-		result, err := nodes.ExecuteTool(ctx, node, rc)
+		result, err := r.withReservedFlatFee(ctx, wf, run, node.ID, billable, func() (any, error) {
+			return nodes.ExecuteTool(ctx, node, rc)
+		})
 		if err != nil {
 			return nil, err
-		}
-		if billable {
-			r.debitOrLog(ctx, wf, run, node.ID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
 		}
 		return result, nil
 	case models.NodeTypeTool402:
@@ -1736,21 +1761,18 @@ func (r *Runner) executeNode(
 			},
 		})
 	case models.NodeTypeAction:
+		// Fee reserved before the connector call -- see withReservedFlatFee.
+		// A skip comes back as an error there, so its reservation is released
+		// and the skip itself is still reported as success below.
 		billable := nodes.BillableFlatFee(node.Type, node.Template)
-		if billable {
-			if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
-				return nil, err
-			}
-		}
-		result, err := nodes.ExecuteAction(ctx, node, rc)
+		result, err := r.withReservedFlatFee(ctx, wf, run, node.ID, billable, func() (any, error) {
+			return nodes.ExecuteAction(ctx, node, rc)
+		})
 		if err != nil {
 			if errors.Is(err, nodes.ErrActionSkipped) {
 				return result, nil
 			}
 			return nil, err
-		}
-		if billable {
-			r.debitOrLog(ctx, wf, run, node.ID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
 		}
 		return result, nil
 	case models.NodeTypeGoogle:
@@ -1764,27 +1786,23 @@ func (r *Runner) executeNode(
 		// "http"), so calling it here means a future template-conditional
 		// change there (e.g. a free Google read-only op) takes effect
 		// automatically instead of silently being ignored by this branch.
+		//
+		// Fee reserved before the Google API call -- see withReservedFlatFee.
 		billable := nodes.BillableFlatFee(node.Type, node.Template)
-		if billable {
-			if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
-				return nil, err
-			}
-		}
-		result, err := nodes.ExecuteGoogle(ctx, node, rc, nodes.GoogleConfig{
-			Store:        r.store,
-			EncryptKey:   r.encryptionKey,
-			ClientID:     r.googleClientID,
-			ClientSecret: r.googleClientSecret,
-			UserID:       wf.UserID,
+		result, err := r.withReservedFlatFee(ctx, wf, run, node.ID, billable, func() (any, error) {
+			return nodes.ExecuteGoogle(ctx, node, rc, nodes.GoogleConfig{
+				Store:        r.store,
+				EncryptKey:   r.encryptionKey,
+				ClientID:     r.googleClientID,
+				ClientSecret: r.googleClientSecret,
+				UserID:       wf.UserID,
+			})
 		})
 		if err != nil {
 			if errors.Is(err, nodes.ErrActionSkipped) {
 				return result, nil
 			}
 			return nil, err
-		}
-		if billable {
-			r.debitOrLog(ctx, wf, run, node.ID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
 		}
 		return result, nil
 	default:
