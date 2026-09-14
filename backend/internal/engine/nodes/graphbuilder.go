@@ -1199,13 +1199,44 @@ func cloneGraph(g models.WorkflowGraph) models.WorkflowGraph {
 // this is a bounded loop inside a time budget, so one retry, not a storm.
 const modelCallAttempts = 2
 
-// transientModelStatus matches the upstream statuses worth another attempt:
-// a rate limit, or the provider's own 5xx. A 400 (a payload this build will
-// keep producing) is not retried.
-var transientModelStatus = regexp.MustCompile(`LLM API (429|5\d\d)`)
+// modelAPIStatus pulls the upstream status out of postLLMJSON's error, which
+// is the only shape that carries one ("LLM API 429: ..."). Anything else is a
+// transport failure -- a dropped connection, a DNS or TLS error -- and has no
+// status at all.
+var modelAPIStatus = regexp.MustCompile(`LLM API (\d{3})`)
 
+// isTransientModelError says whether another attempt is worth making. A
+// transport failure is the commonest one and always worth retrying; a status
+// is retried only when the service is rate-limiting or failing on its own
+// side. A 400 or a 403 will repeat identically, so it is not retried.
 func isTransientModelError(err error) bool {
-	return err != nil && transientModelStatus.MatchString(err.Error())
+	if err == nil {
+		return false
+	}
+	m := modelAPIStatus.FindStringSubmatch(err.Error())
+	if m == nil {
+		return true // no status: a transport failure
+	}
+	return m[1] == "429" || strings.HasPrefix(m[1], "5")
+}
+
+// modelFailureReason is what the user is told when the model call could not
+// be completed -- the kind of failure, never the upstream body. Also the
+// phrase that goes in the log line, so the two can be matched up.
+func modelFailureReason(err error) string {
+	m := modelAPIStatus.FindStringSubmatch(err.Error())
+	if m == nil {
+		return "the model service could not be reached"
+	}
+	switch {
+	case m[1] == "429":
+		return "the model service is busy right now (rate limit)"
+	case m[1] == "401" || m[1] == "403":
+		return "the model service refused this platform's credentials"
+	case strings.HasPrefix(m[1], "5"):
+		return "the model service is having trouble"
+	}
+	return "the model service could not be reached"
 }
 
 // callBuildModel is postLLMJSON with one retry for a transient failure,
@@ -1316,6 +1347,9 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		}
 		return text
 	}
+	// Declared before stoppedEarly, which reports differently when it is the
+	// audit repair round that failed.
+	auditRetried := false
 	// stoppedEarly is the answer when the model call fails or comes back
 	// unusable partway through. The nodes and edges already built are real
 	// work -- a production build lost nine finished steps to a single bad
@@ -1323,7 +1357,14 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	// plainly the build is unfinished. Never carries the upstream text.
 	stoppedEarly := func(what string) BuildGraphResult {
 		if lastReply != "" {
-			return BuildGraphResult{Reply: withTestStatus(lastReply), Graph: graph}
+			reply := withTestStatus(lastReply)
+			// That reply was written before the graph was sent back for
+			// repair. The repair never happened, so it describes a workflow
+			// that does not exist yet -- say so rather than report success.
+			if auditRetried {
+				reply += "\n\n_I could not finish checking this one — " + what + " — so it may still need a fix._"
+			}
+			return BuildGraphResult{Reply: reply, Graph: graph}
 		}
 		progress.finished(BuildStep{Kind: "check", Label: "Stopped: " + what, Status: "error"})
 		return BuildGraphResult{
@@ -1384,7 +1425,6 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	// Taken before any tool runs: the tools edit graph in place, so the
 	// "before" graph cannot be re-read later.
 	baselineFindings := auditGraph(graph)
-	auditRetried := false
 	for iter := 0; iter < maxBuildIterations; iter++ {
 		if iter > 0 && time.Since(started) > budget*3/4 {
 			return ranOutOfTime(), nil
@@ -1402,12 +1442,13 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 				return ranOutOfTime(), nil
 			}
 			if req.TraceID != "" {
-				log.Printf("build %s: model call failed after %.1fs: %v", req.TraceID, time.Since(started).Seconds(), err)
+				log.Printf("build %s: model call failed after %.1fs (%s): %v",
+					req.TraceID, time.Since(started).Seconds(), modelFailureReason(err), err)
 			}
 			// Only a build that has produced nothing is worth failing: there
 			// is nothing to save, and the user should see the real error.
 			if tester.changed {
-				return stoppedEarly("the model service could not be reached"), nil
+				return stoppedEarly(modelFailureReason(err)), nil
 			}
 			return BuildGraphResult{}, err
 		}
