@@ -1850,3 +1850,37 @@ func TestTestedAnswerNeverSubstitutesAnUnrelatedAgentReply(t *testing.T) {
 		t.Fatalf("a simulated step that would carry nothing has no answer, got %q", got)
 	}
 }
+
+// A system prompt is sent to the model verbatim (see engine/graph.go's
+// templateEligibleStrings), so a {{ ... }} reference in one is never
+// resolved -- the agent would read the braces. It has no need of one either:
+// it is handed the previous step's output as its input.
+func TestAgentSystemPromptRejectsTemplateRefs(t *testing.T) {
+	for _, prompt := range []string{
+		"Report the price from {{ result }}",
+		"Summarise {{ node.n_1.data }} in one line",
+		"Say the price in {{state.currency}}",
+	} {
+		graph := &models.WorkflowGraph{}
+		_, err := addGraphNode(graph, map[string]any{
+			"type": "agent", "template": "agent",
+			"fields": map[string]any{"systemPrompt": prompt},
+		})
+		if err == nil {
+			t.Fatalf("systemPrompt %q was accepted; it would reach the model as literal braces", prompt)
+		}
+		if !strings.Contains(err.Error(), "systemPrompt") {
+			t.Errorf("error should name the setting, got %v", err)
+		}
+	}
+}
+
+func TestAgentSystemPromptWithoutRefsIsAccepted(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	if _, err := addGraphNode(graph, map[string]any{
+		"type": "agent", "template": "agent",
+		"fields": map[string]any{"systemPrompt": "State the price in USD in one sentence"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

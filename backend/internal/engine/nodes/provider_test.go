@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -453,5 +454,98 @@ func TestResolveModelWithoutLockIsUnchanged(t *testing.T) {
 	t.Setenv("GEMINI_MODEL_LOCK", "")
 	if got := nodes.ResolveModel("gemini", "gemini-2.5-pro"); got != "gemini-2.5-pro" {
 		t.Fatalf("with no lock the node's own model must win, got %q", got)
+	}
+}
+
+// captureUserText serves one canned reply and records the user message the
+// agent sent, for both the OpenAI-compatible and Gemini request shapes.
+func captureUserText(t *testing.T, gemini bool, got *string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		if gemini {
+			contents, _ := body["contents"].([]any)
+			last, _ := contents[len(contents)-1].(map[string]any)
+			parts, _ := last["parts"].([]any)
+			first, _ := parts[0].(map[string]any)
+			*got, _ = first["text"].(string)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"candidates": []map[string]any{
+				{"content": map[string]any{"parts": []map[string]any{{"text": "ok"}}}},
+			}})
+			return
+		}
+		msgs, _ := body["messages"].([]any)
+		last, _ := msgs[len(msgs)-1].(map[string]any)
+		*got, _ = last["content"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{
+			{"message": map[string]any{"role": "assistant", "content": "ok"}},
+		}})
+	}))
+}
+
+func runAgentWith(t *testing.T, gemini bool, rc *engine.RunContext) string {
+	t.Helper()
+	var got string
+	srv := captureUserText(t, gemini, &got)
+	defer srv.Close()
+	tpl := "openai"
+	if gemini {
+		tpl = "gemini"
+		nodes.SetGeminiBaseURL(srv.URL)
+		defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+	} else {
+		nodes.SetOpenAIBaseURL(srv.URL)
+	}
+	agent := models.WorkflowNode{ID: "a1", Type: models.NodeTypeAgent, SystemPrompt: "Answer in one sentence"}
+	provider := models.WorkflowNode{ID: "p1", Type: models.NodeTypeProvider, Template: tpl, APIKey: "test-key"}
+	if _, err := nodes.ExecuteAgent(context.Background(), agent, models.AttachConfig{Provider: &provider},
+		models.AgentWallet{}, nil, rc, nil, nil, nodes.X402RelayConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+// An agent placed after a data step must be handed that step's output: the
+// chat builder always ends a workflow with trigger -> data -> agent, and
+// before this the agent only ever saw the trigger's input.
+func TestAgentReceivesUpstreamStepOutput(t *testing.T) {
+	for _, gemini := range []bool{false, true} {
+		rc := engine.NewRunContext("run1", []byte(`{"message":"what is myrad worth?"}`))
+		rc.Set("t1", map[string]any{"message": "what is myrad worth?"})
+		rc.Set("cg1", map[string]any{"myrad": map[string]any{"usd": 0.4242}})
+		got := runAgentWith(t, gemini, rc)
+		if !strings.Contains(got, "0.4242") {
+			t.Errorf("gemini=%v: agent never saw the CoinGecko output, got %q", gemini, got)
+		}
+		if !strings.Contains(got, "what is myrad worth?") {
+			t.Errorf("gemini=%v: agent lost the user's question, got %q", gemini, got)
+		}
+	}
+}
+
+// A manual trigger carries no message, so the upstream output is all there
+// is -- and an empty user message is rejected outright by Gemini.
+func TestAgentAfterDataStepWithManualTrigger(t *testing.T) {
+	rc := engine.NewRunContext("run1", nil)
+	rc.Set("t1", nil)
+	rc.Set("cg1", map[string]any{"myrad": map[string]any{"usd": 0.4242}})
+	got := runAgentWith(t, false, rc)
+	if !strings.Contains(got, "0.4242") {
+		t.Errorf("agent never saw the CoinGecko output, got %q", got)
+	}
+}
+
+// trigger -> agent is unchanged: the question is sent once, not twice.
+func TestAgentDirectlyAfterTriggerSendsInputOnce(t *testing.T) {
+	rc := engine.NewRunContext("run1", []byte(`{"message":"hello"}`))
+	rc.Set("t1", map[string]any{"message": "hello"})
+	got := runAgentWith(t, false, rc)
+	if got != "hello" {
+		t.Errorf("want the user's message verbatim, got %q", got)
 	}
 }

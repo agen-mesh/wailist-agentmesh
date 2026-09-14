@@ -457,6 +457,25 @@ func paymentReceipt(p *ToolPaymentInfo) map[string]any {
 	return receipt
 }
 
+// agentInput is what the agent is asked: the run's own input, plus the output
+// of the flow step it follows. An agent that sits after data steps -- the
+// shape the chat builder always builds -- otherwise answers from the trigger
+// input alone and never sees the data it was put there to explain.
+func agentInput(rc RunContexter) string {
+	ask := strings.TrimSpace(rc.UserInput())
+	data := strings.TrimSpace(rc.Message())
+	switch {
+	case ask == "" && data == "":
+		// Gemini rejects an empty user part, and a manual trigger sends none.
+		return "Begin."
+	case data == "" || data == ask:
+		return ask
+	case ask == "":
+		return data
+	}
+	return ask + "\n\nInput from the previous step:\n" + data
+}
+
 func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter, checkBalance BalanceChecker, platformKeys map[string]string, relayCfg X402RelayConfig) (any, error) {
 	model := ResolveModel(provider.Template, provider.Model)
 
@@ -469,7 +488,7 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 	apiHeaders := map[string]string{"x-goog-api-key": apiKey}
 
 	contents := []map[string]any{
-		{"role": "user", "parts": []map[string]any{{"text": rc.UserInput()}}},
+		{"role": "user", "parts": []map[string]any{{"text": agentInput(rc)}}},
 	}
 
 	payload := map[string]any{"contents": contents}
@@ -643,7 +662,7 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 	if agent.SystemPrompt != "" {
 		messages = append(messages, map[string]any{"role": "system", "content": agent.SystemPrompt})
 	}
-	messages = append(messages, map[string]any{"role": "user", "content": rc.UserInput()})
+	messages = append(messages, map[string]any{"role": "user", "content": agentInput(rc)})
 
 	payload := map[string]any{"model": model, "messages": messages}
 
@@ -780,7 +799,7 @@ func callAnthropic(ctx context.Context, agent models.WorkflowNode, provider mode
 	payload := map[string]any{
 		"model":      model,
 		"max_tokens": 4096,
-		"messages":   []anthMsg{{Role: "user", Content: rc.UserInput()}},
+		"messages":   []anthMsg{{Role: "user", Content: agentInput(rc)}},
 	}
 	if agent.SystemPrompt != "" {
 		payload["system"] = agent.SystemPrompt

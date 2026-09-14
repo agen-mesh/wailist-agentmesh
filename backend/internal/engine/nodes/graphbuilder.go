@@ -319,6 +319,13 @@ func (r nodeRules) validateValue(k, v string) error {
 			return fmt.Errorf("%s", msg)
 		}
 	case "systemPrompt":
+		// A system prompt reaches the model verbatim -- engine/graph.go never
+		// runs it through resolveTemplate -- so a reference in one arrives as
+		// literal braces. The agent is handed the previous step's output as
+		// its input and needs no reference to it.
+		if m := anyTemplateRef.FindString(v); m != "" {
+			return fmt.Errorf("systemPrompt contains %s, which is never resolved: a system prompt is sent to the model word for word. The agent already receives the previous step's output as its input -- describe that input in words instead, such as \"the input is JSON from CoinGecko; state the price in USD\"", m)
+		}
 		// A live build's agent, handed {}, answered with a price it copied
 		// from an example in these instructions -- and a retest wrote another
 		// one in despite the prompt forbidding it. So reject the pattern.
@@ -1032,8 +1039,10 @@ output is what the user reads, and raw JSON or {} is not an answer. Put the agen
 should read: trigger -> http -> json_extract -> agent -> end, or ... -> agent -> slack -> end when the user
 wants the answer delivered somewhere.
 
-Write an agent's systemPrompt as instructions only. Never put example values or sample numbers in it: an
-agent handed empty data repeats them as if they were real. Do not "correct" a name, id or symbol the user gave
+Write an agent's systemPrompt as instructions only. An agent is handed the previous step's output as its
+input, so describe that input in words ("the input is JSON from CoinGecko") -- never put a {{ ... }}
+reference in a systemPrompt, which is sent to the model word for word and would arrive as literal braces.
+Never put example values or sample numbers in it: an agent handed empty data repeats them as if they were real. Do not "correct" a name, id or symbol the user gave
 you (a coin, a ticker, a city) into something else unless a test run shows theirs returns nothing.
 
 Testing: before you reply, run test_run. It executes the workflow for real, except steps that would send, pay
