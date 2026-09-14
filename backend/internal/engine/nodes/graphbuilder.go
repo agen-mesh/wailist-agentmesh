@@ -533,6 +533,12 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 			}
 		}
 	}
+	// A tool402 node is only real if it has an endpoint to call. A live
+	// build added one named after a Bazaar id with nothing else on it: a
+	// node that looks configured on the canvas and can never run.
+	if nodeType == "tool402" && strings.TrimSpace(fields["endpoint"]) == "" {
+		return "", fmt.Errorf("add_node: a tool402 node needs the endpoint it calls, and this one has none. Use add_x402_node with an id from search_x402, which fills in the endpoint, price and inputs for you -- add_node type=tool402 is only for an endpoint URL the user handed you themselves, and then \"endpoint\" is required")
+	}
 	if dup := identicalNode(graph, nodeType, template, argString(args, "name"), fields, cfg); dup != "" {
 		return "", fmt.Errorf("add_node: node %s is already exactly this %s/%s -- you have added it once; use update_node on %s if it needs changing, and check the graph you have before adding more", dup, nodeType, template, dup)
 	}
@@ -935,6 +941,10 @@ const maxBuildIterations = 25
 // built discarded -- research tools (web_search, fetch_url) make long builds
 // common enough that this has to be a hard property, not a hope.
 const defaultBuildTimeBudget = 100 * time.Second
+
+// maxEmptyResponses bounds the retries for a model response carrying neither
+// text nor a function call.
+const maxEmptyResponses = 2
 
 // maxTestRounds bounds how many times the test gate may send the model back:
 // test, fix, test again -- then an honest reply, even if it still fails.
@@ -1373,6 +1383,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	// "before" graph cannot be re-read later.
 	baselineFindings := auditGraph(graph)
 	auditRetried := false
+	emptyResponses := 0
 	for iter := 0; iter < maxBuildIterations; iter++ {
 		if iter > 0 && time.Since(started) > budget*3/4 {
 			return ranOutOfTime(), nil
@@ -1393,6 +1404,21 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		if len(calls) == 0 {
 			text, err := extractGeminiText(resp)
 			if err != nil {
+				// A candidate with no text part and no function call. Seen
+				// live: one build died on its first round and the user was
+				// told the builder had failed, with everything it had built
+				// thrown away. Ask again before giving up, and if it keeps
+				// happening keep whatever is already on the graph.
+				if emptyResponses < maxEmptyResponses {
+					emptyResponses++
+					if req.TraceID != "" {
+						log.Printf("build %s: empty model response, retrying (%d)", req.TraceID, emptyResponses)
+					}
+					continue
+				}
+				if len(graph.Nodes) > 0 {
+					return BuildGraphResult{Reply: withTestStatus(lastReply), Graph: graph}, nil
+				}
 				return BuildGraphResult{}, err
 			}
 			// Per-edge validation cannot see an agent that simply never got a

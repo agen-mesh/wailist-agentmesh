@@ -1938,3 +1938,62 @@ func TestAddNodeRefusesAnIdenticalNode(t *testing.T) {
 		t.Fatalf("a different coingecko node must still be allowed: %v", err)
 	}
 }
+
+// Gemini sometimes answers with a candidate carrying no text part at all.
+// Live runs hit it three times in one evening: one build died on its first
+// round, and the user was told the builder could not complete the request --
+// with everything it had built discarded. One retry rescues the round.
+func TestBuildGraphRetriesAnEmptyModelResponse(t *testing.T) {
+	var round int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		round++
+		w.Header().Set("Content-Type", "application/json")
+		if round == 1 {
+			// A candidate whose content has no text and no function call.
+			json.NewEncoder(w).Encode(map[string]any{
+				"candidates": []map[string]any{
+					{"finishReason": "MAX_TOKENS", "content": map[string]any{"role": "model"}},
+				},
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"candidates": []map[string]any{
+				{"content": map[string]any{"parts": []map[string]any{{"text": "Built it."}}}},
+			},
+		})
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "build something", Graph: models.WorkflowGraph{}})
+	if err != nil {
+		t.Fatalf("an empty response must be retried, not surfaced: %v", err)
+	}
+	if res.Reply != "Built it." {
+		t.Fatalf("want the retried reply, got %q", res.Reply)
+	}
+}
+
+// A tool402 node is only real if it has an endpoint to call. A live build
+// added one named after a Bazaar id with no endpoint, price or parameters --
+// a node that looks configured on the canvas and can never run.
+func TestAddNodeRefusesATool402WithNoEndpoint(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := addGraphNode(graph, map[string]any{
+		"type": "tool402", "template": "agent402.tools", "name": "Crypto Price",
+	})
+	if err == nil {
+		t.Fatal("a tool402 node with no endpoint was accepted")
+	}
+	if !strings.Contains(err.Error(), "add_x402_node") {
+		t.Errorf("the error must point at the tool that fills one in, got %v", err)
+	}
+	if _, err := addGraphNode(graph, map[string]any{
+		"type": "tool402", "template": "prices", "name": "Prices",
+		"fields": map[string]any{"endpoint": "https://api.example.com/x402/prices", "method": "GET"},
+	}); err != nil {
+		t.Fatalf("a tool402 node with an endpoint must still be allowed: %v", err)
+	}
+}

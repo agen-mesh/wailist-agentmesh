@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/agentmesh/backend/internal/engine/nodes"
@@ -282,10 +283,17 @@ func dryRunNode(ctx context.Context, n models.WorkflowNode, attach models.Attach
 		// out rather than invoked.
 		safe := attach
 		safe.Tools = nil
+		var withheld []string
 		for _, t := range attach.Tools {
 			if ok, _ := nodes.DryRunExecutes(t); ok {
 				safe.Tools = append(safe.Tools, t)
+				continue
 			}
+			name := t.Name
+			if name == "" {
+				name = t.ID
+			}
+			withheld = append(withheld, name)
 		}
 		out, err := nodes.ExecuteAgent(ctx, n, safe, models.AgentWallet{}, nil, rc, nil, opts.PlatformKeys, nodes.X402RelayConfig{})
 		// A model call's 401 surfaces on the agent, but the key that was
@@ -297,6 +305,16 @@ func dryRunNode(ctx context.Context, n models.WorkflowNode, attach models.Attach
 			if p := attach.Provider; p != nil && p.KeyMode != "platform" {
 				return nil, "", unverifiable{nodes.CredentialRejectedOrMissing(*p)}
 			}
+		}
+		// An agent whose data comes from a tool this run may not call has
+		// nothing to answer with, and that is the test's limit, not the
+		// workflow's fault. Reported as a failure it sent the builder off to
+		// repair a correct workflow, and those rounds are what drove it to
+		// rebuild the graph from scratch.
+		if len(withheld) > 0 && (err != nil || nodes.IsEmptyOutput(out)) {
+			return nil, "", unverifiable{fmt.Sprintf(
+				"a test run never calls %s, so this agent had nothing to work from and its answer cannot be checked",
+				strings.Join(withheld, ", "))}
 		}
 		// Charged after the call, like a run (Runner.debitOrLog): the model
 		// has already been paid for by then, so a failed charge is logged

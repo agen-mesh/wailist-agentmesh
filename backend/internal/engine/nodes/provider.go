@@ -630,7 +630,11 @@ func extractGeminiText(resp map[string]any) (string, error) {
 			return text, nil
 		}
 	}
-	return "", fmt.Errorf("no text part in Gemini response")
+	reason, _ := candidates[0].(map[string]any)["finishReason"].(string)
+	if reason == "" {
+		reason = "none given"
+	}
+	return "", fmt.Errorf("no text part in Gemini response (finish reason: %s, %d parts)", reason, len(parts))
 }
 
 type geminiFuncCall struct {

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -761,5 +762,58 @@ func TestDryRunCarryMatchesWhatTheRealConnectorSends(t *testing.T) {
 				t.Fatalf("want WouldSend %q (what the real connector sends), got %q", c.wouldSend, res.WouldSend)
 			}
 		})
+	}
+}
+
+// A test run never calls a paid x402 tool, so an agent whose data comes from
+// one has nothing to answer with. Reporting that as a failed step sent the
+// builder off to "fix" a workflow that was right, and those repair rounds
+// are what drove it to rebuild the graph from scratch.
+func TestDryRunDoesNotBlameAnAgentForAWithheldPaidTool(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"candidates": []map[string]any{
+				{"finishReason": "STOP", "content": map[string]any{"role": "model"}},
+			},
+		})
+	}))
+	defer srv.Close()
+	nodes.SetGeminiBaseURL(srv.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	graph := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "t", Type: models.NodeTypeTrigger, Template: "manual", Name: "Start"},
+			{ID: "a", Type: models.NodeTypeAgent, Template: "agent", Name: "Explain Price"},
+			{ID: "p", Type: models.NodeTypeProvider, Template: "gemini", Name: "Gemini", KeyMode: "platform"},
+			{ID: "x", Type: models.NodeTypeTool402, Name: "Paid Prices", Endpoint: "https://api.example.com/x402/prices"},
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "e1", From: "t", To: "a", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "e2", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"},
+			{ID: "e3", From: "x", To: "a", Kind: models.EdgeKindAttach, ToPort: "tools"},
+		},
+	}
+	res := DryRun(context.Background(), graph, DryRunOptions{
+		PlatformKeys: map[string]string{"gemini": "k"},
+	})
+	if res.Failed {
+		t.Errorf("the workflow is not at fault: %+v", res.Steps)
+	}
+	if !res.Unverified {
+		t.Error("an agent that could not call its paid tool must read as unverified")
+	}
+	var agent nodes.DryRunStep
+	for _, s := range res.Steps {
+		if s.NodeID == "a" {
+			agent = s
+		}
+	}
+	if agent.Status != "unverified" {
+		t.Errorf("agent step status = %q, want unverified (%s)", agent.Status, agent.Reason)
+	}
+	if !strings.Contains(agent.Reason, "Paid Prices") {
+		t.Errorf("the reason should name the tool that was withheld, got %q", agent.Reason)
 	}
 }
