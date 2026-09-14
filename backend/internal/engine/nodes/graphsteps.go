@@ -91,6 +91,10 @@ type testTracker struct {
 	// the test runs made.
 	rounds int
 	runs   int
+	// changed is set by the first successful graph edit and never cleared:
+	// once a build has produced something, a later model failure must not
+	// throw it away.
+	changed bool
 }
 
 func runBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFuncCall, apiKey string, x402 *x402Session, probed map[string]string, tester *testTracker) map[string]any {
@@ -98,6 +102,7 @@ func runBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFunc
 	if graphMutations[c.name] {
 		if text, _ := response["result"].(string); !strings.HasPrefix(text, "error: ") {
 			tester.dirty = true
+			tester.changed = true
 		}
 	}
 	return response

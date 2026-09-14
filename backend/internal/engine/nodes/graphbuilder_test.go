@@ -1850,3 +1850,218 @@ func TestTestedAnswerNeverSubstitutesAnUnrelatedAgentReply(t *testing.T) {
 		t.Fatalf("a simulated step that would carry nothing has no answer, got %q", got)
 	}
 }
+
+// Production failure (2026-09-14): a build that had already added nodes and
+// edges returned 502 and saved nothing, because one bad model response ends
+// the whole loop. Nine good steps were thrown away. A model call that fails
+// must leave the user with what was built, exactly as running out of time
+// does.
+func TestBuildGraphKeepsWhatItBuiltWhenTheModelCallFails(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"trigger","template":"manual","name":"Daily Weather Check"}}}]}}]}`)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, `{"error":{"message":"backend overloaded"}}`)
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "daily weather to telegram", Graph: models.WorkflowGraph{}})
+	if err != nil {
+		t.Fatalf("a failed model call must not discard the build: %v", err)
+	}
+	if len(res.Graph.Nodes) != 1 {
+		t.Fatalf("want the node it added kept, got %+v", res.Graph.Nodes)
+	}
+	if res.Reply == "" {
+		t.Fatal("an unfinished build still needs a reply saying so")
+	}
+	if strings.Contains(res.Reply, "backend overloaded") {
+		t.Fatalf("the upstream body must not reach the user: %q", res.Reply)
+	}
+}
+
+// The other fatal branch: Gemini answers with neither a tool call nor text
+// (a malformed function call, a safety stop). Same rule -- keep the work.
+func TestBuildGraphKeepsWhatItBuiltWhenTheModelAnswersWithNothing(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		if calls == 1 {
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"trigger","template":"manual","name":"Daily Weather Check"}}}]}}]}`)
+			return
+		}
+		io.WriteString(w, `{"candidates":[{"finishReason":"MALFORMED_FUNCTION_CALL","content":{"role":"model"}}]}`)
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "daily weather to telegram", Graph: models.WorkflowGraph{}})
+	if err != nil {
+		t.Fatalf("an empty model answer must not discard the build: %v", err)
+	}
+	if len(res.Graph.Nodes) != 1 || res.Reply == "" {
+		t.Fatalf("want the build kept with a reply, got %d nodes, reply %q", len(res.Graph.Nodes), res.Reply)
+	}
+}
+
+// A transient 429 is worth one more try before giving up: the build has
+// already spent real time and the next call usually succeeds.
+func TestBuildGraphRetriesATransientModelError(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		switch calls {
+		case 1:
+			w.WriteHeader(http.StatusTooManyRequests)
+			io.WriteString(w, `{"error":{"message":"rate limited"}}`)
+		default:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"Built it."}]}}]}`)
+		}
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "hi", Graph: models.WorkflowGraph{}, TimeBudget: 10 * time.Second})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calls < 2 {
+		t.Fatalf("want a retry after a 429, got %d calls", calls)
+	}
+	if res.Reply != "Built it." {
+		t.Fatalf("want the reply from the successful retry, got %q", res.Reply)
+	}
+}
+
+// Review finding: only "LLM API <status>" errors were retried, so the most
+// common failure -- the connection dropping -- got no retry at all.
+func TestBuildGraphRetriesADroppedConnection(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 2 {
+			// Drop the connection mid-request: the client sees EOF, not a status.
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				t.Error("test server cannot hijack")
+				return
+			}
+			conn, _, err := hj.Hijack()
+			if err != nil {
+				t.Errorf("hijack: %v", err)
+				return
+			}
+			conn.Close()
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if calls == 1 {
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"trigger","template":"manual","name":"Start"}}}]}}]}`)
+			return
+		}
+		io.WriteString(w, text("Built it."))
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "hi", Graph: models.WorkflowGraph{}, TimeBudget: 10 * time.Second})
+	if err != nil {
+		t.Fatalf("a dropped connection must be retried, not fatal: %v", err)
+	}
+	if calls < 3 {
+		t.Fatalf("want a retry after the dropped connection, got %d calls", calls)
+	}
+	if res.Reply != "Built it." {
+		t.Fatalf("want the reply from the successful retry, got %q", res.Reply)
+	}
+}
+
+// Review finding: when the audit repair round is what failed, the model's
+// earlier reply was returned unchanged -- so a graph with known unfixed
+// problems was reported to the user as finished.
+func TestBuildGraphDoesNotClaimSuccessWhenTheRepairRoundFails(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		switch calls {
+		case 1:
+			// One unconnected node: the audit will want it repaired.
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"trigger","template":"manual","name":"Start"}}}]}}]}`)
+		case 2:
+			io.WriteString(w, text("All done, your workflow is ready."))
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, `{"error":{"message":"overloaded"}}`)
+		}
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "build it", Graph: models.WorkflowGraph{}, TimeBudget: 10 * time.Second})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Reply == "All done, your workflow is ready." {
+		t.Fatal("the repair round failed, so the reply must not claim the workflow is finished")
+	}
+}
+
+// Review finding: a revoked key or exhausted quota should still say which it
+// was, rather than a flat "could not be reached" for every failure.
+func TestBuildGraphNamesAQuotaFailure(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		if calls == 1 {
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"trigger","template":"manual","name":"Start"}}}]}}]}`)
+			return
+		}
+		w.WriteHeader(http.StatusTooManyRequests)
+		io.WriteString(w, `{"error":{"message":"quota exceeded"}}`)
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "hi", Graph: models.WorkflowGraph{}, TimeBudget: 10 * time.Second})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(res.Reply, "busy") && !strings.Contains(res.Reply, "rate") {
+		t.Fatalf("want a reply naming the rate limit, got %q", res.Reply)
+	}
+	if strings.Contains(res.Reply, "quota exceeded") {
+		t.Fatalf("the upstream body must not reach the user: %q", res.Reply)
+	}
+}
+
+// The invariant this commit relies on: with nothing built there is nothing to
+// save, so the request must still fail and surface the real error.
+func TestBuildGraphStillFailsWhenItBuiltNothing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, `{"error":{"message":"overloaded"}}`)
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	if _, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "hi", Graph: models.WorkflowGraph{}, TimeBudget: 10 * time.Second}); err == nil {
+		t.Fatal("a build that produced nothing must report the failure")
+	}
+}

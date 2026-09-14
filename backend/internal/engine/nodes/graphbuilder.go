@@ -1193,6 +1193,93 @@ func cloneGraph(g models.WorkflowGraph) models.WorkflowGraph {
 	return out
 }
 
+// modelCallAttempts is how many times one round's model call is tried before
+// the build gives up on it. A build has already spent real time by the time a
+// rate limit or a 503 arrives, and the next attempt usually succeeds -- but
+// this is a bounded loop inside a time budget, so one retry, not a storm.
+const modelCallAttempts = 2
+
+// modelAPIStatus pulls the upstream status out of postLLMJSON's error, which
+// is the only shape that carries one ("LLM API 429: ..."). Anything else is a
+// transport failure -- a dropped connection, a DNS or TLS error -- and has no
+// status at all.
+var modelAPIStatus = regexp.MustCompile(`LLM API (\d{3})`)
+
+// isTransientModelError says whether another attempt is worth making. A
+// transport failure is the commonest one and always worth retrying; a status
+// is retried only when the service is rate-limiting or failing on its own
+// side. A 400 or a 403 will repeat identically, so it is not retried.
+func isTransientModelError(err error) bool {
+	if err == nil {
+		return false
+	}
+	m := modelAPIStatus.FindStringSubmatch(err.Error())
+	if m == nil {
+		return true // no status: a transport failure
+	}
+	return m[1] == "429" || strings.HasPrefix(m[1], "5")
+}
+
+// modelFailureReason is what the user is told when the model call could not
+// be completed -- the kind of failure, never the upstream body. Also the
+// phrase that goes in the log line, so the two can be matched up.
+func modelFailureReason(err error) string {
+	m := modelAPIStatus.FindStringSubmatch(err.Error())
+	if m == nil {
+		return "the model service could not be reached"
+	}
+	switch {
+	case m[1] == "429":
+		return "the model service is busy right now (rate limit)"
+	case m[1] == "401" || m[1] == "403":
+		return "the model service refused this platform's credentials"
+	case strings.HasPrefix(m[1], "5"):
+		return "the model service is having trouble"
+	}
+	return "the model service could not be reached"
+}
+
+// callBuildModel is postLLMJSON with one retry for a transient failure,
+// skipped when too little of the budget is left to spend on waiting.
+func callBuildModel(ctx context.Context, apiURL string, headers map[string]string, payload any, timeLeft func() time.Duration) (map[string]any, error) {
+	var resp map[string]any
+	var err error
+	for attempt := 1; attempt <= modelCallAttempts; attempt++ {
+		resp, err = postLLMJSON(ctx, apiURL, headers, payload)
+		if err == nil || !isTransientModelError(err) || ctx.Err() != nil {
+			return resp, err
+		}
+		if attempt == modelCallAttempts || timeLeft() < modelRetryDelay*3 {
+			return resp, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(modelRetryDelay):
+		}
+	}
+	return resp, err
+}
+
+const modelRetryDelay = time.Second
+
+// geminiFinishReason is why the model stopped, for the log line when a
+// response carries neither a tool call nor text -- MALFORMED_FUNCTION_CALL,
+// SAFETY, MAX_TOKENS. Without it that failure is indistinguishable from any
+// other in production.
+func geminiFinishReason(resp map[string]any) string {
+	candidates, _ := resp["candidates"].([]any)
+	if len(candidates) == 0 {
+		return "none"
+	}
+	c, _ := candidates[0].(map[string]any)
+	reason, _ := c["finishReason"].(string)
+	if reason == "" {
+		return "unset"
+	}
+	return reason
+}
+
 // BuildGraph runs a bounded tool-calling loop against the Gemini Flash
 // meta-agent, letting it edit the graph via the graphToolDecls tools, look
 // things up with web_search/describe_node/search_x402, until it responds
@@ -1260,6 +1347,32 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		}
 		return text
 	}
+	// Declared before stoppedEarly, which reports differently when it is the
+	// audit repair round that failed.
+	auditRetried := false
+	// stoppedEarly is the answer when the model call fails or comes back
+	// unusable partway through. The nodes and edges already built are real
+	// work -- a production build lost nine finished steps to a single bad
+	// response -- so they are returned and saved, with a reply that says
+	// plainly the build is unfinished. Never carries the upstream text.
+	stoppedEarly := func(what string) BuildGraphResult {
+		if lastReply != "" {
+			reply := withTestStatus(lastReply)
+			// That reply was written before the graph was sent back for
+			// repair. The repair never happened, so it describes a workflow
+			// that does not exist yet -- say so rather than report success.
+			if auditRetried {
+				reply += "\n\n_I could not finish checking this one — " + what + " — so it may still need a fix._"
+			}
+			return BuildGraphResult{Reply: reply, Graph: graph}
+		}
+		progress.finished(BuildStep{Kind: "check", Label: "Stopped: " + what, Status: "error"})
+		return BuildGraphResult{
+			Reply: "I stopped partway through this one — " + what + ". What I built so far is on the canvas — " +
+				"tell me what to finish and I'll carry on from there.",
+			Graph: graph,
+		}
+	}
 	ranOutOfTime := func() BuildGraphResult {
 		if lastReply != "" {
 			return BuildGraphResult{Reply: withTestStatus(lastReply), Graph: graph}
@@ -1312,7 +1425,6 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	// Taken before any tool runs: the tools edit graph in place, so the
 	// "before" graph cannot be re-read later.
 	baselineFindings := auditGraph(graph)
-	auditRetried := false
 	for iter := 0; iter < maxBuildIterations; iter++ {
 		if iter > 0 && time.Since(started) > budget*3/4 {
 			return ranOutOfTime(), nil
@@ -1322,10 +1434,21 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		} else {
 			progress.working("Planning the next step")
 		}
-		resp, err := postLLMJSON(ctx, apiURL, apiHeaders, payload)
+		resp, err := callBuildModel(ctx, apiURL, apiHeaders, payload, func() time.Duration {
+			return budget - time.Since(started)
+		})
 		if err != nil {
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				return ranOutOfTime(), nil
+			}
+			if req.TraceID != "" {
+				log.Printf("build %s: model call failed after %.1fs (%s): %v",
+					req.TraceID, time.Since(started).Seconds(), modelFailureReason(err), err)
+			}
+			// Only a build that has produced nothing is worth failing: there
+			// is nothing to save, and the user should see the real error.
+			if tester.changed {
+				return stoppedEarly(modelFailureReason(err)), nil
 			}
 			return BuildGraphResult{}, err
 		}
@@ -1333,6 +1456,12 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		if len(calls) == 0 {
 			text, err := extractGeminiText(resp)
 			if err != nil {
+				if req.TraceID != "" {
+					log.Printf("build %s: no usable answer (finishReason %s): %v", req.TraceID, geminiFinishReason(resp), err)
+				}
+				if tester.changed {
+					return stoppedEarly("the model stopped mid-answer"), nil
+				}
 				return BuildGraphResult{}, err
 			}
 			// Per-edge validation cannot see an agent that simply never got a
