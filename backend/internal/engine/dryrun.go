@@ -298,7 +298,7 @@ func dryRunNode(ctx context.Context, n models.WorkflowNode, attach models.Attach
 				return nil, "", unverifiable{nodes.CredentialRejectedOrMissing(*p)}
 			}
 		}
-		// Charged after the call, like a run (Runner.debitOrLog): the model
+		// Charged after the call, like a run's agent fee (Runner.debitAgentFee): the model
 		// has already been paid for by then, so a failed charge is logged
 		// rather than turned into a step failure.
 		//
