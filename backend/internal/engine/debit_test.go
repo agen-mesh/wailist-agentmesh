@@ -273,7 +273,7 @@ func TestAgentNodeChargesAttachedToolCallsButNotItsOwnByokTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fundUser(t, store, user.ID, models.ByokFlatFeeUSDMicros+200_000) // BYOK agent step is free (see debitAgentFee); only the attached tool call is billed
+	fundUser(t, store, user.ID, models.ByokFlatFeeUSDMicros+200_000) // BYOK agent step is free (see holdAgentFee); only the attached tool call is billed
 
 	wf, err := store.CreateWorkflow(ctx, "Agent Fee Test", user.ID)
 	if err != nil {
@@ -915,7 +915,7 @@ func TestAgentAttachedRelayToolBillsOnInboundSettlementDespiteOutboundFailure(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 3000000: BYOK agent step is free (see debitAgentFee), so this covers
+	// 3000000: BYOK agent step is free (see holdAgentFee), so this covers
 	// reserveAndFundRun's upfront credit reservation for this run (250000
 	// real vendor cost + the platform's flat markup,
 	// models.X402PlatformFeeUSDMicros), with headroom to spare above
@@ -1103,7 +1103,7 @@ func TestSequentialRelayToolCallsCannotOverspendPastBalance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 3000000: BYOK agent step is free (see debitAgentFee), so this covers
+	// 3000000: BYOK agent step is free (see holdAgentFee), so this covers
 	// reserveAndFundRun's upfront credit reservation (250000 real vendor
 	// cost + the platform's flat markup) with headroom to spare. The pool
 	// itself is still sized for exactly one call's worth of total (vendor
@@ -1495,7 +1495,7 @@ func TestAgentBranchingBetweenTwoPricedToolsDoesNotBlockMidRun(t *testing.T) {
 	// tool_a's price drifted down between estimate and settle time; the
 	// markup component of the pool doesn't drift, so this 50000 gap is
 	// exactly the same as the no-markup case). BYOK agent step is free
-	// (see debitAgentFee), so no separate agent-fee term.
+	// (see holdAgentFee), so no separate agent-fee term.
 	creditReserve := int64(750_000 + 2*models.X402PlatformFeeUSDMicros)
 	wantBalance := int64(5_000_000) - creditReserve + 50_000
 	if balance != wantBalance {
@@ -2341,7 +2341,7 @@ func TestLegacyToolAttachedAlongsideRunFundedV2ToolBillsIdenticallyToStandalone(
 	// amount) - v2's platform markup - legacy flat fee
 	// (models.X402PlatformFeeUSDMicros, a separate charge from the v2
 	// markup despite sharing the same debit kind). BYOK agent step is free
-	// (see debitAgentFee), so no separate agent-fee term. A wrong balance
+	// (see holdAgentFee), so no separate agent-fee term. A wrong balance
 	// here would mean the legacy fee was billed against the wrong ledger
 	// (or not billed / double-billed), or the v2 markup was
 	// skipped/duplicated.

@@ -808,24 +808,83 @@ func prependRunFundingReceipt(result map[string]any, rf runFundResult, node mode
 	result["x402Payments"] = append([]map[string]any{funded}, existing...)
 }
 
-// debitAgentFee charges an agent step. BYOK is free: the user is paying their
-// own provider directly with their own key, so AgentMesh incurs no cost to
-// pass on and takes no cut. Credits exist to cover what the platform actually
-// spends on the user's behalf — platform-key LLM calls, and real x402
-// settlements paid out of the platform wallets. Charging for BYOK billed
-// users for compute they had already bought themselves. Logs on failure
-// rather than failing the node, same rationale as debitOrLog: the call
-// already happened, there's nothing left to roll back.
-func (r *Runner) debitAgentFee(ctx context.Context, wf models.Workflow, run models.Run, nodeID string, amountUSDMicros int64, platformMode bool, model string, tokensIn, tokensOut int) {
-	if !platformMode {
+// agentFeeHold is an agent step's own fee, reserved against the user's
+// balance before the agent's LLM turn runs and settled once the outcome is
+// known: charge when the turn is owed, release when it never happened.
+// Settling is idempotent, so the agent case can defer release and still
+// charge on the paths that owe the fee.
+type agentFeeHold struct {
+	r       *Runner
+	wf      models.Workflow
+	run     models.Run
+	nodeID  string
+	model   string
+	amount  int64
+	settled bool
+}
+
+// holdAgentFee reserves an agent step's fee before its LLM turn runs (#29).
+//
+// BYOK is free: the user is paying their own provider directly with their
+// own key, so AgentMesh incurs no cost to pass on and takes no cut. Credits
+// exist to cover what the platform actually spends on the user's behalf —
+// platform-key LLM calls, and real x402 settlements paid out of the platform
+// wallets. So a BYOK agent (or a zero fee) reserves nothing, is never gated
+// on credits, and gets a hold whose charge and release do nothing.
+//
+// A platform-key fee used to be checked with a plain balance read before the
+// turn and only debited after it. Attached billable calls inside the turn
+// reserve their own fees atomically, so they could spend the balance the
+// agent's fee needed; the late debit then failed and was only logged, and
+// the turn went unbilled. Reserving with ReserveCredits up front takes the
+// fee out of the balance before any attached call can see it.
+func (r *Runner) holdAgentFee(ctx context.Context, wf models.Workflow, run models.Run, nodeID string, amountUSDMicros int64, platformMode bool, model string) (*agentFeeHold, error) {
+	h := &agentFeeHold{r: r, wf: wf, run: run, nodeID: nodeID, model: model}
+	if !platformMode || amountUSDMicros <= 0 {
+		h.settled = true
+		return h, nil
+	}
+	if err := r.store.ReserveCredits(ctx, wf.UserID, amountUSDMicros); err != nil {
+		return nil, err
+	}
+	h.amount = amountUSDMicros
+	return h, nil
+}
+
+// charge turns the held fee into the agent's platform_key_llm_fee ledger row,
+// with the turn's token usage, and adds it to the run-total settlement.
+//
+// Detached from ctx with its own timeout, like newPaymentLedger's Commit: the
+// turn has already happened, so a Stop or deadline arriving now must not
+// leave the balance decremented with no ledger row.
+func (h *agentFeeHold) charge(ctx context.Context, tokensIn, tokensOut int) {
+	if h.settled {
 		return
 	}
-	if err := r.store.DebitCreditsForPlatformLLM(ctx, wf.UserID, amountUSDMicros, wf.ID, run.ID, nodeID, model, tokensIn, tokensOut); err != nil {
-		log.Printf("platform-key debit failed: user=%s workflow=%s run=%s node=%s model=%s amount=%d: %v",
-			wf.UserID, wf.ID, run.ID, nodeID, model, amountUSDMicros, err)
-		return // the DB was never actually charged -- don't settle it on-chain either
+	h.settled = true
+	bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ledgerCompensationTimeout)
+	defer cancel()
+	if err := h.r.store.CommitReservedPlatformLLMDebit(bctx, h.wf.UserID, h.amount, h.wf.ID, h.run.ID, h.nodeID, h.model, tokensIn, tokensOut); err != nil {
+		criticalAlert(h.wf, h.run, "commit reserved agent fee failed (balance already decremented, no ledger row written)", err, "node", h.nodeID, "model", h.model, "amount", h.amount)
+		return // no ledger row -- don't settle it on-chain either
 	}
-	r.addRunBilling(run.ID, amountUSDMicros)
+	h.r.addRunBilling(h.run.ID, h.amount)
+}
+
+// release hands back a held fee that was never charged: the turn never ran
+// (an LLM error, or the run-level pre-fund failing first) or exec panicked.
+// A no-op once charge has run. Detached from ctx for the same reason as
+// charge: a cancelled run must not strand the reservation.
+func (h *agentFeeHold) release(ctx context.Context) {
+	if h.settled {
+		return
+	}
+	h.settled = true
+	bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ledgerCompensationTimeout)
+	defer cancel()
+	if err := h.r.store.ReleaseReservedCredits(bctx, h.wf.UserID, h.amount); err != nil {
+		criticalAlert(h.wf, h.run, "release reserved agent fee failed (balance permanently stranded)", err, "node", h.nodeID, "amount", h.amount)
+	}
 }
 
 // Start creates a cancellable context for the run, registers it, and launches
@@ -1499,9 +1558,8 @@ func (r *Runner) executeNode(
 		platformMode := provider != nil && provider.KeyMode == "platform"
 
 		// BYOK costs the platform nothing, so it is neither gated on credits
-		// nor charged (see debitAgentFee). A zero preflight amount always
-		// passes, which is the point: a user running purely on their own API
-		// key should never be blocked by an empty balance.
+		// nor charged (see holdAgentFee): a user running purely on their own
+		// API key should never be blocked by an empty balance.
 		var agentFeeUSDMicros int64
 		var resolvedModel string
 		if platformMode {
@@ -1509,10 +1567,18 @@ func (r *Runner) executeNode(
 			agentFeeUSDMicros = nodes.PlatformKeyFeeUSDMicros(nodes.ModelTier(provider.Template, resolvedModel))
 		}
 
-		if err := r.preflightCheck(ctx, wf, agentFeeUSDMicros); err != nil {
+		// Reserve the agent's own fee before anything in its turn can spend
+		// the balance (#29). Released on every path that doesn't charge it
+		// below: reserveAndFundRun failing, an LLM error before the turn
+		// completes, or a panic.
+		agentFee, err := r.holdAgentFee(ctx, wf, run, node.ID, agentFeeUSDMicros, platformMode, resolvedModel)
+		if err != nil {
 			return nil, err
 		}
+		defer agentFee.release(ctx)
 		aw := walletByAgent[node.ID]
+		// Reads a balance the agent's own fee has already been taken out of,
+		// so an attached call's floor check can't count that fee as available.
 		checkBalance := func(cctx context.Context, amount int64) error {
 			return r.preflightCheck(cctx, wf, amount)
 		}
@@ -1586,7 +1652,7 @@ func (r *Runner) executeNode(
 			// means the agent turn itself never completed, so nothing is
 			// billed, matching the pre-existing behavior for those failures.
 			if isAgentFeeOwedDespiteFailure(err) {
-				r.debitAgentFee(ctx, wf, run, node.ID, agentFeeUSDMicros, platformMode, resolvedModel, 0, 0)
+				agentFee.charge(ctx, 0, 0)
 			}
 			return nil, err
 		}
@@ -1597,7 +1663,7 @@ func (r *Runner) executeNode(
 				tokensOut, _ = usage["tokensOut"].(int)
 			}
 		}
-		r.debitAgentFee(ctx, wf, run, node.ID, agentFeeUSDMicros, platformMode, resolvedModel, tokensIn, tokensOut)
+		agentFee.charge(ctx, tokensIn, tokensOut)
 		// Attached x402Payments entries (relay markup included) and attached
 		// flat-fee tool/action calls are already reserved+committed from
 		// inside ExecuteAgent's tool-calling loop, atomically per call, at
