@@ -5,6 +5,7 @@ import {
   type RunLogRecord,
   type DeadLetterRun,
 } from "@/lib/api";
+import { isExternalStop } from "./runStop";
 
 // This hook owns everything about *what happened in a run*: the live SSE
 // stream, the DB reconciliation that covers the stream's gaps, and the cached
@@ -518,10 +519,22 @@ export function useRunTranscript({
   // `done` false stranded the chat turn that started it -- and because the
   // composer locks on `running || any pending turn`, that turn kept it
   // disabled until a full page reload.
+  //
+  // `running` also goes false after a run finishes on its own (completeOnce ->
+  // onRunComplete -> CanvasPage's setRunning(false)), and the closed stream is
+  // still in esRef then -- so without the completed check every successful
+  // run was marked stopped and its chat turn said "Run stopped" (#67).
   useEffect(() => {
-    if (running || !esRef.current) return;
+    if (
+      !isExternalStop({
+        running,
+        streamOpened: esRef.current !== null,
+        completed: completedRef.current,
+      })
+    )
+      return;
     clearInterval(timerRef.current!);
-    esRef.current.close();
+    esRef.current?.close();
     esRef.current = null;
     setStopped(true);
     setDone(true);
