@@ -384,3 +384,15 @@ func TestValidateEdgeRejectsAParserAfterAnAgent(t *testing.T) {
 		t.Errorf("agent -> http must stay legal: %v", err)
 	}
 }
+
+// "Markdown → HTML" renders agent output -- the catalog says so -- so
+// agent -> markdown is the node's intended wiring, not a mistake.
+func TestValidateEdgeAllowsMarkdownAfterAnAgent(t *testing.T) {
+	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{
+		{ID: "a", Type: models.NodeTypeAgent},
+		{ID: "m", Type: models.NodeTypeTool, Template: "markdown"},
+	}}
+	if _, err := validateEdge(graph, "a", "m", "flow", ""); err != nil {
+		t.Errorf("agent -> markdown is what that node is for: %v", err)
+	}
+}

@@ -322,8 +322,9 @@ func (r nodeRules) validateValue(k, v string) error {
 		// A system prompt reaches the model verbatim -- engine/graph.go never
 		// runs it through resolveTemplate -- so a reference in one arrives as
 		// literal braces. The agent is handed the previous step's output as
-		// its input and needs no reference to it.
-		if m := anyTemplateRef.FindString(v); m != "" {
+		// its input and needs no reference to it. {{ state.x }} is the
+		// exception: the runner expands those (ExpandState) before the call.
+		if m := firstUnresolvedRef(v); m != "" {
 			return fmt.Errorf("systemPrompt contains %s, which is never resolved: a system prompt is sent to the model word for word. The agent already receives the previous step's output as its input -- describe that input in words instead, such as \"the input is JSON from CoinGecko; state the price in USD\"", m)
 		}
 		// A live build's agent, handed {}, answered with a price it copied
@@ -340,6 +341,18 @@ func (r nodeRules) validateValue(k, v string) error {
 		}
 	}
 	return nil
+}
+
+// firstUnresolvedRef returns the first {{ ... }} in a system prompt that
+// nothing resolves, or "". State references are left alone: runner.go expands
+// them into the prompt before the agent runs.
+func firstUnresolvedRef(v string) string {
+	for _, m := range anyTemplateRef.FindAllString(v, -1) {
+		if !stateRef.MatchString(m) {
+			return m
+		}
+	}
+	return ""
 }
 
 // anyTemplateRef finds every {{ ... }} in a value -- deliberately looser than
@@ -473,12 +486,22 @@ func (r nodeRules) userSupplied() string {
 // identicalNode returns the id of a node that is already exactly what is
 // being added -- same type, template, name and settings.
 func identicalNode(graph *models.WorkflowGraph, nodeType, template, name string, fields, cfg map[string]string) string {
+	// Nothing set means nothing to tell two of them apart, and a second one
+	// is usually wanted: two branches each ending in their own end node.
+	if len(fields) == 0 && len(cfg) == 0 {
+		return ""
+	}
 	for _, n := range graph.Nodes {
 		if string(n.Type) != nodeType || n.Template != template || n.Name != name {
 			continue
 		}
 		same := true
 		for k, v := range fields {
+			// An agent's prompt is stored with the answer guard appended, so
+			// the raw argument never matches what is on the node.
+			if k == "systemPrompt" && n.Type == models.NodeTypeAgent {
+				v = withAnswerGuard(v)
+			}
 			if idx, ok := nodeStringFields[k]; ok && reflect.ValueOf(n).Field(idx).String() != v {
 				same = false
 				break
@@ -1189,6 +1212,19 @@ without one cannot run. Make small, sensible workflows unless asked for somethin
 done making changes, reply with a short plain-text summary of what you built or changed -- do not call any more
 tools once you're done.`
 
+// repairMessage asks for another pass over the problems the audit found.
+//
+// The graph is concatenated, never passed as a format string: it is JSON the
+// user's own urls and descriptions end up in, and a single "%" in one of them
+// (a %20 in a url, "50%" in a description) would swallow the findings and
+// leave the round saying nothing at all.
+func repairMessage(graph models.WorkflowGraph, findings []string) string {
+	return graphSnapshot(graph) +
+		"Before you answer: the graph still has these problems.\n- " +
+		strings.Join(findings, "\n- ") +
+		"\nFix them with the graph tools. Then reply to the user with a summary of the finished workflow as a whole -- do not mention these problems or the fixes, which the user never saw."
+}
+
 // graphSnapshot restates what is on the canvas right now. Every round that
 // sends the model back to fix something ships it: the only graph in the
 // conversation otherwise is the one from the opening message, and live builds
@@ -1417,7 +1453,11 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 					continue
 				}
 				if len(graph.Nodes) > 0 {
-					return BuildGraphResult{Reply: withTestStatus(lastReply), Graph: graph}, nil
+					reply := lastReply
+					if strings.TrimSpace(reply) == "" {
+						reply = "I lost my train of thought partway through this one. What I built so far is on the canvas — tell me what to finish and I'll carry on from there."
+					}
+					return BuildGraphResult{Reply: withTestStatus(reply), Graph: graph}, nil
 				}
 				return BuildGraphResult{}, err
 			}
@@ -1440,9 +1480,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 					})
 					contents = append(contents,
 						map[string]any{"role": "model", "parts": []map[string]any{{"text": text}}},
-						map[string]any{"role": "user", "parts": []map[string]any{{"text": fmt.Sprintf(
-							graphSnapshot(graph)+"Before you answer: the graph still has these problems.\n- %s\nFix them with the graph tools. Then reply to the user with a summary of the finished workflow as a whole -- do not mention these problems or the fixes, which the user never saw.",
-							strings.Join(findings, "\n- "))}}},
+						map[string]any{"role": "user", "parts": []map[string]any{{"text": repairMessage(graph, findings)}}},
 					)
 					payload["contents"] = contents
 					continue

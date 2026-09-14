@@ -479,6 +479,11 @@ func clipRunes(s string, n int) string {
 // window -- billed before it fails.
 const maxAgentInputData = 32000
 
+// rc.Message() is the run's most recent output, which for an agent fed by a
+// single chain is its own predecessor. Where two branches run in parallel it
+// is whichever finished last (see engine.RunContext.Message) -- the agent
+// prompt now inherits that race, which #212's predecessor-aware context
+// removes.
 func agentInput(rc RunContexter) string {
 	ask := strings.TrimSpace(rc.UserInput())
 	data := clipRunes(strings.TrimSpace(rc.Message()), maxAgentInputData)
@@ -617,6 +622,11 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 	return nil, fmt.Errorf("agent exceeded maximum tool call iterations (%d)", maxToolIterations)
 }
 
+// ErrNoModelText is the model answering with neither text nor a function
+// call. Distinguished from a real fault so a dry run can tell "it had
+// nothing to say" apart from a rejected key or a bad request.
+var ErrNoModelText = errors.New("no text part in Gemini response")
+
 func extractGeminiText(resp map[string]any) (string, error) {
 	candidates, _ := resp["candidates"].([]any)
 	if len(candidates) == 0 {
@@ -634,7 +644,7 @@ func extractGeminiText(resp map[string]any) (string, error) {
 	if reason == "" {
 		reason = "none given"
 	}
-	return "", fmt.Errorf("no text part in Gemini response (finish reason: %s, %d parts)", reason, len(parts))
+	return "", fmt.Errorf("%w (finish reason: %s, %d parts)", ErrNoModelText, reason, len(parts))
 }
 
 type geminiFuncCall struct {

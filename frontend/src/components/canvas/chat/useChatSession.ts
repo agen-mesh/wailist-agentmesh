@@ -352,15 +352,20 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
   // Edits to existing turns (progress steps, the settled answer) are
   // debounced instead -- a build emits one per tool call, and each is a
   // request.
-  const countRef = useRef(-1);
+  const shapeRef = useRef("");
   useEffect(() => {
     if (!hydrated || !sessionId) return;
     // Never write a transcript that was not read back: a load that failed
     // leaves the console empty, and saving that would destroy the stored
     // conversation. Never write one belonging to another workflow either.
     if (!canPersist(writable.current, loadedFor.current, workflowId)) return;
-    const isNewTurn = messages.length !== countRef.current;
-    countRef.current = messages.length;
+    // Which turns exist, and which run each is bound to. Both have to be
+    // stored the moment they change: recovery after a reload finds a
+    // stranded turn by its runId (see useChatConsole), so a runId that were
+    // only written 600ms later would leave a turn that can never be settled.
+    const shape = messages.map((m) => `${m.id}:${m.runId ?? ""}`).join();
+    const isNewTurn = shape !== shapeRef.current;
+    shapeRef.current = shape;
     if (isNewTurn) {
       write(workflowId, { sessionId, messages });
       return;

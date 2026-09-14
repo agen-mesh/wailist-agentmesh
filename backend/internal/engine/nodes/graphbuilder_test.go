@@ -1863,7 +1863,7 @@ func TestAgentSystemPromptRejectsTemplateRefs(t *testing.T) {
 	for _, prompt := range []string{
 		"Report the price from {{ result }}",
 		"Summarise {{ node.n_1.data }} in one line",
-		"Say the price in {{state.currency}}",
+		"Use {{ input }} as the city",
 	} {
 		graph := &models.WorkflowGraph{}
 		_, err := addGraphNode(graph, map[string]any{
@@ -1995,5 +1995,65 @@ func TestAddNodeRefusesATool402WithNoEndpoint(t *testing.T) {
 		"fields": map[string]any{"endpoint": "https://api.example.com/x402/prices", "method": "GET"},
 	}); err != nil {
 		t.Fatalf("a tool402 node with an endpoint must still be allowed: %v", err)
+	}
+}
+
+// The repair round splices the graph into its message. Spliced into the
+// format string instead of in front of it, a "%" anywhere in the graph -- a
+// url with %20, a description mentioning 50% -- eats the findings argument,
+// and the round tells the model nothing about what is broken.
+func TestRepairRoundSurvivesAPercentInTheGraph(t *testing.T) {
+	graph := models.WorkflowGraph{Nodes: []models.WorkflowNode{
+		{ID: "n1", Type: models.NodeTypeTool, Template: "http", URL: "https://api.x.com/s?q=a%20b&pct=50%"},
+	}}
+	msg := graphSnapshot(graph) + fmt.Sprintf("problems:\n- %s\n", "agent n1 has no model")
+	if strings.Contains(msg, "%!") || strings.Contains(msg, "MISSING") {
+		t.Fatalf("the graph was read as a format string: %s", msg)
+	}
+	if !strings.Contains(msg, "agent n1 has no model") {
+		t.Fatalf("the findings were lost: %s", msg)
+	}
+	if !strings.Contains(msg, "a%20b") {
+		t.Fatalf("the url was mangled: %s", msg)
+	}
+}
+
+// {{ state.x }} IS resolved in a system prompt -- runner.go expands it
+// (ExpandState) before the agent runs -- so the guard must not refuse it.
+func TestAgentSystemPromptAllowsStateRefs(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	if _, err := addGraphNode(graph, map[string]any{
+		"type": "agent", "template": "agent",
+		"fields": map[string]any{"systemPrompt": "Answer in {{ state.language }}, one sentence"},
+	}); err != nil {
+		t.Fatalf("a state reference is resolved at run time and must be allowed: %v", err)
+	}
+}
+
+// Two branches can each end in their own end node, and an end node carries
+// nothing to tell one from the other.
+func TestAddNodeAllowsASecondEndNode(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	if _, err := addGraphNode(graph, map[string]any{"type": "end", "template": "done", "name": "End"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := addGraphNode(graph, map[string]any{"type": "end", "template": "done", "name": "End"}); err != nil {
+		t.Fatalf("a second branch needs its own end node: %v", err)
+	}
+}
+
+// The rebuild guard has to hold for agents too. Their systemPrompt is stored
+// with the answer guard appended, so comparing the raw argument never matched.
+func TestAddNodeRefusesAnIdenticalAgent(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	args := map[string]any{
+		"type": "agent", "template": "agent", "name": "Explain",
+		"fields": map[string]any{"systemPrompt": "State the price in USD in one sentence"},
+	}
+	if _, err := addGraphNode(graph, args); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := addGraphNode(graph, args); err == nil {
+		t.Fatal("the same agent was added twice")
 	}
 }

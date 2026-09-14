@@ -137,9 +137,12 @@ func existingEdge(graph *models.WorkflowGraph, from, to, kind string) string {
 	return ""
 }
 
-// parserTemplates read structured input and fail on anything else.
+// parserTemplates read structured input and fail on anything else. The
+// markdown node is deliberately absent: it renders Markdown to HTML and the
+// catalog calls it "Render agent output", so an agent feeding it is the
+// wiring that node exists for.
 var parserTemplates = map[string]bool{
-	"json_extract": true, "xml": true, "html_extract": true, "markdown": true,
+	"json_extract": true, "xml": true, "html_extract": true,
 }
 
 // flowReaches reports whether dst can be reached from src along flow edges.
