@@ -988,18 +988,22 @@ func catalogPromptSection() string {
 			if f := tpl.keysWithExamples("field"); len(f) > 0 {
 				fmt.Fprintf(&b, "; fields: %s", strings.Join(f, ", "))
 			}
-			if c := tpl.keysWithExamples("config"); len(c) > 0 {
+			// Plain keys, no "(e.g. ...)" hints: 99 config keys carry most of
+			// that text, and describe_node has the full detail for the two or
+			// three templates a build actually uses. The field keys below
+			// keep theirs -- jsonPath and friends are the ones a build gets
+			// wrong in a way a placeholder prevents.
+			if c := tpl.keysWhereAnnotated("config", exampleConfigKeys); len(c) > 0 {
 				fmt.Fprintf(&b, "; config: %s", strings.Join(c, ", "))
 			}
-			user := userSuppliedKeys(t.Type, tpl)
+			// Deliberately not listed here: which credentials the user has to
+			// supply, and where they get them. Every add_node result already
+			// names them for the node just added (nodeRules.userSupplied), and
+			// a rejected attempt to set one repeats it (credentialError). In
+			// this section it was 5.6KB of the prompt resent on every round,
+			// for 86 templates of which a build uses two or three.
 			if tpl.OAuthProvider != "" {
-				user = append(user, "or connect "+tpl.OAuthProvider)
-			}
-			if len(user) > 0 {
-				fmt.Fprintf(&b, "; user supplies: %s", strings.Join(user, ", "))
-				if tpl.AuthDocURL != "" {
-					fmt.Fprintf(&b, " (from %s)", tpl.AuthDocURL)
-				}
+				fmt.Fprintf(&b, "; the user connects %s in the Inspector", tpl.OAuthProvider)
 			}
 			if tpl.Note != "" {
 				fmt.Fprintf(&b, "; NOTE: %s", tpl.Note)
@@ -1191,6 +1195,44 @@ func cloneGraph(g models.WorkflowGraph) models.WorkflowGraph {
 		n.CustomParams = slices.Clone(n.CustomParams)
 	}
 	return out
+}
+
+// heavyResultTools are the tools whose result is big -- a test run's whole
+// JSON, up to 3000 bytes of a fetched page, a web search's answer -- mapped
+// to how many of the newest are worth keeping. Every round resends the whole
+// conversation, so a superseded result is paid for again on every later round
+// and competes for the model's attention with the graph it is building.
+var heavyResultTools = map[string]int{
+	"test_run": 1, "fetch_url": 2, "web_search": 2, "describe_node": 2,
+}
+
+// pruneHeavyResults replaces all but the newest few results of each heavy
+// tool with one line saying it was left out. The turn structure is untouched
+// -- every functionCall keeps its matching functionResponse, which Gemini
+// requires -- only the payload inside the superseded ones is dropped.
+func pruneHeavyResults(contents []map[string]any) {
+	seen := map[string]int{}
+	for i := len(contents) - 1; i >= 0; i-- {
+		parts, _ := contents[i]["parts"].([]map[string]any)
+		for _, p := range parts {
+			fr, ok := p["functionResponse"].(map[string]any)
+			if !ok {
+				continue
+			}
+			name, _ := fr["name"].(string)
+			keep, heavy := heavyResultTools[name]
+			if !heavy {
+				continue
+			}
+			seen[name]++
+			if seen[name] <= keep {
+				continue
+			}
+			fr["response"] = map[string]any{
+				"result": "(an earlier " + name + " result, left out to keep this conversation short -- run it again if you still need it)",
+			}
+		}
+	}
 }
 
 // BuildGraph runs a bounded tool-calling loop against the Gemini Flash
@@ -1437,6 +1479,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 			})
 		}
 		contents = append(contents, map[string]any{"role": "user", "parts": responseParts})
+		pruneHeavyResults(contents)
 		payload["contents"] = contents
 	}
 

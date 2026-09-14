@@ -1850,3 +1850,81 @@ func TestTestedAnswerNeverSubstitutesAnUnrelatedAgentReply(t *testing.T) {
 		t.Fatalf("a simulated step that would carry nothing has no answer, got %q", got)
 	}
 }
+
+// Every round resends the whole conversation, so a heavy tool result -- a
+// test run's full JSON, a fetched page body -- is paid for again on every
+// later round and crowds the model's context. Only the newest one is worth
+// keeping; the older ones are replaced by a line saying so.
+func TestBuildGraphDropsStaleHeavyToolResults(t *testing.T) {
+	marker := "MARKER_" + strings.Repeat("x", 600)
+	bodies := scriptedGemini(t, []string{callTestRun, callTestRun, text("Done."), text("Done.")})
+	runs := 0
+	_, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "build it", Graph: wiredAgentGraph(), TimeBudget: 20 * time.Second,
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
+			runs++
+			return DryRunResult{FinalOutput: marker}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runs < 2 {
+		t.Fatalf("setup: want two test runs, got %d", runs)
+	}
+	last := (*bodies)[len(*bodies)-1]
+	if n := strings.Count(last, marker); n > 1 {
+		t.Fatalf("only the newest test run result should still be in the conversation, found %d copies", n)
+	}
+	if !strings.Contains(last, "left out to keep this conversation short") {
+		t.Fatal("the superseded result should be replaced by a short placeholder")
+	}
+}
+
+// The fixed cost of every round: the instructions and the tool declarations
+// are resent on each model call, so growth here is paid for on every round of
+// every build. These ceilings are a little above today's sizes; crossing one
+// means the growth was deliberate, and the number should move with it.
+func TestBuilderRequestStaysSmall(t *testing.T) {
+	if n := len(buildSystemPrompt); n > 22000 {
+		t.Errorf("system prompt is %d bytes, over the 22000 ceiling", n)
+	}
+	decls, _ := json.Marshal(graphToolDecls())
+	if n := len(decls); n > 14000 {
+		t.Errorf("tool declarations are %d bytes, over the 14000 ceiling", n)
+	}
+}
+
+// Dropping "user supplies" from the catalog section is only safe because the
+// add_node result still names the credentials for the node just added.
+func TestAddNodeResultStillNamesTheCredentials(t *testing.T) {
+	if strings.Contains(catalogPromptSection(), "user supplies:") {
+		t.Error("the catalog section should no longer carry per-template credential lists")
+	}
+	graph := &models.WorkflowGraph{}
+	out, err := applyGraphOp(graph, "add_node", map[string]any{"type": "action", "template": "slack", "name": "Post"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "slackWebhookURL") {
+		t.Fatalf("the add_node result must still name the credential the user supplies, got %q", out)
+	}
+}
+
+// A rejected add_node must say that nothing was created: a live build invented
+// an id for the node it failed to add and wasted two rounds on it.
+func TestRejectedAddNodeSaysNoNodeExists(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	tester := &testTracker{}
+	resp := runBuildCall(context.Background(), graph, geminiFuncCall{
+		name: "add_node",
+		args: map[string]any{"type": "trigger", "template": "cron"},
+	}, "k", newX402Session(nil), map[string]string{}, tester)
+	out, _ := resp["result"].(string)
+	if !strings.Contains(out, "no node was created") {
+		t.Fatalf("want the result to say nothing was created, got %q", out)
+	}
+	if len(graph.Nodes) != 0 {
+		t.Fatalf("setup: no node should exist, got %+v", graph.Nodes)
+	}
+}
