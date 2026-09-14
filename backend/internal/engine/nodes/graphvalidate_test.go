@@ -338,3 +338,29 @@ func TestAuditGraphReportsAWorkflowWithNoAgent(t *testing.T) {
 		t.Fatalf("want a finding that the workflow has no agent, got %v", auditGraph(g))
 	}
 }
+
+// A live build wired the same provider and the same end step twice. The
+// engine now ignores the copy, but the builder should not make one: the
+// canvas draws both lines, and the model wastes a round on it.
+func TestValidateEdgeRejectsADuplicate(t *testing.T) {
+	graph := &models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "a", Type: models.NodeTypeAgent},
+			{ID: "p", Type: models.NodeTypeProvider},
+			{ID: "e", Type: models.NodeTypeEnd},
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "e1", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"},
+			{ID: "e2", From: "a", To: "e", Kind: models.EdgeKindFlow, ToPort: "in"},
+		},
+	}
+	if _, err := validateEdge(graph, "p", "a", "attach", "model"); err == nil {
+		t.Error("a duplicate attach edge was accepted")
+	}
+	if _, err := validateEdge(graph, "a", "e", "flow", ""); err == nil {
+		t.Error("a duplicate flow edge was accepted")
+	}
+	if _, err := validateEdge(graph, "p", "a", "attach", ""); err == nil {
+		t.Error("a duplicate attach edge with an omitted port was accepted")
+	}
+}

@@ -66,6 +66,9 @@ func validateEdge(graph *models.WorkflowGraph, from, to, kind, toPort string) (s
 	}
 
 	if kind == string(models.EdgeKindAttach) {
+		if dup := existingEdge(graph, from, to, kind); dup != "" {
+			return "", fmt.Errorf("add_edge: %s is already connected to %s (edge %s) -- it is wired, leave it alone", from, to, dup)
+		}
 		if dst.Type != models.NodeTypeAgent {
 			return "", fmt.Errorf(
 				"add_edge: an attach edge must end at an agent node, but %q is a %s -- attach edges go provider/tool -> agent",
@@ -88,6 +91,9 @@ func validateEdge(graph *models.WorkflowGraph, from, to, kind, toPort string) (s
 		return want, nil
 	}
 
+	if dup := existingEdge(graph, from, to, kind); dup != "" {
+		return "", fmt.Errorf("add_edge: %s already flows into %s (edge %s) -- it is wired, leave it alone", from, to, dup)
+	}
 	if !flowSources[src.Type] {
 		if src.Type == models.NodeTypeProvider {
 			return "", fmt.Errorf(
@@ -110,6 +116,17 @@ func validateEdge(graph *models.WorkflowGraph, from, to, kind, toPort string) (s
 		return "", fmt.Errorf("add_edge: connecting %q -> %q would create a loop, because %q already leads back to %q -- a workflow's flow cannot loop", from, to, to, from)
 	}
 	return "in", nil
+}
+
+// existingEdge returns the id of an edge already joining these two nodes the
+// same way, or "".
+func existingEdge(graph *models.WorkflowGraph, from, to, kind string) string {
+	for _, e := range graph.Edges {
+		if e.From == from && e.To == to && string(e.Kind) == kind {
+			return e.ID
+		}
+	}
+	return ""
 }
 
 // flowReaches reports whether dst can be reached from src along flow edges.
