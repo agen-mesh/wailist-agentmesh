@@ -975,6 +975,10 @@ const maxBuildIterations = 25
 // common enough that this has to be a hard property, not a hope.
 const defaultBuildTimeBudget = 100 * time.Second
 
+// maxTransportFailures bounds the retries for a model call that never
+// arrived -- a dropped connection, a reset peer.
+const maxTransportFailures = 2
+
 // maxEmptyResponses bounds the retries for a model response carrying neither
 // text nor a function call.
 const maxEmptyResponses = 2
@@ -1222,6 +1226,17 @@ without one cannot run. Make small, sensible workflows unless asked for somethin
 done making changes, reply with a short plain-text summary of what you built or changed -- do not call any more
 tools once you're done.`
 
+// unfinishedReply is what to say when a build stopped early: its own last
+// words if it had any, and otherwise a plain statement that it did not
+// finish -- never the empty string, which reaches the user as a blank
+// chat bubble and no sign anything went wrong.
+func unfinishedReply(lastReply string) string {
+	if strings.TrimSpace(lastReply) != "" {
+		return lastReply
+	}
+	return "I didn't get to finish this one. What I built so far is on the canvas — tell me what to finish and I'll carry on from there."
+}
+
 // repairMessage asks for another pass over the problems the audit found.
 //
 // The graph is concatenated, never passed as a format string: it is JSON the
@@ -1430,6 +1445,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	baselineFindings := auditGraph(graph)
 	auditRetried := false
 	emptyResponses := 0
+	transportFailures := 0
 	for iter := 0; iter < maxBuildIterations; iter++ {
 		if iter > 0 && time.Since(started) > budget*3/4 {
 			return ranOutOfTime(), nil
@@ -1443,6 +1459,20 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		if err != nil {
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				return ranOutOfTime(), nil
+			}
+			// A dropped connection cost a whole build live: returning an
+			// error here means BuildWorkflow never reaches its save, and
+			// every node built so far goes with it. Try again, then keep
+			// what there is.
+			if transportFailures < maxTransportFailures {
+				transportFailures++
+				if req.TraceID != "" {
+					log.Printf("build %s: model call failed (%d): %v", req.TraceID, transportFailures, err)
+				}
+				continue
+			}
+			if len(graph.Nodes) > 0 {
+				return BuildGraphResult{Reply: withTestStatus(unfinishedReply(lastReply)), Graph: graph}, nil
 			}
 			return BuildGraphResult{}, err
 		}
@@ -1463,11 +1493,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 					continue
 				}
 				if len(graph.Nodes) > 0 {
-					reply := lastReply
-					if strings.TrimSpace(reply) == "" {
-						reply = "I lost my train of thought partway through this one. What I built so far is on the canvas — tell me what to finish and I'll carry on from there."
-					}
-					return BuildGraphResult{Reply: withTestStatus(reply), Graph: graph}, nil
+					return BuildGraphResult{Reply: withTestStatus(unfinishedReply(lastReply)), Graph: graph}, nil
 				}
 				return BuildGraphResult{}, err
 			}

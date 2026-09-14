@@ -2094,3 +2094,48 @@ func TestTemplateRefRejectsDotResult(t *testing.T) {
 		t.Errorf("the error must show the form that works, got %v", err)
 	}
 }
+
+// A dropped connection mid-build lost everything: BuildGraph returned an
+// error, so BuildWorkflow never reached its save and every node built so far
+// went with it. Seen live -- "read: connection reset by peer" 77 seconds into
+// a build. The call is retried, and if the network stays down the partial
+// graph comes back instead of nothing.
+func TestBuildGraphKeepsItsWorkWhenTheConnectionDrops(t *testing.T) {
+	var round int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		round++
+		if round == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"candidates": []map[string]any{
+				{"content": map[string]any{"parts": []map[string]any{
+					{"functionCall": map[string]any{"name": "add_node", "args": map[string]any{
+						"type": "action", "template": "coingecko", "name": "Price",
+						"config": map[string]any{"cgIDs": "bitcoin"},
+					}}},
+				}}},
+			}})
+			return
+		}
+		// Every later round: the connection goes away mid-response.
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("cannot hijack")
+		}
+		conn, _, _ := hj.Hijack()
+		conn.Close()
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "track bitcoin", Graph: models.WorkflowGraph{}})
+	if err != nil {
+		t.Fatalf("a dropped connection must not discard the build: %v", err)
+	}
+	if len(res.Graph.Nodes) != 1 {
+		t.Fatalf("want the node it managed to build, got %d", len(res.Graph.Nodes))
+	}
+	if strings.TrimSpace(res.Reply) == "" {
+		t.Error("the user needs to be told the build did not finish")
+	}
+}
