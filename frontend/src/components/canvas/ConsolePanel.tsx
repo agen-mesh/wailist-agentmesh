@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pill } from "@/components/ui";
 import type { DeadLetterRun } from "@/lib/api";
 import {
@@ -8,6 +8,12 @@ import {
   type X402Payment,
 } from "./useRunTranscript";
 import { latestPerNode } from "./chat/resolveReply";
+import {
+  costsByNode,
+  describeStepCost,
+  formatUsdMicros,
+  type RunCosts,
+} from "@/lib/runCosts";
 
 interface ConsolePanelProps {
   open: boolean;
@@ -18,6 +24,9 @@ interface ConsolePanelProps {
   elapsed: number | null;
   done: boolean;
   deadLetters: DeadLetterRun[];
+  // What the run was charged, from the debit ledger (#111). Null until the
+  // run record is fetched, or when the backend does not report costs.
+  costs: RunCosts | null;
   // Takes the dead-letter's own runId rather than relying solely on the
   // caller's live session state: a dead-letter row restored from
   // useRunTranscript's cache (see CachedRun.deadLetters) can render with no
@@ -46,11 +55,21 @@ export function ConsolePanel({
   elapsed,
   done,
   deadLetters,
+  costs,
   onResume,
 }: ConsolePanelProps) {
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [resizing, setResizing] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Ledger charges are per node, but a resumed node has one log row per
+  // attempt -- so a node's cost is shown once, on its last row (#111).
+  const stepCosts = useMemo(() => costsByNode(costs), [costs]);
+  const lastRowByNode = useMemo(() => {
+    const last = new Map<string, number>();
+    logs.forEach((l, i) => last.set(l.nodeId, i));
+    return last;
+  }, [logs]);
 
   // Below this the four fixed columns (52 + 34 + 110 + gaps) leave the output
   // cell so little room that JSON wraps a few characters per line -- a single
@@ -346,6 +365,21 @@ export function ConsolePanel({
                       · {l.durationMs}ms
                     </span>
                   )}
+                  {(() => {
+                    // Every billable step's charge, from the debit ledger --
+                    // not only x402 steps whose output carries a receipt.
+                    const step = stepCosts.get(l.nodeId);
+                    if (!step || lastRowByNode.get(l.nodeId) !== i) return null;
+                    return (
+                      <span
+                        style={{ color: "var(--warm)" }}
+                        title={describeStepCost(step)}
+                      >
+                        {" "}
+                        · {formatUsdMicros(step.totalUsdMicros)}
+                      </span>
+                    );
+                  })()}
                 </span>
               </div>
               <OutputCell output={l.output} />
@@ -378,6 +412,11 @@ export function ConsolePanel({
                   {hasFailure ? "✕ run failed" : "✓ run complete"} ·{" "}
                   {(elapsed ?? 0).toFixed(1)}s · {succeeded}/{final.length} nodes
                   succeeded
+                  {/* The run total includes charges for tools an agent called,
+                      which have no log row of their own. */}
+                  {costs && (
+                    <> · {formatUsdMicros(costs.totalUsdMicros)} charged</>
+                  )}
                 </div>
               );
             })()}

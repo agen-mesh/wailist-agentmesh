@@ -16,6 +16,7 @@ import { WORKFLOWS, SAMPLE_WORKFLOW, buildUsage } from "./data";
 import { assertWritable } from "./readonly";
 import { IS_NATIVE, authHeaders } from "./nativeAuth";
 import type { PaymentMethod } from "@/components/checkout/types";
+import type { RunCosts } from "./runCosts";
 
 // In the browser, always route through /api so the cookie stays same-site.
 // NEXT_PUBLIC_API_URL still controls mock vs real (empty = mock data).
@@ -692,6 +693,9 @@ export const runs = {
     run: { status: string };
     logs: RunLogRecord[];
     deadLetters: DeadLetterRun[];
+    // What the run was charged, from the debit ledger (#111). Optional: a
+    // backend older than that change does not send it.
+    costs?: RunCosts;
   }> => {
     if (BASE) {
       const res = await apiFetch(`${BASE}/runs/${runId}`, {
@@ -716,6 +720,17 @@ export const runs = {
     return {
       run: { status: "success" },
       deadLetters: [],
+      // The paid weather call below, as the ledger would record it.
+      costs: {
+        totalUsdMicros: 65000,
+        steps: [
+          {
+            nodeId: "n4",
+            totalUsdMicros: 65000,
+            byKind: { x402_relay_cost: 65000 },
+          },
+        ],
+      },
       logs: [
         {
           id: "rl-1",

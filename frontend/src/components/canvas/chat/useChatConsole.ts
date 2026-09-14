@@ -5,6 +5,7 @@ import { useChatSession, type ChatSession } from "./useChatSession";
 import { resolveReply } from "./resolveReply";
 import { recoverPendingTurn } from "./recoverPendingTurn";
 import type { BuildProgress } from "./buildProgress";
+import type { RunCosts } from "@/lib/runCosts";
 import {
   runs as runsApi,
   type RunLogRecord,
@@ -36,6 +37,8 @@ export interface ChatConsole {
   busy: boolean;
   handleSend: (text: string) => void;
   deadLetters: DeadLetterRun[];
+  /** What the current run was charged -- see RunTranscript.costs. */
+  costs: RunCosts | null;
 }
 
 // Owns the run transcript (SSE + reconciliation) and the chat session
@@ -51,7 +54,7 @@ export function useChatConsole({
   onBuildMessage,
   attempt,
 }: UseChatConsoleArgs): ChatConsole {
-  const { logs, elapsed, done, leaseId, stopped, deadLetters } =
+  const { logs, elapsed, done, leaseId, stopped, deadLetters, costs } =
     useRunTranscript({
       runId,
       running,
@@ -238,5 +241,6 @@ export function useChatConsole({
     busy,
     handleSend,
     deadLetters,
+    costs,
   };
 }
