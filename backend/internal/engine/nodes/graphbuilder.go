@@ -398,8 +398,8 @@ func validateTemplateRefs(graph *models.WorkflowGraph, values map[string]string)
 				if _, ok := findGraphNode(graph, id); !ok {
 					return fmt.Errorf("%s: {{ %s }} refers to node %q, which is not in the graph -- use the id add_node returned", key, ref, id)
 				}
-				if path == "output" {
-					return fmt.Errorf("%s: {{ %s }} -- a node's output is {{ node.%s }} itself; \".output\" would look for a field named output", key, ref, id)
+				if path == "output" || path == "result" {
+					return fmt.Errorf("%s: {{ %s }} -- a node's output is {{ node.%s }} itself; \".%s\" would look for a field named %s, find none, and leave the braces in the text the user reads", key, ref, id, path, path)
 				}
 				if path != "" && !templatePath.MatchString(path) {
 					return fmt.Errorf("%s: {{ %s }} has an invalid field path; use a dot path such as {{ node.%s.data.0.price }}", key, ref, id)

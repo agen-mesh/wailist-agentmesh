@@ -2079,3 +2079,18 @@ func TestSetFieldsMustBeAJSONObject(t *testing.T) {
 		t.Fatalf("valid JSON must be accepted: %v", err)
 	}
 }
+
+// ".result" is the same mistake ".output" already guards: a node's output is
+// the reference itself. A live build wrote {{node.<id>.result}} into a
+// Telegram message, walkPath found no such field, and resolveTemplate left
+// the braces in the text the user received.
+func TestTemplateRefRejectsDotResult(t *testing.T) {
+	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{{ID: "n1", Type: models.NodeTypeAction, Template: "rss"}}}
+	err := validateTemplateRefs(graph, map[string]string{"messageTemplate": "New item: {{node.n1.result}}"})
+	if err == nil {
+		t.Fatal("{{ node.n1.result }} was accepted; it reaches the user as literal braces")
+	}
+	if !strings.Contains(err.Error(), "node.n1") {
+		t.Errorf("the error must show the form that works, got %v", err)
+	}
+}
