@@ -2057,3 +2057,25 @@ func TestAddNodeRefusesAnIdenticalAgent(t *testing.T) {
 		t.Fatal("the same agent was added twice")
 	}
 }
+
+// A live build configured a set node with setFields that were not valid
+// JSON, and the run died on it. The shape is checkable while building.
+func TestSetFieldsMustBeAJSONObject(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := addGraphNode(graph, map[string]any{
+		"type": "tool", "template": "set", "name": "Combine",
+		"config": map[string]any{"setFields": `{story: "{{ input }}", price: "{{ result }}"}`},
+	})
+	if err == nil {
+		t.Fatal("malformed setFields was accepted")
+	}
+	if !strings.Contains(err.Error(), "setFields") {
+		t.Errorf("the error must name the setting, got %v", err)
+	}
+	if _, err := addGraphNode(graph, map[string]any{
+		"type": "tool", "template": "set", "name": "Combine",
+		"config": map[string]any{"setFields": `{"story": "{{ input }}"}`},
+	}); err != nil {
+		t.Fatalf("valid JSON must be accepted: %v", err)
+	}
+}

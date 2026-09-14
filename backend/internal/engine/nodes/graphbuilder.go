@@ -333,6 +333,16 @@ func (r nodeRules) validateValue(k, v string) error {
 		if m := exampleValueIn(v); m != "" {
 			return fmt.Errorf("systemPrompt contains an example value (%q) -- remove it. An agent handed empty data repeats example numbers as if they were real; describe the format in words instead, such as \"state the price in USD in one sentence\"", m)
 		}
+	case "setFields":
+		// executeSet unmarshals this into an object; a live build wrote
+		// JavaScript-style keys and the run died on it.
+		if strings.TrimSpace(v) == "" {
+			return nil
+		}
+		var probe map[string]any
+		if err := json.Unmarshal([]byte(v), &probe); err != nil {
+			return fmt.Errorf("setFields is not a JSON object: %v -- it must be strict JSON with quoted keys, such as {\"story\": \"{{ node.n1 }}\", \"price\": \"{{ node.n2 }}\"}", err)
+		}
 	case "jsonPath":
 		// walkPath splits on dots and nothing else, so JSONPath syntax (the
 		// "$.data[0].lastPrice" a live build wrote) fails on the "$" segment.
