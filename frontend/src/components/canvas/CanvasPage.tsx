@@ -453,6 +453,12 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     }
     setDeploying(true);
     try {
+      // Deploy reads the graph from the DB to provision a wallet per agent
+      // node, so an edit still sitting in the autosave debounce (an agent
+      // added a moment ago) would be deployed without. Same reason startBuild
+      // flushes first (#67). flushPendingSave never throws: a failed save
+      // only updates the save label.
+      await flushPendingSave();
       const res = await workflowsApi.deploy(workflow.id);
       setDeployed(true);
       setEstimateTick((t) => t + 1);
@@ -467,7 +473,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     } finally {
       setDeploying(false);
     }
-  }, [deployed, workflow, showToast]);
+  }, [deployed, workflow, showToast, flushPendingSave]);
 
   const hasChatTrigger = useMemo(
     () =>
@@ -550,6 +556,11 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         showToast(runBlocked);
         return null;
       }
+      // The run executes the graph the backend loads from the DB, so an edit
+      // still in the autosave debounce would not be part of it -- the user
+      // changes a URL, hits Run, and the old URL gets called. Same reason
+      // startBuild flushes first (#67).
+      await flushPendingSave();
       try {
         const res = await workflowsApi.run(workflow.id, input);
         setRunId(res.runId);
@@ -565,7 +576,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         return null;
       }
     },
-    [workflow, runBlocked, showToast],
+    [workflow, runBlocked, showToast, flushPendingSave],
   );
 
   const startBuild = useCallback(
