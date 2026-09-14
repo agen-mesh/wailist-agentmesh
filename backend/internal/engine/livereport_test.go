@@ -37,6 +37,16 @@ type promptResult struct {
 	Reply      string   `json:"reply"`
 }
 
+// A live pass over the builder: every prompt is built against the real
+// model and then executed, and the result is written to REPORT_OUT as JSON.
+// Tagged so it never runs in CI -- it calls Gemini and real public APIs, and
+// costs a few cents a prompt. Run it with:
+//
+//	PLATFORM_GEMINI_API_KEY=... REPORT_OUT=/tmp/report.json \
+//	  go test ./internal/engine -tags livebuild -run TestLiveBuildReport -v
+//
+// BUILD_PROMPTS overrides the suite with a newline-separated list, for
+// re-checking a handful after a fix.
 func TestLiveBuildReport(t *testing.T) {
 	key := os.Getenv("PLATFORM_GEMINI_API_KEY")
 	if key == "" {
@@ -59,6 +69,14 @@ func TestLiveBuildReport(t *testing.T) {
 		{"chat", "make an agent I can chat with that answers questions using live web search"},
 		{"webhook", "when someone posts to my webhook, summarise the payload and send it to discord"},
 		{"fan-in", "give me a daily digest with both the top hacker news story and the bitcoin price in one message"},
+	}
+	if custom := os.Getenv("BUILD_PROMPTS"); custom != "" {
+		cases = cases[:0]
+		for _, line := range strings.Split(custom, "\n") {
+			if p := strings.TrimSpace(line); p != "" {
+				cases = append(cases, struct{ category, prompt string }{"custom", p})
+			}
+		}
 	}
 	out := make([]promptResult, 0, len(cases))
 	for _, c := range cases {
@@ -120,7 +138,9 @@ func TestLiveBuildReport(t *testing.T) {
 		r.RawAnswer = strings.HasPrefix(a, "{") || strings.HasPrefix(a, "[")
 		out = append(out, r)
 		t.Logf("DONE [%s] %s -> failed=%v empty=%v unverified=%v", c.category, c.prompt, r.Failed, r.Empty, r.Unverified)
-		b, _ := json.MarshalIndent(out, "", "  ")
-		os.WriteFile(os.Getenv("REPORT_OUT"), b, 0o644)
+		if path := os.Getenv("REPORT_OUT"); path != "" {
+			b, _ := json.MarshalIndent(out, "", "  ")
+			os.WriteFile(path, b, 0o644)
+		}
 	}
 }
