@@ -458,10 +458,9 @@ func paymentReceipt(p *ToolPaymentInfo) map[string]any {
 	return receipt
 }
 
-// agentInput is what the agent is asked: the run's own input, plus the output
-// of the flow step it follows. An agent that sits after data steps -- the
-// shape the chat builder always builds -- otherwise answers from the trigger
-// input alone and never sees the data it was put there to explain.
+// agentInput is what the agent is asked: the run's input plus the output of
+// the step it follows. Before this an agent placed after data steps saw only
+// the trigger input, never the data it was added to explain.
 // clipRunes cuts s to at most n bytes on a rune boundary, saying so.
 func clipRunes(s string, n int) string {
 	if len(s) <= n {
@@ -474,22 +473,18 @@ func clipRunes(s string, n int) string {
 	return s[:cut] + "\n… (truncated: the step returned more data than fits in one prompt)"
 }
 
-// maxAgentInputData bounds the upstream output pasted into the prompt. A feed
-// or HTTP step can return megabytes, which is a request past the context
-// window -- billed before it fails.
+// maxAgentInputData bounds the upstream output pasted into the prompt: a
+// feed can return megabytes, billed before the provider refuses it.
 const maxAgentInputData = 32000
 
-// rc.Message() is the run's most recent output, which for an agent fed by a
-// single chain is its own predecessor. Where two branches run in parallel it
-// is whichever finished last (see engine.RunContext.Message) -- the agent
-// prompt now inherits that race, which #212's predecessor-aware context
-// removes.
+// rc.Message() is the most recent output -- for a single chain the agent's
+// own predecessor, for parallel branches whichever finished last (#212).
 func agentInput(rc RunContexter) string {
 	ask := strings.TrimSpace(rc.UserInput())
 	data := clipRunes(strings.TrimSpace(rc.Message()), maxAgentInputData)
 	switch {
 	case ask == "" && data == "":
-		// Gemini rejects an empty user part, and a manual trigger sends none.
+		// Gemini rejects an empty user part.
 		return "Begin."
 	case data == "" || data == ask:
 		return ask
@@ -623,8 +618,7 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 }
 
 // ErrNoModelText is the model answering with neither text nor a function
-// call. Distinguished from a real fault so a dry run can tell "it had
-// nothing to say" apart from a rejected key or a bad request.
+// call -- not a fault, so a dry run can tell it apart from a bad key.
 var ErrNoModelText = errors.New("no text part in Gemini response")
 
 func extractGeminiText(resp map[string]any) (string, error) {

@@ -319,11 +319,9 @@ func (r nodeRules) validateValue(k, v string) error {
 			return fmt.Errorf("%s", msg)
 		}
 	case "systemPrompt":
-		// A system prompt reaches the model verbatim -- engine/graph.go never
-		// runs it through resolveTemplate -- so a reference in one arrives as
-		// literal braces. The agent is handed the previous step's output as
-		// its input and needs no reference to it. {{ state.x }} is the
-		// exception: the runner expands those (ExpandState) before the call.
+		// A system prompt reaches the model verbatim (graph.go never resolves
+		// it), so a reference arrives as literal braces. {{ state.x }} is the
+		// exception -- the runner expands those before the call.
 		if m := firstUnresolvedRef(v); m != "" {
 			return fmt.Errorf("systemPrompt contains %s, which is never resolved: a system prompt is sent to the model word for word. The agent already receives the previous step's output as its input -- describe that input in words instead, such as \"the input is JSON from CoinGecko; state the price in USD\"", m)
 		}
@@ -334,8 +332,7 @@ func (r nodeRules) validateValue(k, v string) error {
 			return fmt.Errorf("systemPrompt contains an example value (%q) -- remove it. An agent handed empty data repeats example numbers as if they were real; describe the format in words instead, such as \"state the price in USD in one sentence\"", m)
 		}
 	case "setFields":
-		// executeSet unmarshals this into an object; a live build wrote
-		// JavaScript-style keys and the run died on it.
+		// executeSet unmarshals this; JavaScript-style keys killed a run.
 		if strings.TrimSpace(v) == "" {
 			return nil
 		}
@@ -353,9 +350,8 @@ func (r nodeRules) validateValue(k, v string) error {
 	return nil
 }
 
-// firstUnresolvedRef returns the first {{ ... }} in a system prompt that
-// nothing resolves, or "". State references are left alone: runner.go expands
-// them into the prompt before the agent runs.
+// firstUnresolvedRef returns the first {{ ... }} nothing resolves, or "".
+// State refs are left alone: the runner expands those.
 func firstUnresolvedRef(v string) string {
 	for _, m := range anyTemplateRef.FindAllString(v, -1) {
 		if !stateRef.MatchString(m) {
@@ -493,11 +489,11 @@ func (r nodeRules) userSupplied() string {
 	return s + "; name the ones this workflow needs on the node's description and in your reply"
 }
 
-// identicalNode returns the id of a node that is already exactly what is
-// being added -- same type, template, name and settings.
+// identicalNode returns the id of a node already exactly what is being
+// added: same type, template, name and settings.
 func identicalNode(graph *models.WorkflowGraph, nodeType, template, name string, fields, cfg map[string]string) string {
-	// Nothing set means nothing to tell two of them apart, and a second one
-	// is usually wanted: two branches each ending in their own end node.
+	// Nothing to tell two apart, and a second is usually wanted: two
+	// branches each ending in their own end node.
 	if len(fields) == 0 && len(cfg) == 0 {
 		return ""
 	}
@@ -507,8 +503,7 @@ func identicalNode(graph *models.WorkflowGraph, nodeType, template, name string,
 		}
 		same := true
 		for k, v := range fields {
-			// An agent's prompt is stored with the answer guard appended, so
-			// the raw argument never matches what is on the node.
+			// Stored with the answer guard appended.
 			if k == "systemPrompt" && n.Type == models.NodeTypeAgent {
 				v = withAnswerGuard(v)
 			}
@@ -554,11 +549,8 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 	if err := validateTemplateRefs(graph, cfg); err != nil {
 		return "", err
 	}
-	// A rebuild guard. Live builds that were sent back to fix a step
-	// re-added the whole workflow instead of editing it -- up to five
-	// triggers and thirty nodes, and every such build failed or produced
-	// nothing. Both rejections name what already exists so the model edits
-	// it instead.
+	// Rebuild guard: sent back to fix a step, live builds re-added the whole
+	// workflow instead of editing it. Both rejections name what exists.
 	if nodeType == "trigger" {
 		for _, n := range graph.Nodes {
 			if n.Type == models.NodeTypeTrigger {
@@ -566,9 +558,7 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 			}
 		}
 	}
-	// A tool402 node is only real if it has an endpoint to call. A live
-	// build added one named after a Bazaar id with nothing else on it: a
-	// node that looks configured on the canvas and can never run.
+	// Without an endpoint the node looks configured and can never run.
 	if nodeType == "tool402" && strings.TrimSpace(fields["endpoint"]) == "" {
 		return "", fmt.Errorf("add_node: a tool402 node needs the endpoint it calls, and this one has none. Use add_x402_node with an id from search_x402, which fills in the endpoint, price and inputs for you -- add_node type=tool402 is only for an endpoint URL the user handed you themselves, and then \"endpoint\" is required")
 	}
@@ -975,12 +965,11 @@ const maxBuildIterations = 25
 // common enough that this has to be a hard property, not a hope.
 const defaultBuildTimeBudget = 100 * time.Second
 
-// maxTransportFailures bounds the retries for a model call that never
-// arrived -- a dropped connection, a reset peer.
+// maxTransportFailures bounds retries for a call that never arrived.
 const maxTransportFailures = 2
 
-// maxEmptyResponses bounds the retries for a model response carrying neither
-// text nor a function call.
+// maxEmptyResponses bounds retries for a response with neither text nor a
+// function call.
 const maxEmptyResponses = 2
 
 // maxTestRounds bounds how many times the test gate may send the model back:
@@ -1226,10 +1215,8 @@ without one cannot run. Make small, sensible workflows unless asked for somethin
 done making changes, reply with a short plain-text summary of what you built or changed -- do not call any more
 tools once you're done.`
 
-// unfinishedReply is what to say when a build stopped early: its own last
-// words if it had any, and otherwise a plain statement that it did not
-// finish -- never the empty string, which reaches the user as a blank
-// chat bubble and no sign anything went wrong.
+// unfinishedReply is what a build that stopped early says -- never "",
+// which reaches the user as a blank chat bubble.
 func unfinishedReply(lastReply string) string {
 	if strings.TrimSpace(lastReply) != "" {
 		return lastReply
@@ -1237,12 +1224,9 @@ func unfinishedReply(lastReply string) string {
 	return "I didn't get to finish this one. What I built so far is on the canvas — tell me what to finish and I'll carry on from there."
 }
 
-// repairMessage asks for another pass over the problems the audit found.
-//
-// The graph is concatenated, never passed as a format string: it is JSON the
-// user's own urls and descriptions end up in, and a single "%" in one of them
-// (a %20 in a url, "50%" in a description) would swallow the findings and
-// leave the round saying nothing at all.
+// repairMessage asks for another pass over what the audit found. The graph
+// is concatenated, never a format string: one "%" in a url or description
+// would swallow the findings.
 func repairMessage(graph models.WorkflowGraph, findings []string) string {
 	return graphSnapshot(graph) +
 		"Before you answer: the graph still has these problems.\n- " +
@@ -1250,10 +1234,9 @@ func repairMessage(graph models.WorkflowGraph, findings []string) string {
 		"\nFix them with the graph tools. Then reply to the user with a summary of the finished workflow as a whole -- do not mention these problems or the fixes, which the user never saw."
 }
 
-// graphSnapshot restates what is on the canvas right now. Every round that
-// sends the model back to fix something ships it: the only graph in the
-// conversation otherwise is the one from the opening message, and live builds
-// answered a "fix this" round by building the whole workflow a second time.
+// graphSnapshot restates the canvas. Every round that sends the model back
+// ships it -- otherwise the only graph in context is the opening one, and a
+// "fix this" round read as "build it again".
 func graphSnapshot(graph models.WorkflowGraph) string {
 	b, _ := json.Marshal(graph)
 	return fmt.Sprintf("This is the workflow as it stands now -- everything in it already exists, so edit these nodes rather than adding more:\n%s\n", b)
@@ -1460,10 +1443,8 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				return ranOutOfTime(), nil
 			}
-			// A dropped connection cost a whole build live: returning an
-			// error here means BuildWorkflow never reaches its save, and
-			// every node built so far goes with it. Try again, then keep
-			// what there is.
+			// An error here means BuildWorkflow never reaches its save and
+			// every node built goes with it. Try again, then keep them.
 			if transportFailures < maxTransportFailures {
 				transportFailures++
 				if req.TraceID != "" {
@@ -1480,11 +1461,8 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		if len(calls) == 0 {
 			text, err := extractGeminiText(resp)
 			if err != nil {
-				// A candidate with no text part and no function call. Seen
-				// live: one build died on its first round and the user was
-				// told the builder had failed, with everything it had built
-				// thrown away. Ask again before giving up, and if it keeps
-				// happening keep whatever is already on the graph.
+				// No text and no function call. Ask again, then keep
+				// whatever is on the graph rather than losing it.
 				if emptyResponses < maxEmptyResponses {
 					emptyResponses++
 					if req.TraceID != "" {

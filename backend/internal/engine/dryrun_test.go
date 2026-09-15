@@ -765,10 +765,8 @@ func TestDryRunCarryMatchesWhatTheRealConnectorSends(t *testing.T) {
 	}
 }
 
-// A test run never calls a paid x402 tool, so an agent whose data comes from
-// one has nothing to answer with. Reporting that as a failed step sent the
-// builder off to "fix" a workflow that was right, and those repair rounds
-// are what drove it to rebuild the graph from scratch.
+// An agent fed only by a paid tool has nothing to answer with in a test.
+// Reported as failed, it sent the builder to "fix" a correct workflow.
 func TestDryRunDoesNotBlameAnAgentForAWithheldPaidTool(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

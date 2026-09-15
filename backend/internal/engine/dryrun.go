@@ -306,15 +306,10 @@ func dryRunNode(ctx context.Context, n models.WorkflowNode, attach models.Attach
 				return nil, "", unverifiable{nodes.CredentialRejectedOrMissing(*p)}
 			}
 		}
-		// An agent whose data comes from a tool this run may not call has
-		// nothing to answer with, and that is the test's limit, not the
-		// workflow's fault. Reported as a failure it sent the builder off to
-		// repair a correct workflow, and those rounds are what drove it to
-		// rebuild the graph from scratch.
-		// Only when the agent had nothing to say. A rejected key, a bad
-		// model name or a malformed request is a real fault and stays one --
-		// swallowing those would leave the builder never repairing an agent
-		// that genuinely cannot run.
+		// A tool this run may not call is the test's limit, not the
+		// workflow's fault -- reported as a failure it sent the builder to
+		// repair a correct workflow. Only when the agent had nothing to say:
+		// a rejected key or bad model name stays a real fault.
 		if len(withheld) > 0 && (nodes.IsEmptyOutput(out) || errors.Is(err, nodes.ErrNoModelText)) {
 			return nil, "", unverifiable{fmt.Sprintf(
 				"a test run never calls %s, so this agent had nothing to work from and its answer cannot be checked",

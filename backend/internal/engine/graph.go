@@ -165,8 +165,8 @@ func BuildAttachMap(nodes []models.WorkflowNode, edges []models.WorkflowEdge) ma
 	}
 
 	result := make(map[string]models.AttachConfig)
-	// The same attach edge drawn (or built) twice would hand the agent two
-	// identical function declarations, which the model APIs reject.
+	// The same attach twice would hand the agent two identical function
+	// declarations, which the model APIs reject.
 	seen := make(map[[3]string]bool)
 	for _, e := range edges {
 		if e.Kind != models.EdgeKindAttach {

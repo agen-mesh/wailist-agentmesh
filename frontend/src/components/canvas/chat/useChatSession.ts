@@ -5,12 +5,9 @@ import { setProgressIn, type BuildProgress, type BuildStep } from "./buildProgre
 
 // The chat transcript for one workflow.
 //
-// Persisted server-side (PUT /workflows/:id/chat) so a page reload doesn't
-// lose the conversation, and so a turn stranded mid-run (see useChatConsole's
-// recovery effect) can still be found and settled after the reload. It used
-// to live in localStorage, which made the transcript per-browser: it was gone
-// on sign-out or a device change, and a stranded turn could only be recovered
-// in the browser that started it. All binding/settling below
+// Persisted server-side (PUT /workflows/:id/chat), not in localStorage, so
+// the conversation follows the user across browsers and a turn stranded
+// mid-run can still be settled after a reload. All binding/settling below
 // targets messages by predicate (last unbound pending turn, matching runId,
 // matching id) rather than by array position or a freshly-returned handle --
 // that's what lets a turn started before a page reload still resolve
@@ -201,15 +198,8 @@ function newSessionId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-/**
- * Load result, which must distinguish "this workflow has no transcript yet"
- * from "the transcript could not be read".
- *
- * Both start the console empty, but only the first may be written over. A
- * failed read that was allowed to persist would replace a conversation the
- * server still holds with the empty one on screen -- under localStorage a
- * failed read was inert, so this distinction is new and load-bearing.
- */
+// "no transcript yet" and "could not read it" both start the console empty,
+// but saving over the second destroys a conversation the server still holds.
 type LoadResult =
   | { ok: true; session: StoredSession | null }
   | { ok: false };
@@ -258,10 +248,8 @@ export function serialiseForStorage(session: StoredSession): string {
   }
 }
 
-// Saves run one after another. Two fire-and-forget PUTs can land out of
-// order -- the immediate write of a new turn overtaken by the debounced write
-// of its answer -- and the server keeps whichever arrives last, so an older
-// transcript would silently win.
+// Chained: two fire-and-forget PUTs can land out of order, and the server
+// keeps whichever arrives last.
 let saveChain: Promise<void> = Promise.resolve();
 
 function write(workflowId: string | undefined, session: StoredSession): void {
@@ -275,18 +263,10 @@ function write(workflowId: string | undefined, session: StoredSession): void {
     });
 }
 
-/**
- * Whether the transcript in state may be written back.
- *
- * Two ways it must not be, both of which end in a saved conversation being
- * replaced by one that was never really loaded:
- *  - the last load failed, so the empty console is a read error, not a fact;
- *  - the workflow changed and its transcript has not loaded yet, so what is
- *    in state still belongs to the previous one.
- *
- * Exported for tests: this is a data-loss path, so its behaviour is asserted
- * directly rather than inferred.
- */
+// Whether the transcript in state may be written back: not after a failed
+// load (the empty console is a read error, not a fact), and not before the
+// new workflow's own transcript has arrived. Exported because it is a
+// data-loss path and is asserted directly.
 export function canPersist(
   writable: boolean,
   loadedFor: string | undefined,
@@ -305,24 +285,20 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
   // straight setState here trips the cascading-render rule.
   const [hydrated, setHydrated] = useState(false);
 
-  // The workflow the transcript on screen belongs to, and whether it can be
-  // written back. Both are refs, not state: the persist effect below must see
-  // the new value on the very run that follows a workflow change, before any
-  // re-render.
+  // Refs, not state: the persist effect must see these on the run that
+  // follows a workflow change, before any re-render.
   const loadedFor = useRef<string | undefined>(undefined);
   const writable = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
-    // Switching workflows makes the transcript in state stale immediately --
-    // set synchronously, so a pending debounced save cannot write the
-    // previous workflow's conversation under this workflow's id. The
-    // rAF below cannot do this job: it is paused in a background tab while
-    // setTimeout keeps firing.
+    // Synchronous: a pending debounced save must not write the previous
+    // workflow's conversation under this id. rAF cannot do it -- background
+    // tabs pause it while timers keep firing.
     writable.current = false;
     loadedFor.current = undefined;
-    // Deferred a frame, as the localStorage version was: a setState in an
-    // effect body trips the cascading-render rule.
+    // Deferred a frame: a setState in an effect body trips the
+    // cascading-render rule.
     const frame = requestAnimationFrame(() => {
       setHydrated(false);
       void (async () => {
@@ -343,26 +319,16 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
     };
   }, [workflowId]);
 
-  // Persist once hydrated. Guarded on `hydrated` so the initial empty state
-  // can't overwrite a stored transcript before it loads.
-  //
-  // A new turn is written immediately: useChatConsole's recovery effect can
-  // only settle a turn stranded by a reload if that turn was already stored,
-  // and a run can start within a few hundred milliseconds of it appearing.
-  // Edits to existing turns (progress steps, the settled answer) are
-  // debounced instead -- a build emits one per tool call, and each is a
-  // request.
+  // New turns write immediately so a reload can still settle them; edits to
+  // existing turns (build progress, the answer) are debounced.
   const shapeRef = useRef("");
   useEffect(() => {
     if (!hydrated || !sessionId) return;
-    // Never write a transcript that was not read back: a load that failed
-    // leaves the console empty, and saving that would destroy the stored
-    // conversation. Never write one belonging to another workflow either.
+    // Never write a transcript that was not read back, or one belonging to
+    // another workflow.
     if (!canPersist(writable.current, loadedFor.current, workflowId)) return;
-    // Which turns exist, and which run each is bound to. Both have to be
-    // stored the moment they change: recovery after a reload finds a
-    // stranded turn by its runId (see useChatConsole), so a runId that were
-    // only written 600ms later would leave a turn that can never be settled.
+    // Recovery finds a stranded turn by its runId, so a new turn and a
+    // newly attached runId both have to be stored at once.
     const shape = messages.map((m) => `${m.id}:${m.runId ?? ""}`).join();
     const isNewTurn = shape !== shapeRef.current;
     shapeRef.current = shape;
@@ -435,8 +401,8 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
     setMessages((prev) => setProgressIn(prev, id, progress));
   }, []);
 
-  // Clearing is the user's own instruction, so it is written even when the
-  // last load failed -- it is the one empty transcript that is intentional.
+  // The one empty transcript that is intentional, so it is written even
+  // after a failed load.
   const reset = useCallback(() => {
     setMessages([]);
     const next = newSessionId();

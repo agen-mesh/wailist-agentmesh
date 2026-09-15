@@ -8,10 +8,8 @@ import (
 	"github.com/agentmesh/backend/internal/models"
 )
 
-// A manual trigger carries no message, so a test run started with one proves
-// nothing about a real run. A live build tested "news about Algorand" with an
-// input, passed, and told the user it worked -- while a real run of that
-// workflow reached the web search with nothing to search for.
+// A live build tested a web search with an input, passed, and told the user
+// it worked -- while a real manual run reaches it with nothing to search.
 func TestTestRunIgnoresInputForAManualTrigger(t *testing.T) {
 	var got string
 	tester := &testTracker{run: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {

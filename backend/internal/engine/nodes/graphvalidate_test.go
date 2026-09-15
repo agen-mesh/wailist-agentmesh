@@ -339,9 +339,7 @@ func TestAuditGraphReportsAWorkflowWithNoAgent(t *testing.T) {
 	}
 }
 
-// A live build wired the same provider and the same end step twice. The
-// engine now ignores the copy, but the builder should not make one: the
-// canvas draws both lines, and the model wastes a round on it.
+// A live build wired the same provider and end step twice.
 func TestValidateEdgeRejectsADuplicate(t *testing.T) {
 	graph := &models.WorkflowGraph{
 		Nodes: []models.WorkflowNode{
@@ -365,9 +363,7 @@ func TestValidateEdgeRejectsADuplicate(t *testing.T) {
 	}
 }
 
-// An agent outputs prose, so a parser downstream of it has nothing to parse.
-// A live build wired agent -> json_extract and the run died on "upstream
-// output is not valid JSON". The prompt already says not to; this enforces it.
+// An agent outputs prose, so a parser downstream has nothing to parse.
 func TestValidateEdgeRejectsAParserAfterAnAgent(t *testing.T) {
 	graph := &models.WorkflowGraph{
 		Nodes: []models.WorkflowNode{
@@ -385,8 +381,7 @@ func TestValidateEdgeRejectsAParserAfterAnAgent(t *testing.T) {
 	}
 }
 
-// "Markdown → HTML" renders agent output -- the catalog says so -- so
-// agent -> markdown is the node's intended wiring, not a mistake.
+// The catalog calls markdown "Render agent output", so this is its wiring.
 func TestValidateEdgeAllowsMarkdownAfterAnAgent(t *testing.T) {
 	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{
 		{ID: "a", Type: models.NodeTypeAgent},

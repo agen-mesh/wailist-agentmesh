@@ -52,9 +52,7 @@ func TestLiveBuildReport(t *testing.T) {
 	if key == "" {
 		t.Skip("no platform key")
 	}
-	// The websearch tool node reads the package-level key the server sets at
-	// boot, not DryRunOptions -- without this it fails every test run with
-	// "platform Gemini key is not configured".
+	// The websearch node reads the package-level key the server sets at boot.
 	nodes.SetPlatformKeys(map[string]string{"gemini": key})
 	cases := []struct{ category, prompt string }{
 		{"crypto", "tell me the price of dogecoin in euros"},

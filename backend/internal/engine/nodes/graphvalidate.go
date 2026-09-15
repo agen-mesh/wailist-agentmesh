@@ -110,9 +110,7 @@ func validateEdge(graph *models.WorkflowGraph, from, to, kind, toPort string) (s
 	if from == to {
 		return "", fmt.Errorf("add_edge: a node cannot flow into itself")
 	}
-	// An agent writes prose, so a parser reading its output has nothing to
-	// parse: a live build wired agent -> json_extract and the run died on
-	// "upstream output is not valid JSON".
+	// An agent writes prose; a parser reading that has nothing to parse.
 	if src.Type == models.NodeTypeAgent && parserTemplates[dst.Template] {
 		return "", fmt.Errorf(
 			"add_edge: %q parses structured data, and %q is an agent, which writes prose -- put the parser between the data step and the agent instead, and let the agent have the last word",
@@ -126,8 +124,7 @@ func validateEdge(graph *models.WorkflowGraph, from, to, kind, toPort string) (s
 	return "in", nil
 }
 
-// existingEdge returns the id of an edge already joining these two nodes the
-// same way, or "".
+// existingEdge returns the id of an edge already joining these two, or "".
 func existingEdge(graph *models.WorkflowGraph, from, to, kind string) string {
 	for _, e := range graph.Edges {
 		if e.From == from && e.To == to && string(e.Kind) == kind {
@@ -137,10 +134,8 @@ func existingEdge(graph *models.WorkflowGraph, from, to, kind string) string {
 	return ""
 }
 
-// parserTemplates read structured input and fail on anything else. The
-// markdown node is deliberately absent: it renders Markdown to HTML and the
-// catalog calls it "Render agent output", so an agent feeding it is the
-// wiring that node exists for.
+// parserTemplates read structured input and fail on anything else. markdown
+// is absent on purpose: the catalog calls it "Render agent output".
 var parserTemplates = map[string]bool{
 	"json_extract": true, "xml": true, "html_extract": true,
 }

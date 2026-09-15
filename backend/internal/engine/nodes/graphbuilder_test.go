@@ -237,9 +237,8 @@ func TestBuildGraphAddsNodeThenReturnsReply(t *testing.T) {
 // produced the most work. Replaces the old TestBuildGraphIterationCap, which
 // asserted that error.
 func TestBuildGraphOutOfIterationsKeepsWhatItBuilt(t *testing.T) {
-	// Always answer with another add_node call, so the loop can never
-	// terminate on its own and must hit the cap. Each one is a distinct node
-	// -- re-adding the identical node is refused as a rebuild.
+	// Always another add_node, so the loop must hit the cap. Distinct each
+	// time -- an identical one is refused as a rebuild.
 	var round int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		round++
@@ -1855,10 +1854,8 @@ func TestTestedAnswerNeverSubstitutesAnUnrelatedAgentReply(t *testing.T) {
 	}
 }
 
-// A system prompt is sent to the model verbatim (see engine/graph.go's
-// templateEligibleStrings), so a {{ ... }} reference in one is never
-// resolved -- the agent would read the braces. It has no need of one either:
-// it is handed the previous step's output as its input.
+// A system prompt is sent verbatim, so a {{ ... }} in one is never resolved
+// and the agent reads the braces.
 func TestAgentSystemPromptRejectsTemplateRefs(t *testing.T) {
 	for _, prompt := range []string{
 		"Report the price from {{ result }}",
@@ -1889,10 +1886,8 @@ func TestAgentSystemPromptWithoutRefsIsAccepted(t *testing.T) {
 	}
 }
 
-// Live builds rebuilt the whole workflow on later rounds instead of editing
-// what they had: 5 of 16 came back with 2-5 trigger nodes and up to 30 nodes,
-// and every one of those either failed or produced nothing. A workflow has
-// exactly one trigger, so the second add is the signal that it is happening.
+// 5 of 16 live builds rebuilt the whole workflow on a later round -- 2-5
+// triggers, up to 30 nodes -- and every one failed or produced nothing.
 func TestAddNodeRefusesASecondTrigger(t *testing.T) {
 	graph := &models.WorkflowGraph{}
 	if _, err := addGraphNode(graph, map[string]any{"type": "trigger", "template": "manual"}); err != nil {
@@ -1910,8 +1905,7 @@ func TestAddNodeRefusesASecondTrigger(t *testing.T) {
 	}
 }
 
-// The same rebuild, one step further in: a second copy of a step it already
-// added. Rejecting it hands the model the id of the one that exists.
+// The same rebuild: a second copy of a step it already added.
 func TestAddNodeRefusesAnIdenticalNode(t *testing.T) {
 	graph := &models.WorkflowGraph{}
 	args := map[string]any{
@@ -1939,10 +1933,8 @@ func TestAddNodeRefusesAnIdenticalNode(t *testing.T) {
 	}
 }
 
-// Gemini sometimes answers with a candidate carrying no text part at all.
-// Live runs hit it three times in one evening: one build died on its first
-// round, and the user was told the builder could not complete the request --
-// with everything it had built discarded. One retry rescues the round.
+// Gemini can answer with no text part at all -- three times in one evening.
+// One build died on its first round and lost everything it had built.
 func TestBuildGraphRetriesAnEmptyModelResponse(t *testing.T) {
 	var round int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1976,9 +1968,8 @@ func TestBuildGraphRetriesAnEmptyModelResponse(t *testing.T) {
 	}
 }
 
-// A tool402 node is only real if it has an endpoint to call. A live build
-// added one named after a Bazaar id with no endpoint, price or parameters --
-// a node that looks configured on the canvas and can never run.
+// A live build added a tool402 node named after a Bazaar id with no
+// endpoint: configured-looking on the canvas, unrunnable in fact.
 func TestAddNodeRefusesATool402WithNoEndpoint(t *testing.T) {
 	graph := &models.WorkflowGraph{}
 	_, err := addGraphNode(graph, map[string]any{
@@ -1998,10 +1989,8 @@ func TestAddNodeRefusesATool402WithNoEndpoint(t *testing.T) {
 	}
 }
 
-// The repair round splices the graph into its message. Spliced into the
-// format string instead of in front of it, a "%" anywhere in the graph -- a
-// url with %20, a description mentioning 50% -- eats the findings argument,
-// and the round tells the model nothing about what is broken.
+// A "%" anywhere in the graph -- a %20 in a url, "50%" in a description --
+// eats the findings if the graph is spliced into the format string.
 func TestRepairRoundSurvivesAPercentInTheGraph(t *testing.T) {
 	graph := models.WorkflowGraph{Nodes: []models.WorkflowNode{
 		{ID: "n1", Type: models.NodeTypeTool, Template: "http", URL: "https://api.x.com/s?q=a%20b&pct=50%"},
@@ -2018,8 +2007,7 @@ func TestRepairRoundSurvivesAPercentInTheGraph(t *testing.T) {
 	}
 }
 
-// {{ state.x }} IS resolved in a system prompt -- runner.go expands it
-// (ExpandState) before the agent runs -- so the guard must not refuse it.
+// {{ state.x }} is resolved in a system prompt (runner.go ExpandState).
 func TestAgentSystemPromptAllowsStateRefs(t *testing.T) {
 	graph := &models.WorkflowGraph{}
 	if _, err := addGraphNode(graph, map[string]any{
@@ -2030,8 +2018,7 @@ func TestAgentSystemPromptAllowsStateRefs(t *testing.T) {
 	}
 }
 
-// Two branches can each end in their own end node, and an end node carries
-// nothing to tell one from the other.
+// Two branches can each end in their own end node.
 func TestAddNodeAllowsASecondEndNode(t *testing.T) {
 	graph := &models.WorkflowGraph{}
 	if _, err := addGraphNode(graph, map[string]any{"type": "end", "template": "done", "name": "End"}); err != nil {
@@ -2042,8 +2029,8 @@ func TestAddNodeAllowsASecondEndNode(t *testing.T) {
 	}
 }
 
-// The rebuild guard has to hold for agents too. Their systemPrompt is stored
-// with the answer guard appended, so comparing the raw argument never matched.
+// The guard must hold for agents, whose prompt is stored with the answer
+// guard appended.
 func TestAddNodeRefusesAnIdenticalAgent(t *testing.T) {
 	graph := &models.WorkflowGraph{}
 	args := map[string]any{
@@ -2058,8 +2045,7 @@ func TestAddNodeRefusesAnIdenticalAgent(t *testing.T) {
 	}
 }
 
-// A live build configured a set node with setFields that were not valid
-// JSON, and the run died on it. The shape is checkable while building.
+// A live build wrote JavaScript-style keys into setFields and the run died.
 func TestSetFieldsMustBeAJSONObject(t *testing.T) {
 	graph := &models.WorkflowGraph{}
 	_, err := addGraphNode(graph, map[string]any{
@@ -2080,10 +2066,8 @@ func TestSetFieldsMustBeAJSONObject(t *testing.T) {
 	}
 }
 
-// ".result" is the same mistake ".output" already guards: a node's output is
-// the reference itself. A live build wrote {{node.<id>.result}} into a
-// Telegram message, walkPath found no such field, and resolveTemplate left
-// the braces in the text the user received.
+// ".result" is the mistake ".output" already guards. One reached a user: a
+// Telegram message went out reading {{node.<id>.result}}.
 func TestTemplateRefRejectsDotResult(t *testing.T) {
 	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{{ID: "n1", Type: models.NodeTypeAction, Template: "rss"}}}
 	err := validateTemplateRefs(graph, map[string]string{"messageTemplate": "New item: {{node.n1.result}}"})
@@ -2095,11 +2079,8 @@ func TestTemplateRefRejectsDotResult(t *testing.T) {
 	}
 }
 
-// A dropped connection mid-build lost everything: BuildGraph returned an
-// error, so BuildWorkflow never reached its save and every node built so far
-// went with it. Seen live -- "read: connection reset by peer" 77 seconds into
-// a build. The call is retried, and if the network stays down the partial
-// graph comes back instead of nothing.
+// A reset peer 77s into a live build returned an error, so the save was
+// never reached and every node built went with it.
 func TestBuildGraphKeepsItsWorkWhenTheConnectionDrops(t *testing.T) {
 	var round int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

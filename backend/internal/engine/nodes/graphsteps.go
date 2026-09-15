@@ -116,9 +116,7 @@ func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c gemin
 		input := argString(c.args, "input")
 		manualNote := ""
 		// A manual trigger carries no message, so a test started with one
-		// proves nothing: a live build tested a web search with an input,
-		// passed, and told the user it worked -- while a real run reached
-		// that search with nothing to search for.
+		// proves nothing about a real run.
 		if strings.TrimSpace(input) != "" && startsManually(*graph) {
 			input = ""
 			manualNote = " This workflow starts from a manual trigger, which carries no message, so your input was ignored and it was tested exactly as a real run starts -- with none. A step that needs something to work on must get it from a node in the workflow, not from the test input."
@@ -211,8 +209,8 @@ func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c gemin
 	return map[string]any{"result": result + probeNote}
 }
 
-// startsManually reports whether every trigger on the graph is a manual one,
-// so a run of it never carries an incoming message.
+// startsManually reports whether every trigger is manual, so a run never
+// carries an incoming message.
 func startsManually(graph models.WorkflowGraph) bool {
 	found := false
 	for _, n := range graph.Nodes {

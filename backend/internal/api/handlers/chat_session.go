@@ -12,9 +12,8 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// The console chat transcript, stored server-side so it follows the user
-// across browsers and devices instead of living in one browser's
-// localStorage. The client owns the transcript's shape and sends it whole.
+// The console chat transcript, stored server-side rather than in one
+// browser's localStorage. The client owns its shape and sends it whole.
 
 func (d *Deps) GetChatSession(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -44,8 +43,7 @@ func (d *Deps) SaveChatSession(w http.ResponseWriter, r *http.Request) {
 		SessionID string          `json:"sessionId"`
 		Messages  json.RawMessage `json:"messages"`
 	}
-	// Bounded before decoding: an unbounded body would be read into memory
-	// whole only to be rejected by the store's own cap.
+	// Bounded before decoding, not after.
 	if err := json.NewDecoder(io.LimitReader(r.Body, db.MaxChatTranscriptBytes+1024)).Decode(&body); err != nil {
 		respond.Error(w, http.StatusBadRequest, "invalid conversation")
 		return
@@ -58,8 +56,7 @@ func (d *Deps) SaveChatSession(w http.ResponseWriter, r *http.Request) {
 			respond.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		// A database failure is not the client's to correct, and its text
-		// carries internals the chat should never show.
+		// Not the client's to correct, and its text carries internals.
 		log.Printf("save chat transcript for workflow %s: %v", id, err)
 		respond.Error(w, http.StatusInternalServerError, "could not save the conversation")
 		return

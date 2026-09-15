@@ -138,10 +138,8 @@ func TestBuildAttachMap_IgnoresNonProviderOnModelPort(t *testing.T) {
 	}
 }
 
-// A duplicated tools-attach edge must not hand the agent the same tool
-// twice: the two become two identical function declarations, which the model
-// APIs reject outright. A live build wrote duplicate edges, and the canvas
-// lets one be drawn twice as well.
+// The same tool twice becomes two identical function declarations, which
+// the model APIs reject outright.
 func TestBuildAttachMapIgnoresADuplicateAttachEdge(t *testing.T) {
 	nodes := []models.WorkflowNode{
 		{ID: "a", Type: models.NodeTypeAgent},

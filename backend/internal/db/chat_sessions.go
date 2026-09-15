@@ -9,13 +9,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// MaxChatTranscriptBytes bounds one stored transcript. The client trims its
-// own history well below this; the cap is here so a runaway transcript
-// cannot grow a row without limit.
+// MaxChatTranscriptBytes bounds one stored transcript.
 const MaxChatTranscriptBytes = 512 * 1024
 
-// ErrInvalidTranscript marks a transcript the client got wrong, so the
-// handler can answer 400 for those and 500 for a database failure.
+// ErrInvalidTranscript separates a client mistake (400) from a database
+// failure (500).
 var ErrInvalidTranscript = errors.New("invalid chat transcript")
 
 // ChatSession is one workflow's console transcript.
@@ -24,8 +22,7 @@ type ChatSession struct {
 	Messages  json.RawMessage `json:"messages"`
 }
 
-// GetChatSession returns the stored transcript, or an empty one for a
-// workflow that has no conversation yet.
+// GetChatSession returns the transcript, or an empty one if there is none.
 func (s *Store) GetChatSession(ctx context.Context, workflowID string) (ChatSession, error) {
 	var out ChatSession
 	err := s.pool.QueryRow(ctx, `
@@ -40,8 +37,7 @@ func (s *Store) GetChatSession(ctx context.Context, workflowID string) (ChatSess
 	return out, nil
 }
 
-// SaveChatSession replaces the transcript. The client owns the whole
-// transcript and sends it entire, exactly as it wrote one localStorage key.
+// SaveChatSession replaces the transcript; the client sends it whole.
 func (s *Store) SaveChatSession(ctx context.Context, workflowID, sessionID string, messages json.RawMessage) error {
 	if len(messages) > MaxChatTranscriptBytes {
 		return fmt.Errorf("%w: %d bytes, over the %d byte limit", ErrInvalidTranscript, len(messages), MaxChatTranscriptBytes)

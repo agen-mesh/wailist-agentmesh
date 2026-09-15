@@ -457,8 +457,8 @@ func TestResolveModelWithoutLockIsUnchanged(t *testing.T) {
 	}
 }
 
-// captureUserText serves one canned reply and records the user message the
-// agent sent, for both the OpenAI-compatible and Gemini request shapes.
+// captureUserText records the user message the agent sent, for both the
+// OpenAI-compatible and Gemini shapes.
 func captureUserText(t *testing.T, gemini bool, got *string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -510,9 +510,7 @@ func runAgentWith(t *testing.T, gemini bool, rc *engine.RunContext) string {
 	return got
 }
 
-// An agent placed after a data step must be handed that step's output: the
-// chat builder always ends a workflow with trigger -> data -> agent, and
-// before this the agent only ever saw the trigger's input.
+// An agent after a data step must be handed that step's output.
 func TestAgentReceivesUpstreamStepOutput(t *testing.T) {
 	for _, gemini := range []bool{false, true} {
 		rc := engine.NewRunContext("run1", []byte(`{"message":"what is myrad worth?"}`))
@@ -528,8 +526,7 @@ func TestAgentReceivesUpstreamStepOutput(t *testing.T) {
 	}
 }
 
-// A manual trigger carries no message, so the upstream output is all there
-// is -- and an empty user message is rejected outright by Gemini.
+// A manual trigger carries no message, so the upstream output is all there is.
 func TestAgentAfterDataStepWithManualTrigger(t *testing.T) {
 	rc := engine.NewRunContext("run1", nil)
 	rc.Set("t1", nil)
@@ -550,9 +547,7 @@ func TestAgentDirectlyAfterTriggerSendsInputOnce(t *testing.T) {
 	}
 }
 
-// A feed or HTTP step can return megabytes. Inlined whole, that is a request
-// past the model's context window -- billed on the platform key before it
-// fails -- so the step's output is capped before it reaches the prompt.
+// A feed can return megabytes -- capped before it reaches the prompt.
 func TestAgentInputCapsAHugeUpstreamOutput(t *testing.T) {
 	rc := engine.NewRunContext("run1", []byte(`{"message":"summarise this"}`))
 	rc.Set("t1", map[string]any{"message": "summarise this"})
