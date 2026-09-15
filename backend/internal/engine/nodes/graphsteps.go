@@ -204,7 +204,15 @@ func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c gemin
 	}
 	result, err := applyGraphOp(graph, c.name, c.args)
 	if err != nil {
-		return map[string]any{"result": "error: " + err.Error()}
+		msg := "error: " + err.Error()
+		// A rejected add_node created nothing, so there is no id to refer to.
+		// Without saying so, a live build invented one ("n_1789376858057591417")
+		// and spent its next two rounds trying to update and connect a node
+		// that never existed.
+		if c.name == "add_node" {
+			msg += " -- no node was created, so there is no id for it yet; fix the call and add it again"
+		}
+		return map[string]any{"result": msg}
 	}
 	return map[string]any{"result": result + probeNote}
 }
