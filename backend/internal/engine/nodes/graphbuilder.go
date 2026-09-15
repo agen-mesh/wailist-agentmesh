@@ -632,6 +632,17 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 	if node.Type == models.NodeTypeProvider && node.KeyMode == "" {
 		node.KeyMode = "platform"
 	}
+	// One retry on a read node. The runner only ever spends it on an error
+	// the node itself marked retryable -- a 5xx or a dropped connection on
+	// an idempotent method -- so a bad request is still not repeated. These
+	// fields have been on every node, and clamped on save, since retries
+	// shipped, but nothing ever set them: every built node ran with none.
+	// Deterministic here rather than a prompt rule, for the same reason the
+	// provider's keyMode default above is.
+	if IsDegradable(node) {
+		node.MaxRetries = 1
+		node.RetryBackoffMs = 500
+	}
 	graph.Nodes = append(graph.Nodes, node)
 	return fmt.Sprintf("added node %s (%s/%s)%s", id, nodeType, node.Template, rules.userSupplied()), nil
 }

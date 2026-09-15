@@ -2199,3 +2199,52 @@ func TestWithAnswerGuardIncludesDegradedClause(t *testing.T) {
 		})
 	}
 }
+
+func TestAddNodeSetsRetriesOnReadNodes(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        map[string]any
+		wantRetries int
+		wantBackoff int
+	}{
+		{
+			name:        "http GET retries",
+			args:        map[string]any{"type": "tool", "template": "http", "name": "Fetch", "fields": map[string]any{"url": "https://example.com/api", "method": "GET"}},
+			wantRetries: 1,
+			wantBackoff: 500,
+		},
+		{
+			name:        "http POST does not",
+			args:        map[string]any{"type": "tool", "template": "http", "name": "Send", "fields": map[string]any{"url": "https://example.com/api", "method": "POST"}},
+			wantRetries: 0,
+			wantBackoff: 0,
+		},
+		{
+			name:        "a read connector retries",
+			args:        map[string]any{"type": "action", "template": "hackernews", "name": "Stories"},
+			wantRetries: 1,
+			wantBackoff: 500,
+		},
+		{
+			name:        "slack does not",
+			args:        map[string]any{"type": "action", "template": "slack", "name": "Notify"},
+			wantRetries: 0,
+			wantBackoff: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			graph := &models.WorkflowGraph{}
+			if _, err := addGraphNode(graph, tt.args); err != nil {
+				t.Fatalf("add_node: %v", err)
+			}
+			n := graph.Nodes[len(graph.Nodes)-1]
+			if n.MaxRetries != tt.wantRetries {
+				t.Errorf("MaxRetries = %d, want %d", n.MaxRetries, tt.wantRetries)
+			}
+			if n.RetryBackoffMs != tt.wantBackoff {
+				t.Errorf("RetryBackoffMs = %d, want %d", n.RetryBackoffMs, tt.wantBackoff)
+			}
+		})
+	}
+}
