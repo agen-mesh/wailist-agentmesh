@@ -520,10 +520,12 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
 
   // Nothing that could run yet means chat always builds. Once the graph is
   // runnable -- or has a provider, which kept the Build/Run choice available
-  // for hand-built workflows before readiness was judged from the graph, and
-  // still does so nothing a user has already made gets newly stuck -- the
-  // Build/Run pill decides.
-  const canLeaveBuildMode = graphReady || hasProviderNode;
+  // for hand-built workflows before readiness was judged from the graph --
+  // the Build/Run switch decides.
+  //
+  // A chat trigger is required too: without one a run carries no message, so
+  // a run conversation would be typing into something that never reads it.
+  const canLeaveBuildMode = (graphReady || hasProviderNode) && hasChatTrigger;
   const buildMode =
     can("workflow.buildFromChat", readOnly) &&
     (!canLeaveBuildMode || manualBuildMode);
@@ -564,7 +566,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     async (
       text: string,
       onProgress?: (p: BuildProgress) => void,
-    ): Promise<{ ok: boolean; reply?: string }> => {
+    ): Promise<{ ok: boolean; reply?: string; onSettled?: () => void }> => {
       if (!workflow) return { ok: false };
       // Poll the build's steps while it runs so the chat can show them. The
       // poller is stopped -- with one final flush -- before this returns, so
@@ -605,10 +607,16 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         // build made a graph that could not run runnable -- a half-built one
         // keeps the conversation going, and a user who chose Build on an
         // already-runnable workflow keeps that choice (shouldReleaseBuildMode).
-        if (shouldReleaseBuildMode(before, res.workflow)) {
-          setManualBuildMode(false);
-        }
-        return { ok: true, reply: res.reply };
+        // Handed back rather than applied here: the caller settles the chat
+        // turn first, because the mode change swaps the transcript out from
+        // under it.
+        return {
+          ok: true,
+          reply: res.reply,
+          onSettled: shouldReleaseBuildMode(before, res.workflow)
+            ? () => setManualBuildMode(false)
+            : undefined,
+        };
       } catch (err: unknown) {
         await poller?.stop();
         const message = err instanceof Error ? err.message : "unknown error";
@@ -926,7 +934,12 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                         can("workflow.buildFromChat", readOnly) &&
                         canLeaveBuildMode
                       }
-                      onToggleBuildMode={() => setManualBuildMode((v) => !v)}
+                      onToggleBuildMode={
+                        can("workflow.buildFromChat", readOnly)
+                          ? () => setManualBuildMode((v) => !v)
+                          : undefined
+                      }
+                      hasChatTrigger={hasChatTrigger}
                       blockedNode={
                         showBlockedCard && blockedReason ? (
                           <RunBlockedCard
@@ -992,7 +1005,12 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                       can("workflow.buildFromChat", readOnly) &&
                       canLeaveBuildMode
                     }
-                    onToggleBuildMode={() => setManualBuildMode((v) => !v)}
+                    onToggleBuildMode={
+                      can("workflow.buildFromChat", readOnly)
+                        ? () => setManualBuildMode((v) => !v)
+                        : undefined
+                    }
+                    hasChatTrigger={hasChatTrigger}
                     blockedNode={
                       showBlockedCard && blockedReason ? (
                         <RunBlockedCard
@@ -1057,7 +1075,7 @@ function ChatConsoleHost({
   onBuildMessage?: (
     text: string,
     onProgress?: (p: BuildProgress) => void,
-  ) => Promise<{ ok: boolean; reply?: string }>;
+  ) => Promise<{ ok: boolean; reply?: string; onSettled?: () => void }>;
   attempt?: number;
   children: (chat: ChatConsole) => React.ReactNode;
 }) {

@@ -67,6 +67,9 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Put("/workflows/{id}", d.UpdateWorkflow)
 		r.Delete("/workflows/{id}", d.DeleteWorkflow)
 
+		r.Get("/workflows/{id}/chat", d.GetChatSession)
+		r.Put("/workflows/{id}/chat", d.SaveChatSession)
+
 		r.Get("/workflows/{id}/variables", d.ListVariables)
 		r.Put("/workflows/{id}/variables/{key}", d.SetVariable)
 		r.Delete("/workflows/{id}/variables/{key}", d.DeleteVariable)

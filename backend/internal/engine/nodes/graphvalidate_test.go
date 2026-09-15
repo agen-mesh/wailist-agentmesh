@@ -338,3 +338,56 @@ func TestAuditGraphReportsAWorkflowWithNoAgent(t *testing.T) {
 		t.Fatalf("want a finding that the workflow has no agent, got %v", auditGraph(g))
 	}
 }
+
+// A live build wired the same provider and end step twice.
+func TestValidateEdgeRejectsADuplicate(t *testing.T) {
+	graph := &models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "a", Type: models.NodeTypeAgent},
+			{ID: "p", Type: models.NodeTypeProvider},
+			{ID: "e", Type: models.NodeTypeEnd},
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "e1", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"},
+			{ID: "e2", From: "a", To: "e", Kind: models.EdgeKindFlow, ToPort: "in"},
+		},
+	}
+	if _, err := validateEdge(graph, "p", "a", "attach", "model"); err == nil {
+		t.Error("a duplicate attach edge was accepted")
+	}
+	if _, err := validateEdge(graph, "a", "e", "flow", ""); err == nil {
+		t.Error("a duplicate flow edge was accepted")
+	}
+	if _, err := validateEdge(graph, "p", "a", "attach", ""); err == nil {
+		t.Error("a duplicate attach edge with an omitted port was accepted")
+	}
+}
+
+// An agent outputs prose, so a parser downstream has nothing to parse.
+func TestValidateEdgeRejectsAParserAfterAnAgent(t *testing.T) {
+	graph := &models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "a", Type: models.NodeTypeAgent},
+			{ID: "j", Type: models.NodeTypeTool, Template: "json_extract"},
+			{ID: "h", Type: models.NodeTypeTool, Template: "http"},
+		},
+	}
+	if _, err := validateEdge(graph, "a", "j", "flow", ""); err == nil {
+		t.Error("agent -> json_extract was accepted")
+	}
+	// An agent into a tool that does not parse its input is still legal.
+	if _, err := validateEdge(graph, "a", "h", "flow", ""); err != nil {
+		t.Errorf("agent -> http must stay legal: %v", err)
+	}
+}
+
+// The catalog calls markdown "Render agent output", so this is its wiring.
+func TestValidateEdgeAllowsMarkdownAfterAnAgent(t *testing.T) {
+	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{
+		{ID: "a", Type: models.NodeTypeAgent},
+		{ID: "m", Type: models.NodeTypeTool, Template: "markdown"},
+	}}
+	if _, err := validateEdge(graph, "a", "m", "flow", ""); err != nil {
+		t.Errorf("agent -> markdown is what that node is for: %v", err)
+	}
+}

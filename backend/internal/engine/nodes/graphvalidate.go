@@ -66,6 +66,9 @@ func validateEdge(graph *models.WorkflowGraph, from, to, kind, toPort string) (s
 	}
 
 	if kind == string(models.EdgeKindAttach) {
+		if dup := existingEdge(graph, from, to, kind); dup != "" {
+			return "", fmt.Errorf("add_edge: %s is already connected to %s (edge %s) -- it is wired, leave it alone", from, to, dup)
+		}
 		if dst.Type != models.NodeTypeAgent {
 			return "", fmt.Errorf(
 				"add_edge: an attach edge must end at an agent node, but %q is a %s -- attach edges go provider/tool -> agent",
@@ -88,6 +91,9 @@ func validateEdge(graph *models.WorkflowGraph, from, to, kind, toPort string) (s
 		return want, nil
 	}
 
+	if dup := existingEdge(graph, from, to, kind); dup != "" {
+		return "", fmt.Errorf("add_edge: %s already flows into %s (edge %s) -- it is wired, leave it alone", from, to, dup)
+	}
 	if !flowSources[src.Type] {
 		if src.Type == models.NodeTypeProvider {
 			return "", fmt.Errorf(
@@ -104,12 +110,34 @@ func validateEdge(graph *models.WorkflowGraph, from, to, kind, toPort string) (s
 	if from == to {
 		return "", fmt.Errorf("add_edge: a node cannot flow into itself")
 	}
+	// An agent writes prose; a parser reading that has nothing to parse.
+	if src.Type == models.NodeTypeAgent && parserTemplates[dst.Template] {
+		return "", fmt.Errorf(
+			"add_edge: %q parses structured data, and %q is an agent, which writes prose -- put the parser between the data step and the agent instead, and let the agent have the last word",
+			to, from)
+	}
 	// Longer loops too: the engine topologically sorts the flow and fails
 	// every run of a graph that loops ("cycle detected in workflow graph").
 	if flowReaches(*graph, to, from) {
 		return "", fmt.Errorf("add_edge: connecting %q -> %q would create a loop, because %q already leads back to %q -- a workflow's flow cannot loop", from, to, to, from)
 	}
 	return "in", nil
+}
+
+// existingEdge returns the id of an edge already joining these two, or "".
+func existingEdge(graph *models.WorkflowGraph, from, to, kind string) string {
+	for _, e := range graph.Edges {
+		if e.From == from && e.To == to && string(e.Kind) == kind {
+			return e.ID
+		}
+	}
+	return ""
+}
+
+// parserTemplates read structured input and fail on anything else. markdown
+// is absent on purpose: the catalog calls it "Render agent output".
+var parserTemplates = map[string]bool{
+	"json_extract": true, "xml": true, "html_extract": true,
 }
 
 // flowReaches reports whether dst can be reached from src along flow edges.

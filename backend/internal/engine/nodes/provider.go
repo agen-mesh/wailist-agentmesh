@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/agentmesh/backend/internal/models"
 )
@@ -457,6 +458,42 @@ func paymentReceipt(p *ToolPaymentInfo) map[string]any {
 	return receipt
 }
 
+// agentInput is what the agent is asked: the run's input plus the output of
+// the step it follows. Before this an agent placed after data steps saw only
+// the trigger input, never the data it was added to explain.
+// clipRunes cuts s to at most n bytes on a rune boundary, saying so.
+func clipRunes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "\n… (truncated: the step returned more data than fits in one prompt)"
+}
+
+// maxAgentInputData bounds the upstream output pasted into the prompt: a
+// feed can return megabytes, billed before the provider refuses it.
+const maxAgentInputData = 32000
+
+// rc.Message() is the most recent output -- for a single chain the agent's
+// own predecessor, for parallel branches whichever finished last (#212).
+func agentInput(rc RunContexter) string {
+	ask := strings.TrimSpace(rc.UserInput())
+	data := clipRunes(strings.TrimSpace(rc.Message()), maxAgentInputData)
+	switch {
+	case ask == "" && data == "":
+		// Gemini rejects an empty user part.
+		return "Begin."
+	case data == "" || data == ask:
+		return ask
+	case ask == "":
+		return data
+	}
+	return ask + "\n\nInput from the previous step:\n" + data
+}
+
 func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter, checkBalance BalanceChecker, platformKeys map[string]string, relayCfg X402RelayConfig) (any, error) {
 	model := ResolveModel(provider.Template, provider.Model)
 
@@ -469,7 +506,7 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 	apiHeaders := map[string]string{"x-goog-api-key": apiKey}
 
 	contents := []map[string]any{
-		{"role": "user", "parts": []map[string]any{{"text": rc.UserInput()}}},
+		{"role": "user", "parts": []map[string]any{{"text": agentInput(rc)}}},
 	}
 
 	payload := map[string]any{"contents": contents}
@@ -580,6 +617,10 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 	return nil, fmt.Errorf("agent exceeded maximum tool call iterations (%d)", maxToolIterations)
 }
 
+// ErrNoModelText is the model answering with neither text nor a function
+// call -- not a fault, so a dry run can tell it apart from a bad key.
+var ErrNoModelText = errors.New("no text part in Gemini response")
+
 func extractGeminiText(resp map[string]any) (string, error) {
 	candidates, _ := resp["candidates"].([]any)
 	if len(candidates) == 0 {
@@ -593,7 +634,11 @@ func extractGeminiText(resp map[string]any) (string, error) {
 			return text, nil
 		}
 	}
-	return "", fmt.Errorf("no text part in Gemini response")
+	reason, _ := candidates[0].(map[string]any)["finishReason"].(string)
+	if reason == "" {
+		reason = "none given"
+	}
+	return "", fmt.Errorf("%w (finish reason: %s, %d parts)", ErrNoModelText, reason, len(parts))
 }
 
 type geminiFuncCall struct {
@@ -643,7 +688,7 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 	if agent.SystemPrompt != "" {
 		messages = append(messages, map[string]any{"role": "system", "content": agent.SystemPrompt})
 	}
-	messages = append(messages, map[string]any{"role": "user", "content": rc.UserInput()})
+	messages = append(messages, map[string]any{"role": "user", "content": agentInput(rc)})
 
 	payload := map[string]any{"model": model, "messages": messages}
 
@@ -780,7 +825,7 @@ func callAnthropic(ctx context.Context, agent models.WorkflowNode, provider mode
 	payload := map[string]any{
 		"model":      model,
 		"max_tokens": 4096,
-		"messages":   []anthMsg{{Role: "user", Content: rc.UserInput()}},
+		"messages":   []anthMsg{{Role: "user", Content: agentInput(rc)}},
 	}
 	if agent.SystemPrompt != "" {
 		payload["system"] = agent.SystemPrompt
