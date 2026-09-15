@@ -895,3 +895,47 @@ func TestDryRunChargesAnEmptyAnswerWithAWithheldTool(t *testing.T) {
 		t.Error("the model call happened and was billed, so it must be charged")
 	}
 }
+
+// TestDryRunContinuesPastADegradableFailure: at run time a failed read step
+// degrades and the run carries on (nodes.IsDegradable), so a test run that
+// stopped at the first one would judge the workflow by behaviour a real run
+// no longer has -- and would never show the builder the answer the user
+// actually gets.
+//
+// It still counts as a fault. A test run happens while the workflow is being
+// built, where a failing source is usually a wrong id, a wrong path or a dead
+// API that the builder can fix; degrading silently there would ship exactly
+// the broken workflow the test gate exists to catch.
+func TestDryRunContinuesPastADegradableFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	g := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			dn("t", models.NodeTypeTrigger, "manual"),
+			{ID: "h", Type: models.NodeTypeTool, Template: "http", Name: "h", URL: srv.URL, Method: "GET"},
+			dn("e", models.NodeTypeEnd, "done"),
+		},
+		Edges: []models.WorkflowEdge{flow("t", "h"), flow("h", "e")},
+	}
+	res := DryRun(context.Background(), g, DryRunOptions{})
+
+	if !res.Degraded {
+		t.Errorf("Degraded = false, want true: a read step failed and the run carried on")
+	}
+	if !res.Failed {
+		t.Errorf("Failed = false, want true: a failing source during a build is a fault to fix")
+	}
+	if s := stepOf(res, "h"); s.Status != "failed" {
+		t.Errorf("step status = %q, want %q", s.Status, "failed")
+	}
+	if s := stepOf(res, "e"); s.Status == "" {
+		t.Error("the test run stopped at the failed step instead of carrying on to the end")
+	}
+	// The other side of the contract -- a failure that still ends a test run
+	// -- is TestDryRunReportsAModelKeyRejectionAsAFailure above: a dry run
+	// simulates every real action, so an agent's is the failure left that can
+	// end one.
+}
