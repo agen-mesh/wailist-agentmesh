@@ -1413,13 +1413,13 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		text = strings.TrimRight(text, " \n")
 		switch {
 		case tester.dirty:
-			return text + "\n\n_This workflow has not been test-run since it was last changed, so it has not been checked yet._"
+			return text + trailerUntested
 		case tester.last == nil:
 			return text
 		case tester.last.Failed || tester.last.Empty:
-			return text + "\n\n_The last test run did not produce an answer: " + testProblem(*tester.last) + "._"
+			return text + trailerTestNoAnswer + testProblem(*tester.last) + "._"
 		case tester.last.Unverified:
-			return text + "\n\n_Not checked by the test run: " + unverifiedSteps(*tester.last) + "._"
+			return text + trailerNotChecked + unverifiedSteps(*tester.last) + "._"
 		}
 		// The user must see what the test actually produced. A reply that
 		// ended "Here is the test run output:" and then nothing did not show
@@ -1428,7 +1428,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		// and a reply quoting it in full contains the clipped prefix but not
 		// the ellipsis, so the plain check would append a duplicate.
 		if answer := strings.TrimSpace(testedAnswer(*tester.last)); answer != "" && !strings.Contains(text, strings.TrimSuffix(answer, "…")) {
-			text += "\n\n**Test run answer:** " + answer
+			text += trailerTestedAnswer + answer
 		}
 		return text
 	}
@@ -1461,12 +1461,16 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		if h.Role != "user" && h.Role != "model" {
 			continue
 		}
-		if strings.TrimSpace(h.Text) == "" {
+		// Clipped before the emptiness check, not after: a model turn that
+		// was nothing but a test-run note clips to "", and Gemini rejects an
+		// empty part as readily as it rejects a bad role.
+		replayed := clipHistoryText(h.Role, h.Text)
+		if strings.TrimSpace(replayed) == "" {
 			continue
 		}
 		contents = append(contents, map[string]any{
 			"role":  h.Role,
-			"parts": []map[string]any{{"text": h.Text}},
+			"parts": []map[string]any{{"text": replayed}},
 		})
 	}
 	contents = append(contents, map[string]any{
