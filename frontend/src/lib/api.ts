@@ -695,7 +695,7 @@ export interface RunLogRecord {
   stepIndex: number;
   nodeId: string;
   nodeType: string;
-  status: "pending" | "running" | "success" | "failed";
+  status: "pending" | "running" | "success" | "failed" | "degraded";
   output?: unknown;
   durationMs?: number;
   ts: string;

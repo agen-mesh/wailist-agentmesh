@@ -20,7 +20,9 @@ export interface LogEvent {
   stepIndex: number;
   nodeId: string;
   nodeType: string;
-  status: "running" | "success" | "failed" | "stopped";
+  // "degraded": a read step failed and the run carried on with an error
+  // payload rather than stopping (backend: engine.Runner, nodes.IsDegradable).
+  status: "running" | "success" | "failed" | "stopped" | "degraded";
   output: unknown;
   durationMs: number;
   ts: string;
