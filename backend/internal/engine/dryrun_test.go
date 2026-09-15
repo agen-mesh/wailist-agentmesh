@@ -849,3 +849,49 @@ func TestDryRunStillBlamesARealAgentFailure(t *testing.T) {
 		t.Fatalf("a refused model call is the workflow's problem to fix: %+v", res.Steps)
 	}
 }
+
+// The model call is billed to the platform key the moment it returns, so it
+// must be charged however the result is later classified. A withheld tool
+// used to return before the charge, making every test run of such a
+// workflow free.
+func TestDryRunChargesAnEmptyAnswerWithAWithheldTool(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"candidates": []map[string]any{
+				{"content": map[string]any{"parts": []map[string]any{{"text": ""}}}},
+			},
+		})
+	}))
+	defer srv.Close()
+	nodes.SetGeminiBaseURL(srv.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	graph := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "t", Type: models.NodeTypeTrigger, Template: "manual", Name: "Start"},
+			{ID: "a", Type: models.NodeTypeAgent, Template: "agent", Name: "Explain"},
+			{ID: "p", Type: models.NodeTypeProvider, Template: "gemini", Name: "Gemini", KeyMode: "platform"},
+			{ID: "x", Type: models.NodeTypeTool402, Name: "Paid Prices", Endpoint: "https://api.example.com/x402/prices"},
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "e1", From: "t", To: "a", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "e2", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"},
+			{ID: "e3", From: "x", To: "a", Kind: models.EdgeKindAttach, ToPort: "tools"},
+		},
+	}
+	var charged int64
+	res := DryRun(context.Background(), graph, DryRunOptions{
+		PlatformKeys: map[string]string{"gemini": "k"},
+		ChargeAgent: func(ctx context.Context, nodeID string, amount int64, model string) error {
+			charged += amount
+			return nil
+		},
+	})
+	if !res.Unverified {
+		t.Fatalf("the withheld tool still explains the empty answer: %+v", res.Steps)
+	}
+	if charged == 0 {
+		t.Error("the model call happened and was billed, so it must be charged")
+	}
+}

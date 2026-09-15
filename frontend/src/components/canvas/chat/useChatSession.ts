@@ -270,16 +270,14 @@ function write(
     });
 }
 
-// Whether the transcript in state may be written back: not after a failed
-// load (the empty console is a read error, not a fact), and not before the
-// new workflow's own transcript has arrived. Exported because it is a
-// data-loss path and is asserted directly.
+// Whether the transcript in state may be written back, and to where. Not
+// after a failed load -- the empty console is a read error, not a fact --
+// and not before any load has landed. Exported because it is a data-loss
+// path and is asserted directly.
 export function canPersist(
-  writable: boolean,
-  loadedFor: string | undefined,
-  key: string | undefined,
-): boolean {
-  return writable && loadedFor === key && key !== undefined;
+  loaded: { workflowId: string; mode: ChatMode; writable: boolean } | null,
+): loaded is { workflowId: string; mode: ChatMode; writable: boolean } {
+  return loaded !== null && loaded.writable;
 }
 
 // Building a workflow and talking to the finished one are separate
@@ -299,10 +297,21 @@ export function useChatSession(
   // straight setState here trips the cascading-render rule.
   const [hydrated, setHydrated] = useState(false);
 
-  // Refs, not state: the persist effect must see these on the run that
-  // follows a workflow change, before any re-render.
-  const loadedFor = useRef<string | undefined>(undefined);
-  const writable = useRef(false);
+  // Which conversation the messages in state belong to, and whether it may
+  // be written back. State, not refs: the settle of a build turn and the
+  // switch to Run are batched into one commit, and a ref cleared by the load
+  // effect would refuse the save effect's write in that same commit -- the
+  // reply would be dropped and the Build conversation left pending. Held as
+  // state, this still says "build" on that commit, so the reply is written
+  // where it belongs.
+  const [loaded, setLoaded] = useState<{
+    workflowId: string;
+    mode: ChatMode;
+    writable: boolean;
+  } | null>(null);
+  // What was last read from or written to the server, so re-loading a
+  // conversation does not immediately write it straight back.
+  const lastSentRef = useRef<string | null>(null);
 
   const key = workflowId ? `${workflowId}:${mode}` : undefined;
 
@@ -311,8 +320,7 @@ export function useChatSession(
     // Synchronous: a pending debounced save must not write the previous
     // workflow's conversation under this id. rAF cannot do it -- background
     // tabs pause it while timers keep firing.
-    writable.current = false;
-    loadedFor.current = undefined;
+
     // Deferred a frame: a setState in an effect body trips the
     // cascading-render rule.
     const frame = requestAnimationFrame(() => {
@@ -320,12 +328,18 @@ export function useChatSession(
       void (async () => {
         const result = await read(workflowId, mode);
         if (cancelled) return;
-        setMessages(result.ok ? (result.session?.messages ?? []) : []);
-        setSessionId(
-          (result.ok && result.session?.sessionId) || newSessionId(),
+        const nextMessages = result.ok ? (result.session?.messages ?? []) : [];
+        const nextSession =
+          (result.ok && result.session?.sessionId) || newSessionId();
+        lastSentRef.current = JSON.stringify({
+          sessionId: nextSession,
+          messages: nextMessages,
+        });
+        setMessages(nextMessages);
+        setSessionId(nextSession);
+        setLoaded(
+          workflowId ? { workflowId, mode, writable: result.ok } : null,
         );
-        loadedFor.current = key;
-        writable.current = result.ok;
         setHydrated(true);
       })();
     });
@@ -340,9 +354,10 @@ export function useChatSession(
   const shapeRef = useRef("");
   useEffect(() => {
     if (!hydrated || !sessionId) return;
-    // Never write a transcript that was not read back, or one belonging to
-    // another workflow.
-    if (!canPersist(writable.current, loadedFor.current, key)) return;
+    // Never write a transcript that was not read back. The write goes to the
+    // conversation the messages belong to, which during a mode switch is
+    // still the previous one.
+    if (!canPersist(loaded)) return;
     // What must be stored the moment it changes: a new turn, the runId that
     // recovery finds it by, and the answer that settles it. Only in-progress
     // edits (a build's step list) are left to the debounce -- a reload inside
@@ -352,16 +367,19 @@ export function useChatSession(
       .join();
     const isNewTurn = shape !== shapeRef.current;
     shapeRef.current = shape;
+    const send = () => {
+      const body = serialiseForStorage({ sessionId, messages });
+      if (body === lastSentRef.current) return;
+      lastSentRef.current = body;
+      write(loaded.workflowId, loaded.mode, { sessionId, messages });
+    };
     if (isNewTurn) {
-      write(workflowId, mode, { sessionId, messages });
+      send();
       return;
     }
-    const t = setTimeout(
-      () => write(workflowId, mode, { sessionId, messages }),
-      600,
-    );
+    const t = setTimeout(send, 600);
     return () => clearTimeout(t);
-  }, [hydrated, workflowId, mode, key, sessionId, messages]);
+  }, [hydrated, loaded, sessionId, messages]);
 
   const startTurn = useCallback((text: string): string => {
     const now = new Date().toISOString();
@@ -430,10 +448,10 @@ export function useChatSession(
     setMessages([]);
     const next = newSessionId();
     setSessionId(next);
-    loadedFor.current = key;
-    writable.current = true;
+    if (workflowId) setLoaded({ workflowId, mode, writable: true });
+    lastSentRef.current = null;
     write(workflowId, mode, { sessionId: next, messages: [] });
-  }, [workflowId, mode, key]);
+  }, [workflowId, mode]);
 
   return {
     messages,

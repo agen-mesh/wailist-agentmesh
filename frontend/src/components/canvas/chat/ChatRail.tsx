@@ -142,6 +142,7 @@ export function ChatRail({
             onSelect={onToggleBuildMode}
             hasChatTrigger={!!hasChatTrigger}
             canRun={!!canToggleBuildMode}
+            busy={busy}
           />
         )}
       </div>

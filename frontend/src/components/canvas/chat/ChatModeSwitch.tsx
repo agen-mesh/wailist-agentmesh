@@ -13,6 +13,9 @@ interface ChatModeSwitchProps {
   hasChatTrigger: boolean;
   /** False while the graph has nothing that could run yet. */
   canRun: boolean;
+  /** A turn is in flight; switching now settles its reply against the other
+   *  conversation, where the turn does not exist. */
+  busy: boolean;
 }
 
 export function ChatModeSwitch({
@@ -20,9 +23,12 @@ export function ChatModeSwitch({
   onSelect,
   hasChatTrigger,
   canRun,
+  busy,
 }: ChatModeSwitchProps) {
-  const runDisabled = !hasChatTrigger || !canRun;
-  const reason = !hasChatTrigger
+  const runDisabled = busy || !hasChatTrigger || !canRun;
+  const reason = busy
+    ? "Wait for this turn to finish"
+    : !hasChatTrigger
     ? "Add a Chat trigger to talk to this workflow \u2014 it starts from the Run button"
     : !canRun
       ? "Nothing to run yet"
@@ -45,7 +51,9 @@ export function ChatModeSwitch({
         role="tab"
         aria-selected={buildMode}
         className="rail-switch__seg"
-        onClick={() => buildMode || onSelect()}
+        onClick={() => (buildMode || busy ? undefined : onSelect())}
+        disabled={busy}
+        title={busy ? "Wait for this turn to finish" : undefined}
       >
         Build
       </button>

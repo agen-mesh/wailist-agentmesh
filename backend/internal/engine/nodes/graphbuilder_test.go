@@ -2070,20 +2070,29 @@ func TestSetFieldsMustBeAJSONObject(t *testing.T) {
 // is the mistake ".output" already guards -- one reached a user, as literal
 // braces in a Telegram message. On anything else it may be a real field:
 // Telegram's getUpdates and JSON-RPC endpoints both return one.
-func TestTemplateRefRejectsDotResultOnAnAgent(t *testing.T) {
+func TestTemplateRefRejectsDotResultOnEngineShapedOutput(t *testing.T) {
 	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{
 		{ID: "a1", Type: models.NodeTypeAgent, Template: "agent"},
+		{ID: "r1", Type: models.NodeTypeAction, Template: "rss"},
 		{ID: "h1", Type: models.NodeTypeTool, Template: "http"},
+		{ID: "x1", Type: models.NodeTypeTool402},
 	}}
-	err := validateTemplateRefs(graph, map[string]string{"messageTemplate": "Says: {{node.a1.result}}"})
-	if err == nil {
-		t.Fatal("{{ node.a1.result }} was accepted; it reaches the user as literal braces")
+	// rss is the original incident: {title, count, items}, no result, and the
+	// braces went out in a Telegram message.
+	for _, id := range []string{"a1", "r1"} {
+		err := validateTemplateRefs(graph, map[string]string{"messageTemplate": "Says: {{node." + id + ".result}}"})
+		if err == nil {
+			t.Fatalf("{{ node.%s.result }} was accepted; it reaches the user as literal braces", id)
+		}
+		if !strings.Contains(err.Error(), "node."+id) {
+			t.Errorf("the error must show the form that works, got %v", err)
+		}
 	}
-	if !strings.Contains(err.Error(), "node.a1") {
-		t.Errorf("the error must show the form that works, got %v", err)
-	}
-	if err := validateTemplateRefs(graph, map[string]string{"messageTemplate": "Got: {{node.h1.result}}"}); err != nil {
-		t.Errorf("an http response may really have a result field: %v", err)
+	// A response handed back as it came may really have one.
+	for _, id := range []string{"h1", "x1"} {
+		if err := validateTemplateRefs(graph, map[string]string{"messageTemplate": "Got: {{node." + id + ".result}}"}); err != nil {
+			t.Errorf("node %s passes a remote response through: %v", id, err)
+		}
 	}
 }
 

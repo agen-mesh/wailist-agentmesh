@@ -129,14 +129,19 @@ export function useChatConsole({
   // Recover a turn stranded by a page reload. See ConsolePanel's former
   // version of this effect for the full ordering rationale -- unchanged here,
   // just relocated.
-  const recoveredRef = useRef(false);
+  // Keyed by conversation, not a bare flag. The hook never remounts on a
+  // mode switch, so a one-shot ref was spent recovering the Run transcript
+  // and a turn stranded in Build was never settled -- its composer stayed
+  // locked, and a reload repeated the same order.
+  const recoveredRef = useRef<string | null>(null);
   const messagesRef = useRef(session.messages);
   useEffect(() => {
     messagesRef.current = session.messages;
   }, [session.messages]);
+  const conversation = `${workflowId ?? ""}:${buildMode ? "build" : "run"}`;
   useEffect(() => {
-    if (!hydrated || runId || recoveredRef.current) return;
-    recoveredRef.current = true;
+    if (!hydrated || runId || recoveredRef.current === conversation) return;
+    recoveredRef.current = conversation;
 
     const stranded = [...messagesRef.current].reverse().find((m) => m.pending);
     if (!stranded) return;
@@ -178,7 +183,7 @@ export function useChatConsole({
     return () => {
       cancelled = true;
     };
-  }, [hydrated, runId, completeTurnById]);
+  }, [hydrated, runId, conversation, completeTurnById]);
 
   const handleSend = (text: string) => {
     const turnId = session.startTurn(text);

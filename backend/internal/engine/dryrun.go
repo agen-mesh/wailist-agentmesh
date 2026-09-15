@@ -296,6 +296,22 @@ func dryRunNode(ctx context.Context, n models.WorkflowNode, attach models.Attach
 			withheld = append(withheld, name)
 		}
 		out, err := nodes.ExecuteAgent(ctx, n, safe, models.AgentWallet{}, nil, rc, nil, opts.PlatformKeys, nodes.X402RelayConfig{})
+		// Charged as soon as the call returns, before anything classifies the
+		// result: the model has been paid for whatever we decide the output
+		// means, and the branches below return early. A failed charge is
+		// logged rather than turned into a step failure.
+		//
+		// Detached from ctx, with its own timeout, as the runner's ledger
+		// writes are (ledgerCompensationTimeout): ctx ends at the build's time
+		// budget, and a call that succeeded just before it must still be
+		// charged.
+		if err == nil && platformFee > 0 && opts.ChargeAgent != nil {
+			cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ledgerCompensationTimeout)
+			if cerr := opts.ChargeAgent(cctx, n.ID, platformFee, platformModel); cerr != nil {
+				log.Printf("dry run: charge agent %s (%d micros): %v", n.ID, platformFee, cerr)
+			}
+			cancel()
+		}
 		// A model call's 401 surfaces on the agent, but the key that was
 		// refused belongs to the attached provider. On BYOK that key is the
 		// user's own, pasted in the Inspector, so this is theirs to fix and
@@ -316,21 +332,6 @@ func dryRunNode(ctx context.Context, n models.WorkflowNode, attach models.Attach
 			return nil, "", unverifiable{fmt.Sprintf(
 				"a test run never calls %s, so this agent had nothing to work from and its answer cannot be checked",
 				strings.Join(withheld, ", "))}
-		}
-		// Charged after the call, like a run (Runner.debitOrLog): the model
-		// has already been paid for by then, so a failed charge is logged
-		// rather than turned into a step failure.
-		//
-		// Detached from ctx, with its own timeout, as the runner's ledger
-		// writes are (ledgerCompensationTimeout): ctx ends at the build's time
-		// budget, and a call that succeeded just before it must still be
-		// charged.
-		if err == nil && platformFee > 0 && opts.ChargeAgent != nil {
-			cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ledgerCompensationTimeout)
-			if cerr := opts.ChargeAgent(cctx, n.ID, platformFee, platformModel); cerr != nil {
-				log.Printf("dry run: charge agent %s (%d micros): %v", n.ID, platformFee, cerr)
-			}
-			cancel()
 		}
 		return out, "", err
 	}

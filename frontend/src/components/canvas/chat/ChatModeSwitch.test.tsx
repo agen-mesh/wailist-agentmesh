@@ -14,6 +14,7 @@ describe("ChatModeSwitch", () => {
         onSelect={() => {}}
         hasChatTrigger
         canRun
+        busy={false}
       />,
     );
     expect(screen.getByRole("tab", { name: "Build" })).toHaveProperty(
@@ -34,6 +35,7 @@ describe("ChatModeSwitch", () => {
         onSelect={onSelect}
         hasChatTrigger
         canRun
+        busy={false}
       />,
     );
     screen.getByRole("tab", { name: "Build" }).click();
@@ -52,6 +54,7 @@ describe("ChatModeSwitch", () => {
         onSelect={onSelect}
         hasChatTrigger={false}
         canRun
+        busy={false}
       />,
     );
     const run = screen.getByRole("tab", { name: "Run" });
@@ -63,6 +66,28 @@ describe("ChatModeSwitch", () => {
     expect(run.getAttribute("title")).toMatch(/Add a Chat trigger/);
   });
 
+  // Switching mid-turn settles the reply against the other conversation,
+  // where the turn does not exist, and loses it.
+  it("locks both modes while a turn is in flight", () => {
+    const onSelect = vi.fn();
+    render(
+      <ChatModeSwitch
+        buildMode
+        onSelect={onSelect}
+        hasChatTrigger
+        canRun
+        busy
+      />,
+    );
+    const run = screen.getByRole("tab", { name: "Run" });
+    const build = screen.getByRole("tab", { name: "Build" });
+    expect(run).toHaveProperty("disabled", true);
+    expect(build).toHaveProperty("disabled", true);
+    run.click();
+    build.click();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
   it("refuses Run while there is nothing to run", () => {
     render(
       <ChatModeSwitch
@@ -70,6 +95,7 @@ describe("ChatModeSwitch", () => {
         onSelect={() => {}}
         hasChatTrigger
         canRun={false}
+        busy={false}
       />,
     );
     expect(screen.getByRole("tab", { name: "Run" })).toHaveProperty(

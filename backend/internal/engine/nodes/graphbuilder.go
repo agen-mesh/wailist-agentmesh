@@ -368,6 +368,23 @@ var anyTemplateRef = regexp.MustCompile(`\{\{\s*([^{}]*?)\s*\}\}`)
 // templatePath matches a dotted field path after "result." or "node.<id>.".
 var templatePath = regexp.MustCompile(`^[A-Za-z0-9_\-]+(\.[A-Za-z0-9_\-]+)*$`)
 
+// passesResponseThrough reports whether a node's output is whatever the
+// service returned, rather than a shape this engine assembles. Only those can
+// have a "result" field the engine knows nothing about; every connector with
+// a fixed output (rss is {title, count, items}, an agent is {message, ...})
+// cannot, and a reference to one resolves to nothing at run time.
+func passesResponseThrough(n models.WorkflowNode) bool {
+	switch n.Type {
+	case models.NodeTypeTool402:
+		return true
+	case models.NodeTypeTool:
+		return n.Template == "http"
+	case models.NodeTypeAction:
+		return n.Template == "graphql"
+	}
+	return false
+}
+
 // validateTemplateRefs checks every {{ ... }} reference in values against
 // what the engine actually resolves (resolveTemplate / ExpandState). An
 // unsupported reference is not an error at run time -- it is left in the
@@ -395,10 +412,12 @@ func validateTemplateRefs(graph *models.WorkflowGraph, values map[string]string)
 					return fmt.Errorf("%s: {{ %s }} refers to node %q, which is not in the graph -- use the id add_node returned", key, ref, id)
 				}
 				n, _ := findGraphNode(graph, id)
-				// ".output" is never a field. ".result" is, on plenty of real
-				// APIs (Telegram, JSON-RPC), so it is only refused on an agent,
-				// whose output this engine defines and which has no such key.
-				if path == "output" || (path == "result" && n.Type == models.NodeTypeAgent) {
+				// ".output" is never a field. ".result" is one on a node that
+				// hands a remote response back as it came -- Telegram and
+				// JSON-RPC both return one -- but not on a node whose output
+				// this engine builds itself, where it silently resolves to
+				// nothing and leaves the braces in the text the user reads.
+				if path == "output" || (path == "result" && !passesResponseThrough(n)) {
 					return fmt.Errorf("%s: {{ %s }} -- a node's output is {{ node.%s }} itself; \".%s\" would look for a field named %s, find none, and leave the braces in the text the user reads", key, ref, id, path, path)
 				}
 				if path != "" && !templatePath.MatchString(path) {
