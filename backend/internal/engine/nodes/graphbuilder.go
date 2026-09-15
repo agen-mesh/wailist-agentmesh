@@ -1468,6 +1468,17 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	auditRetried := false
 	emptyResponses := 0
 	transportFailures := 0
+	// What this build spent. Gemini reports it on every response and it was
+	// decoded and thrown away, so nothing could say what a build cost or
+	// whether the stable prefix (instructions plus tool declarations) was
+	// hitting the implicit cache. Logged per round and in total, under the
+	// trace id the rest of this build's lines already carry.
+	var usage TokenUsage
+	defer func() {
+		if req.TraceID != "" {
+			log.Printf("build %s: total usage: %s", req.TraceID, usage)
+		}
+	}()
 	for iter := 0; iter < maxBuildIterations; iter++ {
 		if iter > 0 && time.Since(started) > budget*3/4 {
 			return ranOutOfTime(), nil
@@ -1495,6 +1506,11 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 				return BuildGraphResult{Reply: withTestStatus(unfinishedReply(lastReply)), Graph: graph}, nil
 			}
 			return BuildGraphResult{}, err
+		}
+		round := geminiUsage(resp)
+		usage = usage.Add(round)
+		if req.TraceID != "" {
+			log.Printf("build %s: round %d usage: %s", req.TraceID, iter+1, round)
 		}
 		calls := extractGeminiFunctionCalls(resp)
 		if len(calls) == 0 {
