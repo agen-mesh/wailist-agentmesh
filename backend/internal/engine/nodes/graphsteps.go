@@ -113,10 +113,18 @@ func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c gemin
 			return map[string]any{"result": fmt.Sprintf("error: this build has already used its %d test runs. Reply to the user now, and say plainly whether the last test produced the answer they asked for.", maxTestRuns)}
 		}
 		tester.runs++
-		res := tester.run(ctx, *graph, argString(c.args, "input"))
+		input := argString(c.args, "input")
+		manualNote := ""
+		// A manual trigger carries no message, so a test started with one
+		// proves nothing about a real run.
+		if strings.TrimSpace(input) != "" && startsManually(*graph) {
+			input = ""
+			manualNote = " This workflow starts from a manual trigger, which carries no message, so your input was ignored and it was tested exactly as a real run starts -- with none. A step that needs something to work on must get it from a node in the workflow, not from the test input."
+		}
+		res := tester.run(ctx, *graph, input)
 		tester.last, tester.dirty = &res, false
 		out, _ := json.Marshal(res)
-		note := " -- Steps marked simulated were not performed (they would send, pay or write). "
+		note := manualNote + " -- Steps marked simulated were not performed (they would send, pay or write). "
 		switch {
 		case res.Failed:
 			note += "The run FAILED: fix the step that failed and test again."
@@ -207,6 +215,22 @@ func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c gemin
 		return map[string]any{"result": msg}
 	}
 	return map[string]any{"result": result + probeNote}
+}
+
+// startsManually reports whether every trigger is manual, so a run never
+// carries an incoming message.
+func startsManually(graph models.WorkflowGraph) bool {
+	found := false
+	for _, n := range graph.Nodes {
+		if n.Type != models.NodeTypeTrigger {
+			continue
+		}
+		if n.Template != "manual" {
+			return false
+		}
+		found = true
+	}
+	return found
 }
 
 // runningLabel says what a call is about to do.

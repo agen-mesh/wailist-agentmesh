@@ -319,11 +319,26 @@ func (r nodeRules) validateValue(k, v string) error {
 			return fmt.Errorf("%s", msg)
 		}
 	case "systemPrompt":
+		// A system prompt reaches the model verbatim (graph.go never resolves
+		// it), so a reference arrives as literal braces. {{ state.x }} is the
+		// exception -- the runner expands those before the call.
+		if m := firstUnresolvedRef(v); m != "" {
+			return fmt.Errorf("systemPrompt contains %s, which is never resolved: a system prompt is sent to the model word for word. The agent already receives the previous step's output as its input -- describe that input in words instead, such as \"the input is JSON from CoinGecko; state the price in USD\"", m)
+		}
 		// A live build's agent, handed {}, answered with a price it copied
 		// from an example in these instructions -- and a retest wrote another
 		// one in despite the prompt forbidding it. So reject the pattern.
 		if m := exampleValueIn(v); m != "" {
 			return fmt.Errorf("systemPrompt contains an example value (%q) -- remove it. An agent handed empty data repeats example numbers as if they were real; describe the format in words instead, such as \"state the price in USD in one sentence\"", m)
+		}
+	case "setFields":
+		// executeSet unmarshals this; JavaScript-style keys killed a run.
+		if strings.TrimSpace(v) == "" {
+			return nil
+		}
+		var probe map[string]any
+		if err := json.Unmarshal([]byte(v), &probe); err != nil {
+			return fmt.Errorf("setFields is not a JSON object: %v -- it must be strict JSON with quoted keys, such as {\"story\": \"{{ node.n1 }}\", \"price\": \"{{ node.n2 }}\"}", err)
 		}
 	case "jsonPath":
 		// walkPath splits on dots and nothing else, so JSONPath syntax (the
@@ -335,12 +350,50 @@ func (r nodeRules) validateValue(k, v string) error {
 	return nil
 }
 
+// firstUnresolvedRef returns the first {{ ... }} nothing resolves, or "".
+// State refs are left alone: the runner expands those.
+func firstUnresolvedRef(v string) string {
+	for _, m := range anyTemplateRef.FindAllString(v, -1) {
+		if !stateRef.MatchString(m) {
+			return m
+		}
+	}
+	return ""
+}
+
 // anyTemplateRef finds every {{ ... }} in a value -- deliberately looser than
 // the engine's templateRef, so malformed references are caught too.
 var anyTemplateRef = regexp.MustCompile(`\{\{\s*([^{}]*?)\s*\}\}`)
 
 // templatePath matches a dotted field path after "result." or "node.<id>.".
 var templatePath = regexp.MustCompile(`^[A-Za-z0-9_\-]+(\.[A-Za-z0-9_\-]+)*$`)
+
+// engineShapedOutput reports whether a node's output is a map this engine
+// builds itself, so the fields it has are known here.
+//
+// Listed, rather than inferred from "is it a read connector": most read
+// connectors hand back the service's own JSON untouched (telegram_get_updates
+// returns Telegram's {ok, result}, coingecko and openweathermap their
+// providers' bodies), and only these few assemble a map of their own. Getting
+// that backwards refused {{ node.<id>.result }} on nodes where it resolves
+// perfectly well.
+func engineShapedOutput(n models.WorkflowNode) bool {
+	if n.Type == models.NodeTypeAgent {
+		return true // {message, platformKeyUsage}
+	}
+	if n.Type != models.NodeTypeAction {
+		return false
+	}
+	switch n.Template {
+	case "rss": // {title, count, items}
+		return true
+	case "hackernews": // {count, items}
+		return true
+	case "elevenlabs": // {status, audioBase64}
+		return true
+	}
+	return false
+}
 
 // validateTemplateRefs checks every {{ ... }} reference in values against
 // what the engine actually resolves (resolveTemplate / ExpandState). An
@@ -368,8 +421,14 @@ func validateTemplateRefs(graph *models.WorkflowGraph, values map[string]string)
 				if _, ok := findGraphNode(graph, id); !ok {
 					return fmt.Errorf("%s: {{ %s }} refers to node %q, which is not in the graph -- use the id add_node returned", key, ref, id)
 				}
-				if path == "output" {
-					return fmt.Errorf("%s: {{ %s }} -- a node's output is {{ node.%s }} itself; \".output\" would look for a field named output", key, ref, id)
+				n, _ := findGraphNode(graph, id)
+				// ".output" is never a field. ".result" is one on a node that
+				// hands a remote response back as it came -- Telegram and
+				// JSON-RPC both return one -- but not on a node whose output
+				// this engine builds itself, where it silently resolves to
+				// nothing and leaves the braces in the text the user reads.
+				if path == "output" || (path == "result" && engineShapedOutput(n)) {
+					return fmt.Errorf("%s: {{ %s }} -- a node's output is {{ node.%s }} itself; \".%s\" would look for a field named %s, find none, and leave the braces in the text the user reads", key, ref, id, path, path)
 				}
 				if path != "" && !templatePath.MatchString(path) {
 					return fmt.Errorf("%s: {{ %s }} has an invalid field path; use a dot path such as {{ node.%s.data.0.price }}", key, ref, id)
@@ -463,6 +522,42 @@ func (r nodeRules) userSupplied() string {
 	return s + "; name the ones this workflow needs on the node's description and in your reply"
 }
 
+// identicalNode returns the id of a node already exactly what is being
+// added: same type, template, name and settings.
+func identicalNode(graph *models.WorkflowGraph, nodeType, template, name string, fields, cfg map[string]string) string {
+	// Nothing to tell two apart, and a second is usually wanted: two
+	// branches each ending in their own end node.
+	if len(fields) == 0 && len(cfg) == 0 {
+		return ""
+	}
+	for _, n := range graph.Nodes {
+		if string(n.Type) != nodeType || n.Template != template || n.Name != name {
+			continue
+		}
+		same := true
+		for k, v := range fields {
+			// Stored with the answer guard appended.
+			if k == "systemPrompt" && n.Type == models.NodeTypeAgent {
+				v = withAnswerGuard(v)
+			}
+			if idx, ok := nodeStringFields[k]; ok && reflect.ValueOf(n).Field(idx).String() != v {
+				same = false
+				break
+			}
+		}
+		for k, v := range cfg {
+			if n.Config[k] != v {
+				same = false
+				break
+			}
+		}
+		if same && len(cfg) == len(n.Config) {
+			return n.ID
+		}
+	}
+	return ""
+}
+
 func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, error) {
 	nodeType := argString(args, "type")
 	if !graphNodeTypes[nodeType] {
@@ -486,6 +581,22 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 	}
 	if err := validateTemplateRefs(graph, cfg); err != nil {
 		return "", err
+	}
+	// Rebuild guard: sent back to fix a step, live builds re-added the whole
+	// workflow instead of editing it. Both rejections name what exists.
+	if nodeType == "trigger" {
+		for _, n := range graph.Nodes {
+			if n.Type == models.NodeTypeTrigger {
+				return "", fmt.Errorf("add_node: the workflow already has a trigger (%s, %s) and runs from exactly one -- to start it a different way, update that node's template with update_node; everything you have already built is still on the graph", n.ID, n.Template)
+			}
+		}
+	}
+	// Without an endpoint the node looks configured and can never run.
+	if nodeType == "tool402" && strings.TrimSpace(fields["endpoint"]) == "" {
+		return "", fmt.Errorf("add_node: a tool402 node needs the endpoint it calls, and this one has none. Use add_x402_node with an id from search_x402, which fills in the endpoint, price and inputs for you -- add_node type=tool402 is only for an endpoint URL the user handed you themselves, and then \"endpoint\" is required")
+	}
+	if dup := identicalNode(graph, nodeType, template, argString(args, "name"), fields, cfg); dup != "" {
+		return "", fmt.Errorf("add_node: node %s is already exactly this %s/%s -- you have added it once; use update_node on %s if it needs changing, and check the graph you have before adding more", dup, nodeType, template, dup)
 	}
 	id := newGraphID("n_")
 	node := models.WorkflowNode{
@@ -887,6 +998,13 @@ const maxBuildIterations = 25
 // common enough that this has to be a hard property, not a hope.
 const defaultBuildTimeBudget = 100 * time.Second
 
+// maxTransportFailures bounds retries for a call that never arrived.
+const maxTransportFailures = 2
+
+// maxEmptyResponses bounds retries for a response with neither text nor a
+// function call.
+const maxEmptyResponses = 2
+
 // maxTestRounds bounds how many times the test gate may send the model back:
 // test, fix, test again -- then an honest reply, even if it still fails.
 const maxTestRounds = 3
@@ -1036,8 +1154,10 @@ output is what the user reads, and raw JSON or {} is not an answer. Put the agen
 should read: trigger -> http -> json_extract -> agent -> end, or ... -> agent -> slack -> end when the user
 wants the answer delivered somewhere.
 
-Write an agent's systemPrompt as instructions only. Never put example values or sample numbers in it: an
-agent handed empty data repeats them as if they were real. Do not "correct" a name, id or symbol the user gave
+Write an agent's systemPrompt as instructions only. An agent is handed the previous step's output as its
+input, so describe that input in words ("the input is JSON from CoinGecko") -- never put a {{ ... }}
+reference in a systemPrompt, which is sent to the model word for word and would arrive as literal braces.
+Never put example values or sample numbers in it: an agent handed empty data repeats them as if they were real. Do not "correct" a name, id or symbol the user gave
 you (a coin, a ticker, a city) into something else unless a test run shows theirs returns nothing.
 
 Testing: before you reply, run test_run. It executes the workflow for real, except steps that would send, pay
@@ -1131,6 +1251,33 @@ action or end node. Every agent you add MUST end up with a provider attached to 
 without one cannot run. Make small, sensible workflows unless asked for something more elaborate. When you are
 done making changes, reply with a short plain-text summary of what you built or changed -- do not call any more
 tools once you're done.`
+
+// unfinishedReply is what a build that stopped early says -- never "",
+// which reaches the user as a blank chat bubble.
+func unfinishedReply(lastReply string) string {
+	if strings.TrimSpace(lastReply) != "" {
+		return lastReply
+	}
+	return "I didn't get to finish this one. What I built so far is on the canvas — tell me what to finish and I'll carry on from there."
+}
+
+// repairMessage asks for another pass over what the audit found. The graph
+// is concatenated, never a format string: one "%" in a url or description
+// would swallow the findings.
+func repairMessage(graph models.WorkflowGraph, findings []string) string {
+	return graphSnapshot(graph) +
+		"Before you answer: the graph still has these problems.\n- " +
+		strings.Join(findings, "\n- ") +
+		"\nFix them with the graph tools. Then reply to the user with a summary of the finished workflow as a whole -- do not mention these problems or the fixes, which the user never saw."
+}
+
+// graphSnapshot restates the canvas. Every round that sends the model back
+// ships it -- otherwise the only graph in context is the opening one, and a
+// "fix this" round read as "build it again".
+func graphSnapshot(graph models.WorkflowGraph) string {
+	b, _ := json.Marshal(graph)
+	return fmt.Sprintf("This is the workflow as it stands now -- everything in it already exists, so edit these nodes rather than adding more:\n%s\n", b)
+}
 
 // BuildTurn is one prior turn of the builder conversation, replayed into the
 // model's context so a follow-up ("use the specs I gave you") has something
@@ -1353,8 +1500,16 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 
 	// Taken before any tool runs: the tools edit graph in place, so the
 	// "before" graph cannot be re-read later.
+	// What the build started from. "Keep what it built" has to mean this
+	// build changed something -- on an existing workflow, counting nodes
+	// reported a quota error as a partial success and showed no failure.
+	startingGraph := graphSnapshot(graph)
+	changedSomething := func() bool { return graphSnapshot(graph) != startingGraph }
+
 	baselineFindings := auditGraph(graph)
 	auditRetried := false
+	emptyResponses := 0
+	transportFailures := 0
 	for iter := 0; iter < maxBuildIterations; iter++ {
 		if iter > 0 && time.Since(started) > budget*3/4 {
 			return ranOutOfTime(), nil
@@ -1369,12 +1524,36 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				return ranOutOfTime(), nil
 			}
+			// An error here means BuildWorkflow never reaches its save and
+			// every node built goes with it. Try again, then keep them.
+			if transportFailures < maxTransportFailures {
+				transportFailures++
+				if req.TraceID != "" {
+					log.Printf("build %s: model call failed (%d): %v", req.TraceID, transportFailures, err)
+				}
+				continue
+			}
+			if changedSomething() {
+				return BuildGraphResult{Reply: withTestStatus(unfinishedReply(lastReply)), Graph: graph}, nil
+			}
 			return BuildGraphResult{}, err
 		}
 		calls := extractGeminiFunctionCalls(resp)
 		if len(calls) == 0 {
 			text, err := extractGeminiText(resp)
 			if err != nil {
+				// No text and no function call. Ask again, then keep
+				// whatever is on the graph rather than losing it.
+				if emptyResponses < maxEmptyResponses {
+					emptyResponses++
+					if req.TraceID != "" {
+						log.Printf("build %s: empty model response, retrying (%d)", req.TraceID, emptyResponses)
+					}
+					continue
+				}
+				if changedSomething() {
+					return BuildGraphResult{Reply: withTestStatus(unfinishedReply(lastReply)), Graph: graph}, nil
+				}
 				return BuildGraphResult{}, err
 			}
 			// Per-edge validation cannot see an agent that simply never got a
@@ -1396,9 +1575,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 					})
 					contents = append(contents,
 						map[string]any{"role": "model", "parts": []map[string]any{{"text": text}}},
-						map[string]any{"role": "user", "parts": []map[string]any{{"text": fmt.Sprintf(
-							"Before you answer: the graph still has these problems.\n- %s\nFix them with the graph tools. Then reply to the user with a summary of the finished workflow as a whole -- do not mention these problems or the fixes, which the user never saw.",
-							strings.Join(findings, "\n- "))}}},
+						map[string]any{"role": "user", "parts": []map[string]any{{"text": repairMessage(graph, findings)}}},
 					)
 					payload["contents"] = contents
 					continue
@@ -1446,7 +1623,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 					lastReply = text
 					contents = append(contents,
 						map[string]any{"role": "model", "parts": []map[string]any{{"text": text}}},
-						map[string]any{"role": "user", "parts": []map[string]any{{"text": nudge}}},
+						map[string]any{"role": "user", "parts": []map[string]any{{"text": graphSnapshot(graph) + nudge}}},
 					)
 					payload["contents"] = contents
 					continue

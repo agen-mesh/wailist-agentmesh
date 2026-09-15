@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { ChatPane } from "./ChatPane";
+import { ChatModeSwitch } from "./ChatModeSwitch";
 import { TerminalTab } from "../TerminalTab";
 import { IconChat, IconInspect, IconGrid } from "@/components/ui";
 import type { ChatSession } from "./useChatSession";
@@ -19,11 +20,13 @@ interface ChatRailProps {
   onShowLogs?: () => void;
   width?: number | string;
   // Build mode edits the graph instead of running the deployed agent.
-  // canToggleBuildMode is false until a provider node exists -- before
-  // that, build mode is forced on and there's nothing to toggle.
+  // canToggleBuildMode is false until the graph could run -- before that,
+  // build mode is forced on and Run is not offered.
   buildMode?: boolean;
   canToggleBuildMode?: boolean;
   onToggleBuildMode?: () => void;
+  /** Without a chat trigger, Run has no conversation to hold. */
+  hasChatTrigger?: boolean;
   /** Rendered under the INSPECT tab. Always mounted (hidden via CSS) so
    *  in-progress edits survive a tab switch. */
   inspectorNode: React.ReactNode;
@@ -57,6 +60,7 @@ export function ChatRail({
   buildMode = false,
   canToggleBuildMode = false,
   onToggleBuildMode,
+  hasChatTrigger = false,
   inspectorNode,
   hasSelection,
   leaseId,
@@ -132,37 +136,15 @@ export function ChatRail({
             />
           )}
         </div>
-        {canToggleBuildMode ? (
-          <button
-            onClick={onToggleBuildMode}
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 9.5,
-              textTransform: "uppercase",
-              letterSpacing: "0.06em",
-              padding: "2px 8px",
-              borderRadius: 999,
-              border: `1px solid ${buildMode ? "var(--accent)" : "var(--border)"}`,
-              color: buildMode ? "var(--accent)" : "var(--fg-dim)",
-              background: "transparent",
-              cursor: "pointer",
-            }}
-          >
-            {buildMode ? "Build" : "Run"}
-          </button>
-        ) : buildMode ? (
-          <span
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 9.5,
-              textTransform: "uppercase",
-              letterSpacing: "0.06em",
-              color: "var(--accent)",
-            }}
-          >
-            build
-          </span>
-        ) : null}
+        {onToggleBuildMode && (
+          <ChatModeSwitch
+            buildMode={!!buildMode}
+            onSelect={onToggleBuildMode}
+            hasChatTrigger={!!hasChatTrigger}
+            canRun={!!canToggleBuildMode}
+            busy={busy}
+          />
+        )}
       </div>
 
       <div
@@ -194,6 +176,11 @@ export function ChatRail({
             busy={busy}
             onShowLogs={onShowLogs}
             blockedNode={blockedNode}
+            composerNote={
+              !buildMode && !hasChatTrigger
+                ? "This workflow starts from the Run button. Add a Chat trigger if you want to talk to it."
+                : undefined
+            }
           />
         </div>
 

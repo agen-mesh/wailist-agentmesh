@@ -1568,6 +1568,23 @@ body[data-bottomnav] .appnav__trigger {
   outline-offset: 1px;
 }
 
+/* The Build/Run switch shares the rail header with the pane tabs, so it runs
+   tighter than they do -- both have to fit one row at INSPECTOR.min before
+   the header wraps. */
+.rail-switch--mode .rail-switch__seg {
+  padding: 0 7px;
+  min-height: 24px;
+}
+
+.rail-switch--mode .rail-switch__seg:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.rail-switch--mode .rail-switch__seg:disabled:hover {
+  color: var(--fg-dim);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rail-switch__thumb,
   .rail-switch__seg {

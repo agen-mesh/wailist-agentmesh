@@ -3,6 +3,7 @@ package nodes
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"maps"
 	"net/http"
@@ -236,16 +237,18 @@ func TestBuildGraphAddsNodeThenReturnsReply(t *testing.T) {
 // produced the most work. Replaces the old TestBuildGraphIterationCap, which
 // asserted that error.
 func TestBuildGraphOutOfIterationsKeepsWhatItBuilt(t *testing.T) {
-	// Always answer with another add_node call, so the loop can never
-	// terminate on its own and must hit the cap.
+	// Always another add_node, so the loop must hit the cap. Distinct each
+	// time -- an identical one is refused as a rebuild.
+	var round int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		round++
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"candidates": []map[string]any{
 				{"content": map[string]any{"parts": []map[string]any{
 					{"functionCall": map[string]any{
 						"name": "add_node",
-						"args": map[string]any{"type": "tool", "template": "calc"},
+						"args": map[string]any{"type": "tool", "template": "calc", "name": fmt.Sprintf("Step %d", round)},
 					}},
 				}}},
 			},
@@ -1848,6 +1851,324 @@ func TestTestedAnswerNeverSubstitutesAnUnrelatedAgentReply(t *testing.T) {
 	r := DryRunResult{FinalSimulated: true, WouldSend: "", Answer: "BTC is 60000 dollars."}
 	if got := testedAnswer(r); got != "" {
 		t.Fatalf("a simulated step that would carry nothing has no answer, got %q", got)
+	}
+}
+
+// A system prompt is sent verbatim, so a {{ ... }} in one is never resolved
+// and the agent reads the braces.
+func TestAgentSystemPromptRejectsTemplateRefs(t *testing.T) {
+	for _, prompt := range []string{
+		"Report the price from {{ result }}",
+		"Summarise {{ node.n_1.data }} in one line",
+		"Use {{ input }} as the city",
+	} {
+		graph := &models.WorkflowGraph{}
+		_, err := addGraphNode(graph, map[string]any{
+			"type": "agent", "template": "agent",
+			"fields": map[string]any{"systemPrompt": prompt},
+		})
+		if err == nil {
+			t.Fatalf("systemPrompt %q was accepted; it would reach the model as literal braces", prompt)
+		}
+		if !strings.Contains(err.Error(), "systemPrompt") {
+			t.Errorf("error should name the setting, got %v", err)
+		}
+	}
+}
+
+func TestAgentSystemPromptWithoutRefsIsAccepted(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	if _, err := addGraphNode(graph, map[string]any{
+		"type": "agent", "template": "agent",
+		"fields": map[string]any{"systemPrompt": "State the price in USD in one sentence"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 5 of 16 live builds rebuilt the whole workflow on a later round -- 2-5
+// triggers, up to 30 nodes -- and every one failed or produced nothing.
+func TestAddNodeRefusesASecondTrigger(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	if _, err := addGraphNode(graph, map[string]any{"type": "trigger", "template": "manual"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := addGraphNode(graph, map[string]any{"type": "trigger", "template": "chat"})
+	if err == nil {
+		t.Fatal("a second trigger was accepted")
+	}
+	if !strings.Contains(err.Error(), "already has a trigger") {
+		t.Errorf("the error must say what to do instead, got %v", err)
+	}
+	if len(graph.Nodes) != 1 {
+		t.Errorf("the graph must be left alone, got %d nodes", len(graph.Nodes))
+	}
+}
+
+// The same rebuild: a second copy of a step it already added.
+func TestAddNodeRefusesAnIdenticalNode(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	args := map[string]any{
+		"type": "action", "template": "coingecko", "name": "Get Price",
+		"config": map[string]any{"cgIDs": "ethereum"},
+	}
+	first, err := addGraphNode(graph, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := strings.Fields(first)[2]
+	_, err = addGraphNode(graph, args)
+	if err == nil {
+		t.Fatal("an identical node was added twice")
+	}
+	if !strings.Contains(err.Error(), id) {
+		t.Errorf("the error must name the node that already exists (%s), got %v", id, err)
+	}
+	// A genuinely different node of the same template is still fine.
+	if _, err := addGraphNode(graph, map[string]any{
+		"type": "action", "template": "coingecko", "name": "Get Bitcoin",
+		"config": map[string]any{"cgIDs": "bitcoin"},
+	}); err != nil {
+		t.Fatalf("a different coingecko node must still be allowed: %v", err)
+	}
+}
+
+// Gemini can answer with no text part at all -- three times in one evening.
+// One build died on its first round and lost everything it had built.
+func TestBuildGraphRetriesAnEmptyModelResponse(t *testing.T) {
+	var round int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		round++
+		w.Header().Set("Content-Type", "application/json")
+		if round == 1 {
+			// A candidate whose content has no text and no function call.
+			json.NewEncoder(w).Encode(map[string]any{
+				"candidates": []map[string]any{
+					{"finishReason": "MAX_TOKENS", "content": map[string]any{"role": "model"}},
+				},
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"candidates": []map[string]any{
+				{"content": map[string]any{"parts": []map[string]any{{"text": "Built it."}}}},
+			},
+		})
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "build something", Graph: models.WorkflowGraph{}})
+	if err != nil {
+		t.Fatalf("an empty response must be retried, not surfaced: %v", err)
+	}
+	if res.Reply != "Built it." {
+		t.Fatalf("want the retried reply, got %q", res.Reply)
+	}
+}
+
+// A live build added a tool402 node named after a Bazaar id with no
+// endpoint: configured-looking on the canvas, unrunnable in fact.
+func TestAddNodeRefusesATool402WithNoEndpoint(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := addGraphNode(graph, map[string]any{
+		"type": "tool402", "template": "agent402.tools", "name": "Crypto Price",
+	})
+	if err == nil {
+		t.Fatal("a tool402 node with no endpoint was accepted")
+	}
+	if !strings.Contains(err.Error(), "add_x402_node") {
+		t.Errorf("the error must point at the tool that fills one in, got %v", err)
+	}
+	if _, err := addGraphNode(graph, map[string]any{
+		"type": "tool402", "template": "prices", "name": "Prices",
+		"fields": map[string]any{"endpoint": "https://api.example.com/x402/prices", "method": "GET"},
+	}); err != nil {
+		t.Fatalf("a tool402 node with an endpoint must still be allowed: %v", err)
+	}
+}
+
+// A "%" anywhere in the graph -- a %20 in a url, "50%" in a description --
+// eats the findings if the graph is spliced into the format string.
+func TestRepairRoundSurvivesAPercentInTheGraph(t *testing.T) {
+	graph := models.WorkflowGraph{Nodes: []models.WorkflowNode{
+		{ID: "n1", Type: models.NodeTypeTool, Template: "http", URL: "https://api.x.com/s?q=a%20b&pct=50%"},
+	}}
+	msg := graphSnapshot(graph) + fmt.Sprintf("problems:\n- %s\n", "agent n1 has no model")
+	if strings.Contains(msg, "%!") || strings.Contains(msg, "MISSING") {
+		t.Fatalf("the graph was read as a format string: %s", msg)
+	}
+	if !strings.Contains(msg, "agent n1 has no model") {
+		t.Fatalf("the findings were lost: %s", msg)
+	}
+	if !strings.Contains(msg, "a%20b") {
+		t.Fatalf("the url was mangled: %s", msg)
+	}
+}
+
+// {{ state.x }} is resolved in a system prompt (runner.go ExpandState).
+func TestAgentSystemPromptAllowsStateRefs(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	if _, err := addGraphNode(graph, map[string]any{
+		"type": "agent", "template": "agent",
+		"fields": map[string]any{"systemPrompt": "Answer in {{ state.language }}, one sentence"},
+	}); err != nil {
+		t.Fatalf("a state reference is resolved at run time and must be allowed: %v", err)
+	}
+}
+
+// Two branches can each end in their own end node.
+func TestAddNodeAllowsASecondEndNode(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	if _, err := addGraphNode(graph, map[string]any{"type": "end", "template": "done", "name": "End"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := addGraphNode(graph, map[string]any{"type": "end", "template": "done", "name": "End"}); err != nil {
+		t.Fatalf("a second branch needs its own end node: %v", err)
+	}
+}
+
+// The guard must hold for agents, whose prompt is stored with the answer
+// guard appended.
+func TestAddNodeRefusesAnIdenticalAgent(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	args := map[string]any{
+		"type": "agent", "template": "agent", "name": "Explain",
+		"fields": map[string]any{"systemPrompt": "State the price in USD in one sentence"},
+	}
+	if _, err := addGraphNode(graph, args); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := addGraphNode(graph, args); err == nil {
+		t.Fatal("the same agent was added twice")
+	}
+}
+
+// A live build wrote JavaScript-style keys into setFields and the run died.
+func TestSetFieldsMustBeAJSONObject(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := addGraphNode(graph, map[string]any{
+		"type": "tool", "template": "set", "name": "Combine",
+		"config": map[string]any{"setFields": `{story: "{{ input }}", price: "{{ result }}"}`},
+	})
+	if err == nil {
+		t.Fatal("malformed setFields was accepted")
+	}
+	if !strings.Contains(err.Error(), "setFields") {
+		t.Errorf("the error must name the setting, got %v", err)
+	}
+	if _, err := addGraphNode(graph, map[string]any{
+		"type": "tool", "template": "set", "name": "Combine",
+		"config": map[string]any{"setFields": `{"story": "{{ input }}"}`},
+	}); err != nil {
+		t.Fatalf("valid JSON must be accepted: %v", err)
+	}
+}
+
+// An agent's output has no "result" field, so {{ node.<id>.result }} on one
+// is the mistake ".output" already guards -- one reached a user, as literal
+// braces in a Telegram message. On anything else it may be a real field:
+// Telegram's getUpdates and JSON-RPC endpoints both return one.
+func TestTemplateRefRejectsDotResultOnEngineShapedOutput(t *testing.T) {
+	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{
+		{ID: "a1", Type: models.NodeTypeAgent, Template: "agent"},
+		{ID: "r1", Type: models.NodeTypeAction, Template: "rss"},
+		{ID: "n1", Type: models.NodeTypeAction, Template: "hackernews"},
+		{ID: "e1", Type: models.NodeTypeAction, Template: "elevenlabs"},
+		{ID: "h1", Type: models.NodeTypeTool, Template: "http"},
+		{ID: "x1", Type: models.NodeTypeTool402},
+		{ID: "t1", Type: models.NodeTypeAction, Template: "telegram_get_updates"},
+		{ID: "c1", Type: models.NodeTypeAction, Template: "coingecko"},
+	}}
+	// rss is the original incident: {title, count, items}, no result, and the
+	// braces went out in a Telegram message. elevenlabs is the same shape of
+	// mistake: {status, audioBase64}, no result either.
+	for _, id := range []string{"a1", "r1", "n1", "e1"} {
+		err := validateTemplateRefs(graph, map[string]string{"messageTemplate": "Says: {{node." + id + ".result}}"})
+		if err == nil {
+			t.Fatalf("{{ node.%s.result }} was accepted; it reaches the user as literal braces", id)
+		}
+		if !strings.Contains(err.Error(), "node."+id) {
+			t.Errorf("the error must show the form that works, got %v", err)
+		}
+	}
+	// A response handed back as it came may really have one. Telegram's
+	// getUpdates always does: {"ok": ..., "result": ...}.
+	for _, id := range []string{"h1", "x1", "t1", "c1"} {
+		if err := validateTemplateRefs(graph, map[string]string{"messageTemplate": "Got: {{node." + id + ".result}}"}); err != nil {
+			t.Errorf("node %s passes a remote response through: %v", id, err)
+		}
+	}
+}
+
+// A reset peer 77s into a live build returned an error, so the save was
+// never reached and every node built went with it.
+func TestBuildGraphKeepsItsWorkWhenTheConnectionDrops(t *testing.T) {
+	var round int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		round++
+		if round == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"candidates": []map[string]any{
+				{"content": map[string]any{"parts": []map[string]any{
+					{"functionCall": map[string]any{"name": "add_node", "args": map[string]any{
+						"type": "action", "template": "coingecko", "name": "Price",
+						"config": map[string]any{"cgIDs": "bitcoin"},
+					}}},
+				}}},
+			}})
+			return
+		}
+		// Every later round: the connection goes away mid-response.
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("cannot hijack")
+		}
+		conn, _, _ := hj.Hijack()
+		conn.Close()
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "track bitcoin", Graph: models.WorkflowGraph{}})
+	if err != nil {
+		t.Fatalf("a dropped connection must not discard the build: %v", err)
+	}
+	if len(res.Graph.Nodes) != 1 {
+		t.Fatalf("want the node it managed to build, got %d", len(res.Graph.Nodes))
+	}
+	if strings.TrimSpace(res.Reply) == "" {
+		t.Error("the user needs to be told the build did not finish")
+	}
+}
+
+// "What I built so far is on the canvas" is only true if this build built
+// something. On an existing workflow, counting nodes made a quota error or a
+// dropped connection look like a partial success, with no failure shown.
+func TestBuildGraphReportsAFailureThatBuiltNothing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("cannot hijack")
+		}
+		conn, _, _ := hj.Hijack()
+		conn.Close()
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	existing := models.WorkflowGraph{Nodes: []models.WorkflowNode{
+		{ID: "n1", Type: models.NodeTypeTrigger, Template: "manual", Name: "Start"},
+		{ID: "n2", Type: models.NodeTypeAgent, Template: "agent", Name: "Agent"},
+	}}
+	_, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "add an email step", Graph: existing,
+	})
+	if err == nil {
+		t.Fatal("a build that changed nothing must report the failure, not claim partial success")
 	}
 }
 
