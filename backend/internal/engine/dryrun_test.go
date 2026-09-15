@@ -815,3 +815,37 @@ func TestDryRunDoesNotBlameAnAgentForAWithheldPaidTool(t *testing.T) {
 		t.Errorf("the reason should name the tool that was withheld, got %q", agent.Reason)
 	}
 }
+
+// A withheld tool excuses an agent that had nothing to say -- not an agent
+// whose model call was refused. IsEmptyOutput is true on every error path,
+// so without the err check a 429, a bad model name or a rejected platform
+// key all came back "unverified" and the builder never repaired them.
+func TestDryRunStillBlamesARealAgentFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"quota exceeded"}}`))
+	}))
+	defer srv.Close()
+	nodes.SetGeminiBaseURL(srv.URL)
+	defer nodes.SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	graph := models.WorkflowGraph{
+		Nodes: []models.WorkflowNode{
+			{ID: "t", Type: models.NodeTypeTrigger, Template: "manual", Name: "Start"},
+			{ID: "a", Type: models.NodeTypeAgent, Template: "agent", Name: "Explain"},
+			{ID: "p", Type: models.NodeTypeProvider, Template: "gemini", Name: "Gemini", KeyMode: "platform"},
+			{ID: "x", Type: models.NodeTypeTool402, Name: "Paid Prices", Endpoint: "https://api.example.com/x402/prices"},
+		},
+		Edges: []models.WorkflowEdge{
+			{ID: "e1", From: "t", To: "a", Kind: models.EdgeKindFlow, ToPort: "in"},
+			{ID: "e2", From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"},
+			{ID: "e3", From: "x", To: "a", Kind: models.EdgeKindAttach, ToPort: "tools"},
+		},
+	}
+	res := DryRun(context.Background(), graph, DryRunOptions{
+		PlatformKeys: map[string]string{"gemini": "k"},
+	})
+	if !res.Failed {
+		t.Fatalf("a refused model call is the workflow's problem to fix: %+v", res.Steps)
+	}
+}

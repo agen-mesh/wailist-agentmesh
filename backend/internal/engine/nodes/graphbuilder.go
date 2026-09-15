@@ -394,7 +394,11 @@ func validateTemplateRefs(graph *models.WorkflowGraph, values map[string]string)
 				if _, ok := findGraphNode(graph, id); !ok {
 					return fmt.Errorf("%s: {{ %s }} refers to node %q, which is not in the graph -- use the id add_node returned", key, ref, id)
 				}
-				if path == "output" || path == "result" {
+				n, _ := findGraphNode(graph, id)
+				// ".output" is never a field. ".result" is, on plenty of real
+				// APIs (Telegram, JSON-RPC), so it is only refused on an agent,
+				// whose output this engine defines and which has no such key.
+				if path == "output" || (path == "result" && n.Type == models.NodeTypeAgent) {
 					return fmt.Errorf("%s: {{ %s }} -- a node's output is {{ node.%s }} itself; \".%s\" would look for a field named %s, find none, and leave the braces in the text the user reads", key, ref, id, path, path)
 				}
 				if path != "" && !templatePath.MatchString(path) {
@@ -1425,6 +1429,12 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 
 	// Taken before any tool runs: the tools edit graph in place, so the
 	// "before" graph cannot be re-read later.
+	// What the build started from. "Keep what it built" has to mean this
+	// build changed something -- on an existing workflow, counting nodes
+	// reported a quota error as a partial success and showed no failure.
+	startingGraph := graphSnapshot(graph)
+	changedSomething := func() bool { return graphSnapshot(graph) != startingGraph }
+
 	baselineFindings := auditGraph(graph)
 	auditRetried := false
 	emptyResponses := 0
@@ -1452,7 +1462,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 				}
 				continue
 			}
-			if len(graph.Nodes) > 0 {
+			if changedSomething() {
 				return BuildGraphResult{Reply: withTestStatus(unfinishedReply(lastReply)), Graph: graph}, nil
 			}
 			return BuildGraphResult{}, err
@@ -1470,7 +1480,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 					}
 					continue
 				}
-				if len(graph.Nodes) > 0 {
+				if changedSomething() {
 					return BuildGraphResult{Reply: withTestStatus(unfinishedReply(lastReply)), Graph: graph}, nil
 				}
 				return BuildGraphResult{}, err

@@ -343,9 +343,13 @@ export function useChatSession(
     // Never write a transcript that was not read back, or one belonging to
     // another workflow.
     if (!canPersist(writable.current, loadedFor.current, key)) return;
-    // Recovery finds a stranded turn by its runId, so a new turn and a
-    // newly attached runId both have to be stored at once.
-    const shape = messages.map((m) => `${m.id}:${m.runId ?? ""}`).join();
+    // What must be stored the moment it changes: a new turn, the runId that
+    // recovery finds it by, and the answer that settles it. Only in-progress
+    // edits (a build's step list) are left to the debounce -- a reload inside
+    // those 600ms would otherwise lose the reply itself.
+    const shape = messages
+      .map((m) => `${m.id}:${m.runId ?? ""}:${m.pending ? "1" : "0"}`)
+      .join();
     const isNewTurn = shape !== shapeRef.current;
     shapeRef.current = shape;
     if (isNewTurn) {

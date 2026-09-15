@@ -308,9 +308,11 @@ func dryRunNode(ctx context.Context, n models.WorkflowNode, attach models.Attach
 		}
 		// A tool this run may not call is the test's limit, not the
 		// workflow's fault -- reported as a failure it sent the builder to
-		// repair a correct workflow. Only when the agent had nothing to say:
-		// a rejected key or bad model name stays a real fault.
-		if len(withheld) > 0 && (nodes.IsEmptyOutput(out) || errors.Is(err, nodes.ErrNoModelText)) {
+		// repair a correct workflow. Only when the agent had nothing to say,
+		// though: a call that errored produces no output either, so without
+		// the err check a 429 or a bad model name was excused too.
+		if len(withheld) > 0 &&
+			((err == nil && nodes.IsEmptyOutput(out)) || errors.Is(err, nodes.ErrNoModelText)) {
 			return nil, "", unverifiable{fmt.Sprintf(
 				"a test run never calls %s, so this agent had nothing to work from and its answer cannot be checked",
 				strings.Join(withheld, ", "))}

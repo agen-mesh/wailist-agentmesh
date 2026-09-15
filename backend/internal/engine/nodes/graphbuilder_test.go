@@ -2066,16 +2066,24 @@ func TestSetFieldsMustBeAJSONObject(t *testing.T) {
 	}
 }
 
-// ".result" is the mistake ".output" already guards. One reached a user: a
-// Telegram message went out reading {{node.<id>.result}}.
-func TestTemplateRefRejectsDotResult(t *testing.T) {
-	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{{ID: "n1", Type: models.NodeTypeAction, Template: "rss"}}}
-	err := validateTemplateRefs(graph, map[string]string{"messageTemplate": "New item: {{node.n1.result}}"})
+// An agent's output has no "result" field, so {{ node.<id>.result }} on one
+// is the mistake ".output" already guards -- one reached a user, as literal
+// braces in a Telegram message. On anything else it may be a real field:
+// Telegram's getUpdates and JSON-RPC endpoints both return one.
+func TestTemplateRefRejectsDotResultOnAnAgent(t *testing.T) {
+	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{
+		{ID: "a1", Type: models.NodeTypeAgent, Template: "agent"},
+		{ID: "h1", Type: models.NodeTypeTool, Template: "http"},
+	}}
+	err := validateTemplateRefs(graph, map[string]string{"messageTemplate": "Says: {{node.a1.result}}"})
 	if err == nil {
-		t.Fatal("{{ node.n1.result }} was accepted; it reaches the user as literal braces")
+		t.Fatal("{{ node.a1.result }} was accepted; it reaches the user as literal braces")
 	}
-	if !strings.Contains(err.Error(), "node.n1") {
+	if !strings.Contains(err.Error(), "node.a1") {
 		t.Errorf("the error must show the form that works, got %v", err)
+	}
+	if err := validateTemplateRefs(graph, map[string]string{"messageTemplate": "Got: {{node.h1.result}}"}); err != nil {
+		t.Errorf("an http response may really have a result field: %v", err)
 	}
 }
 
@@ -2118,5 +2126,33 @@ func TestBuildGraphKeepsItsWorkWhenTheConnectionDrops(t *testing.T) {
 	}
 	if strings.TrimSpace(res.Reply) == "" {
 		t.Error("the user needs to be told the build did not finish")
+	}
+}
+
+// "What I built so far is on the canvas" is only true if this build built
+// something. On an existing workflow, counting nodes made a quota error or a
+// dropped connection look like a partial success, with no failure shown.
+func TestBuildGraphReportsAFailureThatBuiltNothing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("cannot hijack")
+		}
+		conn, _, _ := hj.Hijack()
+		conn.Close()
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	existing := models.WorkflowGraph{Nodes: []models.WorkflowNode{
+		{ID: "n1", Type: models.NodeTypeTrigger, Template: "manual", Name: "Start"},
+		{ID: "n2", Type: models.NodeTypeAgent, Template: "agent", Name: "Agent"},
+	}}
+	_, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "add an email step", Graph: existing,
+	})
+	if err == nil {
+		t.Fatal("a build that changed nothing must report the failure, not claim partial success")
 	}
 }

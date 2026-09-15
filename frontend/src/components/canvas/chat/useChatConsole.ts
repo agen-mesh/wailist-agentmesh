@@ -23,7 +23,7 @@ interface UseChatConsoleArgs {
   onBuildMessage?: (
     text: string,
     onProgress?: (p: BuildProgress) => void,
-  ) => Promise<{ ok: boolean; reply?: string }>;
+  ) => Promise<{ ok: boolean; reply?: string; onSettled?: () => void }>;
   attempt?: number;
 }
 
@@ -205,6 +205,11 @@ export function useChatConsole({
               : "Could not update the workflow — see the notification for why, then try again."),
           isError: !res.ok,
         });
+        // Only now: leaving build mode swaps the transcript under this hook,
+        // and a turn settled after that swap lands on the run conversation,
+        // where it does not exist -- the reply is dropped and the build one
+        // keeps a turn pending for ever.
+        res.onSettled?.();
         return;
       }
       const ok = (await onSendMessage?.(text)) ?? false;

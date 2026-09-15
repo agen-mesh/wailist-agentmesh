@@ -566,7 +566,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     async (
       text: string,
       onProgress?: (p: BuildProgress) => void,
-    ): Promise<{ ok: boolean; reply?: string }> => {
+    ): Promise<{ ok: boolean; reply?: string; onSettled?: () => void }> => {
       if (!workflow) return { ok: false };
       // Poll the build's steps while it runs so the chat can show them. The
       // poller is stopped -- with one final flush -- before this returns, so
@@ -607,10 +607,16 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         // build made a graph that could not run runnable -- a half-built one
         // keeps the conversation going, and a user who chose Build on an
         // already-runnable workflow keeps that choice (shouldReleaseBuildMode).
-        if (shouldReleaseBuildMode(before, res.workflow)) {
-          setManualBuildMode(false);
-        }
-        return { ok: true, reply: res.reply };
+        // Handed back rather than applied here: the caller settles the chat
+        // turn first, because the mode change swaps the transcript out from
+        // under it.
+        return {
+          ok: true,
+          reply: res.reply,
+          onSettled: shouldReleaseBuildMode(before, res.workflow)
+            ? () => setManualBuildMode(false)
+            : undefined,
+        };
       } catch (err: unknown) {
         await poller?.stop();
         const message = err instanceof Error ? err.message : "unknown error";
@@ -1069,7 +1075,7 @@ function ChatConsoleHost({
   onBuildMessage?: (
     text: string,
     onProgress?: (p: BuildProgress) => void,
-  ) => Promise<{ ok: boolean; reply?: string }>;
+  ) => Promise<{ ok: boolean; reply?: string; onSettled?: () => void }>;
   attempt?: number;
   children: (chat: ChatConsole) => React.ReactNode;
 }) {
