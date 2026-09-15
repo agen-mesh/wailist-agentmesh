@@ -12,6 +12,8 @@ import { ConsoleCard } from "./ConsoleCard";
 import { EndpointRow } from "./EndpointRow";
 import { ProviderGroupCard } from "./ProviderGroupCard";
 import { AddToWorkflowDialog } from "./AddToWorkflowDialog";
+import { useReadOnly } from "@/hooks/useReadOnly";
+import { can } from "@/lib/readonly";
 
 // Real pagination, not infinite scroll: a fixed page is fetched and shown at
 // a time, with Prev/Next and a page-size picker -- a long, unbounded list
@@ -261,6 +263,26 @@ const BAZAAR_CSS = `
     flex: 1 1 100%;
   }
 }
+/* Below 520px a row cannot hold the name, the price and the stats side by
+   side: the stats kept their width and the name shrank to a few characters.
+   The meta wraps onto its own line, indented to the text column (the 26px
+   icon plus the 12px gap), and Add stays on the first line. */
+@media (max-width: 520px) {
+  .bz-row {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .bz-row__add {
+    order: 2;
+  }
+  .bz-row__meta {
+    order: 3;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    row-gap: 2px;
+    padding-left: 38px;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .bz-row,
   .bz-row::before,
@@ -279,6 +301,10 @@ export function BazaarPage() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState<BazaarResource | null>(null);
+  // Adding an endpoint edits a workflow graph, so where the graph cannot be
+  // edited the endpoints are listed without Add (see lib/readonly.ts).
+  const readOnly = useReadOnly();
+  const onAdd = can("workflow.editGraph", readOnly) ? setAdding : undefined;
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
   const [page, setPage] = useState(0); // 0-indexed
 
@@ -509,7 +535,7 @@ export function BazaarPage() {
               <div style={{ ...GRID, marginTop: consoles.length > 0 ? 12 : 0 }}>
                 {plainSupported.map((r) => (
                   <div key={r.id} className="bz-supported-card">
-                    <ResourceCard resource={r} onAdd={setAdding} />
+                    <ResourceCard resource={r} onAdd={onAdd} />
                   </div>
                 ))}
               </div>
@@ -586,7 +612,7 @@ export function BazaarPage() {
                 <EndpointRow
                   key={resources[0].id}
                   resource={resources[0]}
-                  onAdd={setAdding}
+                  onAdd={onAdd}
                 />
               ) : (
                 <ProviderGroupCard
@@ -595,7 +621,7 @@ export function BazaarPage() {
                   resources={resources}
                   expanded={expandedHosts.has(host)}
                   onToggle={() => toggleHost(host)}
-                  onAdd={setAdding}
+                  onAdd={onAdd}
                   partial={false}
                 />
               ),
@@ -715,7 +741,7 @@ export function BazaarPage() {
         </section>
       </div>
 
-      {adding && (
+      {adding && onAdd && (
         <AddToWorkflowDialog
           resource={adding}
           onClose={() => setAdding(null)}

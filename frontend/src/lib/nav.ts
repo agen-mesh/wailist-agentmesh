@@ -31,6 +31,18 @@ export const APP_NAV_ITEMS: readonly NavItem[] = [
   { label: "Credits", href: "/billing" },
 ];
 
+/**
+ * Tabs for the bottom bar on a phone or tablet. A handheld is mostly used to
+ * check on workflows, so Activity takes a tab and Usage and Credits sit under
+ * Account instead. APP_NAV_ITEMS stays the desktop and top bar navigation.
+ */
+export const HANDHELD_TAB_ITEMS: readonly NavItem[] = [
+  { label: "Workflows", href: "/workflows" },
+  { label: "Activity", href: "/activity" },
+  { label: "Bazaar", href: "/bazaar" },
+  { label: "Account", href: "/account" },
+];
+
 /** In-page sections for the marketing landing page. */
 export const LANDING_NAV_ITEMS: readonly NavItem[] = [
   { label: "Overview", sectionId: "pillars" },

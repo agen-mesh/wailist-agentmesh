@@ -165,6 +165,153 @@
   }
 }
 
+/* ── Route transitions ──────────────────────────────────────────────────────
+   Applied by components/nav/RouteTransition.tsx, which decides when and in
+   which direction. See that file for why this is a keyframe on the arriving
+   screen rather than the View Transitions API.
+
+   16px, not a full-width slide. The travel only has to say WHICH WAY the screen
+   came from; a screen-width push with no outgoing frame to push against reads
+   as the content sliding around inside a static window, which is worse than not
+   moving at all. Paired with a fade so the short distance still registers.
+
+   220ms sits in the app's standard-UI band (150-250ms) and under its 300ms cap
+   for anything the user is waiting on. var(--ease) is the house entrance curve. */
+@keyframes route-in-forward {
+  from {
+    opacity: 0;
+    transform: translate3d(16px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes route-in-back {
+  from {
+    opacity: 0;
+    transform: translate3d(-16px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.route-enter-fwd {
+  animation: route-in-forward 0.22s var(--ease);
+}
+.route-enter-back {
+  animation: route-in-back 0.22s var(--ease);
+}
+
+/* Not decoration, so it goes entirely rather than being shortened: someone who
+   has asked for less motion is not asking for faster motion.
+
+   With no animation there is no animationend, so the class is never cleaned off
+   the wrapper. That is deliberate and harmless -- it paints nothing, and the
+   next navigation strips both classes before adding one. Worth writing down,
+   because "the class is still on the element" looks like a leak to anyone
+   reading the DOM rather than this comment. */
+@media (prefers-reduced-motion: reduce) {
+  .route-enter-fwd,
+  .route-enter-back {
+    animation: none;
+  }
+}
+
+/* ── Skeletons ──────────────────────────────────────────────────────────────
+   A sweep of light across a slightly raised block. The sweep is what separates
+   "loading" from "empty": a static grey box reads as content that has arrived
+   and is blank. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-elev-2);
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.06),
+    transparent
+  );
+  animation: skeleton-sweep 1.4s var(--ease) infinite;
+}
+
+/* 1.4s, well outside the app's 300ms interactive-feedback cap, and rightly so:
+   that cap governs a response to something the user just did. This is ambient,
+   like the marquee and the glow -- a pulse at interaction speed would read as
+   frantic. */
+@keyframes skeleton-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+}
+
+/* ── Pull to refresh ────────────────────────────────────────────────────────
+   The indicator only; the gesture lives in components/PullToRefresh.tsx. It is
+   positioned from the top centre and moved by an inline transform that tracks
+   the finger, so everything here is the chrome around that. */
+.ptr-indicator {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  z-index: 5;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+  /* The one surface here that genuinely floats above the page, so it is the
+     one that gets a shadow. */
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.ptr-indicator[data-spinning] {
+  color: var(--accent);
+  animation: ptr-spin 0.7s linear infinite;
+}
+
+/* Animates `rotate`, NOT `transform`. The element's transform is set inline and
+   tracks the finger; a keyframe touching `transform` would fight it and snap the
+   indicator back to the top mid-pull. `rotate` is an independent transform
+   property, so the two compose instead of overwriting each other.
+
+   linear, not var(--ease): a spinner is continuous motion, and an eased curve
+   makes it visibly hesitate once per revolution. */
+@keyframes ptr-spin {
+  from {
+    rotate: 0deg;
+  }
+  to {
+    rotate: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ptr-indicator[data-spinning] {
+    animation: none;
+  }
+}
+
 /* ── Studio, compact ────────────────────────────────────────────────────── */
 /* The studio is a three-column desktop IDE: palette | graph | rail. Read-only
    already drops the palette, but the rail's 320px still leaves ~55px of graph
@@ -262,13 +409,54 @@
   }
 }
 
-/* Usage tables keep their columns and scroll sideways inside their own card,
-   so the page body never does. */
-@media (max-width: 1024px) {
-  .am-usage-table {
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    -webkit-overflow-scrolling: touch;
+/* ── Sideways scroll, made visible ──────────────────────────────────────────
+   Scrolling was already the right answer for these tables -- the settlements
+   card was tried as a two-up stack and measured WORSE (833px against 18 rows
+   that scrolled), and the endpoints table is nine sortable columns wide. What
+   was missing is any sign that scrolling is possible: on a 375px screen the
+   endpoints table shows 305 of its 984 pixels and simply looks cut off, with a
+   type pill sliced down the middle at the edge.
+
+   So this adds the affordance rather than changing the layout. A fade at the
+   right edge says "there is more this way" -- the standard treatment, and the
+   only one that does not cost vertical space on a page whose length was the
+   actual complaint.
+
+   It is on a wrapper, not the scroller itself: a pseudo-element on the
+   scrolling box scrolls away with the content, so it would drift off exactly
+   when it is needed. `pointer-events: none` so it never eats a tap on the cell
+   underneath. */
+.am-hscroll {
+  position: relative;
+}
+.am-hscroll__pane {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.am-hscroll::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 40px;
+  pointer-events: none;
+  /* Ends in the card's own background so the fade reads as the content
+     running under the edge, not as a grey bar laid over it. */
+  background: linear-gradient(to right, transparent, var(--bg-elev-1));
+  opacity: 1;
+  transition: opacity 0.15s var(--ease);
+}
+/* Nothing further to scroll: the fade goes, so it never lies about there being
+   more. Set by the component once it has measured, which is also why the
+   attribute is absent (not "false") until then. */
+.am-hscroll[data-at-end]::after {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .am-hscroll::after {
+    transition: none;
   }
 }
 
@@ -307,5 +495,31 @@
 @media (max-width: 900px) {
   .am-studio-stats-extra {
     display: none;
+  }
+}
+
+/* The studio top bar on a phone. At 360px it needed about 393px: the logo,
+   the "/" separator, the placeholder avatar and a 120px floor on the name
+   pushed the Run button past the edge. Below 520px those go, as does the
+   run-cost estimate (the credit balance stays, for the reason above), the
+   back button keeps only its arrow with a full 44px target, and the spacing,
+   the name floor and the Run width tighten. Every token falls back to the
+   desktop value in CanvasPage.tsx, so nothing above this step moves. */
+@media (max-width: 520px) {
+  .am-canvas-bar {
+    --canvas-bar-pad: 12px;
+    --canvas-bar-gap: 8px;
+    --canvas-name-min: 72px;
+    --canvas-stats-pad: 10px;
+    --canvas-run-min: 64px;
+  }
+  .am-canvas-bar__wide,
+  .am-canvas-bar__label {
+    display: none !important;
+  }
+  .am-canvas-bar__back {
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
   }
 }

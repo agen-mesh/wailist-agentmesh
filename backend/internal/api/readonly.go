@@ -61,6 +61,11 @@ var readOnlyBlocked = []struct {
 	{http.MethodPost, regexp.MustCompile(`^/workflows/[^/]+/build$`)},
 	{http.MethodPut, regexp.MustCompile(`^/workflows/[^/]+/schedule$`)},
 	{http.MethodDelete, regexp.MustCompile(`^/workflows/[^/]+/schedule$`)},
+	// Variables are values a workflow's nodes read, so setting or deleting one
+	// changes what the workflow does -- authoring, like the schedule above.
+	// Listing them stays open.
+	{http.MethodPut, regexp.MustCompile(`^/workflows/[^/]+/variables/[^/]+$`)},
+	{http.MethodDelete, regexp.MustCompile(`^/workflows/[^/]+/variables/[^/]+$`)},
 	// PUT/DELETE .../geofence are deliberately NOT here, though they were
 	// once. A geofence is configured from the place it describes, which means
 	// from a phone -- the client this list would refuse. The frontend permits

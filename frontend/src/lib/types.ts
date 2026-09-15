@@ -137,6 +137,32 @@ export interface Workflow {
   geofenceLastFixAt?: string;
 }
 
+// ── Run history ─────────────────────────────────────────────────────────────
+// A run's lifecycle as the backend stores it (models.RunStatus).
+export type RunStatus = "running" | "success" | "failed" | "stopped";
+
+// One row of a run history list (GET /workflows/{id}/runs and GET /runs).
+// Mirrors models.RunSummary; the run's input context is never included.
+export interface RunSummary {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  // "manual", "schedule", "geofence", "webhook", or a partner console.
+  triggeredBy: string;
+  status: RunStatus;
+  startedAt: string;
+  finishedAt?: string;
+  // Everything charged for the run so far, in USD micros. A running run can
+  // still grow.
+  spendUsdMicros: number;
+}
+
+// One page of run history. nextCursor is null on the last page.
+export interface RunPage {
+  runs: RunSummary[];
+  nextCursor: string | null;
+}
+
 export interface NodeTypeMeta {
   w: number;
   h: number;

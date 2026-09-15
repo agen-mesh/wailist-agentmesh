@@ -1,13 +1,13 @@
 import { Suspense } from "react";
 import { GeofenceRouteFromUrl } from "@/components/workflows/GeofenceRouteFromUrl";
-import { MOBILE_SHELL_ID } from "../page";
+import { MOBILE_SHELL_ID } from "@/lib/routes";
 
 // Mirrors the canvas route one level up: the native shell ships a static
 // export and cannot prerender a page per workflow, so that build emits a
 // single shell page and the real id arrives as ?id=. Reuses MOBILE_SHELL_ID
-// from ../page rather than repeating the literal, so the two routes cannot
-// drift apart and leave the mobile build with a shell at one path and nothing
-// at the other.
+// from lib/routes.ts, which also builds every link to this page, rather than
+// repeating the literal, so the route and its links cannot drift apart and
+// leave the mobile build with a shell at one path and links to another.
 export function generateStaticParams() {
   return process.env.MOBILE_BUILD === "1" ? [{ id: MOBILE_SHELL_ID }] : [];
 }

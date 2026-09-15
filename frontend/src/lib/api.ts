@@ -11,8 +11,10 @@ import {
   EndpointUsage,
   Settlement,
   CostEstimate,
+  RunPage,
 } from "./types";
 import { WORKFLOWS, SAMPLE_WORKFLOW, buildUsage } from "./data";
+import { fixtureRunPage } from "./runFixtures";
 import { assertWritable } from "./readonly";
 import { IS_NATIVE, authHeaders } from "./nativeAuth";
 import type { PaymentMethod } from "@/components/checkout/types";
@@ -710,6 +712,59 @@ export interface DeadLetterRun {
   createdAt: string;
 }
 
+// The run as GET /runs/{runId} returns it (models.Run, without its input).
+export interface RunDetail {
+  id: string;
+  workflowId: string;
+  triggeredBy: string;
+  status: string;
+  startedAt: string;
+  finishedAt?: string;
+}
+
+// Thrown when the backend has no run history routes yet. An older server
+// answers them with chi's plain-text "404 page not found"; a workflow that is
+// missing or someone else's is a JSON 404 with an "error" field instead, and
+// stays an ordinary error.
+export class RunsUnavailableError extends Error {
+  constructor() {
+    super("Run history isn't available on this server yet.");
+    this.name = "RunsUnavailableError";
+  }
+}
+
+export interface RunHistoryOptions {
+  cursor?: string | null;
+  limit?: number;
+}
+
+function runHistoryQuery(options: RunHistoryOptions): string {
+  const q = new URLSearchParams();
+  if (options.limit) q.set("limit", String(options.limit));
+  if (options.cursor) q.set("cursor", options.cursor);
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
+async function readRunPage(res: Response, fallback: string): Promise<RunPage> {
+  const text = await res.text();
+  let data: unknown = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+  if (res.ok) return data as RunPage;
+  const error =
+    data !== null &&
+    typeof data === "object" &&
+    typeof (data as { error?: unknown }).error === "string"
+      ? (data as { error: string }).error
+      : null;
+  if (res.status === 404 && error === null) throw new RunsUnavailableError();
+  throw new Error(error ?? fallback);
+}
+
 export const runs = {
   // The DB-backed source of truth for a run's logs — used as a reconciliation
   // fallback once the live SSE stream ends, since the stream's broker only
@@ -723,7 +778,7 @@ export const runs = {
   get: async (
     runId: string,
   ): Promise<{
-    run: { status: string };
+    run: RunDetail;
     logs: RunLogRecord[];
     deadLetters: DeadLetterRun[];
   }> => {
@@ -748,7 +803,14 @@ export const runs = {
     const mockTxId =
       "7F2AC9D1E4B8A6350C1D9E2F4A7B8C3D5E6F1A2B3C4D5E6F7A8B9C0D1E2F3A4B";
     return {
-      run: { status: "success" },
+      run: {
+        id: runId,
+        workflowId: SAMPLE_WORKFLOW.id,
+        triggeredBy: "manual",
+        status: "success",
+        startedAt: iso(8200),
+        finishedAt: iso(0),
+      },
       deadLetters: [],
       logs: [
         {
@@ -793,6 +855,34 @@ export const runs = {
         },
       ],
     };
+  },
+
+  // One workflow's runs, newest first (GET /workflows/{id}/runs).
+  listForWorkflow: async (
+    workflowId: string,
+    options: RunHistoryOptions = {},
+  ): Promise<RunPage> => {
+    if (BASE) {
+      const res = await apiFetch(
+        `${BASE}/workflows/${encodeURIComponent(workflowId)}/runs${runHistoryQuery(options)}`,
+        { credentials: "include" },
+      );
+      return readRunPage(res, "failed to load runs");
+    }
+    await delay(200);
+    return fixtureRunPage({ workflowId, ...options });
+  },
+
+  // The user's newest runs across their own workflows (GET /runs).
+  recent: async (options: RunHistoryOptions = {}): Promise<RunPage> => {
+    if (BASE) {
+      const res = await apiFetch(`${BASE}/runs${runHistoryQuery(options)}`, {
+        credentials: "include",
+      });
+      return readRunPage(res, "failed to load recent runs");
+    }
+    await delay(200);
+    return fixtureRunPage(options);
   },
 
   resume: async (runId: string): Promise<{ runId: string }> => {

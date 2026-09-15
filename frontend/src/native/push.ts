@@ -12,6 +12,7 @@ import type { PluginListenerHandle } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { registerDevice, unregisterDevice } from "./api";
 import { clearOptedIn, hasOptedIn, setOptedIn } from "./pushPrefs";
+import { workflowHref } from "@/lib/routes";
 
 // What the user is told BEFORE Android's own dialog, for the same reason
 // permissions.ts explains background location first: a cold system prompt is
@@ -314,10 +315,8 @@ export async function listenForTaps(): Promise<void> {
       const workflowId = data.workflowId;
       if (!workflowId) return;
       // The native shell is a static export: every workflow shares one page
-      // and the real id travels as ?id=. See WorkflowRouteFromUrl.
-      window.location.assign(
-        `/workflows/app?id=${encodeURIComponent(workflowId)}`,
-      );
+      // and the real id travels as ?id=. workflowHref() builds that form.
+      window.location.assign(workflowHref(workflowId));
     },
   );
 }

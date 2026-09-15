@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { workflows } from "@/lib/api";
 import { IS_NATIVE } from "@/lib/nativeAuth";
 import { can } from "@/lib/readonly";
@@ -363,6 +364,19 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
   return (
     <Wrap>
       <header style={{ marginBottom: 20 }}>
+        {/* This screen has no top bar, so without this the only way back to
+            the list was the system back gesture. */}
+        <Link
+          href="/workflows"
+          style={{
+            ...ghostBtn,
+            minHeight: 44,
+            marginBottom: 16,
+            textDecoration: "none",
+          }}
+        >
+          ← Workflows
+        </Link>
         <h1 style={title}>Location trigger</h1>
         <p style={{ ...copy, marginTop: 6 }}>
           {workflow?.name

@@ -3,8 +3,8 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useIsHandheld } from "@/hooks/useIsHandheld";
-import { APP_NAV_ITEMS, isNavItemActive, type NavItem } from "@/lib/nav";
-import { IconGrid, IconWallet } from "@/components/ui";
+import { HANDHELD_TAB_ITEMS, isNavItemActive, type NavItem } from "@/lib/nav";
+import { IconGrid } from "@/components/ui";
 
 // The app's navigation on a phone.
 //
@@ -16,17 +16,18 @@ import { IconGrid, IconWallet } from "@/components/ui";
 // of a tall screen and around 61% at the top, which is exactly where a
 // hamburger sits.
 //
-// Four destinations, taken from APP_NAV_ITEMS rather than a second list: this
-// is the same navigation, shown where a thumb can reach it. Material 3 puts a
-// navigation bar at three to five destinations, so four needs no compromise.
+// Four destinations, taken from HANDHELD_TAB_ITEMS in lib/nav.ts. They differ
+// from the desktop's APP_NAV_ITEMS on purpose: a handheld checks on workflows,
+// so Activity has a tab and Usage and Credits are reached through Account.
+// Material 3 puts a navigation bar at three to five destinations, so four needs
+// no compromise.
 
 // Only at the ROOT of each section, never on a pushed screen. A tab bar marks
 // where you are among peers; on a detail screen the question is "how do I get
-// back", which is what the back affordance answers. The studio at
-// /workflows/[id] also owns the bottom of the screen for its own sheet, and two
-// bars stacked there would be worse than either alone.
+// back", which is what the back affordance answers. A workflow at
+// /workflows/[id] is such a screen and carries its own way back to the list.
 const TAB_ROOTS = new Set(
-  APP_NAV_ITEMS.map((item) => item.href).filter(
+  HANDHELD_TAB_ITEMS.map((item) => item.href).filter(
     (href): href is string => typeof href === "string",
   ),
 );
@@ -54,7 +55,7 @@ export function BottomNav() {
 
   return (
     <nav className="bottomnav am-safe-bottom" aria-label="Primary">
-      {APP_NAV_ITEMS.map((item) => {
+      {HANDHELD_TAB_ITEMS.map((item) => {
         const active = isNavItemActive(item, pathname);
         return (
           <Link
@@ -76,17 +77,17 @@ export function BottomNav() {
 }
 
 // Icons live here rather than in lib/nav.ts, which is a plain manifest and has
-// no business importing JSX. IconGrid and IconWallet already exist and already
-// mean the right things; the two below are new because nothing in the set did.
+// no business importing JSX. IconGrid already exists and already means the
+// right thing; the others are drawn here because nothing in the set did.
 function TabIcon({ item }: { item: NavItem }) {
   const size = 20;
   switch (item.href) {
     case "/bazaar":
       return <IconGrid size={size} />;
-    case "/billing":
-      return <IconWallet size={size} />;
-    case "/usage":
-      return <IconChart size={size} />;
+    case "/activity":
+      return <IconPulse size={size} />;
+    case "/account":
+      return <IconPerson size={size} />;
     default:
       return <IconNodes size={size} />;
   }
@@ -111,7 +112,7 @@ const IconNodes = ({ size = 16 }: { size?: number }) => (
   </svg>
 );
 
-const IconChart = ({ size = 16 }: { size?: number }) => (
+const IconPulse = ({ size = 16 }: { size?: number }) => (
   <svg
     width={size}
     height={size}
@@ -122,6 +123,29 @@ const IconChart = ({ size = 16 }: { size?: number }) => (
     aria-hidden="true"
     style={{ display: "block" }}
   >
-    <path d="M2 13.5V9M6 13.5V4M10 13.5V7M14 13.5V2" strokeLinecap="round" />
+    <path
+      d="M1.5 8h3l1.8-4.5 3.4 9 1.8-4.5h3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+const IconPerson = ({ size = 16 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.3"
+    aria-hidden="true"
+    style={{ display: "block" }}
+  >
+    <circle cx="8" cy="5.5" r="2.8" />
+    <path
+      d="M2.8 14c.6-2.8 2.7-4.3 5.2-4.3s4.6 1.5 5.2 4.3"
+      strokeLinecap="round"
+    />
   </svg>
 );
