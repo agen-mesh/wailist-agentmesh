@@ -1580,6 +1580,12 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 					continue
 				}
 			}
+			// Before any test and before the reply: a workflow that reads live
+			// data gets a way to recover when a read fails. Here, after the
+			// audit and ahead of the test gate, so a test run exercises the
+			// graph the user will actually get. Idempotent, so reaching this
+			// again on a later reply attempt changes nothing.
+			ensureSearchFallback(&graph)
 			// The test gate. The user asked for "a workflow which does run and
 			// gives the desired answer", and a graph can pass every structural
 			// check and still answer {} -- or, worse, an agent handed {} can
