@@ -389,6 +389,8 @@ func engineShapedOutput(n models.WorkflowNode) bool {
 		return true
 	case "hackernews": // {count, items}
 		return true
+	case "elevenlabs": // {status, audioBase64}
+		return true
 	}
 	return false
 }

@@ -2075,14 +2075,16 @@ func TestTemplateRefRejectsDotResultOnEngineShapedOutput(t *testing.T) {
 		{ID: "a1", Type: models.NodeTypeAgent, Template: "agent"},
 		{ID: "r1", Type: models.NodeTypeAction, Template: "rss"},
 		{ID: "n1", Type: models.NodeTypeAction, Template: "hackernews"},
+		{ID: "e1", Type: models.NodeTypeAction, Template: "elevenlabs"},
 		{ID: "h1", Type: models.NodeTypeTool, Template: "http"},
 		{ID: "x1", Type: models.NodeTypeTool402},
 		{ID: "t1", Type: models.NodeTypeAction, Template: "telegram_get_updates"},
 		{ID: "c1", Type: models.NodeTypeAction, Template: "coingecko"},
 	}}
 	// rss is the original incident: {title, count, items}, no result, and the
-	// braces went out in a Telegram message.
-	for _, id := range []string{"a1", "r1", "n1"} {
+	// braces went out in a Telegram message. elevenlabs is the same shape of
+	// mistake: {status, audioBase64}, no result either.
+	for _, id := range []string{"a1", "r1", "n1", "e1"} {
 		err := validateTemplateRefs(graph, map[string]string{"messageTemplate": "Says: {{node." + id + ".result}}"})
 		if err == nil {
 			t.Fatalf("{{ node.%s.result }} was accepted; it reaches the user as literal braces", id)
