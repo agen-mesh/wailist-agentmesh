@@ -25,6 +25,7 @@ import { ResizeHandle } from "./ResizeHandle";
 import { ChatRail } from "./chat/ChatRail";
 import { useChatConsole, type ChatConsole } from "./chat/useChatConsole";
 import { can } from "@/lib/readonly";
+import { workflowHref } from "@/lib/routes";
 import { ghostBtnSm, primaryBtnSm } from "@/components/ui/buttons";
 import { useIsCompact } from "@/hooks/useIsCompact";
 import { runBlockedReason } from "./runBlocked";
@@ -214,7 +215,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       workflowsApi
         .create("Untitled workflow")
         .then((wf) => {
-          if (!cancelled) router.replace(`/workflows/${wf.id}`);
+          if (!cancelled) router.replace(workflowHref(wf.id));
         })
         .catch(() => {
           if (!cancelled) setLoading(false);
@@ -682,8 +683,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     // Consume the param either way: a malformed value must not re-trigger on
     // every render, and must not survive a refresh as a phantom pending node.
     consumedAdd.current = pendingAdd;
-    router.replace(`/workflows/${workflow.id}`);
-    if (!meta) return;
+    router.replace(workflowHref(workflow.id));
+    // A client that cannot edit the graph drops the handoff as well. The
+    // Bazaar hides Add there, so this covers a link opened directly.
+    if (!meta || !canEdit) return;
     // Drop it slightly off-centre so it never lands exactly on an existing
     // node when several are added in a row. Wraps every 8 nodes instead of
     // growing with workflow.nodes.length forever -- otherwise a workflow
@@ -712,7 +715,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setWorkflow((wf) => (wf ? { ...wf, nodes: [...wf.nodes, node] } : wf));
     showToast(`Added ${meta.name ?? "endpoint"} to the canvas`);
-  }, [pendingAdd, workflow, router, setWorkflow, showToast]);
+  }, [pendingAdd, workflow, canEdit, router, setWorkflow, showToast]);
 
   // Wrapper typed as non-null so child components don't need to change.
   // Safe because children only render after the null guard above.
@@ -809,51 +812,55 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         {/* Collapsed: the column and its resize handle give way to a thin
             rail, so the canvas gets the full ~280px back without the palette
             disappearing with no way to bring it back. */}
-        {!compact && can("workflow.editGraph", readOnly) && paletteCollapsed && (
-          <button
-            type="button"
-            onClick={() => setPaletteCollapsed(false)}
-            title="Expand the library"
-            aria-label="Expand the library"
-            style={{
-              flexShrink: 0,
-              width: 26,
-              alignSelf: "stretch",
-              background: "var(--bg-elev-1)",
-              border: "none",
-              borderRight: "1px solid var(--border)",
-              color: "var(--fg-muted)",
-              cursor: "pointer",
-              fontSize: 12,
-            }}
-          >
-            ›
-          </button>
-        )}
-
-        {!compact && can("workflow.editGraph", readOnly) && !paletteCollapsed && (
-          <>
-            <PalettePanel
-              onDragNodeStart={onDragNodeStart}
-              onAddNode={(meta) => addAtCentre.current?.(meta)}
-              width={paletteW}
-              onCollapse={() => setPaletteCollapsed(true)}
-            />
-            <ResizeHandle
-              side="left"
-              value={paletteW}
-              min={PALETTE.min}
-              max={PALETTE.max}
-              ariaLabel="Resize palette panel"
-              onChange={resizePalette}
-              onCommit={persistWidths}
-              onReset={() => {
-                setPaletteW(PALETTE.default);
-                persistWidths();
+        {!compact &&
+          can("workflow.editGraph", readOnly) &&
+          paletteCollapsed && (
+            <button
+              type="button"
+              onClick={() => setPaletteCollapsed(false)}
+              title="Expand the library"
+              aria-label="Expand the library"
+              style={{
+                flexShrink: 0,
+                width: 26,
+                alignSelf: "stretch",
+                background: "var(--bg-elev-1)",
+                border: "none",
+                borderRight: "1px solid var(--border)",
+                color: "var(--fg-muted)",
+                cursor: "pointer",
+                fontSize: 12,
               }}
-            />
-          </>
-        )}
+            >
+              ›
+            </button>
+          )}
+
+        {!compact &&
+          can("workflow.editGraph", readOnly) &&
+          !paletteCollapsed && (
+            <>
+              <PalettePanel
+                onDragNodeStart={onDragNodeStart}
+                onAddNode={(meta) => addAtCentre.current?.(meta)}
+                width={paletteW}
+                onCollapse={() => setPaletteCollapsed(true)}
+              />
+              <ResizeHandle
+                side="left"
+                value={paletteW}
+                min={PALETTE.min}
+                max={PALETTE.max}
+                ariaLabel="Resize palette panel"
+                onChange={resizePalette}
+                onCommit={persistWidths}
+                onReset={() => {
+                  setPaletteW(PALETTE.default);
+                  persistWidths();
+                }}
+              />
+            </>
+          )}
 
         <ChatConsoleHost
           runId={runId}
@@ -1113,8 +1120,9 @@ const nameFieldStyle: React.CSSProperties = {
   maxWidth: 480,
   // A floor, not 0. With minWidth:0 the field collapsed to 12px on a narrow
   // topbar -- the workflow name was simply gone. 120px keeps enough to read
-  // and to recognise, and the text ellipsizes from there.
-  minWidth: 120,
+  // and to recognise, and the text ellipsizes from there. A phone lowers the
+  // floor through the token (see .am-canvas-bar in responsive.css).
+  minWidth: "var(--canvas-name-min, 120px)",
   overflow: "hidden",
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
@@ -1170,8 +1178,7 @@ function CanvasTopbar({
   // financial cluster. The value comes from the backend (the same row the
   // engine debits), so it is only meaningful once that fetch has landed —
   // hence balanceKnown, which separates a real $0 from "not asked yet".
-  const { balanceUSD, balanceKnown, refreshBalance } =
-    useCredits();
+  const { balanceUSD, balanceKnown, refreshBalance } = useCredits();
   const lowBalance = balanceKnown && balanceUSD < LOW_BALANCE_THRESHOLD_USD;
   const [shareOpen, setShareOpen] = useState(false);
   const [estimate, setEstimate] = useState<CostEstimate | null>(null);
@@ -1206,12 +1213,16 @@ function CanvasTopbar({
         borderBottom: "1px solid var(--border)",
         display: "flex",
         alignItems: "center",
-        padding: "0 14px",
-        gap: 14,
+        // Tokens, defaulting to the desktop values: see .am-canvas-bar in
+        // responsive.css for the phone step.
+        padding: "0 var(--canvas-bar-pad, 14px)",
+        gap: "var(--canvas-bar-gap, 14px)",
       }}
+      className="am-canvas-bar"
     >
       <button
         onClick={onBack}
+        className="am-canvas-bar__wide"
         style={{
           background: "transparent",
           border: "none",
@@ -1222,14 +1233,18 @@ function CanvasTopbar({
       >
         <Logo size={16} />
       </button>
-      <Hairline vertical length={20} />
+      <Hairline className="am-canvas-bar__wide" vertical length={20} />
       <button
         onClick={onBack}
+        aria-label="Back to workflows"
+        className="am-canvas-bar__back"
         style={{ ...ghostBtnSm, flexShrink: 0, whiteSpace: "nowrap" }}
       >
-        ← Workflows
+        ←<span className="am-canvas-bar__label"> Workflows</span>
       </button>
-      <span style={{ color: "var(--fg-dim)" }}>/</span>
+      <span className="am-canvas-bar__wide" style={{ color: "var(--fg-dim)" }}>
+        /
+      </span>
       {can("workflow.editGraph", readOnly) ? (
         <input
           value={workflow.name}
@@ -1261,13 +1276,6 @@ function CanvasTopbar({
         </span>
       )}
       {saveLabel && <Pill mono>{saveLabel}</Pill>}
-      {!can("workflow.editGraph", readOnly) && (
-        <span title="Editing happens in the AgentMesh desktop app.">
-          <Pill mono dot tone="warm">
-            viewing only
-          </Pill>
-        </span>
-      )}
 
       <div style={{ flex: 1 }} />
 
@@ -1276,7 +1284,7 @@ function CanvasTopbar({
           display: "flex",
           alignItems: "center",
           gap: 14,
-          padding: "0 14px",
+          padding: "0 var(--canvas-stats-pad, 14px)",
           borderLeft: "1px solid var(--border)",
           borderRight: "1px solid var(--border)",
           height: 36,
@@ -1286,11 +1294,12 @@ function CanvasTopbar({
         {estLabel && (
           <>
             <span
+              className="am-canvas-bar__wide"
               title="Estimated credits for one run of this workflow. Refreshes when you deploy."
             >
               <Stat label="est. run" value={estLabel} />
             </span>
-            <Hairline vertical length={18} />
+            <Hairline className="am-canvas-bar__wide" vertical length={18} />
           </>
         )}
         <Stat
@@ -1351,7 +1360,7 @@ function CanvasTopbar({
         title={runBlocked ?? "Run workflow"}
         style={{
           ...primaryBtnSm,
-          minWidth: 86,
+          minWidth: "var(--canvas-run-min, 86px)",
           justifyContent: "center",
           opacity: runBlocked ? 0.5 : 1,
         }}
@@ -1366,8 +1375,9 @@ function CanvasTopbar({
           </>
         )}
       </button>
-      <Hairline vertical length={20} />
+      <Hairline className="am-canvas-bar__wide" vertical length={20} />
       <div
+        className="am-canvas-bar__wide"
         style={{
           width: 28,
           height: 28,

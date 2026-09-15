@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { workflows } from "@/lib/api";
 import { useModalDismissal } from "@/hooks/useModalDismissal";
+import { workflowHref } from "@/lib/routes";
 import {
   encodePendingNode,
   resourceToNode,
@@ -50,7 +51,7 @@ export function AddToWorkflowDialog({
 
   const choose = (id: string) => {
     const encoded = encodePendingNode(resourceToNode(resource));
-    router.push(`/workflows/${id}?add=${encoded}`);
+    router.push(workflowHref(id, { query: { add: encoded } }));
   };
 
   return (
@@ -103,7 +104,9 @@ export function AddToWorkflowDialog({
         </div>
 
         {error && (
-          <p style={{ margin: 0, fontSize: 12, color: "var(--danger)" }}>{error}</p>
+          <p style={{ margin: 0, fontSize: 12, color: "var(--danger)" }}>
+            {error}
+          </p>
         )}
         {!list && !error && (
           <p style={{ margin: 0, fontSize: 12, color: "var(--fg-dim)" }}>

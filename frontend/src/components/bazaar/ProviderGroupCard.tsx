@@ -23,7 +23,9 @@ export function ProviderGroupCard({
   resources: BazaarResource[];
   expanded: boolean;
   onToggle: () => void;
-  onAdd: (r: BazaarResource) => void;
+  // Passed through to each EndpointRow; omitted where the graph cannot be
+  // edited.
+  onAdd?: (r: BazaarResource) => void;
   // True while the paged feed backing `resources` hasn't finished loading —
   // this host's entries can be spread across many pages (one host can be
   // over 70% of the raw catalog), so the count and cheapest price below are
@@ -44,9 +46,10 @@ export function ProviderGroupCard({
   // resource actually achieved the minimum, and labeling it with THAT
   // resource's own asset, at least never shows a currency the price doesn't
   // apply to.
-  const cheapest = resources.reduce((min, r) =>
-    r.amountMicros < min.amountMicros ? r : min,
-  resources[0]);
+  const cheapest = resources.reduce(
+    (min, r) => (r.amountMicros < min.amountMicros ? r : min),
+    resources[0],
+  );
 
   return (
     <div>
@@ -81,7 +84,8 @@ export function ProviderGroupCard({
             {partial ? "+" : ""} endpoint{resources.length === 1 ? "" : "s"}
           </span>
           <span className="bz-row__stat">
-            from {formatPrice(cheapest.amountMicros)} {assetSymbol(cheapest.asset)}
+            from {formatPrice(cheapest.amountMicros)}{" "}
+            {assetSymbol(cheapest.asset)}
             {partial ? " so far" : ""}
           </span>
         </span>
