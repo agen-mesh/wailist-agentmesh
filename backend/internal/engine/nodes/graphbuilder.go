@@ -1449,41 +1449,13 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	apiURL := fmt.Sprintf("%s/v1beta/models/%s:generateContent", geminiBaseURL, buildAgentModel)
 	apiHeaders := map[string]string{"x-goog-api-key": apiKey}
 
-	graphJSON, _ := json.Marshal(graph)
-	// Prior turns first, then the current one carrying a FRESH graph
-	// snapshot. The snapshot rides with the newest turn on purpose: the graph
-	// changes between turns, and replaying an old one would leave the model
-	// reasoning about nodes that have since been renamed or removed.
-	contents := make([]map[string]any, 0, len(history)+1)
-	for _, h := range history {
-		// Gemini rejects any role other than user/model, and one bad row
-		// replayed here would fail every build on this workflow from then on.
-		if h.Role != "user" && h.Role != "model" {
-			continue
-		}
-		// Clipped before the emptiness check, not after: a model turn that
-		// was nothing but a test-run note clips to "", and Gemini rejects an
-		// empty part as readily as it rejects a bad role.
-		replayed := clipHistoryText(h.Role, h.Text)
-		if strings.TrimSpace(replayed) == "" {
-			continue
-		}
-		contents = append(contents, map[string]any{
-			"role":  h.Role,
-			"parts": []map[string]any{{"text": replayed}},
-		})
-	}
-	contents = append(contents, map[string]any{
-		"role":  "user",
-		"parts": []map[string]any{{"text": fmt.Sprintf("Current graph:\n%s\n\nRequest: %s", graphJSON, userMessage)}},
-	})
-	payload := map[string]any{
-		"contents": contents,
-		"systemInstruction": map[string]any{
-			"parts": []map[string]string{{"text": buildSystemPrompt}},
-		},
-		"tools": []map[string]any{{"functionDeclarations": graphToolDecls()}},
-	}
+	// The opening request: replayed history, the current turn with a fresh
+	// graph snapshot, instructions, tools and generation limits. See
+	// buildPayload.
+	payload := buildPayload(history, graph, userMessage)
+	// Every round below appends its calls and results to contents and writes
+	// the slice back into payload, so the loop needs its own handle on it.
+	contents := payload["contents"].([]map[string]any)
 
 	// Taken before any tool runs: the tools edit graph in place, so the
 	// "before" graph cannot be re-read later.

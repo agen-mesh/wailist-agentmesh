@@ -142,6 +142,21 @@ func main() {
 		"groq":      os.Getenv("PLATFORM_GROQ_API_KEY"),
 		"mistral":   os.Getenv("PLATFORM_MISTRAL_API_KEY"),
 	})
+	// Both optional; see backend/.env.example. Blank WEB_SEARCH_MODEL keeps
+	// grounded search on gemini-2.5-flash.
+	nodes.SetWebSearchModel(os.Getenv("WEB_SEARCH_MODEL"))
+	// Blank BUILDER_THINKING_BUDGET sends no thinking config, leaving builder
+	// thinking as it is today. Unlike envInt64Or, a value that does not parse
+	// stops startup: a typo that only logged a warning would leave the cap off
+	// while whoever set it believes it is on.
+	if v := os.Getenv("BUILDER_THINKING_BUDGET"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			log.Fatalf("BUILDER_THINKING_BUDGET must be a whole number of tokens, got %q: %v", v, err)
+		}
+		nodes.SetBuilderThinkingBudget(n)
+		log.Printf("builder thinking budget: %d tokens per round", n)
+	}
 	// Reuses the same Google app already configured for sign-in-with-Google
 	// (below) -- Gmail/Sheets/Calendar/Drive nodes fail closed with a clear
 	// error if unset, same pattern as SetTendril.
