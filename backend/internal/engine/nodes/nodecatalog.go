@@ -29,9 +29,14 @@ type CatalogField struct {
 }
 
 type CatalogTemplate struct {
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
-	Desc          string            `json:"desc"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Desc string `json:"desc"`
+	// Kind is "read" or "action". A read template's failure may be degraded
+	// into an error payload the run continues with; an action's may not,
+	// because it may already have had an effect outside the workflow.
+	// Generated from frontend/src/lib/nodeCatalog.ts -- see IsDegradable.
+	Kind          string            `json:"kind"`
 	Note          string            `json:"note,omitempty"`
 	Presets       map[string]string `json:"presets,omitempty"`
 	Fields        []CatalogField    `json:"fields"`

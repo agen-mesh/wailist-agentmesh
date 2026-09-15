@@ -58,6 +58,8 @@ export interface CatalogTemplate {
   id: string;
   name: string;
   desc: string;
+  /** "read" (its failure may be degraded) or "action" (its failure fails the run). */
+  kind: "read" | "action";
   /** A caveat the builder must respect, e.g. behaviour that is not implemented. */
   note?: string;
   /** Fields set automatically when the node is created, exactly as the palette does. */
@@ -224,6 +226,63 @@ const AGENT_NOTES: Record<string, string> = {
     "Runs exactly like a plain AI agent today -- the engine has no approval gate and never pauses for a human. Do not promise the user an approval step.",
 };
 
+/**
+ * Templates whose failure may be degraded: they read, and nothing outside the
+ * workflow changes when they run. Everything absent from this set is an
+ * action, which is the fail-closed default the backend also applies.
+ *
+ * Keyed "<type>/<id>" because ids repeat across types ("http" is both a tool
+ * and an end node, "get" is both a state op and a Drive one).
+ *
+ * tool/http is deliberately absent: it is classified at run time by its
+ * method, since the same template GETs or POSTs depending on its config.
+ */
+const READ_TEMPLATES = new Set<string>([
+  // tools: pure computation or a read, none of them leave the workflow
+  "tool/calc",
+  "tool/set",
+  "tool/json_extract",
+  "tool/crypto",
+  "tool/datetime",
+  "tool/xml",
+  "tool/template",
+  "tool/html_extract",
+  "tool/markdown",
+  "tool/quickchart",
+  "tool/websearch",
+  // connectors that fetch rather than send. graphql stays an action: an
+  // endpoint can mutate and nothing in the node's config says whether this
+  // one does. elevenlabs stays an action: it generates billable audio.
+  "action/telegram_get_updates",
+  "action/calendly",
+  "action/openweathermap",
+  "action/rss",
+  "action/hackernews",
+  "action/coingecko",
+  // Google reads. gmail_send, gmail_reply, sheets_append and calendar_create
+  // are sends and stay actions.
+  "google/gmail_list",
+  "google/gmail_get",
+  "google/sheets_read",
+  "google/calendar_list",
+  "google/drive_list",
+  "google/drive_get",
+  "google/drive_download",
+  // state: reading a variable is safe, writing one is not
+  "state/get",
+]);
+
+/**
+ * kindOf answers the question the runner asks when a node fails: may this
+ * failure be degraded into an error payload the run continues with?
+ *
+ * tool/http is decided by method at run time; "action" here is the safe
+ * catalog answer, and the backend overrides it for a GET.
+ */
+function kindOf(type: string, id: string): "read" | "action" {
+  return READ_TEMPLATES.has(`${type}/${id}`) ? "read" : "action";
+}
+
 export function buildNodeCatalog(): NodeCatalog {
   const types: CatalogType[] = [
     {
@@ -233,6 +292,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: t.desc,
+        kind: kindOf("trigger", t.id),
         note: TRIGGER_NOTES[t.id],
         fields: [],
       })),
@@ -244,6 +304,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: t.desc,
+        kind: kindOf("agent", t.id),
         ...(AGENT_NOTES[t.id] ? { note: AGENT_NOTES[t.id] } : {}),
         fields: [
           { key: "systemPrompt", where: "field" as const, label: "System prompt", hint: "instructions the agent follows on every run" },
@@ -257,6 +318,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: `${t.name} models`,
+        kind: kindOf("provider", t.id),
         note: "Runs on the platform key by default and needs nothing from the user. Its apiKey applies only if the user switches to their own key in the Inspector -- never tell them they must supply one.",
         presets: { model: t.model },
         fields: [
@@ -273,6 +335,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: t.desc,
+        kind: kindOf("tool", t.id),
         ...(TOOL_NOTES[t.id] ? { note: TOOL_NOTES[t.id] } : {}),
         fields: TOOL_FIELDS[t.id] ?? fromConnectorTable(t.id),
       })),
@@ -287,6 +350,7 @@ export function buildNodeCatalog(): NodeCatalog {
           id: t.id,
           name: t.name,
           desc: t.desc,
+          kind: kindOf("action", t.id),
           ...(ACTION_NOTES[t.id] ? { note: ACTION_NOTES[t.id] } : {}),
           fields: t.id === "email" ? EMAIL_FIELDS : [...fromConnectorTable(t.id), MESSAGE_TEMPLATE],
           ...(auth ? { authDocUrl: auth.docUrl } : {}),
@@ -301,6 +365,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: t.desc,
+        kind: kindOf("google", t.id),
         fields: [
           GOOGLE_ACCOUNT,
           ...(GOOGLE_FIELDS[t.id] ?? []),
@@ -315,6 +380,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: t.desc,
+        kind: kindOf("state", t.id),
         presets: { stateOp: t.id },
         fields: [
           { key: "stateKey", where: "field" as const, label: "Key", hint: "persists across runs", placeholder: "lastRowId" },
@@ -333,6 +399,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: t.desc,
+        kind: kindOf("tendril", t.id),
         presets: { tendrilAction: t.action, tendrilHours: "1", tendrilAmount: "10" },
         fields:
           t.action === "topup"
@@ -349,6 +416,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: t.desc,
+        kind: kindOf("end", t.id),
         // "Respond to Webhook" reads as if the webhook caller gets this
         // output back. It does not: the public trigger answers 202 {runId}
         // before the run even finishes (handlers/runs.go PublicTrigger).
