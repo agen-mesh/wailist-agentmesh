@@ -2171,3 +2171,31 @@ func TestBuildGraphReportsAFailureThatBuiltNothing(t *testing.T) {
 		t.Fatal("a build that changed nothing must report the failure, not claim partial success")
 	}
 }
+
+func TestWithAnswerGuardIncludesDegradedClause(t *testing.T) {
+	tests := []struct {
+		name   string
+		prompt string
+	}{
+		{"empty prompt", ""},
+		{"existing prompt", "You summarise crypto prices."},
+		{"already guarded once", withAnswerGuard("You summarise crypto prices.")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := withAnswerGuard(tt.prompt)
+			if !strings.Contains(got, agentAnswerGuard) {
+				t.Error("the answer guard is missing")
+			}
+			if !strings.Contains(got, degradedInputGuard) {
+				t.Error("the degraded-input guard is missing")
+			}
+			if n := strings.Count(got, degradedInputGuard); n != 1 {
+				t.Errorf("the degraded-input guard appears %d times, want 1", n)
+			}
+			if n := strings.Count(got, agentAnswerGuard); n != 1 {
+				t.Errorf("the answer guard appears %d times, want 1", n)
+			}
+		})
+	}
+}

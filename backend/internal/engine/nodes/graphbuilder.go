@@ -1014,14 +1014,28 @@ const maxTestRounds = 3
 // answered with a price it copied from an example in its own system prompt.
 const agentAnswerGuard = "If the input you receive is empty, an error, or does not contain what you need, say so plainly. Never guess, estimate or invent values, and never reuse example values from these instructions."
 
+// degradedInputGuard tells an agent what to do with the error payload a
+// degraded read step leaves behind (see engine.Runner's degradation branch).
+// Without it the agent's instructions say only "never guess", which leaves it
+// reporting a bare failure when it has a web search tool attached and could
+// simply look the value up.
+const degradedInputGuard = `If any input you receive contains "degraded": true, one of the workflow's own steps failed. Say which source failed, then answer from another tool attached to you if you have one -- a web search tool looks the value up live. Say where the value you give came from. Never fill the gap with a number you did not retrieve during this run.`
+
+// withAnswerGuard appends both standing guards to an agent's instructions,
+// each at most once, so a prompt that already carries one (an edit to an
+// existing agent) does not accumulate copies.
 func withAnswerGuard(prompt string) string {
-	if strings.Contains(prompt, agentAnswerGuard) {
-		return prompt
+	for _, guard := range []string{agentAnswerGuard, degradedInputGuard} {
+		if strings.Contains(prompt, guard) {
+			continue
+		}
+		if strings.TrimSpace(prompt) == "" {
+			prompt = guard
+			continue
+		}
+		prompt = strings.TrimRight(prompt, " \n") + "\n\n" + guard
 	}
-	if strings.TrimSpace(prompt) == "" {
-		return agentAnswerGuard
-	}
-	return strings.TrimRight(prompt, " \n") + "\n\n" + agentAnswerGuard
+	return prompt
 }
 
 // testedAnswer is what the user would read from a test run.
