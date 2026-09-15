@@ -368,19 +368,27 @@ var anyTemplateRef = regexp.MustCompile(`\{\{\s*([^{}]*?)\s*\}\}`)
 // templatePath matches a dotted field path after "result." or "node.<id>.".
 var templatePath = regexp.MustCompile(`^[A-Za-z0-9_\-]+(\.[A-Za-z0-9_\-]+)*$`)
 
-// passesResponseThrough reports whether a node's output is whatever the
-// service returned, rather than a shape this engine assembles. Only those can
-// have a "result" field the engine knows nothing about; every connector with
-// a fixed output (rss is {title, count, items}, an agent is {message, ...})
-// cannot, and a reference to one resolves to nothing at run time.
-func passesResponseThrough(n models.WorkflowNode) bool {
-	switch n.Type {
-	case models.NodeTypeTool402:
+// engineShapedOutput reports whether a node's output is a map this engine
+// builds itself, so the fields it has are known here.
+//
+// Listed, rather than inferred from "is it a read connector": most read
+// connectors hand back the service's own JSON untouched (telegram_get_updates
+// returns Telegram's {ok, result}, coingecko and openweathermap their
+// providers' bodies), and only these few assemble a map of their own. Getting
+// that backwards refused {{ node.<id>.result }} on nodes where it resolves
+// perfectly well.
+func engineShapedOutput(n models.WorkflowNode) bool {
+	if n.Type == models.NodeTypeAgent {
+		return true // {message, platformKeyUsage}
+	}
+	if n.Type != models.NodeTypeAction {
+		return false
+	}
+	switch n.Template {
+	case "rss": // {title, count, items}
 		return true
-	case models.NodeTypeTool:
-		return n.Template == "http"
-	case models.NodeTypeAction:
-		return n.Template == "graphql"
+	case "hackernews": // {count, items}
+		return true
 	}
 	return false
 }
@@ -417,7 +425,7 @@ func validateTemplateRefs(graph *models.WorkflowGraph, values map[string]string)
 				// JSON-RPC both return one -- but not on a node whose output
 				// this engine builds itself, where it silently resolves to
 				// nothing and leaves the braces in the text the user reads.
-				if path == "output" || (path == "result" && !passesResponseThrough(n)) {
+				if path == "output" || (path == "result" && engineShapedOutput(n)) {
 					return fmt.Errorf("%s: {{ %s }} -- a node's output is {{ node.%s }} itself; \".%s\" would look for a field named %s, find none, and leave the braces in the text the user reads", key, ref, id, path, path)
 				}
 				if path != "" && !templatePath.MatchString(path) {

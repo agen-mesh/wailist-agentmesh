@@ -2074,12 +2074,15 @@ func TestTemplateRefRejectsDotResultOnEngineShapedOutput(t *testing.T) {
 	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{
 		{ID: "a1", Type: models.NodeTypeAgent, Template: "agent"},
 		{ID: "r1", Type: models.NodeTypeAction, Template: "rss"},
+		{ID: "n1", Type: models.NodeTypeAction, Template: "hackernews"},
 		{ID: "h1", Type: models.NodeTypeTool, Template: "http"},
 		{ID: "x1", Type: models.NodeTypeTool402},
+		{ID: "t1", Type: models.NodeTypeAction, Template: "telegram_get_updates"},
+		{ID: "c1", Type: models.NodeTypeAction, Template: "coingecko"},
 	}}
 	// rss is the original incident: {title, count, items}, no result, and the
 	// braces went out in a Telegram message.
-	for _, id := range []string{"a1", "r1"} {
+	for _, id := range []string{"a1", "r1", "n1"} {
 		err := validateTemplateRefs(graph, map[string]string{"messageTemplate": "Says: {{node." + id + ".result}}"})
 		if err == nil {
 			t.Fatalf("{{ node.%s.result }} was accepted; it reaches the user as literal braces", id)
@@ -2088,8 +2091,9 @@ func TestTemplateRefRejectsDotResultOnEngineShapedOutput(t *testing.T) {
 			t.Errorf("the error must show the form that works, got %v", err)
 		}
 	}
-	// A response handed back as it came may really have one.
-	for _, id := range []string{"h1", "x1"} {
+	// A response handed back as it came may really have one. Telegram's
+	// getUpdates always does: {"ok": ..., "result": ...}.
+	for _, id := range []string{"h1", "x1", "t1", "c1"} {
 		if err := validateTemplateRefs(graph, map[string]string{"messageTemplate": "Got: {{node." + id + ".result}}"}); err != nil {
 			t.Errorf("node %s passes a remote response through: %v", id, err)
 		}
