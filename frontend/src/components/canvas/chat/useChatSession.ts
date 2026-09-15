@@ -204,10 +204,13 @@ type LoadResult =
   | { ok: true; session: StoredSession | null }
   | { ok: false };
 
-async function read(workflowId: string | undefined): Promise<LoadResult> {
+async function read(
+  workflowId: string | undefined,
+  mode: ChatMode,
+): Promise<LoadResult> {
   if (!workflowId) return { ok: true, session: null };
   try {
-    const stored = await workflowsApi.chat.load(workflowId);
+    const stored = await workflowsApi.chat.load(workflowId, mode);
     if (!stored) return { ok: true, session: null };
     return {
       ok: true,
@@ -252,12 +255,16 @@ export function serialiseForStorage(session: StoredSession): string {
 // keeps whichever arrives last.
 let saveChain: Promise<void> = Promise.resolve();
 
-function write(workflowId: string | undefined, session: StoredSession): void {
+function write(
+  workflowId: string | undefined,
+  mode: ChatMode,
+  session: StoredSession,
+): void {
   if (!workflowId) return;
   const body = JSON.parse(serialiseForStorage(session));
   saveChain = saveChain
     .catch(() => {})
-    .then(() => workflowsApi.chat.save(workflowId, body))
+    .then(() => workflowsApi.chat.save(workflowId, mode, body))
     .catch(() => {
       /* offline or refused: persistence is best-effort, as it always was */
     });
@@ -270,12 +277,19 @@ function write(workflowId: string | undefined, session: StoredSession): void {
 export function canPersist(
   writable: boolean,
   loadedFor: string | undefined,
-  workflowId: string | undefined,
+  key: string | undefined,
 ): boolean {
-  return writable && loadedFor === workflowId && workflowId !== undefined;
+  return writable && loadedFor === key && key !== undefined;
 }
 
-export function useChatSession(workflowId: string | undefined): ChatSession {
+// Building a workflow and talking to the finished one are separate
+// conversations, each with its own transcript.
+export type ChatMode = "build" | "run";
+
+export function useChatSession(
+  workflowId: string | undefined,
+  mode: ChatMode = "run",
+): ChatSession {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState("");
   // Hydration happens in an effect, not in useState's initializer, so the
@@ -290,6 +304,8 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
   const loadedFor = useRef<string | undefined>(undefined);
   const writable = useRef(false);
 
+  const key = workflowId ? `${workflowId}:${mode}` : undefined;
+
   useEffect(() => {
     let cancelled = false;
     // Synchronous: a pending debounced save must not write the previous
@@ -302,13 +318,13 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
     const frame = requestAnimationFrame(() => {
       setHydrated(false);
       void (async () => {
-        const result = await read(workflowId);
+        const result = await read(workflowId, mode);
         if (cancelled) return;
         setMessages(result.ok ? (result.session?.messages ?? []) : []);
         setSessionId(
           (result.ok && result.session?.sessionId) || newSessionId(),
         );
-        loadedFor.current = workflowId;
+        loadedFor.current = key;
         writable.current = result.ok;
         setHydrated(true);
       })();
@@ -317,7 +333,7 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
       cancelled = true;
       cancelAnimationFrame(frame);
     };
-  }, [workflowId]);
+  }, [workflowId, mode, key]);
 
   // New turns write immediately so a reload can still settle them; edits to
   // existing turns (build progress, the answer) are debounced.
@@ -326,19 +342,22 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
     if (!hydrated || !sessionId) return;
     // Never write a transcript that was not read back, or one belonging to
     // another workflow.
-    if (!canPersist(writable.current, loadedFor.current, workflowId)) return;
+    if (!canPersist(writable.current, loadedFor.current, key)) return;
     // Recovery finds a stranded turn by its runId, so a new turn and a
     // newly attached runId both have to be stored at once.
     const shape = messages.map((m) => `${m.id}:${m.runId ?? ""}`).join();
     const isNewTurn = shape !== shapeRef.current;
     shapeRef.current = shape;
     if (isNewTurn) {
-      write(workflowId, { sessionId, messages });
+      write(workflowId, mode, { sessionId, messages });
       return;
     }
-    const t = setTimeout(() => write(workflowId, { sessionId, messages }), 600);
+    const t = setTimeout(
+      () => write(workflowId, mode, { sessionId, messages }),
+      600,
+    );
     return () => clearTimeout(t);
-  }, [hydrated, workflowId, sessionId, messages]);
+  }, [hydrated, workflowId, mode, key, sessionId, messages]);
 
   const startTurn = useCallback((text: string): string => {
     const now = new Date().toISOString();
@@ -407,10 +426,10 @@ export function useChatSession(workflowId: string | undefined): ChatSession {
     setMessages([]);
     const next = newSessionId();
     setSessionId(next);
-    loadedFor.current = workflowId;
+    loadedFor.current = key;
     writable.current = true;
-    write(workflowId, { sessionId: next, messages: [] });
-  }, [workflowId]);
+    write(workflowId, mode, { sessionId: next, messages: [] });
+  }, [workflowId, mode, key]);
 
   return {
     messages,

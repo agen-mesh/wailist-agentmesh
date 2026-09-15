@@ -16,6 +16,26 @@ const MaxChatTranscriptBytes = 512 * 1024
 // failure (500).
 var ErrInvalidTranscript = errors.New("invalid chat transcript")
 
+// ChatMode is which conversation a transcript belongs to: building the
+// workflow, or talking to the finished one.
+type ChatMode string
+
+const (
+	ChatModeBuild ChatMode = "build"
+	ChatModeRun   ChatMode = "run"
+)
+
+// ParseChatMode accepts the two modes and nothing else, defaulting to run.
+func ParseChatMode(s string) (ChatMode, bool) {
+	switch ChatMode(s) {
+	case ChatModeBuild:
+		return ChatModeBuild, true
+	case ChatModeRun, "":
+		return ChatModeRun, true
+	}
+	return "", false
+}
+
 // ChatSession is one workflow's console transcript.
 type ChatSession struct {
 	SessionID string          `json:"sessionId"`
@@ -23,11 +43,12 @@ type ChatSession struct {
 }
 
 // GetChatSession returns the transcript, or an empty one if there is none.
-func (s *Store) GetChatSession(ctx context.Context, workflowID string) (ChatSession, error) {
+func (s *Store) GetChatSession(ctx context.Context, workflowID string, mode ChatMode) (ChatSession, error) {
 	var out ChatSession
 	err := s.pool.QueryRow(ctx, `
-		SELECT session_id, messages FROM workflow_chat_sessions WHERE workflow_id = $1
-	`, workflowID).Scan(&out.SessionID, &out.Messages)
+		SELECT session_id, messages FROM workflow_chat_sessions
+		WHERE workflow_id = $1 AND mode = $2
+	`, workflowID, string(mode)).Scan(&out.SessionID, &out.Messages)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ChatSession{Messages: json.RawMessage("[]")}, nil
 	}
@@ -38,7 +59,7 @@ func (s *Store) GetChatSession(ctx context.Context, workflowID string) (ChatSess
 }
 
 // SaveChatSession replaces the transcript; the client sends it whole.
-func (s *Store) SaveChatSession(ctx context.Context, workflowID, sessionID string, messages json.RawMessage) error {
+func (s *Store) SaveChatSession(ctx context.Context, workflowID string, mode ChatMode, sessionID string, messages json.RawMessage) error {
 	if len(messages) > MaxChatTranscriptBytes {
 		return fmt.Errorf("%w: %d bytes, over the %d byte limit", ErrInvalidTranscript, len(messages), MaxChatTranscriptBytes)
 	}
@@ -47,12 +68,12 @@ func (s *Store) SaveChatSession(ctx context.Context, workflowID, sessionID strin
 		return fmt.Errorf("%w: it must be a JSON array of messages", ErrInvalidTranscript)
 	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO workflow_chat_sessions (workflow_id, session_id, messages, updated_at)
-		VALUES ($1, $2, $3, NOW())
-		ON CONFLICT (workflow_id) DO UPDATE
+		INSERT INTO workflow_chat_sessions (workflow_id, mode, session_id, messages, updated_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (workflow_id, mode) DO UPDATE
 		SET session_id = EXCLUDED.session_id,
 		    messages   = EXCLUDED.messages,
 		    updated_at = NOW()
-	`, workflowID, sessionID, messages)
+	`, workflowID, string(mode), sessionID, messages)
 	return err
 }

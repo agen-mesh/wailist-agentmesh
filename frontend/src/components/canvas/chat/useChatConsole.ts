@@ -60,7 +60,7 @@ export function useChatConsole({
       attempt,
     });
 
-  const session = useChatSession(workflowId);
+  const session = useChatSession(workflowId, buildMode ? "build" : "run");
 
   // Bind the turn the user just sent to the run the backend actually started.
   // This effect has no access to the id startTurn returned to handleSend's

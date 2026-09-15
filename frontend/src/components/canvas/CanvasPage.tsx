@@ -520,10 +520,12 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
 
   // Nothing that could run yet means chat always builds. Once the graph is
   // runnable -- or has a provider, which kept the Build/Run choice available
-  // for hand-built workflows before readiness was judged from the graph, and
-  // still does so nothing a user has already made gets newly stuck -- the
-  // Build/Run pill decides.
-  const canLeaveBuildMode = graphReady || hasProviderNode;
+  // for hand-built workflows before readiness was judged from the graph --
+  // the Build/Run switch decides.
+  //
+  // A chat trigger is required too: without one a run carries no message, so
+  // a run conversation would be typing into something that never reads it.
+  const canLeaveBuildMode = (graphReady || hasProviderNode) && hasChatTrigger;
   const buildMode =
     can("workflow.buildFromChat", readOnly) &&
     (!canLeaveBuildMode || manualBuildMode);
@@ -926,7 +928,12 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                         can("workflow.buildFromChat", readOnly) &&
                         canLeaveBuildMode
                       }
-                      onToggleBuildMode={() => setManualBuildMode((v) => !v)}
+                      onToggleBuildMode={
+                        can("workflow.buildFromChat", readOnly)
+                          ? () => setManualBuildMode((v) => !v)
+                          : undefined
+                      }
+                      hasChatTrigger={hasChatTrigger}
                       blockedNode={
                         showBlockedCard && blockedReason ? (
                           <RunBlockedCard
@@ -992,7 +999,12 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                       can("workflow.buildFromChat", readOnly) &&
                       canLeaveBuildMode
                     }
-                    onToggleBuildMode={() => setManualBuildMode((v) => !v)}
+                    onToggleBuildMode={
+                      can("workflow.buildFromChat", readOnly)
+                        ? () => setManualBuildMode((v) => !v)
+                        : undefined
+                    }
+                    hasChatTrigger={hasChatTrigger}
                     blockedNode={
                       showBlockedCard && blockedReason ? (
                         <RunBlockedCard

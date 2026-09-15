@@ -23,7 +23,12 @@ func (d *Deps) GetChatSession(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusNotFound, "workflow not found")
 		return
 	}
-	session, err := d.Store.GetChatSession(r.Context(), id)
+	mode, ok := db.ParseChatMode(r.URL.Query().Get("mode"))
+	if !ok {
+		respond.Error(w, http.StatusBadRequest, "mode must be build or run")
+		return
+	}
+	session, err := d.Store.GetChatSession(r.Context(), id, mode)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, "could not load the conversation")
 		return
@@ -39,6 +44,11 @@ func (d *Deps) SaveChatSession(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusNotFound, "workflow not found")
 		return
 	}
+	mode, ok := db.ParseChatMode(r.URL.Query().Get("mode"))
+	if !ok {
+		respond.Error(w, http.StatusBadRequest, "mode must be build or run")
+		return
+	}
 	var body struct {
 		SessionID string          `json:"sessionId"`
 		Messages  json.RawMessage `json:"messages"`
@@ -51,7 +61,7 @@ func (d *Deps) SaveChatSession(w http.ResponseWriter, r *http.Request) {
 	if len(body.Messages) == 0 {
 		body.Messages = json.RawMessage("[]")
 	}
-	if err := d.Store.SaveChatSession(r.Context(), id, body.SessionID, body.Messages); err != nil {
+	if err := d.Store.SaveChatSession(r.Context(), id, mode, body.SessionID, body.Messages); err != nil {
 		if errors.Is(err, db.ErrInvalidTranscript) {
 			respond.Error(w, http.StatusBadRequest, err.Error())
 			return

@@ -426,9 +426,10 @@ export const workflows = {
   chat: {
     load: async (
       id: string,
+      mode: "build" | "run",
     ): Promise<{ sessionId: string; messages: unknown[] } | null> => {
       if (!BASE) return null;
-      const res = await apiFetch(`${BASE}/workflows/${id}/chat`, {
+      const res = await apiFetch(`${BASE}/workflows/${id}/chat?mode=${mode}`, {
         credentials: "include",
       });
       if (!res.ok) throw new Error(`chat transcript ${res.status}`);
@@ -438,11 +439,12 @@ export const workflows = {
     },
     save: async (
       id: string,
+      mode: "build" | "run",
       session: { sessionId: string; messages: unknown[] },
     ): Promise<void> => {
       assertWritable("PUT", `/workflows/${id}/chat`);
       if (!BASE) return;
-      const res = await apiFetch(`${BASE}/workflows/${id}/chat`, {
+      const res = await apiFetch(`${BASE}/workflows/${id}/chat?mode=${mode}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

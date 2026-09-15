@@ -29,6 +29,8 @@ interface ChatPaneProps {
    *  here rather than in the transcript so it stays put as the
    *  conversation scrolls -- it explains the composer, not a past turn. */
   blockedNode?: React.ReactNode;
+  /** Replaces the composer: there is nothing to send a message to. */
+  composerNote?: string;
 }
 
 export function ChatPane({
@@ -37,6 +39,7 @@ export function ChatPane({
   busy,
   onShowLogs,
   blockedNode,
+  composerNote,
 }: ChatPaneProps) {
   const [draft, setDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -188,6 +191,20 @@ export function ChatPane({
             {stt.error}
           </div>
         )}
+        {composerNote ? (
+          <div
+            style={{
+              minWidth: 0,
+              borderTop: "1px solid var(--border)",
+              padding: "14px 12px",
+              fontSize: 11.5,
+              lineHeight: 1.5,
+              color: "var(--fg-dim)",
+            }}
+          >
+            {composerNote}
+          </div>
+        ) : (
         <div
           style={{
             minWidth: 0,
@@ -294,6 +311,7 @@ export function ChatPane({
           Send
         </button>
         </div>
+        )}
       </div>
     </div>
   );
