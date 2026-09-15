@@ -38,7 +38,12 @@ func TestDeadLetterWrittenAfterRetriesExhausted(t *testing.T) {
 	graph := models.WorkflowGraph{
 		Nodes: []models.WorkflowNode{
 			{ID: "n1", Type: models.NodeTypeTrigger},
-			{ID: "n2", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "GET", MaxRetries: 2},
+			// PUT, not GET: a GET is a read step now, and a read step's
+			// failure degrades (nodes.IsDegradable) instead of dead-lettering
+			// the run. PUT is idempotent, so a 5xx on it is still retryable --
+			// which is what this test is about -- while remaining an action,
+			// so the failure stays a real one.
+			{ID: "n2", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "PUT", MaxRetries: 2},
 			{ID: "n3", Type: models.NodeTypeEnd},
 		},
 		Edges: []models.WorkflowEdge{
@@ -167,7 +172,10 @@ func TestResumeAfterDeadLetterSkipsSucceededUpstreamNode(t *testing.T) {
 		Nodes: []models.WorkflowNode{
 			{ID: "n1", Type: models.NodeTypeTrigger},
 			{ID: "n2", Type: models.NodeTypeTool, Template: "calc", URL: "1+1"},
-			{ID: "n3", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "GET"},
+			// PUT rather than GET so this stays a hard failure: a GET degrades
+			// now, and a degraded run finishes successfully with nothing to
+			// resume. See nodes.IsDegradable.
+			{ID: "n3", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "PUT"},
 			{ID: "n4", Type: models.NodeTypeEnd},
 		},
 		Edges: []models.WorkflowEdge{
@@ -388,7 +396,11 @@ func TestDeadLetterRowClearedOnceNodeLaterSucceeds(t *testing.T) {
 	graph := models.WorkflowGraph{
 		Nodes: []models.WorkflowNode{
 			{ID: "n1", Type: models.NodeTypeTrigger},
-			{ID: "n3", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "GET"},
+			// PUT rather than GET: a GET is a read step and degrades instead
+			// of dead-lettering, and this test is about the dead-letter row
+			// being cleared once the node later succeeds. See
+			// nodes.IsDegradable.
+			{ID: "n3", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "PUT"},
 			{ID: "n4", Type: models.NodeTypeEnd},
 		},
 		Edges: []models.WorkflowEdge{
