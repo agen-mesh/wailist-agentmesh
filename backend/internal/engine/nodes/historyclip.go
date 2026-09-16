@@ -18,9 +18,16 @@ const (
 	trailerUntested     = "\n\n_This workflow has not been test-run since it was last changed, so it has not been checked yet._"
 	trailerTestNoAnswer = "\n\n_The last test run did not produce an answer: "
 	trailerNotChecked   = "\n\n_Not checked by the test run: "
+	// A test run that failed a step AND still answered -- a degraded read
+	// does both. Distinct from trailerTestNoAnswer, which claims there was
+	// no answer at all.
+	trailerTestPartial = "\n\n_A step failed during the test run, so this answer is partial: "
 )
 
-var testRunTrailers = []string{trailerTestedAnswer, trailerUntested, trailerTestNoAnswer, trailerNotChecked}
+var testRunTrailers = []string{
+	trailerTestedAnswer, trailerUntested, trailerTestNoAnswer,
+	trailerNotChecked, trailerTestPartial,
+}
 
 // clipHistoryText trims one prior turn before it is replayed to the model.
 //

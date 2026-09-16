@@ -632,19 +632,44 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 	if node.Type == models.NodeTypeProvider && node.KeyMode == "" {
 		node.KeyMode = "platform"
 	}
-	// One retry on a read node. The runner only ever spends it on an error
-	// the node itself marked retryable -- a 5xx or a dropped connection on
-	// an idempotent method -- so a bad request is still not repeated. These
-	// fields have been on every node, and clamped on save, since retries
-	// shipped, but nothing ever set them: every built node ran with none.
-	// Deterministic here rather than a prompt rule, for the same reason the
-	// provider's keyMode default above is.
-	if IsDegradable(node) {
-		node.MaxRetries = 1
-		node.RetryBackoffMs = 500
-	}
+	applyReadRetryDefault(&node)
 	graph.Nodes = append(graph.Nodes, node)
 	return fmt.Sprintf("added node %s (%s/%s)%s", id, nodeType, node.Template, rules.userSupplied()), nil
+}
+
+// The retry policy the builder gives a read node. One retry: the runner only
+// ever spends it on an error the node itself marked retryable -- a 5xx or a
+// dropped connection on an idempotent method -- so a bad request is still not
+// repeated. These fields have been on every node, and clamped on save, since
+// retries shipped, but nothing ever set them: every built node ran with none.
+const (
+	readRetryAttempts  = 1
+	readRetryBackoffMs = 500
+)
+
+// applyReadRetryDefault keeps a node's retry policy in step with what the
+// node has become. Deterministic rather than a prompt rule, for the same
+// reason the provider's keyMode default is.
+//
+// It runs on update as well as on create, because whether a node is a read is
+// not fixed at creation: an http node added as a GET and later updated to
+// POST would otherwise keep a retry it should not have, and one added as a
+// POST and updated to GET would never get the retry this exists to give it.
+//
+// It only ever takes back exactly what it gave. A node whose retry values the
+// user chose in the Inspector is left alone, because those are theirs and a
+// chat message about something else must not quietly overwrite them.
+func applyReadRetryDefault(n *models.WorkflowNode) {
+	if IsDegradable(*n) {
+		if n.MaxRetries == 0 {
+			n.MaxRetries = readRetryAttempts
+			n.RetryBackoffMs = readRetryBackoffMs
+		}
+		return
+	}
+	if n.MaxRetries == readRetryAttempts && n.RetryBackoffMs == readRetryBackoffMs {
+		n.MaxRetries, n.RetryBackoffMs = 0, 0
+	}
 }
 
 func updateGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, error) {
@@ -715,6 +740,9 @@ func updateGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, 
 				n.Config[k] = v
 			}
 		}
+		// After every field is in place: a template or method change may
+		// have turned this node from a read into a write, or back.
+		applyReadRetryDefault(n)
 		return fmt.Sprintf("updated node %s", id), nil
 	}
 	return "", fmt.Errorf("update_node: node %q not found", id)
@@ -1417,6 +1445,20 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		case tester.last == nil:
 			return text
 		case tester.last.Failed || tester.last.Empty:
+			// A degraded read sets Failed and still produces an answer
+			// (dryrun.go sets Degraded alongside Failed, on purpose: at
+			// build time the failure is usually a wrong id the builder can
+			// still fix, so the gate must keep hearing about it). Saying
+			// "did not produce an answer" about a run that did is simply
+			// untrue, and it suppressed the one thing the builder exists to
+			// quote. Report the failure, then show what came out anyway.
+			if answer := strings.TrimSpace(testedAnswer(*tester.last)); answer != "" {
+				out := text + trailerTestPartial + testProblem(*tester.last) + "._"
+				if !strings.Contains(text, strings.TrimSuffix(answer, "…")) {
+					out += trailerTestedAnswer + answer
+				}
+				return out
+			}
 			return text + trailerTestNoAnswer + testProblem(*tester.last) + "._"
 		case tester.last.Unverified:
 			return text + trailerNotChecked + unverifiedSteps(*tester.last) + "._"
