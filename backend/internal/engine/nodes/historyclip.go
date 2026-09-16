@@ -2,12 +2,26 @@ package nodes
 
 import "strings"
 
-// maxReplayedModelChars bounds one replayed model turn, in characters. A
-// user's own turn is never clipped: it is short, and it is what a follow-up
-// ("use the specs I gave you") refers back to. A model turn is a summary of a
-// build the graph itself already records and resends on every call, so its
-// tail is the cheapest thing in the request to lose.
-const maxReplayedModelChars = 600
+// The bounds on one replayed turn, in characters.
+//
+// A model turn gets the smaller one: it is a summary of a build the graph
+// itself already records and resends on every call, so its tail is the
+// cheapest thing in the request to lose.
+//
+// A user turn gets a much larger one, because it is what a follow-up ("use
+// the specs I gave you") refers back to. It is bounded at all because "a user
+// turn is short" holds right up until someone pastes a log or a spec into the
+// chat, and then that paste is replayed on every round of every later build
+// for as long as it stays in the window -- a 4,000-token paste costs roughly
+// a cent a build, on six builds, for text the model has already acted on.
+//
+// Only turns replayed as HISTORY are clipped. The message being answered now
+// is appended separately, whole, alongside the graph snapshot (buildPayload),
+// so nothing here can truncate the request the user just made.
+const (
+	maxReplayedModelChars = 600
+	maxReplayedUserChars  = 2000
+)
 
 // The notes withTestStatus appends to a builder reply. Declared once and used
 // by both sides, so rewording one cannot silently stop clipHistoryText from
@@ -36,9 +50,11 @@ var testRunTrailers = []string{
 // them costs tokens on every round of every later build, and a value quoted
 // in one ("BTC is $64,102.11") is exactly the kind of number a model then
 // repeats to the user as if it were current.
+//
+// A user turn keeps everything it says and only loses a long tail.
 func clipHistoryText(role, text string) string {
 	if role != "model" {
-		return text
+		return clip(text, maxReplayedUserChars)
 	}
 	for _, trailer := range testRunTrailers {
 		if i := strings.Index(text, trailer); i >= 0 {
