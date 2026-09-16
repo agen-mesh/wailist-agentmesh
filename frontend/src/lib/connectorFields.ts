@@ -1002,6 +1002,31 @@ export const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
+  coingecko_history: {
+    label: "CoinGecko History config",
+    fields: [
+      {
+        kind: "config",
+        key: "cgID",
+        label: "Coin ID",
+        placeholder: "bitcoin",
+      },
+      {
+        kind: "config",
+        key: "cgDays",
+        label: "Days",
+        hint: "optional, default 30",
+        placeholder: "28",
+      },
+      {
+        kind: "config",
+        key: "cgCurrency",
+        label: "Currency",
+        hint: "optional, default usd",
+        placeholder: "usd",
+      },
+    ],
+  },
   quickchart: {
     label: "QuickChart config",
     fields: [

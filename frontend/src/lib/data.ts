@@ -495,6 +495,13 @@ export const ACTION_TEMPLATES = [
     icon: "cg",
     category: "Utilities",
   },
+  {
+    id: "coingecko_history",
+    name: "CoinGecko History",
+    desc: "Price series + high/low (no key)",
+    icon: "ch",
+    category: "Utilities",
+  },
 ];
 
 // Workflow state: a key/value store scoped to the workflow that persists
