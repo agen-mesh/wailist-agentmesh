@@ -2249,3 +2249,256 @@ func TestRejectedAddNodeSaysNoNodeExists(t *testing.T) {
 		t.Fatalf("setup: no node should exist, got %+v", graph.Nodes)
 	}
 }
+
+func TestWithAnswerGuardIncludesDegradedClause(t *testing.T) {
+	tests := []struct {
+		name   string
+		prompt string
+	}{
+		{"empty prompt", ""},
+		{"existing prompt", "You summarise crypto prices."},
+		{"already guarded once", withAnswerGuard("You summarise crypto prices.")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := withAnswerGuard(tt.prompt)
+			if !strings.Contains(got, agentAnswerGuard) {
+				t.Error("the answer guard is missing")
+			}
+			if !strings.Contains(got, degradedInputGuard) {
+				t.Error("the degraded-input guard is missing")
+			}
+			if n := strings.Count(got, degradedInputGuard); n != 1 {
+				t.Errorf("the degraded-input guard appears %d times, want 1", n)
+			}
+			if n := strings.Count(got, agentAnswerGuard); n != 1 {
+				t.Errorf("the answer guard appears %d times, want 1", n)
+			}
+		})
+	}
+}
+
+func TestAddNodeSetsRetriesOnReadNodes(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        map[string]any
+		wantRetries int
+		wantBackoff int
+	}{
+		{
+			name:        "http GET retries",
+			args:        map[string]any{"type": "tool", "template": "http", "name": "Fetch", "fields": map[string]any{"url": "https://example.com/api", "method": "GET"}},
+			wantRetries: 1,
+			wantBackoff: 500,
+		},
+		{
+			name:        "http POST does not",
+			args:        map[string]any{"type": "tool", "template": "http", "name": "Send", "fields": map[string]any{"url": "https://example.com/api", "method": "POST"}},
+			wantRetries: 0,
+			wantBackoff: 0,
+		},
+		{
+			name:        "a read connector retries",
+			args:        map[string]any{"type": "action", "template": "hackernews", "name": "Stories"},
+			wantRetries: 1,
+			wantBackoff: 500,
+		},
+		{
+			name:        "slack does not",
+			args:        map[string]any{"type": "action", "template": "slack", "name": "Notify"},
+			wantRetries: 0,
+			wantBackoff: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			graph := &models.WorkflowGraph{}
+			if _, err := addGraphNode(graph, tt.args); err != nil {
+				t.Fatalf("add_node: %v", err)
+			}
+			n := graph.Nodes[len(graph.Nodes)-1]
+			if n.MaxRetries != tt.wantRetries {
+				t.Errorf("MaxRetries = %d, want %d", n.MaxRetries, tt.wantRetries)
+			}
+			if n.RetryBackoffMs != tt.wantBackoff {
+				t.Errorf("RetryBackoffMs = %d, want %d", n.RetryBackoffMs, tt.wantBackoff)
+			}
+		})
+	}
+}
+
+// A round cut off at maxOutputTokens may carry a function call whose
+// arguments were truncated mid-object. Acting on one writes a half-configured
+// node onto the user's canvas, so a truncated round is discarded whole and
+// asked again rather than mined for whatever survived.
+func TestBuildGraphIgnoresAFunctionCallFromATruncatedRound(t *testing.T) {
+	var round int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		round++
+		w.Header().Set("Content-Type", "application/json")
+		if round == 1 {
+			// An add_node whose "fields" never closed: the name survived,
+			// the url did not.
+			json.NewEncoder(w).Encode(map[string]any{
+				"candidates": []map[string]any{{
+					"finishReason": "MAX_TOKENS",
+					"content": map[string]any{"role": "model", "parts": []map[string]any{{
+						"functionCall": map[string]any{
+							"name": "add_node",
+							"args": map[string]any{"type": "tool", "template": "http", "name": "Truncated"},
+						},
+					}}},
+				}},
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"candidates": []map[string]any{
+				{"content": map[string]any{"parts": []map[string]any{{"text": "Nothing to do."}}}},
+			},
+		})
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "add a step", Graph: models.WorkflowGraph{}})
+	if err != nil {
+		t.Fatalf("a truncated round must be retried, not surfaced: %v", err)
+	}
+	for _, n := range res.Graph.Nodes {
+		if n.Name == "Truncated" {
+			t.Fatal("acted on a function call from a response that was cut off mid-object")
+		}
+	}
+	if res.Reply != "Nothing to do." {
+		t.Errorf("want the retried reply, got %q", res.Reply)
+	}
+}
+
+// Whether a node is a read is not fixed when it is created: the same http
+// template GETs or POSTs depending on a field the model can change in a later
+// round. The retry policy has to follow.
+func TestUpdateNodeKeepsTheRetryPolicyInStepWithTheMethod(t *testing.T) {
+	tests := []struct {
+		name        string
+		addMethod   string
+		newMethod   string
+		wantRetries int
+	}{
+		{"GET turned into a POST loses the read retry", "GET", "POST", 0},
+		{"POST turned into a GET gains it", "POST", "GET", readRetryAttempts},
+		{"a GET left alone keeps it", "GET", "GET", readRetryAttempts},
+		{"a POST left alone still has none", "POST", "POST", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			graph := &models.WorkflowGraph{}
+			out, err := addGraphNode(graph, map[string]any{
+				"type": "tool", "template": "http", "name": "Fetch",
+				"fields": map[string]any{"url": "https://api.example.com/v1/x", "method": tt.addMethod},
+			})
+			if err != nil {
+				t.Fatalf("add_node: %v (%s)", err, out)
+			}
+			id := graph.Nodes[0].ID
+			if _, err := updateGraphNode(graph, map[string]any{
+				"id": id, "fields": map[string]any{"method": tt.newMethod},
+			}); err != nil {
+				t.Fatalf("update_node: %v", err)
+			}
+			if got := graph.Nodes[0].MaxRetries; got != tt.wantRetries {
+				t.Errorf("MaxRetries = %d after %s -> %s, want %d", got, tt.addMethod, tt.newMethod, tt.wantRetries)
+			}
+		})
+	}
+}
+
+// A retry count the user chose in the Inspector is theirs. A chat message
+// about something else must not quietly overwrite it, in either direction.
+func TestUpdateNodeLeavesAHandSetRetryPolicyAlone(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	if _, err := addGraphNode(graph, map[string]any{
+		"type": "tool", "template": "http", "name": "Fetch",
+		"fields": map[string]any{"url": "https://api.example.com/v1/x", "method": "GET"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	id := graph.Nodes[0].ID
+	graph.Nodes[0].MaxRetries, graph.Nodes[0].RetryBackoffMs = 4, 2000
+
+	if _, err := updateGraphNode(graph, map[string]any{
+		"id": id, "fields": map[string]any{"method": "POST"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if graph.Nodes[0].MaxRetries != 4 || graph.Nodes[0].RetryBackoffMs != 2000 {
+		t.Errorf("overwrote a hand-set retry policy: got %d/%dms, want 4/2000ms",
+			graph.Nodes[0].MaxRetries, graph.Nodes[0].RetryBackoffMs)
+	}
+}
+
+// A degraded read fails the test run and still produces an answer, because
+// the run carries on past it exactly as a real run does. Reporting that as
+// "did not produce an answer" is untrue, and it suppressed the answer itself.
+func TestBuildGraphReportsADegradedTestRunAsPartialAndStillQuotesTheAnswer(t *testing.T) {
+	scriptedGemini(t, []string{callTestRun, text("Built it.")})
+	res, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "btc price", Graph: wiredAgentGraph(),
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
+			return DryRunResult{
+				Failed:      true,
+				Degraded:    true,
+				FinalOutput: "I could not reach the price source, so I have no figure for you.",
+				Steps: []DryRunStep{
+					{Name: "CoinGecko Price", Status: "failed", Error: "http: GET 503"},
+				},
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(res.Reply, "did not produce an answer") {
+		t.Errorf("claimed the test produced no answer when it produced one:\n%s", res.Reply)
+	}
+	if !strings.Contains(res.Reply, "this answer is partial") {
+		t.Errorf("the reply does not say the answer is partial:\n%s", res.Reply)
+	}
+	if !strings.Contains(res.Reply, "CoinGecko Price") {
+		t.Errorf("the reply does not name the step that failed:\n%s", res.Reply)
+	}
+	if !strings.Contains(res.Reply, "I could not reach the price source") {
+		t.Errorf("the reply does not quote what the test actually produced:\n%s", res.Reply)
+	}
+}
+
+// A test run that really produced nothing still says so.
+func TestBuildGraphStillReportsATestRunThatProducedNothing(t *testing.T) {
+	scriptedGemini(t, []string{callTestRun, text("Built it.")})
+	res, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "btc price", Graph: wiredAgentGraph(),
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
+			return DryRunResult{
+				Failed: true,
+				Steps:  []DryRunStep{{Name: "CoinGecko Price", Status: "failed", Error: "http: GET 503"}},
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(res.Reply, "did not produce an answer") {
+		t.Errorf("a test run with no answer must say so:\n%s", res.Reply)
+	}
+}
+
+// The partial note must be strippable from replayed history, like every other
+// test-run trailer: it restates a result for a graph that has since changed.
+func TestThePartialTrailerIsStrippedFromReplayedHistory(t *testing.T) {
+	reply := "Built it." + trailerTestPartial + `step "Price" failed (http: GET 503)._` +
+		trailerTestedAnswer + "I could not reach the price source."
+	if got := clipHistoryText("model", reply); got != "Built it." {
+		t.Errorf("clipHistoryText = %q, want %q", got, "Built it.")
+	}
+}

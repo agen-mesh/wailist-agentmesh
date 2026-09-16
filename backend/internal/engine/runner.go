@@ -123,12 +123,49 @@ func (r *Runner) SetGoogleOAuth(clientID, clientSecret string) {
 func (r *Runner) preflightCheck(ctx context.Context, wf models.Workflow, amountUSDMicros int64) error {
 	balance, err := r.store.GetCreditBalance(ctx, wf.UserID)
 	if err != nil {
-		return err
+		// Wrapped for the same reason the refusal below is: this is the
+		// billing gate failing, not the node's own work. Left bare it reads
+		// as an ordinary node failure, and a read node would degrade -- the
+		// run would report success having silently skipped its paid step
+		// because of a database blip.
+		return fmt.Errorf("checking credit balance: %w", errBillingCheckFailed)
 	}
 	if balance < amountUSDMicros {
-		return fmt.Errorf("insufficient credits: balance %d micros, need %d micros", balance, amountUSDMicros)
+		// Wrapped, not bare: a caller has to be able to tell a billing
+		// refusal from a failure of the thing the node was trying to do.
+		// The degradation branch in execute() is the caller that matters --
+		// a node the user cannot pay for must fail the run and say so, not
+		// quietly degrade into a partial answer that never mentions credit.
+		// Mirrors store.go's own insufficient-credits wrapping.
+		return fmt.Errorf("insufficient credits: balance %d micros, need %d micros: %w", balance, amountUSDMicros, db.ErrInsufficientCredits)
 	}
 	return nil
+}
+
+// isBillingRefusal reports whether err came from the billing gate rather than
+// from the node's own work: the platform declining to run a node the user
+// cannot pay for, or the gate being unable to reach a verdict at all.
+//
+// These must never degrade. A degraded run reports success and answers with
+// what it has, which for a billing refusal would mean a workflow that
+// silently stops doing the paid half of its job and never tells the user why
+// -- while the unpaid steps keep being skipped on every later run too. A
+// gate that could not answer belongs here for the same reason: nothing
+// established that the work was affordable, so nothing may proceed as if it
+// were.
+// errBillingCheckFailed is the balance gate itself being unable to answer --
+// a database or pool error reading the user's credits, not a verdict on
+// whether they have enough. It is deliberately its own sentinel rather than
+// the underlying driver error: what matters downstream is only that no
+// billing decision was reached, and forwarding the driver's text would put
+// connection-string detail into a run log the user reads.
+var errBillingCheckFailed = errors.New("the billing check could not be completed")
+
+func isBillingRefusal(err error) bool {
+	var blocked *nodes.ErrBalanceBlocked
+	return errors.Is(err, db.ErrInsufficientCredits) ||
+		errors.Is(err, errBillingCheckFailed) ||
+		errors.As(err, &blocked)
 }
 
 // debitOrLog charges amountUSDMicros against wf.UserID for nodeID and just
@@ -1296,6 +1333,78 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 					}
 				}
 				dur := int(time.Since(start).Milliseconds())
+
+				// A read node that failed every attempt does not have to end
+				// the run. Hand the error downstream as data instead: the
+				// agent after it can say what failed, and answer from another
+				// source if one is attached to it. Three conditions, each
+				// load-bearing:
+				//
+				//   IsDegradable     -- an action may already have sent,
+				//                       written or paid; only a read is safe
+				//                       to continue past.
+				//   !isPaymentRisk   -- real money may have moved for this
+				//                       attempt, and a run reporting success
+				//                       over that is the worst outcome here.
+				//   !isBillingRefusal -- the platform declining to run a node
+				//                       the user cannot pay for is not the
+				//                       node's work failing, and must be
+				//                       said out loud rather than degraded.
+				//   ctx.Err() == nil -- a run cancelled by Stop surfaces as
+				//                       execErr too, and a stop is not a
+				//                       degradation.
+				//
+				// The retry loop above has already exhausted MaxRetries, so
+				// this never short-circuits a retryable error.
+				if execErr != nil && nodes.IsDegradable(n) && !isPaymentRisk(execErr) && !isBillingRefusal(execErr) && ctx.Err() == nil {
+					degraded := map[string]any{
+						"error":    nodes.SanitizeRunError(execErr.Error()),
+						"degraded": true,
+						"node":     n.Name,
+					}
+					rc.Set(n.ID, degraded)
+					outJSON, _ := json.Marshal(degraded)
+					// "" for configHash: it is only meaningful on a success
+					// row, which is what Resume's skip check reads.
+					//
+					// This row IS the audit record, and no dead-letter row is
+					// written beside it. A dead-letter row means "this run
+					// failed at this node and can be resumed from it", and
+					// neither half is true here: the run finishes successfully,
+					// and MarkRunRunning only ever claims a run in "failed" or
+					// "stopped", so a resume would be refused. Writing one
+					// anyway would put a Resume button in the console that
+					// cannot do anything. The failure is not lost -- it is on
+					// this row, with the node and the error, and the console
+					// reports the run as partial because of it.
+					r.store.UpdateRunLog(context.Background(), logEntry.ID, models.LogStatusDegraded, outJSON, dur, "")
+					// Same reason the success path clears these, and for the
+					// same rows: this run reached here via Resume, and an
+					// earlier attempt at this node hard-failed and left a
+					// dead-letter row. Degrading settles that node -- the run
+					// goes on to finish successfully -- so the row no longer
+					// reflects anything, and leaving it would put a
+					// force-required Resume button on a successful run. It
+					// would also never clear: MarkRunRunning claims only a
+					// run in "failed" or "stopped", so this run can never be
+					// resumed again to reach the success path that deletes
+					// it. A fresh run has no such rows, so this is a no-op
+					// there.
+					if delErr := r.store.DeleteDeadLettersForNode(context.Background(), run.ID, n.ID); delErr != nil {
+						log.Printf("resume: clearing dead-letter rows for degraded node %s, run=%s failed: %v", n.ID, run.ID, delErr)
+					}
+					log.Printf("degraded node %s (%s/%s), run=%s after %d attempt(s): %v", n.ID, n.Type, n.Template, run.ID, attempts, execErr)
+					r.broker.Publish(run.ID, models.LogEvent{
+						StepIndex:  idx,
+						NodeID:     n.ID,
+						NodeType:   n.Type,
+						Status:     models.LogStatusDegraded,
+						Output:     degraded,
+						DurationMs: dur,
+						Ts:         time.Now(),
+					})
+					return
+				}
 
 				if execErr != nil {
 					atomic.StoreInt32(&failed, 1)

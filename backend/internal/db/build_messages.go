@@ -17,7 +17,12 @@ const MaxBuildMessageChars = 16384
 // below any context limit on purpose -- the graph itself is also serialised
 // into every call, and the useful signal ("the specs I gave you earlier")
 // lives in the recent turns, not in the whole history of the workflow.
-const DefaultBuildHistoryTurns = 20
+//
+// Six, down from twenty. The history is resent on every round of every
+// build, so its size multiplies by the round count; and twenty turns of
+// replayed replies carried every earlier mistake forward into a context
+// the model then reasoned from. Three exchanges still cover a follow-up.
+const DefaultBuildHistoryTurns = 6
 
 // BuildMessage is one turn of the workflow builder's conversation. Role is
 // "user" or "model", matching Gemini's own content roles so the replay needs

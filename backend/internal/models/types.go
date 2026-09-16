@@ -286,6 +286,11 @@ const (
 	LogStatusRunning LogStatus = "running"
 	LogStatusSuccess LogStatus = "success"
 	LogStatusFailed  LogStatus = "failed"
+	// LogStatusDegraded is a read node that failed every attempt and was
+	// allowed to pass an error payload downstream rather than fail the run.
+	// The run continues and can still answer; this row exists so the failure
+	// is never invisible. Which nodes qualify is nodes.IsDegradable.
+	LogStatusDegraded LogStatus = "degraded"
 )
 
 type RunLog struct {

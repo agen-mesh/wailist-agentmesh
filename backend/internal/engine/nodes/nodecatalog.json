@@ -9,6 +9,7 @@
           "id": "manual",
           "name": "Manual Trigger",
           "desc": "Click to test",
+          "kind": "action",
           "note": "Started by the Run button -- and by the workflow's schedule, if one is set. Use this for anything that should run on a timetable.",
           "fields": []
         },
@@ -16,6 +17,7 @@
           "id": "chat",
           "name": "On Chat Message",
           "desc": "Inbound chat",
+          "kind": "action",
           "note": "Started by a message typed into the chat console; that message is the run's input.",
           "fields": []
         },
@@ -23,6 +25,7 @@
           "id": "webhook",
           "name": "Webhook",
           "desc": "HTTP POST endpoint",
+          "kind": "action",
           "note": "Started by an HTTP POST to the workflow's webhook URL, shown in the Inspector once deployed. The signing secret is generated automatically.",
           "fields": []
         }
@@ -36,6 +39,7 @@
           "id": "agent",
           "name": "AI Agent",
           "desc": "Reasoning + tool use",
+          "kind": "action",
           "fields": [
             {
               "key": "systemPrompt",
@@ -49,6 +53,7 @@
           "id": "router",
           "name": "Router Agent",
           "desc": "Classify + dispatch",
+          "kind": "action",
           "note": "Runs exactly like a plain AI agent today -- the engine has no routing step. Do not promise the user classification-based dispatch.",
           "fields": [
             {
@@ -63,6 +68,7 @@
           "id": "human",
           "name": "Human-in-loop",
           "desc": "Approval gate",
+          "kind": "action",
           "note": "Runs exactly like a plain AI agent today -- the engine has no approval gate and never pauses for a human. Do not promise the user an approval step.",
           "fields": [
             {
@@ -83,6 +89,7 @@
           "id": "gemini",
           "name": "Google Gemini",
           "desc": "Google Gemini models",
+          "kind": "action",
           "note": "Runs on the platform key by default and needs nothing from the user. Its apiKey applies only if the user switches to their own key in the Inspector -- never tell them they must supply one.",
           "presets": {
             "model": "gemini-2.5-flash"
@@ -112,6 +119,7 @@
           "id": "openai",
           "name": "OpenAI",
           "desc": "OpenAI models",
+          "kind": "action",
           "note": "Runs on the platform key by default and needs nothing from the user. Its apiKey applies only if the user switches to their own key in the Inspector -- never tell them they must supply one.",
           "presets": {
             "model": "gpt-4.1"
@@ -141,6 +149,7 @@
           "id": "anthropic",
           "name": "Anthropic",
           "desc": "Anthropic models",
+          "kind": "action",
           "note": "Runs on the platform key by default and needs nothing from the user. Its apiKey applies only if the user switches to their own key in the Inspector -- never tell them they must supply one.",
           "presets": {
             "model": "claude-sonnet-4-6"
@@ -170,6 +179,7 @@
           "id": "mistral",
           "name": "Mistral",
           "desc": "Mistral models",
+          "kind": "action",
           "note": "Runs on the platform key by default and needs nothing from the user. Its apiKey applies only if the user switches to their own key in the Inspector -- never tell them they must supply one.",
           "presets": {
             "model": "mistral-large-latest"
@@ -199,6 +209,7 @@
           "id": "groq",
           "name": "Groq",
           "desc": "Groq models",
+          "kind": "action",
           "note": "Runs on the platform key by default and needs nothing from the user. Its apiKey applies only if the user switches to their own key in the Inspector -- never tell them they must supply one.",
           "presets": {
             "model": "llama-3.3-70b-versatile"
@@ -234,6 +245,7 @@
           "id": "http",
           "name": "HTTP Request",
           "desc": "GET/POST any URL",
+          "kind": "action",
           "fields": [
             {
               "key": "url",
@@ -275,6 +287,7 @@
           "id": "calc",
           "name": "Calculator",
           "desc": "Math expressions",
+          "kind": "compute",
           "fields": [
             {
               "key": "url",
@@ -288,6 +301,7 @@
           "id": "set",
           "name": "Edit Fields",
           "desc": "Build an object from refs",
+          "kind": "compute",
           "fields": [
             {
               "key": "setFields",
@@ -302,6 +316,7 @@
           "id": "json_extract",
           "name": "JSON Extract",
           "desc": "Pick a value by path",
+          "kind": "compute",
           "fields": [
             {
               "key": "jsonPath",
@@ -316,6 +331,7 @@
           "id": "crypto",
           "name": "Crypto",
           "desc": "Hash / HMAC / base64",
+          "kind": "compute",
           "fields": [
             {
               "key": "cryptoAction",
@@ -337,6 +353,7 @@
           "id": "datetime",
           "name": "Date & Time",
           "desc": "Now, offset, timezone",
+          "kind": "compute",
           "fields": [
             {
               "key": "dtFormat",
@@ -365,6 +382,7 @@
           "id": "xml",
           "name": "XML → JSON",
           "desc": "Parse XML payloads",
+          "kind": "compute",
           "note": "Parses the previous step's XML output into JSON. No settings.",
           "fields": []
         },
@@ -372,6 +390,7 @@
           "id": "template",
           "name": "Text Template",
           "desc": "Compose with {{ refs }}",
+          "kind": "compute",
           "fields": [
             {
               "key": "templateText",
@@ -386,6 +405,7 @@
           "id": "html_extract",
           "name": "HTML Extract",
           "desc": "CSS selector → text",
+          "kind": "compute",
           "fields": [
             {
               "key": "htmlSelector",
@@ -413,6 +433,7 @@
           "id": "markdown",
           "name": "Markdown → HTML",
           "desc": "Render agent output",
+          "kind": "compute",
           "fields": [
             {
               "key": "mdGFM",
@@ -427,6 +448,7 @@
           "id": "quickchart",
           "name": "QuickChart",
           "desc": "Chart image URL",
+          "kind": "compute",
           "fields": [
             {
               "key": "qcConfig",
@@ -454,6 +476,7 @@
           "id": "websearch",
           "name": "Web Search",
           "desc": "Search the live web (Gemini grounding)",
+          "kind": "read",
           "note": "Answers with a live Google Search. Attached to an agent it searches whatever the agent asks; as a flow step it searches the previous step's output.",
           "fields": []
         }
@@ -467,6 +490,7 @@
           "id": "email",
           "name": "Send Email",
           "desc": "Postmark / Resend",
+          "kind": "action",
           "fields": [
             {
               "key": "emailProvider",
@@ -512,6 +536,7 @@
           "id": "slack",
           "name": "Slack Message",
           "desc": "Post to channel",
+          "kind": "action",
           "fields": [
             {
               "key": "slackWebhookURL",
@@ -540,6 +565,7 @@
           "id": "db",
           "name": "Database Insert",
           "desc": "Write to Postgres",
+          "kind": "action",
           "fields": [
             {
               "key": "pgConnString",
@@ -579,6 +605,7 @@
           "id": "discord",
           "name": "Discord Message",
           "desc": "Webhook post",
+          "kind": "action",
           "fields": [
             {
               "key": "discordWebhookURL",
@@ -599,6 +626,7 @@
           "id": "teams",
           "name": "Teams Message",
           "desc": "Webhook post",
+          "kind": "action",
           "fields": [
             {
               "key": "teamsWebhookURL",
@@ -619,6 +647,7 @@
           "id": "google_chat",
           "name": "Google Chat Message",
           "desc": "Webhook post",
+          "kind": "action",
           "fields": [
             {
               "key": "googleChatWebhookURL",
@@ -639,6 +668,7 @@
           "id": "ntfy",
           "name": "Ntfy Push",
           "desc": "Topic notification",
+          "kind": "action",
           "fields": [
             {
               "key": "ntfyTopic",
@@ -672,6 +702,7 @@
           "id": "telegram",
           "name": "Telegram Message",
           "desc": "Bot API send",
+          "kind": "action",
           "fields": [
             {
               "key": "telegramBotToken",
@@ -698,6 +729,7 @@
           "id": "telegram_get_updates",
           "name": "Telegram Get Updates",
           "desc": "Read new bot messages",
+          "kind": "read",
           "fields": [
             {
               "key": "telegramBotToken",
@@ -732,6 +764,7 @@
           "id": "github",
           "name": "GitHub Issue",
           "desc": "Create an issue",
+          "kind": "action",
           "fields": [
             {
               "key": "githubToken",
@@ -759,6 +792,7 @@
           "id": "notion",
           "name": "Notion Block",
           "desc": "Append to a page",
+          "kind": "action",
           "fields": [
             {
               "key": "notionAPIKey",
@@ -786,6 +820,7 @@
           "id": "airtable",
           "name": "Airtable Record",
           "desc": "Create a record",
+          "kind": "action",
           "fields": [
             {
               "key": "airtableAPIKey",
@@ -825,6 +860,7 @@
           "id": "hubspot",
           "name": "HubSpot Note",
           "desc": "Log a CRM note",
+          "kind": "action",
           "fields": [
             {
               "key": "hubspotAPIKey",
@@ -846,6 +882,7 @@
           "id": "trello",
           "name": "Trello Card",
           "desc": "Create a card",
+          "kind": "action",
           "fields": [
             {
               "key": "trelloAPIKey",
@@ -878,6 +915,7 @@
           "id": "asana",
           "name": "Asana Task",
           "desc": "Create a task",
+          "kind": "action",
           "fields": [
             {
               "key": "asanaAPIKey",
@@ -905,6 +943,7 @@
           "id": "clickup",
           "name": "ClickUp Task",
           "desc": "Create a task",
+          "kind": "action",
           "fields": [
             {
               "key": "clickupAPIKey",
@@ -932,6 +971,7 @@
           "id": "jira",
           "name": "Jira Issue",
           "desc": "Create an issue",
+          "kind": "action",
           "fields": [
             {
               "key": "jiraAPIToken",
@@ -977,6 +1017,7 @@
           "id": "mailchimp",
           "name": "Mailchimp Subscriber",
           "desc": "Add to a list",
+          "kind": "action",
           "fields": [
             {
               "key": "mailchimpAPIKey",
@@ -1011,6 +1052,7 @@
           "id": "linear",
           "name": "Linear Issue",
           "desc": "Create an issue",
+          "kind": "action",
           "fields": [
             {
               "key": "linearAPIKey",
@@ -1038,6 +1080,7 @@
           "id": "todoist",
           "name": "Todoist Task",
           "desc": "Create a task",
+          "kind": "action",
           "fields": [
             {
               "key": "todoistAPIKey",
@@ -1066,6 +1109,7 @@
           "id": "gitlab",
           "name": "GitLab Issue",
           "desc": "Create an issue",
+          "kind": "action",
           "fields": [
             {
               "key": "gitlabAPIToken",
@@ -1100,6 +1144,7 @@
           "id": "sentry",
           "name": "Sentry Event",
           "desc": "Capture a message",
+          "kind": "action",
           "fields": [
             {
               "key": "sentryDSN",
@@ -1120,6 +1165,7 @@
           "id": "supabase",
           "name": "Supabase Insert",
           "desc": "Insert a row",
+          "kind": "action",
           "fields": [
             {
               "key": "supabaseAPIKey",
@@ -1158,6 +1204,7 @@
           "id": "woocommerce",
           "name": "WooCommerce Note",
           "desc": "Add an order note",
+          "kind": "action",
           "fields": [
             {
               "key": "woocommerceConsumerKey",
@@ -1196,6 +1243,7 @@
           "id": "elevenlabs",
           "name": "ElevenLabs Speech",
           "desc": "Text to speech",
+          "kind": "action",
           "fields": [
             {
               "key": "elevenlabsAPIKey",
@@ -1222,6 +1270,7 @@
           "id": "twilio",
           "name": "Twilio SMS",
           "desc": "Send a text message",
+          "kind": "action",
           "fields": [
             {
               "key": "twilioAuthToken",
@@ -1260,6 +1309,7 @@
           "id": "stripe",
           "name": "Stripe Customer",
           "desc": "Create a customer",
+          "kind": "action",
           "fields": [
             {
               "key": "stripeAPIKey",
@@ -1293,6 +1343,7 @@
           "id": "shopify",
           "name": "Shopify Order Note",
           "desc": "Add a note to an order",
+          "kind": "action",
           "fields": [
             {
               "key": "shopifyAccessToken",
@@ -1325,6 +1376,7 @@
           "id": "shopify_customer",
           "name": "Shopify Customer",
           "desc": "Create a customer",
+          "kind": "action",
           "fields": [
             {
               "key": "shopifyAccessToken",
@@ -1357,6 +1409,7 @@
           "id": "zendesk",
           "name": "Zendesk Ticket",
           "desc": "Create a support ticket",
+          "kind": "action",
           "fields": [
             {
               "key": "zendeskAPIToken",
@@ -1390,6 +1443,7 @@
           "id": "intercom",
           "name": "Intercom Lead",
           "desc": "Create a lead contact",
+          "kind": "action",
           "fields": [
             {
               "key": "intercomAccessToken",
@@ -1416,6 +1470,7 @@
           "id": "pagerduty",
           "name": "PagerDuty Incident",
           "desc": "Trigger an incident",
+          "kind": "action",
           "fields": [
             {
               "key": "pagerdutyRoutingKey",
@@ -1450,6 +1505,7 @@
           "id": "calendly",
           "name": "Calendly Events",
           "desc": "List scheduled events",
+          "kind": "read",
           "fields": [
             {
               "key": "calendlyAccessToken",
@@ -1482,6 +1538,7 @@
           "id": "baserow",
           "name": "Baserow Row",
           "desc": "Create a row",
+          "kind": "action",
           "fields": [
             {
               "key": "baserowAPIToken",
@@ -1514,6 +1571,7 @@
           "id": "openweathermap",
           "name": "OpenWeatherMap",
           "desc": "Get current weather",
+          "kind": "read",
           "fields": [
             {
               "key": "openWeatherAPIKey",
@@ -1547,6 +1605,7 @@
           "id": "mattermost",
           "name": "Mattermost Message",
           "desc": "Webhook post",
+          "kind": "action",
           "fields": [
             {
               "key": "mattermostWebhookURL",
@@ -1580,6 +1639,7 @@
           "id": "monday",
           "name": "Monday.com Item",
           "desc": "Create a board item",
+          "kind": "action",
           "fields": [
             {
               "key": "mondayAPIKey",
@@ -1605,6 +1665,7 @@
           "id": "pipedrive",
           "name": "Pipedrive Note",
           "desc": "Log a CRM note",
+          "kind": "action",
           "fields": [
             {
               "key": "pipedriveAPIToken",
@@ -1644,6 +1705,7 @@
           "id": "rss",
           "name": "RSS Feed",
           "desc": "Read a feed (no key)",
+          "kind": "read",
           "fields": [
             {
               "key": "rssURL",
@@ -1670,6 +1732,7 @@
           "id": "graphql",
           "name": "GraphQL Query",
           "desc": "Any GraphQL endpoint",
+          "kind": "action",
           "fields": [
             {
               "key": "graphqlEndpoint",
@@ -1709,6 +1772,7 @@
           "id": "hackernews",
           "name": "Hacker News",
           "desc": "Search stories (no key)",
+          "kind": "read",
           "fields": [
             {
               "key": "hnQuery",
@@ -1742,6 +1806,7 @@
           "id": "coingecko",
           "name": "CoinGecko Price",
           "desc": "Spot prices (no key)",
+          "kind": "read",
           "note": "cgIDs are CoinGecko coin ids, not names or symbols. Look each one up with fetch_url https://api.coingecko.com/api/v3/search?query=<the name the user gave> and use the id of the result whose name or symbol matches what they said -- never a similar-sounding coin, and never web_search for an id.",
           "fields": [
             {
@@ -1775,6 +1840,7 @@
           "id": "gmail_list",
           "name": "Gmail: List Messages",
           "desc": "Search/list inbox messages",
+          "kind": "read",
           "fields": [
             {
               "key": "oauthCredentialID",
@@ -1800,6 +1866,7 @@
           "id": "gmail_get",
           "name": "Gmail: Get Message",
           "desc": "Read one message's content",
+          "kind": "read",
           "fields": [
             {
               "key": "oauthCredentialID",
@@ -1819,6 +1886,7 @@
           "id": "gmail_send",
           "name": "Gmail: Send Message",
           "desc": "Send a new email",
+          "kind": "action",
           "fields": [
             {
               "key": "oauthCredentialID",
@@ -1849,6 +1917,7 @@
           "id": "gmail_reply",
           "name": "Gmail: Reply",
           "desc": "Reply within a thread",
+          "kind": "action",
           "fields": [
             {
               "key": "oauthCredentialID",
@@ -1885,6 +1954,7 @@
           "id": "sheets_read",
           "name": "Sheets: Read Range",
           "desc": "Read cell values",
+          "kind": "read",
           "fields": [
             {
               "key": "oauthCredentialID",
@@ -1910,6 +1980,7 @@
           "id": "sheets_append",
           "name": "Sheets: Append Row",
           "desc": "Add a row of data",
+          "kind": "action",
           "fields": [
             {
               "key": "oauthCredentialID",
@@ -1941,6 +2012,7 @@
           "id": "calendar_list",
           "name": "Calendar: List Events",
           "desc": "List upcoming events",
+          "kind": "read",
           "fields": [
             {
               "key": "oauthCredentialID",
@@ -1961,6 +2033,7 @@
           "id": "calendar_create",
           "name": "Calendar: Create Event",
           "desc": "Schedule a new event",
+          "kind": "action",
           "fields": [
             {
               "key": "oauthCredentialID",
@@ -2005,6 +2078,7 @@
           "id": "drive_list",
           "name": "Drive: List Files",
           "desc": "Search/list files",
+          "kind": "read",
           "fields": [
             {
               "key": "oauthCredentialID",
@@ -2024,6 +2098,7 @@
           "id": "drive_get",
           "name": "Drive: Get File Info",
           "desc": "Read file metadata",
+          "kind": "read",
           "fields": [
             {
               "key": "oauthCredentialID",
@@ -2043,6 +2118,7 @@
           "id": "drive_download",
           "name": "Drive: Download File",
           "desc": "Fetch file contents",
+          "kind": "read",
           "fields": [
             {
               "key": "oauthCredentialID",
@@ -2068,6 +2144,7 @@
           "id": "get",
           "name": "Read State",
           "desc": "Load a saved value",
+          "kind": "compute",
           "presets": {
             "stateOp": "get"
           },
@@ -2085,6 +2162,7 @@
           "id": "set",
           "name": "Write State",
           "desc": "Save a value for next run",
+          "kind": "action",
           "presets": {
             "stateOp": "set"
           },
@@ -2108,6 +2186,7 @@
           "id": "increment",
           "name": "Counter",
           "desc": "Add to a running total",
+          "kind": "action",
           "presets": {
             "stateOp": "increment"
           },
@@ -2131,6 +2210,7 @@
           "id": "delete",
           "name": "Clear State",
           "desc": "Remove a saved value",
+          "kind": "action",
           "presets": {
             "stateOp": "delete"
           },
@@ -2154,6 +2234,7 @@
           "id": "tendril_topup",
           "name": "Buy Tendril Credit",
           "desc": "AgentMesh credits → Tendril credit",
+          "kind": "action",
           "presets": {
             "tendrilAction": "topup",
             "tendrilHours": "1",
@@ -2172,6 +2253,7 @@
           "id": "tendril_rent",
           "name": "Rent a Machine",
           "desc": "Open a metered SSH session",
+          "kind": "action",
           "presets": {
             "tendrilAction": "rent",
             "tendrilHours": "1",
@@ -2190,6 +2272,7 @@
           "id": "tendril_run",
           "name": "Run a Job",
           "desc": "Execute Python on the machine",
+          "kind": "action",
           "presets": {
             "tendrilAction": "run",
             "tendrilHours": "1",
@@ -2201,6 +2284,7 @@
           "id": "tendril_release",
           "name": "Release",
           "desc": "Stop the meter and bill",
+          "kind": "action",
           "presets": {
             "tendrilAction": "release",
             "tendrilHours": "1",
@@ -2218,6 +2302,7 @@
           "id": "http",
           "name": "Respond to Webhook",
           "desc": "Return JSON",
+          "kind": "action",
           "note": "Finishes the run and passes the last output through; the http and done templates behave identically. A webhook caller never receives run output -- the webhook answers 202 with a runId immediately -- so do not promise a response body.",
           "fields": []
         },
@@ -2225,6 +2310,7 @@
           "id": "done",
           "name": "End",
           "desc": "Mark complete",
+          "kind": "action",
           "note": "Finishes the run and passes the last output through; the http and done templates behave identically. A webhook caller never receives run output -- the webhook answers 202 with a runId immediately -- so do not promise a response body.",
           "fields": []
         }
