@@ -70,3 +70,51 @@ func ids(rs []Resource) []string {
 	}
 	return out
 }
+
+// The live catalog holds hundreds of entries that mention Algorand, so an
+// Algorand query has to be won by the words beside "algorand", not by that
+// word alone.
+func TestSearchPrefersAnAccountLookupForAnAccountQuery(t *testing.T) {
+	items := []Resource{
+		{
+			ID: "noise", Provider: "Otto", Host: "algorand.ottoai.services",
+			URL:         "https://algorand.ottoai.services/trending-pools",
+			Description: "Trending DEX pools right now on Algorand and other chains",
+			Network:     AlgorandMainnet,
+		},
+		{
+			ID: "account", Provider: "AlgorandIndexer", Host: "api.algorand-indexer.xyz",
+			URL:         "https://api.algorand-indexer.xyz/account/ABC",
+			Description: "Algorand account lookup: balance, status, participation, and auth-addr for a single address",
+			Network:     AlgorandMainnet,
+		},
+	}
+	got := Search(items, "algorand account balance for an address", 5)
+	if len(got) == 0 {
+		t.Fatal("no results")
+	}
+	if got[0].ID != "account" {
+		t.Errorf("best match is %q, want the account lookup", got[0].ID)
+	}
+}
+
+func TestSearchFindsAnASAQuery(t *testing.T) {
+	items := []Resource{
+		{
+			ID: "asa", Provider: "Blueprints", Host: "api.blueprintstech.org",
+			URL:         "https://api.blueprintstech.org/asa/verify",
+			Description: "Algorand ASA and NFT verification with supply, control-address, and metadata checks",
+			Network:     AlgorandMainnet,
+		},
+		{
+			ID: "other", Provider: "Otto", Host: "algorand.ottoai.services",
+			URL:         "https://algorand.ottoai.services/equities",
+			Description: "Registry of tokenized US equities on Robinhood Chain",
+			Network:     AlgorandMainnet,
+		},
+	}
+	got := Search(items, "ASA supply and metadata", 5)
+	if len(got) == 0 || got[0].ID != "asa" {
+		t.Fatalf("best match is %+v, want the ASA verifier", got)
+	}
+}

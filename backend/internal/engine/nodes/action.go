@@ -106,6 +106,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendIntercom(ctx, node, rc)
 	case "openweathermap":
 		return getOpenWeather(ctx, node, rc)
+	case "algorand_account":
+		return fetchAlgorandAccount(ctx, node, rc)
 	case "calendly":
 		return getCalendlyEvents(ctx, node, rc)
 	case "baserow":
