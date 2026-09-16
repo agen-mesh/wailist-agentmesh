@@ -1378,6 +1378,21 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 					// this row, with the node and the error, and the console
 					// reports the run as partial because of it.
 					r.store.UpdateRunLog(context.Background(), logEntry.ID, models.LogStatusDegraded, outJSON, dur, "")
+					// Same reason the success path clears these, and for the
+					// same rows: this run reached here via Resume, and an
+					// earlier attempt at this node hard-failed and left a
+					// dead-letter row. Degrading settles that node -- the run
+					// goes on to finish successfully -- so the row no longer
+					// reflects anything, and leaving it would put a
+					// force-required Resume button on a successful run. It
+					// would also never clear: MarkRunRunning claims only a
+					// run in "failed" or "stopped", so this run can never be
+					// resumed again to reach the success path that deletes
+					// it. A fresh run has no such rows, so this is a no-op
+					// there.
+					if delErr := r.store.DeleteDeadLettersForNode(context.Background(), run.ID, n.ID); delErr != nil {
+						log.Printf("resume: clearing dead-letter rows for degraded node %s, run=%s failed: %v", n.ID, run.ID, delErr)
+					}
 					log.Printf("degraded node %s (%s/%s), run=%s after %d attempt(s): %v", n.ID, n.Type, n.Template, run.ID, attempts, execErr)
 					r.broker.Publish(run.ID, models.LogEvent{
 						StepIndex:  idx,
