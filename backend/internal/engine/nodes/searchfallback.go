@@ -87,17 +87,20 @@ func ensureSearchFallback(graph *models.WorkflowGraph, known map[string]bool) bo
 		}
 	}
 
-	id := newGraphID("n_")
-	graph.Nodes = append(graph.Nodes, models.WorkflowNode{
-		ID:       id,
-		Type:     models.NodeTypeTool,
-		Template: "websearch",
-		Name:     "Web Search",
-		// The same placement addGraphNode uses, so it lands on the grid
-		// beside the nodes the model added rather than at the origin.
-		X: 80 + 240*float64(len(graph.Nodes)%4),
-		Y: 120 + 160*float64(len(graph.Nodes)/4),
-	})
+	// Built through addGraphNode, not by hand, for the same reason the edge
+	// below goes through addGraphEdge: one code path, so this node gets
+	// whatever every model-added node gets. Hand-building it meant copying
+	// the grid placement formula and missing the read-retry default -- and a
+	// default added there later would silently skip this node.
+	if _, err := addGraphNode(graph, map[string]any{
+		"type": "tool", "template": "websearch", "name": "Web Search",
+	}); err != nil {
+		return false
+	}
+	// addGraphNode appends, so the node it just made is the last one. It
+	// returns a sentence for the model rather than an id, and parsing the id
+	// back out of that sentence would break the moment the wording changes.
+	id := graph.Nodes[len(graph.Nodes)-1].ID
 	if _, err := addGraphEdge(graph, map[string]any{
 		"from":   id,
 		"to":     agentID,
