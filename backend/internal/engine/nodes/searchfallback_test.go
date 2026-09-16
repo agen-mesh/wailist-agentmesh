@@ -40,7 +40,7 @@ func searchToolAttachedTo(g *models.WorkflowGraph, agentID string) (models.Workf
 
 func TestEnsureSearchFallbackAttachesToALiveDataAgent(t *testing.T) {
 	g := liveDataGraph()
-	if !ensureSearchFallback(g) {
+	if !ensureSearchFallback(g, nil) {
 		t.Fatal("ensureSearchFallback reported no change, want one")
 	}
 	if _, ok := searchToolAttachedTo(g, "a"); !ok {
@@ -53,9 +53,9 @@ func TestEnsureSearchFallbackAttachesToALiveDataAgent(t *testing.T) {
 
 func TestEnsureSearchFallbackIsIdempotent(t *testing.T) {
 	g := liveDataGraph()
-	ensureSearchFallback(g)
+	ensureSearchFallback(g, nil)
 	nodes, edges := len(g.Nodes), len(g.Edges)
-	if ensureSearchFallback(g) {
+	if ensureSearchFallback(g, nil) {
 		t.Error("a second call reported a change")
 	}
 	if len(g.Nodes) != nodes || len(g.Edges) != edges {
@@ -111,7 +111,7 @@ func TestEnsureSearchFallbackLeavesAGraphAlone(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := tt.graph()
 			nodes, edges := len(g.Nodes), len(g.Edges)
-			if ensureSearchFallback(g) {
+			if ensureSearchFallback(g, nil) {
 				t.Error("reported a change, want none")
 			}
 			if len(g.Nodes) != nodes || len(g.Edges) != edges {
@@ -126,8 +126,73 @@ func TestEnsureSearchFallbackLeavesAGraphAlone(t *testing.T) {
 func TestEnsureSearchFallbackCountsAnHttpGet(t *testing.T) {
 	g := liveDataGraph()
 	g.Nodes[1] = models.WorkflowNode{ID: "f", Type: models.NodeTypeTool, Template: "http", Name: "Fetch", URL: "https://example.com", Method: "GET"}
-	if !ensureSearchFallback(g) {
+	if !ensureSearchFallback(g, nil) {
 		t.Fatal("an http GET feeding an agent got no search fallback")
+	}
+	if _, ok := searchToolAttachedTo(g, "a"); !ok {
+		t.Fatal("no websearch tool attached to the agent's tools port")
+	}
+}
+
+// The user's decision has to stick. Deleting the Web Search node from a
+// finished workflow used to bring it straight back on the next builder
+// message, because a bare "is one attached?" check cannot tell a node the
+// user removed from one that was never offered.
+func TestEnsureSearchFallbackDoesNotResurrectADeletedSearchTool(t *testing.T) {
+	g := liveDataGraph()
+	if !ensureSearchFallback(g, nil) {
+		t.Fatal("no fallback attached on the build that added the source")
+	}
+	// The user deletes it on the canvas, then sends another message. The
+	// coingecko node was already there when that build started.
+	tool, _ := searchToolAttachedTo(g, "a")
+	var keptNodes []models.WorkflowNode
+	for _, n := range g.Nodes {
+		if n.ID != tool.ID {
+			keptNodes = append(keptNodes, n)
+		}
+	}
+	var keptEdges []models.WorkflowEdge
+	for _, e := range g.Edges {
+		if e.From != tool.ID {
+			keptEdges = append(keptEdges, e)
+		}
+	}
+	g.Nodes, g.Edges = keptNodes, keptEdges
+
+	if ensureSearchFallback(g, liveDataIDs(*g)) {
+		t.Error("put the search tool back after the user deleted it")
+	}
+	if _, ok := searchToolAttachedTo(g, "a"); ok {
+		t.Error("a websearch tool is attached again, want none")
+	}
+}
+
+// A turn that asks a question, or edits a prompt, must not add a node to the
+// canvas -- and with it a tool billed per call -- when the user asked for no
+// change at all.
+func TestEnsureSearchFallbackIgnoresASourceThisBuildDidNotAdd(t *testing.T) {
+	g := liveDataGraph()
+	before := liveDataIDs(*g)
+	nodes, edges := len(g.Nodes), len(g.Edges)
+	if ensureSearchFallback(g, before) {
+		t.Error("reported a change on a build that added no live source")
+	}
+	if len(g.Nodes) != nodes || len(g.Edges) != edges {
+		t.Errorf("graph changed: %d/%d -> %d/%d nodes/edges", nodes, edges, len(g.Nodes), len(g.Edges))
+	}
+}
+
+// ...but a source this build really did add still gets one, even on a graph
+// that already had other live sources.
+func TestEnsureSearchFallbackAttachesForANewlyAddedSource(t *testing.T) {
+	g := liveDataGraph()
+	before := liveDataIDs(*g)
+	g.Nodes = append(g.Nodes, models.WorkflowNode{
+		ID: "f2", Type: models.NodeTypeAction, Template: "openweathermap", Name: "Weather",
+	})
+	if !ensureSearchFallback(g, before) {
+		t.Fatal("no fallback attached for a source this build added")
 	}
 	if _, ok := searchToolAttachedTo(g, "a"); !ok {
 		t.Fatal("no websearch tool attached to the agent's tools port")
