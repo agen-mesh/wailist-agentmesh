@@ -1464,6 +1464,11 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	// reported a quota error as a partial success and showed no failure.
 	startingGraph := graphSnapshot(graph)
 	changedSomething := func() bool { return graphSnapshot(graph) != startingGraph }
+	// Which live-data sources were already here before this build touched
+	// anything. ensureSearchFallback attaches only for one this build added,
+	// so a workflow the user has already pruned a Web Search node from is
+	// left as they left it.
+	startingLiveSources := liveDataIDs(graph)
 
 	baselineFindings := auditGraph(graph)
 	auditRetried := false
@@ -1513,9 +1518,28 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		if req.TraceID != "" {
 			log.Printf("build %s: round %d usage: %s", req.TraceID, iter+1, round)
 		}
-		calls := extractGeminiFunctionCalls(resp)
+		// Truncated by maxOutputTokens, checked before anything is read off
+		// the response. Nothing in it may be used: a function call cut off
+		// mid-object has lost the tail of its arguments, and acting on one
+		// writes a half-configured node; a cut-off reply is half a sentence.
+		// It goes down the empty-response path instead, which retries -- the
+		// payload is unchanged, but sampling is not deterministic, so a
+		// second attempt can come back inside the limit.
+		truncated := FinishedOnOutputLimit(resp)
+		if truncated && req.TraceID != "" {
+			log.Printf("build %s: round %d was cut off at the %d-token output limit (%s)", req.TraceID, iter+1, builderMaxOutputTokens(), round)
+		}
+		var calls []geminiFuncCall
+		if !truncated {
+			calls = extractGeminiFunctionCalls(resp)
+		}
 		if len(calls) == 0 {
-			text, err := extractGeminiText(resp)
+			text, err := "", error(nil)
+			if truncated {
+				err = fmt.Errorf("%w (cut off at the %d-token output limit)", ErrNoModelText, builderMaxOutputTokens())
+			} else {
+				text, err = extractGeminiText(resp)
+			}
 			if err != nil {
 				// No text and no function call. Ask again, then keep
 				// whatever is on the graph rather than losing it.
@@ -1556,12 +1580,22 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 					continue
 				}
 			}
-			// Before any test and before the reply: a workflow that reads live
-			// data gets a way to recover when a read fails. Here, after the
-			// audit and ahead of the test gate, so a test run exercises the
-			// graph the user will actually get. Idempotent, so reaching this
-			// again on a later reply attempt changes nothing.
-			ensureSearchFallback(&graph)
+			// Before any test and before the reply: a workflow whose live-data
+			// source this build added gets a way to recover when that read
+			// fails. Here, after the audit and ahead of the test gate, so a
+			// test run exercises the graph the user will actually get.
+			// Idempotent, so reaching this again on a later reply attempt
+			// changes nothing.
+			//
+			// Marked dirty when it attaches, because it changes the graph and
+			// nothing else on this path does: the flag is otherwise only set
+			// by runBuildCall, so without this the gate would pass a test run
+			// performed on a graph that has since gained a node, and the
+			// reply would quote that test as if it covered the workflow being
+			// saved.
+			if ensureSearchFallback(&graph, startingLiveSources) {
+				tester.dirty = true
+			}
 			// The test gate. The user asked for "a workflow which does run and
 			// gives the desired answer", and a graph can pass every structural
 			// check and still answer {} -- or, worse, an agent handed {} can

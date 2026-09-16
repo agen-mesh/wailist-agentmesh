@@ -14,8 +14,8 @@ func TestBuildPayloadAlwaysBoundsOutput(t *testing.T) {
 	if !ok {
 		t.Fatal("no generationConfig on the build payload, so one runaway reply is unbounded")
 	}
-	if gen["maxOutputTokens"] != builderMaxOutputTokens {
-		t.Errorf("maxOutputTokens = %v, want %d", gen["maxOutputTokens"], builderMaxOutputTokens)
+	if gen["maxOutputTokens"] != builderMaxOutputTokens() {
+		t.Errorf("maxOutputTokens = %v, want %d", gen["maxOutputTokens"], builderMaxOutputTokens())
 	}
 	// Unset means absent, not zero. The field has not been verified against
 	// generateContent on this model, and a rejected field fails every build.
@@ -84,5 +84,65 @@ func TestBuildPayloadKeepsWhatTheRequestCarried(t *testing.T) {
 	}
 	if _, ok := p["tools"]; !ok {
 		t.Error("tools are missing")
+	}
+}
+
+// The cap includes thinking tokens, so a cap at or below what thinking can
+// spend is reached mid-thought and the round comes back unusable -- on
+// exactly the hard rounds a build cannot afford to lose. Every configuration
+// must leave room to think AND to answer.
+func TestOutputCapAlwaysLeavesRoomToAnswerAfterThinking(t *testing.T) {
+	t.Cleanup(func() { SetBuilderThinkingBudget(0) })
+	tests := []struct {
+		name          string
+		budget        int
+		thinkingSpend int
+	}{
+		{"unset: thinking is dynamic and can reach the model's ceiling", 0, maxGeminiThinkingTokens},
+		{"a small budget", 1024, 1024},
+		{"a budget at the model's ceiling", maxGeminiThinkingTokens, maxGeminiThinkingTokens},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			SetBuilderThinkingBudget(tt.budget)
+			cap := builderMaxOutputTokens()
+			if cap <= tt.thinkingSpend {
+				t.Fatalf("cap %d does not exceed the %d tokens thinking may spend: a round that thinks that hard returns nothing, and the retry re-sends the same payload", cap, tt.thinkingSpend)
+			}
+			if room := cap - tt.thinkingSpend; room < builderReplyTokens {
+				t.Errorf("only %d tokens left to answer in after thinking, want at least %d", room, builderReplyTokens)
+			}
+		})
+	}
+}
+
+func TestFinishedOnOutputLimitReadsTheFinishReason(t *testing.T) {
+	tests := []struct {
+		name string
+		resp map[string]any
+		want bool
+	}{
+		{
+			name: "truncated by the output limit",
+			resp: map[string]any{"candidates": []any{map[string]any{"finishReason": "MAX_TOKENS"}}},
+			want: true,
+		},
+		{
+			name: "a normal finish",
+			resp: map[string]any{"candidates": []any{map[string]any{"finishReason": "STOP"}}},
+			want: false,
+		},
+		{
+			name: "no candidates at all is a different failure, handled elsewhere",
+			resp: map[string]any{},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := FinishedOnOutputLimit(tt.resp); got != tt.want {
+				t.Errorf("FinishedOnOutputLimit = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

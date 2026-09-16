@@ -8,14 +8,18 @@ import (
 	"github.com/agentmesh/backend/internal/models"
 )
 
-// builderMaxOutputTokens bounds what one builder round may generate.
-//
-// Thinking tokens count toward this limit, and a round that reaches it
-// mid-response comes back truncated or empty -- which, for a function call,
-// means arguments cut off mid-object. So it sits far above anything a round
-// legitimately produces (a tool call is small, a reply is a paragraph) and
-// only stops a runaway, rather than being tuned tight to save a few tokens.
-const builderMaxOutputTokens = 8192
+// builderReplyTokens is the headroom a round needs for what it actually
+// returns: a function call (small, a name and a handful of arguments) or a
+// reply to the user (a paragraph or two). Generous against both.
+const builderReplyTokens = 8192
+
+// maxGeminiThinkingTokens is the largest thinking budget gemini-2.5-flash
+// accepts, and so the most it can spend when thinking is left dynamic. The
+// cap below has to clear it: thinking tokens count toward maxOutputTokens,
+// so a cap lower than this would be reached mid-thought on exactly the hard
+// rounds, and a round that reaches it comes back with neither text nor a
+// function call.
+const maxGeminiThinkingTokens = 24576
 
 // builderThinkingBudget, when positive, caps each builder round's thinking
 // via generationConfig.thinkingConfig.thinkingBudget. Set once at startup
@@ -35,6 +39,26 @@ func SetBuilderThinkingBudget(tokens int) {
 		tokens = 0
 	}
 	builderThinkingBudget = tokens
+}
+
+// builderMaxOutputTokens bounds what one builder round may generate.
+//
+// It is derived from the thinking budget rather than fixed, because thinking
+// tokens count toward this same limit. A round that reaches the limit
+// mid-response comes back truncated or empty, the loop re-posts an identical
+// payload, and both retries fail the same way -- so a cap set below what
+// thinking legitimately spends does not save money, it fails the build.
+//
+// With no budget set, thinking is dynamic and can reach
+// maxGeminiThinkingTokens, so the cap clears that and leaves room to answer.
+// With a budget set, thinking cannot exceed it, so the cap only has to clear
+// the budget. Either way this stops a runaway and nothing else; the saving
+// comes from the budget, never from the cap.
+func builderMaxOutputTokens() int {
+	if builderThinkingBudget > 0 {
+		return builderThinkingBudget + builderReplyTokens
+	}
+	return maxGeminiThinkingTokens + builderReplyTokens
 }
 
 // buildPayload assembles the opening request of a build: the replayed
@@ -71,7 +95,7 @@ func buildPayload(history []BuildTurn, graph models.WorkflowGraph, userMessage s
 		"parts": []map[string]any{{"text": fmt.Sprintf("Current graph:\n%s\n\nRequest: %s", graphJSON, userMessage)}},
 	})
 
-	generation := map[string]any{"maxOutputTokens": builderMaxOutputTokens}
+	generation := map[string]any{"maxOutputTokens": builderMaxOutputTokens()}
 	if builderThinkingBudget > 0 {
 		generation["thinkingConfig"] = map[string]any{"thinkingBudget": builderThinkingBudget}
 	}

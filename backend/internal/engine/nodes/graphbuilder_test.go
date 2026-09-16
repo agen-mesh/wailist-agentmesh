@@ -2248,3 +2248,52 @@ func TestAddNodeSetsRetriesOnReadNodes(t *testing.T) {
 		})
 	}
 }
+
+// A round cut off at maxOutputTokens may carry a function call whose
+// arguments were truncated mid-object. Acting on one writes a half-configured
+// node onto the user's canvas, so a truncated round is discarded whole and
+// asked again rather than mined for whatever survived.
+func TestBuildGraphIgnoresAFunctionCallFromATruncatedRound(t *testing.T) {
+	var round int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		round++
+		w.Header().Set("Content-Type", "application/json")
+		if round == 1 {
+			// An add_node whose "fields" never closed: the name survived,
+			// the url did not.
+			json.NewEncoder(w).Encode(map[string]any{
+				"candidates": []map[string]any{{
+					"finishReason": "MAX_TOKENS",
+					"content": map[string]any{"role": "model", "parts": []map[string]any{{
+						"functionCall": map[string]any{
+							"name": "add_node",
+							"args": map[string]any{"type": "tool", "template": "http", "name": "Truncated"},
+						},
+					}}},
+				}},
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"candidates": []map[string]any{
+				{"content": map[string]any{"parts": []map[string]any{{"text": "Nothing to do."}}}},
+			},
+		})
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "add a step", Graph: models.WorkflowGraph{}})
+	if err != nil {
+		t.Fatalf("a truncated round must be retried, not surfaced: %v", err)
+	}
+	for _, n := range res.Graph.Nodes {
+		if n.Name == "Truncated" {
+			t.Fatal("acted on a function call from a response that was cut off mid-object")
+		}
+	}
+	if res.Reply != "Nothing to do." {
+		t.Errorf("want the retried reply, got %q", res.Reply)
+	}
+}
