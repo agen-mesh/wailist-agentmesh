@@ -73,6 +73,7 @@ type DryRunResult struct {
 // may call them for real.
 var readOnlyActions = map[string]bool{
 	"coingecko": true, "openweathermap": true, "hackernews": true, "rss": true,
+	"coingecko_history": true,
 }
 
 // DryRunExecutes says whether a dry run executes this node for real, and if
