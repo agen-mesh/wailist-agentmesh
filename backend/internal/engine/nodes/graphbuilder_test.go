@@ -879,6 +879,20 @@ func TestJSONPathToDotPath(t *testing.T) {
 	}
 }
 
+func TestThePromptSaysWhatToDoWithAnUnlistedToken(t *testing.T) {
+	// Checked on the standing instructions alone: the catalog section below
+	// them also mentions resolve_coin, in a template note, and must not be
+	// what makes this pass.
+	for _, want := range []string{"resolve_coin", "not listed"} {
+		if !strings.Contains(builderPromptTemplate, want) {
+			t.Errorf("the prompt never mentions %q", want)
+		}
+	}
+	if !strings.Contains(buildSystemPrompt, "not listed on CoinGecko") {
+		t.Error("the built prompt lost the unlisted-token instruction")
+	}
+}
+
 // The compact catalog lists key names; a key's expected FORMAT is what the
 // model got wrong, so a short example rides along where the catalog has one.
 func TestBuildSystemPromptShowsSettingExamples(t *testing.T) {
