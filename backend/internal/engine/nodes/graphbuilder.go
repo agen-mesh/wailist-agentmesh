@@ -1063,11 +1063,19 @@ const buildAgentModel = "gemini-2.5-flash"
 const maxBuildIterations = 25
 
 // defaultBuildTimeBudget keeps a build inside the frontend's proxy window
-// (next.config.ts proxyTimeout: 120s). A build that ran past it had its
-// request cut off, its context cancelled mid-loop, and everything it had
-// built discarded -- research tools (web_search, fetch_url) make long builds
-// common enough that this has to be a hard property, not a hope.
-const defaultBuildTimeBudget = 100 * time.Second
+// (next.config.ts proxyTimeout: 300s). A build that runs past it has its
+// request cut off and the user sees a timeout. The work itself survives --
+// BuildWorkflow runs the build on a context detached from the request, so it
+// finishes and saves -- but the reply has nowhere to go.
+//
+// The loop only ever uses three quarters of this (see the early exit below),
+// so the figure a build really gets is 180s, not 240s. 100s here meant 75s
+// there, and a build that searches twice and test-runs once does not fit:
+// research tools and the test gate make long builds ordinary.
+//
+// 120s was the old proxy window, from when Vercel's function timeout was
+// 60-90s. It is 300s on all plans now, so the old ceiling was stale.
+const defaultBuildTimeBudget = 240 * time.Second
 
 // maxTransportFailures bounds retries for a call that never arrived.
 const maxTransportFailures = 2

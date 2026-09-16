@@ -2469,3 +2469,18 @@ func TestAddNodeStillListsTypesForAnUnrecognisedType(t *testing.T) {
 		t.Errorf("suggested a template for a name that is not one: %v", err)
 	}
 }
+
+// The budget has to stay clear of the frontend proxy window, and the loop
+// only gets three quarters of it, so the usable figure is what matters. At
+// 100s the usable figure was 75s, and a build that searches twice and
+// test-runs once does not fit in it.
+func TestBuildTimeBudgetLeavesRoomForARealBuild(t *testing.T) {
+	const proxyWindow = 300 * time.Second // next.config.ts proxyTimeout
+	if defaultBuildTimeBudget >= proxyWindow {
+		t.Fatalf("budget %s is not inside the %s proxy window", defaultBuildTimeBudget, proxyWindow)
+	}
+	usable := defaultBuildTimeBudget * 3 / 4
+	if usable < 150*time.Second {
+		t.Errorf("a build really gets %s (three quarters of %s); a dozen rounds at ~6s each needs at least 150s", usable, defaultBuildTimeBudget)
+	}
+}
