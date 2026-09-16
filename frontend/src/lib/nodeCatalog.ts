@@ -224,7 +224,7 @@ const ACTION_NOTES: Record<string, string> = {
   // two other coins -- by web-searching for the id. CoinGecko's own search
   // resolves "myrad" to exactly one coin.
   coingecko:
-    "cgIDs are CoinGecko coin ids, not names or symbols. Look each one up with fetch_url https://api.coingecko.com/api/v3/search?query=<the name the user gave> and use the id of the result whose name or symbol matches what they said -- never a similar-sounding coin, and never web_search for an id.",
+    "cgIDs are CoinGecko coin ids, not names or symbols. Get each one from resolve_coin, which is the only source add_node accepts -- an id from fetch_url or web_search is refused. Use the id of the match whose name or symbol matches what the user said, never a similar-sounding coin. If resolve_coin finds nothing, that token is not listed: say so and stop.",
   coingecko_history:
     "One coin only. cgID is a CoinGecko coin id and MUST come from resolve_coin -- a name or symbol will 404. Returns first, last, high, low and changePct already computed, plus the points; quote those fields rather than working them out from the points yourself.",
 };
