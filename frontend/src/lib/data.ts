@@ -482,6 +482,13 @@ export const ACTION_TEMPLATES = [
     category: "Developer Tools",
   },
   {
+    id: "algorand_account",
+    name: "Algorand Account",
+    desc: "Balance + ASA holdings",
+    icon: "al",
+    category: "Utilities",
+  },
+  {
     id: "hackernews",
     name: "Hacker News",
     desc: "Search stories (no key)",

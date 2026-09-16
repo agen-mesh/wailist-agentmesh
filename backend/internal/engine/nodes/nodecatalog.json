@@ -1769,6 +1769,27 @@
           ]
         },
         {
+          "id": "algorand_account",
+          "name": "Algorand Account",
+          "desc": "Balance + ASA holdings",
+          "kind": "read",
+          "note": "Current state only: balance and ASA holdings for one address. It cannot answer transaction history -- that needs an indexer, which this node does not talk to. For history, search the x402 Bazaar (search_x402) for an Algorand transaction endpoint. Balances come back in whole ALGO, already converted.",
+          "fields": [
+            {
+              "key": "algoAddress",
+              "where": "config",
+              "label": "Address",
+              "placeholder": "58-character Algorand address"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ]
+        },
+        {
           "id": "hackernews",
           "name": "Hacker News",
           "desc": "Search stories (no key)",

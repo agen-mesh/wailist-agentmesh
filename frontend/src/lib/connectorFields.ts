@@ -959,6 +959,17 @@ export const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
+  algorand_account: {
+    label: "Algorand Account config",
+    fields: [
+      {
+        kind: "config",
+        key: "algoAddress",
+        label: "Address",
+        placeholder: "58-character Algorand address",
+      },
+    ],
+  },
   hackernews: {
     label: "Hacker News config",
     fields: [

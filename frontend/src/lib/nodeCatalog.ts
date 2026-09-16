@@ -213,6 +213,8 @@ const EMAIL_FIELDS: CatalogField[] = [
 
 // Action notes, keyed by template.
 const ACTION_NOTES: Record<string, string> = {
+  algorand_account:
+    "Current state only: balance and ASA holdings for one address. It cannot answer transaction history -- that needs an indexer, which this node does not talk to. For history, search the x402 Bazaar (search_x402) for an Algorand transaction endpoint. Balances come back in whole ALGO, already converted.",
   // A live build turned the user's "myrad" into "myriad" and then "myria" --
   // two other coins -- by web-searching for the id. CoinGecko's own search
   // resolves "myrad" to exactly one coin.
@@ -283,6 +285,7 @@ const READ_TEMPLATES = new Set<string>([
   "action/telegram_get_updates",
   "action/calendly",
   "action/openweathermap",
+  "action/algorand_account",
   "action/rss",
   "action/hackernews",
   "action/coingecko",
