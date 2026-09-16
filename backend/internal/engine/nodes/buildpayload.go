@@ -21,25 +21,34 @@ const builderReplyTokens = 8192
 // function call.
 const maxGeminiThinkingTokens = 24576
 
-// builderThinkingBudget, when positive, caps each builder round's thinking
-// via generationConfig.thinkingConfig.thinkingBudget. Set once at startup
-// from BUILDER_THINKING_BUDGET, mirroring platformKeysForTools rather than
+// builderThinkingBudget caps each builder round's thinking via
+// generationConfig.thinkingConfig.thinkingBudget. Set once at startup from
+// BUILDER_THINKING_BUDGET, mirroring platformKeysForTools rather than
 // threading a process-wide value through BuildRequest.
 //
-// Zero sends no thinking config at all. The field has not been confirmed
-// against generateContent on the builder's model, and one Gemini rejects
-// fails every build, so it stays absent until someone turns it on and checks
-// the per-round usage logs.
-var builderThinkingBudget int
+// A pointer, not a plain int, because zero is a real setting and not the
+// absence of one: Gemini reads thinkingBudget 0 as thinking OFF, which is
+// the documented way to turn it off and the cheapest configuration there is.
+// nil means no thinking config is sent at all, leaving thinking dynamic. The
+// field has not been confirmed against generateContent on the builder's
+// model, and one Gemini rejects fails every build, so nil stays the default
+// until someone turns it on and checks the per-round usage logs.
+var builderThinkingBudget *int
 
-// SetBuilderThinkingBudget installs the per-round thinking cap. Zero or a
-// negative value means unset.
+// SetBuilderThinkingBudget installs the per-round thinking cap. Zero is a
+// real value meaning thinking off. A negative number is not a budget at all,
+// so it unsets rather than being clamped into meaning something the caller
+// did not ask for.
 func SetBuilderThinkingBudget(tokens int) {
 	if tokens < 0 {
-		tokens = 0
+		builderThinkingBudget = nil
+		return
 	}
-	builderThinkingBudget = tokens
+	builderThinkingBudget = &tokens
 }
+
+// ClearBuilderThinkingBudget removes the cap, so no thinking config is sent.
+func ClearBuilderThinkingBudget() { builderThinkingBudget = nil }
 
 // builderMaxOutputTokens bounds what one builder round may generate.
 //
@@ -55,8 +64,8 @@ func SetBuilderThinkingBudget(tokens int) {
 // the budget. Either way this stops a runaway and nothing else; the saving
 // comes from the budget, never from the cap.
 func builderMaxOutputTokens() int {
-	if builderThinkingBudget > 0 {
-		return builderThinkingBudget + builderReplyTokens
+	if builderThinkingBudget != nil {
+		return *builderThinkingBudget + builderReplyTokens
 	}
 	return maxGeminiThinkingTokens + builderReplyTokens
 }
@@ -96,8 +105,8 @@ func buildPayload(history []BuildTurn, graph models.WorkflowGraph, userMessage s
 	})
 
 	generation := map[string]any{"maxOutputTokens": builderMaxOutputTokens()}
-	if builderThinkingBudget > 0 {
-		generation["thinkingConfig"] = map[string]any{"thinkingBudget": builderThinkingBudget}
+	if builderThinkingBudget != nil {
+		generation["thinkingConfig"] = map[string]any{"thinkingBudget": *builderThinkingBudget}
 	}
 	return map[string]any{
 		"contents": contents,

@@ -6,8 +6,8 @@ import (
 )
 
 func TestBuildPayloadAlwaysBoundsOutput(t *testing.T) {
-	t.Cleanup(func() { SetBuilderThinkingBudget(0) })
-	SetBuilderThinkingBudget(0)
+	t.Cleanup(ClearBuilderThinkingBudget)
+	ClearBuilderThinkingBudget()
 
 	p := buildPayload(nil, wiredAgentGraph(), "add a step")
 	gen, ok := p["generationConfig"].(map[string]any)
@@ -25,15 +25,18 @@ func TestBuildPayloadAlwaysBoundsOutput(t *testing.T) {
 }
 
 func TestBuildPayloadSendsThinkingBudgetOnlyWhenSet(t *testing.T) {
-	t.Cleanup(func() { SetBuilderThinkingBudget(0) })
+	t.Cleanup(ClearBuilderThinkingBudget)
 	tests := []struct {
 		name   string
 		budget int
 		want   bool
 	}{
 		{"a positive budget is sent", 1024, true},
-		{"zero is unset", 0, false},
-		{"a negative budget is unset", -5, false},
+		// Gemini reads thinkingBudget 0 as thinking OFF. Treating it as
+		// "unset" left thinking uncapped while the operator who set it
+		// believed it was disabled.
+		{"zero turns thinking off and is sent", 0, true},
+		{"a negative budget is not a budget, so nothing is sent", -5, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -92,13 +95,13 @@ func TestBuildPayloadKeepsWhatTheRequestCarried(t *testing.T) {
 // exactly the hard rounds a build cannot afford to lose. Every configuration
 // must leave room to think AND to answer.
 func TestOutputCapAlwaysLeavesRoomToAnswerAfterThinking(t *testing.T) {
-	t.Cleanup(func() { SetBuilderThinkingBudget(0) })
+	t.Cleanup(ClearBuilderThinkingBudget)
 	tests := []struct {
 		name          string
 		budget        int
 		thinkingSpend int
 	}{
-		{"unset: thinking is dynamic and can reach the model's ceiling", 0, maxGeminiThinkingTokens},
+		{"thinking off spends nothing", 0, 0},
 		{"a small budget", 1024, 1024},
 		{"a budget at the model's ceiling", maxGeminiThinkingTokens, maxGeminiThinkingTokens},
 	}
@@ -144,5 +147,34 @@ func TestFinishedOnOutputLimitReadsTheFinishReason(t *testing.T) {
 				t.Errorf("FinishedOnOutputLimit = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// Unset is not the same as zero, and the difference is the whole point: with
+// no budget, thinking is dynamic and can reach the model's ceiling, so the
+// cap has to clear that ceiling.
+func TestOutputCapClearsDynamicThinkingWhenNoBudgetIsSet(t *testing.T) {
+	t.Cleanup(ClearBuilderThinkingBudget)
+	ClearBuilderThinkingBudget()
+	if cap := builderMaxOutputTokens(); cap <= maxGeminiThinkingTokens {
+		t.Fatalf("cap %d does not clear the %d tokens dynamic thinking may spend", cap, maxGeminiThinkingTokens)
+	}
+}
+
+// Zero means thinking off, so the request has to carry the field. Sending no
+// thinkingConfig would leave thinking on and uncapped, which is the opposite
+// of what the operator asked for.
+func TestZeroThinkingBudgetIsSentAsThinkingOff(t *testing.T) {
+	t.Cleanup(ClearBuilderThinkingBudget)
+	SetBuilderThinkingBudget(0)
+
+	p := buildPayload(nil, wiredAgentGraph(), "add a step")
+	gen := p["generationConfig"].(map[string]any)
+	cfg, ok := gen["thinkingConfig"].(map[string]any)
+	if !ok {
+		t.Fatal("no thinkingConfig sent for a zero budget, so thinking stays on and uncapped")
+	}
+	if cfg["thinkingBudget"] != 0 {
+		t.Errorf("thinkingBudget = %v, want 0", cfg["thinkingBudget"])
 	}
 }
