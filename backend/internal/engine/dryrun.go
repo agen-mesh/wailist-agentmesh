@@ -131,11 +131,32 @@ func DryRun(ctx context.Context, graph models.WorkflowGraph, opts DryRunOptions)
 				res.Steps = append(res.Steps, step)
 				res.Unverified = true
 				return res
+			case err != nil && nodes.IsDegradable(n):
+				// A real run does not stop here: a read step's failure is
+				// handed downstream as an error payload and the run carries
+				// on (engine.Runner). Stopping would judge the workflow by
+				// behaviour it no longer has, and would never show the
+				// builder the answer the user will actually get.
+				//
+				// Still Failed, though. This runs while the workflow is being
+				// built, where a failing source is usually a wrong id, a wrong
+				// path or a dead API that the builder can fix -- and the test
+				// gate is what sends it back to fix them.
+				step.Status, step.Error = "failed", nodes.SanitizeRunError(err.Error())
+				res.Steps = append(res.Steps, step)
+				res.Failed = true
+				res.Degraded = true
+				rc.Set(n.ID, map[string]any{
+					"error":    nodes.SanitizeRunError(err.Error()),
+					"degraded": true,
+					"node":     n.Name,
+				})
+				continue
 			case err != nil:
 				step.Status, step.Error = "failed", nodes.SanitizeRunError(err.Error())
 				res.Steps = append(res.Steps, step)
 				res.Failed = true
-				return res // a run stops at its first failure, and so does this
+				return res // an action's failure ends a real run, and this one
 			}
 			// What a simulated step would have sent, worked out before its own
 			// placeholder output is Set: a body or message template reads

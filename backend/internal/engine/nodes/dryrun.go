@@ -55,8 +55,18 @@ type DryRunResult struct {
 	// Unverified is set when part of the workflow could not be checked. It
 	// is not a failure: the workflow may well be right, a test run just
 	// cannot show it, so nothing should be "fixed" because of it.
-	Unverified bool   `json:"unverified,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Unverified bool `json:"unverified,omitempty"`
+	// Degraded is set when a read step failed and the test run carried on
+	// with an error payload, the way a real run does (see IsDegradable).
+	//
+	// It does not replace Failed, it accompanies it. At run time degrading is
+	// the right answer: the source is down and the workflow still answers. At
+	// BUILD time the same failure is usually a wrong id, a wrong path or a
+	// dead API the builder can still fix, so the test gate must keep hearing
+	// about it rather than shipping a workflow that answers "the source
+	// failed" on every run.
+	Degraded bool   `json:"degraded,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 // readOnlyActions are connectors that only fetch public data, so a dry run

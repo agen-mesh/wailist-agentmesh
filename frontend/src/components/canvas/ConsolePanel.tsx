@@ -7,7 +7,7 @@ import {
   type LogEvent,
   type X402Payment,
 } from "./useRunTranscript";
-import { latestPerNode } from "./chat/resolveReply";
+import { runSummary } from "./chat/resolveReply";
 
 interface ConsolePanelProps {
   open: boolean;
@@ -128,6 +128,7 @@ export function ConsolePanel({
   const statusColor = (s: LogEvent["status"]) => {
     if (s === "success") return "var(--accent)";
     if (s === "failed") return "#F87171";
+    if (s === "degraded") return "#FBBF24";
     if (s === "stopped") return "#FB923C";
     return "var(--fg-dim)";
   };
@@ -135,6 +136,7 @@ export function ConsolePanel({
   const statusLabel = (s: LogEvent["status"]) => {
     if (s === "success") return "OK";
     if (s === "failed") return "ERR";
+    if (s === "degraded") return "DEG";
     if (s === "stopped") return "STP";
     return "RUN";
   };
@@ -361,23 +363,26 @@ export function ConsolePanel({
               // its stale "failed" row sitting in `logs` (see
               // latestPerNode's doc comment), and a raw scan would still
               // report the run as failed for that node even though it went
-              // on to succeed.
-              const final = latestPerNode(logs);
-              const succeeded = final.filter(
-                (l) => l.status === "success",
-              ).length;
-              const hasFailure = final.some((l) => l.status === "failed");
+              // on to succeed. runSummary is that reduction, shared with the
+              // chat so the two cannot disagree about the same run.
+              const { failed, degraded, succeeded, total } = runSummary(logs);
+              const color = failed
+                ? "#F87171"
+                : degraded > 0
+                  ? "#FBBF24"
+                  : "var(--accent)";
+              // A degraded run really did finish and really did answer, so it
+              // is not reported as a failure -- but it is not reported as a
+              // clean run either.
+              const headline = failed
+                ? "✕ run failed"
+                : degraded > 0
+                  ? `! ${degraded} step${degraded === 1 ? "" : "s"} failed, this answer is partial`
+                  : "✓ run complete";
               return (
-                <div
-                  style={{
-                    color: hasFailure ? "#F87171" : "var(--accent)",
-                    paddingTop: 6,
-                    fontSize: 10,
-                  }}
-                >
-                  {hasFailure ? "✕ run failed" : "✓ run complete"} ·{" "}
-                  {(elapsed ?? 0).toFixed(1)}s · {succeeded}/{final.length} nodes
-                  succeeded
+                <div style={{ color, paddingTop: 6, fontSize: 10 }}>
+                  {headline} · {(elapsed ?? 0).toFixed(1)}s · {succeeded}/{total}{" "}
+                  nodes succeeded
                 </div>
               );
             })()}

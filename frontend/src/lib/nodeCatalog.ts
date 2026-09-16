@@ -58,6 +58,17 @@ export interface CatalogTemplate {
   id: string;
   name: string;
   desc: string;
+  /**
+   * What kind of work the template does, which is what decides whether its
+   * failure may be degraded into an error payload the run continues with:
+   * - "read":    fetches from a source outside the workflow, which can be
+   *              down. Its failure may be degraded.
+   * - "compute": pure local computation, or a read of the workflow's own
+   *              saved state. Nothing outside can make it fail, so a failure
+   *              is a fault in the workflow and must fail the run.
+   * - "action":  sends, pays or writes. Its failure fails the run.
+   */
+  kind: "read" | "compute" | "action";
   /** A caveat the builder must respect, e.g. behaviour that is not implemented. */
   note?: string;
   /** Fields set automatically when the node is created, exactly as the palette does. */
@@ -224,6 +235,88 @@ const AGENT_NOTES: Record<string, string> = {
     "Runs exactly like a plain AI agent today -- the engine has no approval gate and never pauses for a human. Do not promise the user an approval step.",
 };
 
+/**
+ * How every template is classified, keyed "<type>/<id>" because ids repeat
+ * across types ("http" is both a tool and an end node, "get" is both a state
+ * op and a Drive one).
+ *
+ * tool/http is deliberately in neither set: it is classified at run time by
+ * its method, since the same template GETs or POSTs depending on its config.
+ */
+// Templates that are pure local computation, or that read only what this
+// workflow itself saved. Nothing outside the workflow can make one of these
+// fail, so a failure is a fault in the workflow -- a malformed expression, a
+// jsonPath that does not match -- and it fails the run rather than degrading.
+// Degrading them would turn an authoring bug into an answer that says "the
+// step failed" on this run and on every run after it, since the same input
+// produces the same failure forever.
+//
+// Every one of these executes entirely inside the process: none of the tool
+// cases in the engine's tool.go makes a network call, and state/get reads a
+// value this workflow stored.
+const COMPUTE_TEMPLATES = new Set<string>([
+  "tool/calc",
+  "tool/set",
+  "tool/json_extract",
+  "tool/crypto",
+  "tool/datetime",
+  "tool/xml",
+  "tool/template",
+  "tool/html_extract",
+  "tool/markdown",
+  "tool/quickchart",
+  // Reading a variable is safe, but it is this workflow's own value, not a
+  // live source -- so a miss is a wrong key, not an outage.
+  "state/get",
+]);
+
+// Templates that fetch from a source outside the workflow. These are the only
+// ones whose failure may be degraded: the source really can be unavailable,
+// and on the next run it may well be back.
+const READ_TEMPLATES = new Set<string>([
+  // The only tool that leaves the workflow. tool/http is decided by method
+  // instead -- see kindOf.
+  "tool/websearch",
+  // connectors that fetch rather than send. graphql stays an action: an
+  // endpoint can mutate and nothing in the node's config says whether this
+  // one does. elevenlabs stays an action: it generates billable audio.
+  "action/telegram_get_updates",
+  "action/calendly",
+  "action/openweathermap",
+  "action/rss",
+  "action/hackernews",
+  "action/coingecko",
+  // Google reads. gmail_send, gmail_reply, sheets_append and calendar_create
+  // are sends and stay actions.
+  "google/gmail_list",
+  "google/gmail_get",
+  "google/sheets_read",
+  "google/calendar_list",
+  "google/drive_list",
+  "google/drive_get",
+  "google/drive_download",
+]);
+
+/**
+ * kindOf answers the question the runner asks when a node fails: may this
+ * failure be degraded into an error payload the run continues with?
+ *
+ * Only a "read" may. "compute" is a template that cannot fail for any reason
+ * outside the workflow, so its failure is an authoring bug the user needs to
+ * see. Everything unlisted is "action", which fails the run -- the safe
+ * answer, and the one a template added later gets until someone classifies
+ * it deliberately.
+ *
+ * tool/http is decided by method at run time; "action" here is the safe
+ * catalog answer, and the backend overrides it for a GET.
+ */
+function kindOf(type: string, id: string): "read" | "compute" | "action" {
+  const key = `${type}/${id}`;
+  if (READ_TEMPLATES.has(key)) return "read";
+  if (COMPUTE_TEMPLATES.has(key)) return "compute";
+  return "action";
+}
+
 export function buildNodeCatalog(): NodeCatalog {
   const types: CatalogType[] = [
     {
@@ -233,6 +326,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: t.desc,
+        kind: kindOf("trigger", t.id),
         note: TRIGGER_NOTES[t.id],
         fields: [],
       })),
@@ -244,6 +338,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: t.desc,
+        kind: kindOf("agent", t.id),
         ...(AGENT_NOTES[t.id] ? { note: AGENT_NOTES[t.id] } : {}),
         fields: [
           { key: "systemPrompt", where: "field" as const, label: "System prompt", hint: "instructions the agent follows on every run" },
@@ -257,6 +352,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: `${t.name} models`,
+        kind: kindOf("provider", t.id),
         note: "Runs on the platform key by default and needs nothing from the user. Its apiKey applies only if the user switches to their own key in the Inspector -- never tell them they must supply one.",
         presets: { model: t.model },
         fields: [
@@ -273,6 +369,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: t.desc,
+        kind: kindOf("tool", t.id),
         ...(TOOL_NOTES[t.id] ? { note: TOOL_NOTES[t.id] } : {}),
         fields: TOOL_FIELDS[t.id] ?? fromConnectorTable(t.id),
       })),
@@ -287,6 +384,7 @@ export function buildNodeCatalog(): NodeCatalog {
           id: t.id,
           name: t.name,
           desc: t.desc,
+          kind: kindOf("action", t.id),
           ...(ACTION_NOTES[t.id] ? { note: ACTION_NOTES[t.id] } : {}),
           fields: t.id === "email" ? EMAIL_FIELDS : [...fromConnectorTable(t.id), MESSAGE_TEMPLATE],
           ...(auth ? { authDocUrl: auth.docUrl } : {}),
@@ -301,6 +399,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: t.desc,
+        kind: kindOf("google", t.id),
         fields: [
           GOOGLE_ACCOUNT,
           ...(GOOGLE_FIELDS[t.id] ?? []),
@@ -315,6 +414,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: t.desc,
+        kind: kindOf("state", t.id),
         presets: { stateOp: t.id },
         fields: [
           { key: "stateKey", where: "field" as const, label: "Key", hint: "persists across runs", placeholder: "lastRowId" },
@@ -333,6 +433,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: t.desc,
+        kind: kindOf("tendril", t.id),
         presets: { tendrilAction: t.action, tendrilHours: "1", tendrilAmount: "10" },
         fields:
           t.action === "topup"
@@ -349,6 +450,7 @@ export function buildNodeCatalog(): NodeCatalog {
         id: t.id,
         name: t.name,
         desc: t.desc,
+        kind: kindOf("end", t.id),
         // "Respond to Webhook" reads as if the webhook caller gets this
         // output back. It does not: the public trigger answers 202 {runId}
         // before the run even finishes (handlers/runs.go PublicTrigger).

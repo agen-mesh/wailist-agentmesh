@@ -126,6 +126,34 @@ export function latestPerNode(logs: LogEvent[]): LogEvent[] {
   return logs.filter((l, i) => lastIndexOfNode.get(l.nodeId) === i);
 }
 
+/**
+ * What a finished run amounts to: whether it failed, how many steps degraded
+ * (a read step whose failure the run carried on past), and how many succeeded.
+ *
+ * Reads each node's FINAL attempt, for the same reason everything else here
+ * does -- see latestPerNode: a resumed node that failed and then succeeded
+ * still has its stale row in `logs`, and a raw scan would keep reporting it.
+ */
+export function runSummary(logs: LogEvent[]) {
+  const final = latestPerNode(logs);
+  return {
+    failed: final.some((l) => l.status === "failed"),
+    degraded: final.filter((l) => l.status === "degraded").length,
+    succeeded: final.filter((l) => l.status === "success").length,
+    total: final.length,
+  };
+}
+
+/**
+ * degradedNote is what the chat adds under an answer produced by a run that
+ * lost a step. The answer itself is the agent's, and it is asked to name the
+ * source it fell back to; this says plainly that something did not run, so a
+ * partial answer is never mistaken for a whole one.
+ */
+function degradedNote(count: number): string {
+  return `\n\n_${count} step${count === 1 ? "" : "s"} failed during this run, so this answer may be incomplete._`;
+}
+
 export function resolveReply(logs: LogEvent[]): RunSummary {
   const toolCount = logs.filter(
     (l) =>
@@ -160,7 +188,13 @@ export function resolveReply(logs: LogEvent[]): RunSummary {
   if (agent) {
     const text = textFromOutput(agent.output);
     if (text.trim() !== "") {
-      return { text, isError: false, toolCount, spendUSD };
+      const degraded = final.filter((l) => l.status === "degraded").length;
+      return {
+        text: degraded > 0 ? text + degradedNote(degraded) : text,
+        isError: false,
+        toolCount,
+        spendUSD,
+      };
     }
   }
 
@@ -169,8 +203,10 @@ export function resolveReply(logs: LogEvent[]): RunSummary {
   // something rather than rendering an empty bubble.
   const last = [...final].reverse().find((l) => l.status === "success");
   const fallback = last ? textFromOutput(last.output) : "";
+  const degraded = final.filter((l) => l.status === "degraded").length;
+  const text = fallback.trim() === "" ? "The run finished." : fallback;
   return {
-    text: fallback.trim() === "" ? "The run finished." : fallback,
+    text: degraded > 0 ? text + degradedNote(degraded) : text,
     isError: false,
     toolCount,
     spendUSD,

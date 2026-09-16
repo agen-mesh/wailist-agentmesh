@@ -632,8 +632,44 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 	if node.Type == models.NodeTypeProvider && node.KeyMode == "" {
 		node.KeyMode = "platform"
 	}
+	applyReadRetryDefault(&node)
 	graph.Nodes = append(graph.Nodes, node)
 	return fmt.Sprintf("added node %s (%s/%s)%s", id, nodeType, node.Template, rules.userSupplied()), nil
+}
+
+// The retry policy the builder gives a read node. One retry: the runner only
+// ever spends it on an error the node itself marked retryable -- a 5xx or a
+// dropped connection on an idempotent method -- so a bad request is still not
+// repeated. These fields have been on every node, and clamped on save, since
+// retries shipped, but nothing ever set them: every built node ran with none.
+const (
+	readRetryAttempts  = 1
+	readRetryBackoffMs = 500
+)
+
+// applyReadRetryDefault keeps a node's retry policy in step with what the
+// node has become. Deterministic rather than a prompt rule, for the same
+// reason the provider's keyMode default is.
+//
+// It runs on update as well as on create, because whether a node is a read is
+// not fixed at creation: an http node added as a GET and later updated to
+// POST would otherwise keep a retry it should not have, and one added as a
+// POST and updated to GET would never get the retry this exists to give it.
+//
+// It only ever takes back exactly what it gave. A node whose retry values the
+// user chose in the Inspector is left alone, because those are theirs and a
+// chat message about something else must not quietly overwrite them.
+func applyReadRetryDefault(n *models.WorkflowNode) {
+	if IsDegradable(*n) {
+		if n.MaxRetries == 0 {
+			n.MaxRetries = readRetryAttempts
+			n.RetryBackoffMs = readRetryBackoffMs
+		}
+		return
+	}
+	if n.MaxRetries == readRetryAttempts && n.RetryBackoffMs == readRetryBackoffMs {
+		n.MaxRetries, n.RetryBackoffMs = 0, 0
+	}
 }
 
 func updateGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, error) {
@@ -704,6 +740,9 @@ func updateGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, 
 				n.Config[k] = v
 			}
 		}
+		// After every field is in place: a template or method change may
+		// have turned this node from a read into a write, or back.
+		applyReadRetryDefault(n)
 		return fmt.Sprintf("updated node %s", id), nil
 	}
 	return "", fmt.Errorf("update_node: node %q not found", id)
@@ -1014,14 +1053,28 @@ const maxTestRounds = 3
 // answered with a price it copied from an example in its own system prompt.
 const agentAnswerGuard = "If the input you receive is empty, an error, or does not contain what you need, say so plainly. Never guess, estimate or invent values, and never reuse example values from these instructions."
 
+// degradedInputGuard tells an agent what to do with the error payload a
+// degraded read step leaves behind (see engine.Runner's degradation branch).
+// Without it the agent's instructions say only "never guess", which leaves it
+// reporting a bare failure when it has a web search tool attached and could
+// simply look the value up.
+const degradedInputGuard = `If any input you receive contains "degraded": true, one of the workflow's own steps failed. Say which source failed, then answer from another tool attached to you if you have one -- a web search tool looks the value up live. Say where the value you give came from. Never fill the gap with a number you did not retrieve during this run.`
+
+// withAnswerGuard appends both standing guards to an agent's instructions,
+// each at most once, so a prompt that already carries one (an edit to an
+// existing agent) does not accumulate copies.
 func withAnswerGuard(prompt string) string {
-	if strings.Contains(prompt, agentAnswerGuard) {
-		return prompt
+	for _, guard := range []string{agentAnswerGuard, degradedInputGuard} {
+		if strings.Contains(prompt, guard) {
+			continue
+		}
+		if strings.TrimSpace(prompt) == "" {
+			prompt = guard
+			continue
+		}
+		prompt = strings.TrimRight(prompt, " \n") + "\n\n" + guard
 	}
-	if strings.TrimSpace(prompt) == "" {
-		return agentAnswerGuard
-	}
-	return strings.TrimRight(prompt, " \n") + "\n\n" + agentAnswerGuard
+	return prompt
 }
 
 // testedAnswer is what the user would read from a test run.
@@ -1388,13 +1441,27 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		text = strings.TrimRight(text, " \n")
 		switch {
 		case tester.dirty:
-			return text + "\n\n_This workflow has not been test-run since it was last changed, so it has not been checked yet._"
+			return text + trailerUntested
 		case tester.last == nil:
 			return text
 		case tester.last.Failed || tester.last.Empty:
-			return text + "\n\n_The last test run did not produce an answer: " + testProblem(*tester.last) + "._"
+			// A degraded read sets Failed and still produces an answer
+			// (dryrun.go sets Degraded alongside Failed, on purpose: at
+			// build time the failure is usually a wrong id the builder can
+			// still fix, so the gate must keep hearing about it). Saying
+			// "did not produce an answer" about a run that did is simply
+			// untrue, and it suppressed the one thing the builder exists to
+			// quote. Report the failure, then show what came out anyway.
+			if answer := strings.TrimSpace(testedAnswer(*tester.last)); answer != "" {
+				out := text + trailerTestPartial + testProblem(*tester.last) + "._"
+				if !strings.Contains(text, strings.TrimSuffix(answer, "…")) {
+					out += trailerTestedAnswer + answer
+				}
+				return out
+			}
+			return text + trailerTestNoAnswer + testProblem(*tester.last) + "._"
 		case tester.last.Unverified:
-			return text + "\n\n_Not checked by the test run: " + unverifiedSteps(*tester.last) + "._"
+			return text + trailerNotChecked + unverifiedSteps(*tester.last) + "._"
 		}
 		// The user must see what the test actually produced. A reply that
 		// ended "Here is the test run output:" and then nothing did not show
@@ -1403,7 +1470,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		// and a reply quoting it in full contains the clipped prefix but not
 		// the ellipsis, so the plain check would append a duplicate.
 		if answer := strings.TrimSpace(testedAnswer(*tester.last)); answer != "" && !strings.Contains(text, strings.TrimSuffix(answer, "…")) {
-			text += "\n\n**Test run answer:** " + answer
+			text += trailerTestedAnswer + answer
 		}
 		return text
 	}
@@ -1424,37 +1491,13 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	apiURL := fmt.Sprintf("%s/v1beta/models/%s:generateContent", geminiBaseURL, buildAgentModel)
 	apiHeaders := map[string]string{"x-goog-api-key": apiKey}
 
-	graphJSON, _ := json.Marshal(graph)
-	// Prior turns first, then the current one carrying a FRESH graph
-	// snapshot. The snapshot rides with the newest turn on purpose: the graph
-	// changes between turns, and replaying an old one would leave the model
-	// reasoning about nodes that have since been renamed or removed.
-	contents := make([]map[string]any, 0, len(history)+1)
-	for _, h := range history {
-		// Gemini rejects any role other than user/model, and one bad row
-		// replayed here would fail every build on this workflow from then on.
-		if h.Role != "user" && h.Role != "model" {
-			continue
-		}
-		if strings.TrimSpace(h.Text) == "" {
-			continue
-		}
-		contents = append(contents, map[string]any{
-			"role":  h.Role,
-			"parts": []map[string]any{{"text": h.Text}},
-		})
-	}
-	contents = append(contents, map[string]any{
-		"role":  "user",
-		"parts": []map[string]any{{"text": fmt.Sprintf("Current graph:\n%s\n\nRequest: %s", graphJSON, userMessage)}},
-	})
-	payload := map[string]any{
-		"contents": contents,
-		"systemInstruction": map[string]any{
-			"parts": []map[string]string{{"text": buildSystemPrompt}},
-		},
-		"tools": []map[string]any{{"functionDeclarations": graphToolDecls()}},
-	}
+	// The opening request: replayed history, the current turn with a fresh
+	// graph snapshot, instructions, tools and generation limits. See
+	// buildPayload.
+	payload := buildPayload(history, graph, userMessage)
+	// Every round below appends its calls and results to contents and writes
+	// the slice back into payload, so the loop needs its own handle on it.
+	contents := payload["contents"].([]map[string]any)
 
 	// Taken before any tool runs: the tools edit graph in place, so the
 	// "before" graph cannot be re-read later.
@@ -1463,11 +1506,27 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	// reported a quota error as a partial success and showed no failure.
 	startingGraph := graphSnapshot(graph)
 	changedSomething := func() bool { return graphSnapshot(graph) != startingGraph }
+	// Which live-data sources were already here before this build touched
+	// anything. ensureSearchFallback attaches only for one this build added,
+	// so a workflow the user has already pruned a Web Search node from is
+	// left as they left it.
+	startingLiveSources := liveDataIDs(graph)
 
 	baselineFindings := auditGraph(graph)
 	auditRetried := false
 	emptyResponses := 0
 	transportFailures := 0
+	// What this build spent. Gemini reports it on every response and it was
+	// decoded and thrown away, so nothing could say what a build cost or
+	// whether the stable prefix (instructions plus tool declarations) was
+	// hitting the implicit cache. Logged per round and in total, under the
+	// trace id the rest of this build's lines already carry.
+	var usage TokenUsage
+	defer func() {
+		if req.TraceID != "" {
+			log.Printf("build %s: total usage: %s", req.TraceID, usage)
+		}
+	}()
 	for iter := 0; iter < maxBuildIterations; iter++ {
 		if iter > 0 && time.Since(started) > budget*3/4 {
 			return ranOutOfTime(), nil
@@ -1496,9 +1555,33 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 			}
 			return BuildGraphResult{}, err
 		}
-		calls := extractGeminiFunctionCalls(resp)
+		round := geminiUsage(resp)
+		usage = usage.Add(round)
+		if req.TraceID != "" {
+			log.Printf("build %s: round %d usage: %s", req.TraceID, iter+1, round)
+		}
+		// Truncated by maxOutputTokens, checked before anything is read off
+		// the response. Nothing in it may be used: a function call cut off
+		// mid-object has lost the tail of its arguments, and acting on one
+		// writes a half-configured node; a cut-off reply is half a sentence.
+		// It goes down the empty-response path instead, which retries -- the
+		// payload is unchanged, but sampling is not deterministic, so a
+		// second attempt can come back inside the limit.
+		truncated := FinishedOnOutputLimit(resp)
+		if truncated && req.TraceID != "" {
+			log.Printf("build %s: round %d was cut off at the %d-token output limit (%s)", req.TraceID, iter+1, builderMaxOutputTokens(), round)
+		}
+		var calls []geminiFuncCall
+		if !truncated {
+			calls = extractGeminiFunctionCalls(resp)
+		}
 		if len(calls) == 0 {
-			text, err := extractGeminiText(resp)
+			text, err := "", error(nil)
+			if truncated {
+				err = fmt.Errorf("%w (cut off at the %d-token output limit)", ErrNoModelText, builderMaxOutputTokens())
+			} else {
+				text, err = extractGeminiText(resp)
+			}
 			if err != nil {
 				// No text and no function call. Ask again, then keep
 				// whatever is on the graph rather than losing it.
@@ -1538,6 +1621,22 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 					payload["contents"] = contents
 					continue
 				}
+			}
+			// Before any test and before the reply: a workflow whose live-data
+			// source this build added gets a way to recover when that read
+			// fails. Here, after the audit and ahead of the test gate, so a
+			// test run exercises the graph the user will actually get.
+			// Idempotent, so reaching this again on a later reply attempt
+			// changes nothing.
+			//
+			// Marked dirty when it attaches, because it changes the graph and
+			// nothing else on this path does: the flag is otherwise only set
+			// by runBuildCall, so without this the gate would pass a test run
+			// performed on a graph that has since gained a node, and the
+			// reply would quote that test as if it covered the workflow being
+			// saved.
+			if ensureSearchFallback(&graph, startingLiveSources) {
+				tester.dirty = true
 			}
 			// The test gate. The user asked for "a workflow which does run and
 			// gives the desired answer", and a graph can pass every structural

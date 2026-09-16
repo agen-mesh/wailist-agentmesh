@@ -641,6 +641,24 @@ func extractGeminiText(resp map[string]any) (string, error) {
 	return "", fmt.Errorf("%w (finish reason: %s, %d parts)", ErrNoModelText, reason, len(parts))
 }
 
+// FinishedOnOutputLimit reports whether Gemini stopped this response because
+// it reached maxOutputTokens rather than because it was done.
+//
+// Thinking tokens count toward that limit, so a round can spend the whole
+// budget planning and come back with no text and no function call -- or,
+// worse, with a function call whose arguments were cut off mid-object. Either
+// way the response is unusable, and re-sending the identical payload produces
+// the identical truncation, so the caller must stop rather than retry.
+func FinishedOnOutputLimit(resp map[string]any) bool {
+	candidates, _ := resp["candidates"].([]any)
+	if len(candidates) == 0 {
+		return false
+	}
+	first, _ := candidates[0].(map[string]any)
+	reason, _ := first["finishReason"].(string)
+	return reason == "MAX_TOKENS"
+}
+
 type geminiFuncCall struct {
 	name string
 	args map[string]any
