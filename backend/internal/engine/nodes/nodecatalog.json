@@ -477,8 +477,15 @@
           "name": "Web Search",
           "desc": "Search the live web (Gemini grounding)",
           "kind": "read",
-          "note": "Answers with a live Google Search. Attached to an agent it searches whatever the agent asks; as a flow step it searches the previous step's output.",
-          "fields": []
+          "note": "Answers with a live Google Search. Attached to an agent's tools port it searches whatever the agent asks and needs no settings. As a FLOW step it needs searchQuery, or it searches the previous step's output -- and a manual trigger produces no output, so a flow node fed by one with no searchQuery fails at run time.",
+          "fields": [
+            {
+              "key": "searchQuery",
+              "where": "config",
+              "label": "Search query",
+              "hint": "what to search for when this node runs in the flow; {{ result }} inserts the previous step's output"
+            }
+          ]
         }
       ]
     },

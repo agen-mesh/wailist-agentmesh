@@ -25,6 +25,13 @@ export interface BuildProgress {
   /** What is in flight right now, if anything. */
   current?: string;
   done?: boolean;
+  /**
+   * The finished reply, once `done`. Present because the build's own POST
+   * may never reach the browser: the backend runs the build on a context
+   * detached from the request, so a proxy timeout ends the response while
+   * the build carries on and saves. See recoverFinishedBuild.
+   */
+  reply?: string;
 }
 
 /** Steps kept on a stored chat turn; the most recent are the ones kept. */
@@ -127,4 +134,31 @@ export function startProgressPolling(
       stopped = true;
     },
   };
+}
+
+/**
+ * Asks the progress endpoint whether a build whose request failed had in fact
+ * finished, and returns its reply if so.
+ *
+ * The backend detaches a build from its request on purpose, so that a closed
+ * tab or a proxy timeout does not throw away work that is already half done.
+ * The consequence is that a failed POST does not mean a failed build: past
+ * the proxy window the build runs on, saves, and records its reply, while the
+ * browser sees only a dead request and used to tell the user "Build failed".
+ *
+ * Returns null whenever the original error should stand: the build is still
+ * running, it ended without an answer, or the progress endpoint is itself
+ * unreachable. Progress is a nicety and must never turn a real failure into a
+ * success.
+ */
+export async function recoverFinishedBuild(
+  fetchProgress: () => Promise<BuildProgress>,
+): Promise<string | null> {
+  try {
+    const p = await fetchProgress();
+    if (p.done && p.reply && p.reply.trim() !== "") return p.reply;
+    return null;
+  } catch {
+    return null;
+  }
 }

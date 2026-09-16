@@ -39,6 +39,7 @@ import { RunBlockedCard } from "./chat/RunBlockedCard";
 import {
   newBuildId,
   startProgressPolling,
+  recoverFinishedBuild,
   type BuildProgress,
 } from "./chat/buildProgress";
 import { useReadOnly } from "@/hooks/useReadOnly";
@@ -619,6 +620,33 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         };
       } catch (err: unknown) {
         await poller?.stop();
+        // A failed request is not necessarily a failed build. The backend
+        // runs the build detached from its request, so past the proxy window
+        // the request dies while the build finishes and saves. Ask before
+        // reporting a failure; the saved graph is reloaded from the workflow
+        // record rather than trusted from anywhere else.
+        const recovered = await recoverFinishedBuild(() =>
+          workflowsApi.buildProgress(wfId, buildId),
+        );
+        if (recovered !== null) {
+          try {
+            const saved = await workflowsApi.get(wfId);
+            setWorkflow((wf) =>
+              wf ? { ...wf, nodes: saved.nodes, edges: saved.edges } : wf,
+            );
+            return {
+              ok: true,
+              reply: recovered,
+              onSettled: shouldReleaseBuildMode(before, saved)
+                ? () => setManualBuildMode(false)
+                : undefined,
+            };
+          } catch {
+            // The reply is real even if the reload failed; show it, and let
+            // the next autosave cycle or a reload bring the canvas up to date.
+            return { ok: true, reply: recovered };
+          }
+        }
         const message = err instanceof Error ? err.message : "unknown error";
         showToast(`Build failed · ${message}`, "error");
         return {

@@ -565,6 +565,25 @@ func identicalNode(graph *models.WorkflowGraph, nodeType, template, name string,
 	return ""
 }
 
+// typesOwningTemplate lists the node types that have a template with this id.
+//
+// Usually zero or one. "http" is deliberately both a tool (an HTTP request)
+// and an end node (respond to a webhook), so this returns a slice rather than
+// a string: offering only one of them would send the model to the wrong one
+// half the time.
+func typesOwningTemplate(template string) []string {
+	var out []string
+	for _, t := range NodeCatalogData().Types {
+		for _, tpl := range t.Templates {
+			if tpl.ID == template {
+				out = append(out, t.Type)
+				break
+			}
+		}
+	}
+	return out
+}
+
 // coinTemplates are the templates whose config carries CoinGecko ids.
 var coinTemplates = map[string]bool{"coingecko": true, "coingecko_history": true}
 
@@ -615,6 +634,19 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 func addGraphNodeResolved(graph *models.WorkflowGraph, args map[string]any, resolved map[string]bool) (string, error) {
 	nodeType := argString(args, "type")
 	if !graphNodeTypes[nodeType] {
+		// A type that is really a template name is the common mistake, and
+		// the plain list of valid types does not help with it: the model
+		// already knows "tool" is a type, it just put "http" where the type
+		// goes. Naming the pair it meant turns a wasted round into a
+		// corrected one -- and a failed add_node here is what leads to
+		// add_edge calls against node ids that were never created.
+		if owners := typesOwningTemplate(nodeType); len(owners) > 0 {
+			pairs := make([]string, 0, len(owners))
+			for _, o := range owners {
+				pairs = append(pairs, fmt.Sprintf("type=%s, template=%s", o, nodeType))
+			}
+			return "", fmt.Errorf("add_node: %q is a template, not a type -- you want %s", nodeType, strings.Join(pairs, " or "))
+		}
 		return "", fmt.Errorf("add_node: invalid type %q; valid types: %s", nodeType, typeNames())
 	}
 	template := argString(args, "template")
@@ -1146,11 +1178,19 @@ const buildAgentModel = "gemini-2.5-flash"
 const maxBuildIterations = 25
 
 // defaultBuildTimeBudget keeps a build inside the frontend's proxy window
-// (next.config.ts proxyTimeout: 120s). A build that ran past it had its
-// request cut off, its context cancelled mid-loop, and everything it had
-// built discarded -- research tools (web_search, fetch_url) make long builds
-// common enough that this has to be a hard property, not a hope.
-const defaultBuildTimeBudget = 100 * time.Second
+// (next.config.ts proxyTimeout: 300s). A build that runs past it has its
+// request cut off and the user sees a timeout. The work itself survives --
+// BuildWorkflow runs the build on a context detached from the request, so it
+// finishes and saves -- but the reply has nowhere to go.
+//
+// The loop only ever uses three quarters of this (see the early exit below),
+// so the figure a build really gets is 180s, not 240s. 100s here meant 75s
+// there, and a build that searches twice and test-runs once does not fit:
+// research tools and the test gate make long builds ordinary.
+//
+// 120s was the old proxy window, from when Vercel's function timeout was
+// 60-90s. It is 300s on all plans now, so the old ceiling was stale.
+const defaultBuildTimeBudget = 240 * time.Second
 
 // maxTransportFailures bounds retries for a call that never arrived.
 const maxTransportFailures = 2

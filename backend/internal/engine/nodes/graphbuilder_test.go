@@ -2468,3 +2468,63 @@ func TestThePartialTrailerIsStrippedFromReplayedHistory(t *testing.T) {
 		t.Errorf("clipHistoryText = %q, want %q", got, "Built it.")
 	}
 }
+
+// A real build called add_node with type="http" and type="json_extract",
+// putting a template name where the type goes. The old error listed the ten
+// valid types and never said which one owns "http", so the model guessed --
+// and the failed adds then produced edges against node ids it invented.
+func TestAddNodeSaysWhichTypeOwnsATemplateNameUsedAsAType(t *testing.T) {
+	tests := []struct {
+		name     string
+		nodeType string
+		want     []string
+	}{
+		{"a tool template", "json_extract", []string{"type=tool", "template=json_extract"}},
+		// "http" is a template of BOTH tool and end, so both must be offered.
+		{"a template two types share", "http", []string{"type=tool", "type=end", "template=http"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			graph := &models.WorkflowGraph{}
+			_, err := addGraphNode(graph, map[string]any{"type": tt.nodeType, "name": "X"})
+			if err == nil {
+				t.Fatalf("add_node accepted %q as a type", tt.nodeType)
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error does not suggest %q, got: %v", want, err)
+				}
+			}
+		})
+	}
+}
+
+// A name that is neither a type nor a template still gets the plain list.
+func TestAddNodeStillListsTypesForAnUnrecognisedType(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := addGraphNode(graph, map[string]any{"type": "banana", "name": "X"})
+	if err == nil {
+		t.Fatal("add_node accepted an unknown type")
+	}
+	if !strings.Contains(err.Error(), "valid types:") {
+		t.Errorf("want the list of valid types, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "template=") {
+		t.Errorf("suggested a template for a name that is not one: %v", err)
+	}
+}
+
+// The budget has to stay clear of the frontend proxy window, and the loop
+// only gets three quarters of it, so the usable figure is what matters. At
+// 100s the usable figure was 75s, and a build that searches twice and
+// test-runs once does not fit in it.
+func TestBuildTimeBudgetLeavesRoomForARealBuild(t *testing.T) {
+	const proxyWindow = 300 * time.Second // next.config.ts proxyTimeout
+	if defaultBuildTimeBudget >= proxyWindow {
+		t.Fatalf("budget %s is not inside the %s proxy window", defaultBuildTimeBudget, proxyWindow)
+	}
+	usable := defaultBuildTimeBudget * 3 / 4
+	if usable < 150*time.Second {
+		t.Errorf("a build really gets %s (three quarters of %s); a dozen rounds at ~6s each needs at least 150s", usable, defaultBuildTimeBudget)
+	}
+}
