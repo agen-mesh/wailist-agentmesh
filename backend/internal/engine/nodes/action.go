@@ -100,6 +100,8 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return fetchHackerNews(ctx, node, rc)
 	case "coingecko":
 		return fetchCoinGecko(ctx, node, rc)
+	case "coingecko_history":
+		return fetchCoinGeckoHistory(ctx, node, rc)
 	case "intercom":
 		return sendIntercom(ctx, node, rc)
 	case "openweathermap":

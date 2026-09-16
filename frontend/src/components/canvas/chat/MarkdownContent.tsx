@@ -66,6 +66,21 @@ const components: Components = {
 };
 
 /**
+ * Options for remark-math.
+ *
+ * `singleDollarTextMath: false` is the whole point. A chat reply about money
+ * contains two dollar amounts on one line constantly ("$0.00001 USD ... around
+ * $13.14"), and with single-dollar math on, everything between them is parsed
+ * as an expression: the spaces collapse, the hyphen becomes a minus sign, and
+ * the dollar signs disappear. Block math with `$$..$$` is unaffected, and that
+ * is the only form anyone writing maths here actually uses.
+ *
+ * Exported so the test asserts against the same options the component uses,
+ * rather than a copy that can drift.
+ */
+export const MATH_OPTIONS = { singleDollarTextMath: false } as const;
+
+/**
  * Loads remark-math + rehype-katex + KaTeX's CSS only for messages that
  * actually contain a `$` -- the katex runtime and stylesheet are large
  * enough (~300KB combined) that pulling them into every chat render, math or
@@ -93,7 +108,7 @@ function useMathPlugins(text: string): { remark: PluggableList; rehype: Pluggabl
 
   return useMemo(
     () => ({
-      remark: loaded ? [loaded.remarkMath as never] : [],
+      remark: loaded ? [[loaded.remarkMath, MATH_OPTIONS] as never] : [],
       rehype: loaded ? [loaded.rehypeKatex as never] : [],
     }),
     [loaded],

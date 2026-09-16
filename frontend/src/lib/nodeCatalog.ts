@@ -140,13 +140,20 @@ const TOOL_FIELDS: Record<string, CatalogField[]> = {
       hint: "a math expression such as (2+3)*4 -- the calculator stores it in the url field",
     },
   ],
-  websearch: [],
+  websearch: [
+    {
+      key: "searchQuery",
+      where: "config",
+      label: "Search query",
+      hint: "what to search for when this node runs in the flow; {{ result }} inserts the previous step's output",
+    },
+  ],
   xml: [],
 };
 
 const TOOL_NOTES: Record<string, string> = {
   websearch:
-    "Answers with a live Google Search. Attached to an agent it searches whatever the agent asks; as a flow step it searches the previous step's output.",
+    "Answers with a live Google Search. Attached to an agent's tools port it searches whatever the agent asks and needs no settings. As a FLOW step it needs searchQuery, or it searches the previous step's output -- and a manual trigger produces no output, so a flow node fed by one with no searchQuery fails at run time.",
   xml: "Parses the previous step's XML output into JSON. No settings.",
 };
 
@@ -220,6 +227,8 @@ const ACTION_NOTES: Record<string, string> = {
   // resolves "myrad" to exactly one coin.
   coingecko:
     "cgIDs are CoinGecko coin ids, not names or symbols. Look each one up with fetch_url https://api.coingecko.com/api/v3/search?query=<the name the user gave> and use the id of the result whose name or symbol matches what they said -- never a similar-sounding coin, and never web_search for an id.",
+  coingecko_history:
+    "One coin only. cgID is a CoinGecko coin id and MUST come from resolve_coin -- a name or symbol will 404. Returns first, last, high, low and changePct already computed, plus the points; quote those fields rather than working them out from the points yourself.",
 };
 
 const TRIGGER_NOTES: Record<string, string> = {
@@ -289,6 +298,7 @@ const READ_TEMPLATES = new Set<string>([
   "action/rss",
   "action/hackernews",
   "action/coingecko",
+  "action/coingecko_history",
   // Google reads. gmail_send, gmail_reply, sheets_append and calendar_create
   // are sends and stay actions.
   "google/gmail_list",

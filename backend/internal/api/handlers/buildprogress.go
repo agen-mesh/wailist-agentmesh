@@ -35,7 +35,14 @@ var buildIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{8,64}$`)
 type buildProgressEntry struct {
 	progress nodes.BuildProgress
 	done     bool
-	updated  time.Time
+	// reply is what the chat shows once the build has finished. It lives
+	// here, and not only in the POST response, because the POST may never
+	// reach the client: the build runs on a context detached from the
+	// request, so a proxy timeout ends the response while the build carries
+	// on and saves. Without this the user is shown a failure for a build that
+	// worked, and the only way back is a page reload.
+	reply   string
+	updated time.Time
 }
 
 type buildProgressStore struct {
@@ -68,7 +75,8 @@ func (s *buildProgressStore) set(key string, p nodes.BuildProgress) {
 	e.progress, e.updated = p, now
 }
 
-func (s *buildProgressStore) finish(key string) {
+// finish marks a build done and records the reply the chat should show.
+func (s *buildProgressStore) finish(key, reply string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e := s.entries[key]
@@ -76,7 +84,19 @@ func (s *buildProgressStore) finish(key string) {
 		e = &buildProgressEntry{}
 		s.entries[key] = e
 	}
-	e.done, e.progress.Current, e.updated = true, "", time.Now()
+	e.done, e.reply, e.progress.Current, e.updated = true, reply, "", time.Now()
+}
+
+// reply returns the finished reply for this build, or "" if it is unknown or
+// still running. An empty reply on a build that reports done is a real state:
+// the build ended without an answer, which is not the same as still going.
+func (s *buildProgressStore) reply(key string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if e := s.entries[key]; e != nil {
+		return e.reply
+	}
+	return ""
 }
 
 func (s *buildProgressStore) get(key string) (nodes.BuildProgress, bool) {
@@ -98,10 +118,18 @@ func (d *Deps) BuildWorkflowProgress(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "invalid buildId")
 		return
 	}
-	p, done := buildProgress.get(buildProgressKey(userID, chi.URLParam(r, "id"), buildID))
+	key := buildProgressKey(userID, chi.URLParam(r, "id"), buildID)
+	p, done := buildProgress.get(key)
 	steps := p.Steps
 	if steps == nil {
 		steps = []nodes.BuildStep{}
 	}
-	respond.JSON(w, http.StatusOK, map[string]any{"steps": steps, "current": p.Current, "done": done})
+	respond.JSON(w, http.StatusOK, map[string]any{
+		"steps":   steps,
+		"current": p.Current,
+		"done":    done,
+		// The finished reply, so the chat can settle its turn from this poll
+		// when the build's own response never arrived.
+		"reply": buildProgress.reply(key),
+	})
 }

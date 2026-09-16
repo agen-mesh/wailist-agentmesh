@@ -288,13 +288,23 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "message required")
 		return
 	}
+	// What the chat will show once this build is done, read by the deferred
+	// finish below. See buildProgressEntry.reply for why the POST response is
+	// not enough on its own.
+	var finishedReply string
 	var onProgress func(nodes.BuildProgress)
 	if buildIDPattern.MatchString(body.BuildID) {
 		key := buildProgressKey(userID, id, body.BuildID)
 		onProgress = func(p nodes.BuildProgress) { buildProgress.set(key, p) }
 		// Deferred, so "done" is only reported once the workflow has been
 		// saved -- or the build has failed -- never while the save is pending.
-		defer buildProgress.finish(key)
+		//
+		// The reply is captured through a closure rather than passed in
+		// directly: this runs on every exit path, and on the ones that never
+		// produced a reply the empty string is the right answer. A build that
+		// ended without an answer is still finished, and the chat has to be
+		// able to tell that from one still running.
+		defer func() { buildProgress.finish(key, finishedReply) }()
 	}
 	if d.PlatformGeminiAPIKey == "" {
 		respond.Error(w, http.StatusServiceUnavailable, "workflow builder is not configured")
@@ -438,6 +448,9 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	decrypted := decryptNodes(wf.Nodes, d.EncryptionKey)
 	wf.Nodes = unmaskWebhookSecrets(maskNodes(wf.Nodes), decrypted)
+	// Set before responding, so the deferred finish records it even if the
+	// client is already gone and this write goes nowhere.
+	finishedReply = result.Reply
 	respond.JSON(w, http.StatusOK, map[string]any{"reply": result.Reply, "workflow": wf})
 }
 

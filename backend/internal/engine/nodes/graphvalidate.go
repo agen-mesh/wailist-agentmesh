@@ -51,6 +51,29 @@ var flowTargets = map[models.NodeType]bool{
 	models.NodeTypeTendril: true, models.NodeTypeGoogle: true,
 }
 
+// graphNodeIDList renders every node on the graph as "id (Name)", for an
+// error that has to tell the model what it could have meant.
+//
+// Worth the bytes: a model that batches add_node calls and then add_edge
+// calls will, when one of the adds failed, emit edges against ids it made up
+// for nodes that never existed. Naming the id it missed says nothing it can
+// act on; naming the ids that DO exist lets it correct in one round instead
+// of guessing again, which is what a real build did four times running.
+func graphNodeIDList(graph *models.WorkflowGraph) string {
+	if len(graph.Nodes) == 0 {
+		return "the graph has no nodes yet"
+	}
+	out := make([]string, 0, len(graph.Nodes))
+	for _, n := range graph.Nodes {
+		if n.Name != "" {
+			out = append(out, fmt.Sprintf("%s (%s)", n.ID, n.Name))
+			continue
+		}
+		out = append(out, n.ID)
+	}
+	return "the graph has: " + strings.Join(out, ", ")
+}
+
 // validateEdge reports whether an edge is legal and returns the toPort to
 // store. The returned port is normalised, never empty: an omitted port is
 // filled in from the source type for an attach and is always "in" for a
@@ -58,11 +81,11 @@ var flowTargets = map[models.NodeType]bool{
 func validateEdge(graph *models.WorkflowGraph, from, to, kind, toPort string) (string, error) {
 	src, ok := findGraphNode(graph, from)
 	if !ok {
-		return "", fmt.Errorf("add_edge: node %q not found", from)
+		return "", fmt.Errorf("add_edge: node %q not found -- %s", from, graphNodeIDList(graph))
 	}
 	dst, ok := findGraphNode(graph, to)
 	if !ok {
-		return "", fmt.Errorf("add_edge: node %q not found", to)
+		return "", fmt.Errorf("add_edge: node %q not found -- %s", to, graphNodeIDList(graph))
 	}
 
 	if kind == string(models.EdgeKindAttach) {
