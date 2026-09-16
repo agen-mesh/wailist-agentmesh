@@ -221,7 +221,7 @@ const EMAIL_FIELDS: CatalogField[] = [
 // Action notes, keyed by template.
 const ACTION_NOTES: Record<string, string> = {
   algorand_account:
-    "Current state only: balance and ASA holdings for one address. It cannot answer transaction history -- that needs an indexer, which this node does not talk to. For history, search the x402 Bazaar (search_x402) for an Algorand transaction endpoint. algo is whole ALGO, already converted. Each holding's amount is already decimal-adjusted (a string such as \"1.5\" with its unitName): quote it as-is. amountBaseUnits is the raw integer in base units and must never be reported as a token amount. A holding with no amount could not be looked up; unresolvedAssets counts those.",
+    "Current state only: balance and ASA holdings for one address. It cannot answer transaction history -- that needs an indexer, which this node does not talk to. For history, search the x402 Bazaar (search_x402) for an Algorand transaction endpoint. algo is an exact decimal string in whole ALGO (quote it as-is) and algoMicro is the raw integer in microalgos; minBalance and minBalanceMicro are the same pair. Each holding's amount is already decimal-adjusted (a string such as \"1.5\" with its unitName): quote it as-is. amountBaseUnits is the raw integer in base units and must never be reported as a token amount. A holding with no amount could not be looked up; unresolvedAssets counts those.",
   // A live build turned the user's "myrad" into "myriad" and then "myria" --
   // two other coins -- by web-searching for the id. CoinGecko's own search
   // resolves "myrad" to exactly one coin.
