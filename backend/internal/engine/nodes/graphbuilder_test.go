@@ -2172,6 +2172,84 @@ func TestBuildGraphReportsAFailureThatBuiltNothing(t *testing.T) {
 	}
 }
 
+// Every round resends the whole conversation, so a heavy tool result -- a
+// test run's full JSON, a fetched page body -- is paid for again on every
+// later round and crowds the model's context. Only the newest one is worth
+// keeping; the older ones are replaced by a line saying so.
+func TestBuildGraphDropsStaleHeavyToolResults(t *testing.T) {
+	marker := "MARKER_" + strings.Repeat("x", 600)
+	bodies := scriptedGemini(t, []string{callTestRun, callTestRun, text("Done."), text("Done.")})
+	runs := 0
+	_, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "build it", Graph: wiredAgentGraph(), TimeBudget: 20 * time.Second,
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
+			runs++
+			return DryRunResult{FinalOutput: marker}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runs < 2 {
+		t.Fatalf("setup: want two test runs, got %d", runs)
+	}
+	last := (*bodies)[len(*bodies)-1]
+	if n := strings.Count(last, marker); n > 1 {
+		t.Fatalf("only the newest test run result should still be in the conversation, found %d copies", n)
+	}
+	if !strings.Contains(last, "left out to keep this conversation short") {
+		t.Fatal("the superseded result should be replaced by a short placeholder")
+	}
+}
+
+// The fixed cost of every round: the instructions and the tool declarations
+// are resent on each model call, so growth here is paid for on every round of
+// every build. These ceilings are a little above today's sizes; crossing one
+// means the growth was deliberate, and the number should move with it.
+func TestBuilderRequestStaysSmall(t *testing.T) {
+	if n := len(buildSystemPrompt); n > 22000 {
+		t.Errorf("system prompt is %d bytes, over the 22000 ceiling", n)
+	}
+	decls, _ := json.Marshal(graphToolDecls())
+	if n := len(decls); n > 14000 {
+		t.Errorf("tool declarations are %d bytes, over the 14000 ceiling", n)
+	}
+}
+
+// Dropping "user supplies" from the catalog section is only safe because the
+// add_node result still names the credentials for the node just added.
+func TestAddNodeResultStillNamesTheCredentials(t *testing.T) {
+	if strings.Contains(catalogPromptSection(), "user supplies:") {
+		t.Error("the catalog section should no longer carry per-template credential lists")
+	}
+	graph := &models.WorkflowGraph{}
+	out, err := applyGraphOp(graph, "add_node", map[string]any{"type": "action", "template": "slack", "name": "Post"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "slackWebhookURL") {
+		t.Fatalf("the add_node result must still name the credential the user supplies, got %q", out)
+	}
+}
+
+// A rejected add_node must say that nothing was created: a live build invented
+// an id for the node it failed to add and wasted two rounds on it.
+func TestRejectedAddNodeSaysNoNodeExists(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	tester := &testTracker{}
+	resp := runBuildCall(context.Background(), graph, geminiFuncCall{
+		name: "add_node",
+		args: map[string]any{"type": "trigger", "template": "cron"},
+	}, "k", newX402Session(nil), map[string]string{}, tester)
+	out, _ := resp["result"].(string)
+	if !strings.Contains(out, "no node was created") {
+		t.Fatalf("want the result to say nothing was created, got %q", out)
+	}
+	if len(graph.Nodes) != 0 {
+		t.Fatalf("setup: no node should exist, got %+v", graph.Nodes)
+	}
+}
+
 func TestWithAnswerGuardIncludesDegradedClause(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -2422,5 +2500,126 @@ func TestThePartialTrailerIsStrippedFromReplayedHistory(t *testing.T) {
 		trailerTestedAnswer + "I could not reach the price source."
 	if got := clipHistoryText("model", reply); got != "Built it." {
 		t.Errorf("clipHistoryText = %q, want %q", got, "Built it.")
+	}
+}
+
+// Review finding: pruning ran on the turn just appended, so a batch of
+// research calls lost its tail before the model ever read it -- and the
+// prompt tells the model to batch exactly like this.
+func TestBuildGraphKeepsEveryResultFromTheTurnJustMade(t *testing.T) {
+	batch := `{"candidates":[{"content":{"parts":[` +
+		`{"functionCall":{"name":"describe_node","args":{"type":"action","template":"slack"}}},` +
+		`{"functionCall":{"name":"describe_node","args":{"type":"action","template":"telegram"}}},` +
+		`{"functionCall":{"name":"describe_node","args":{"type":"tool","template":"http"}}},` +
+		`{"functionCall":{"name":"describe_node","args":{"type":"tool","template":"json_extract"}}}` +
+		`]}}]}`
+	bodies := scriptedGemini(t, []string{batch, text("Done."), text("Done.")})
+	if _, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "tell me about these", Graph: wiredAgentGraph(), TimeBudget: 20 * time.Second,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	last := (*bodies)[len(*bodies)-1]
+	if strings.Contains(last, "left out to keep this conversation short") {
+		t.Fatal("results the model has not read yet must not be pruned in the same round")
+	}
+	for _, want := range []string{"slackWebhookURL", "telegramBotToken", "jsonPath"} {
+		if !strings.Contains(last, want) {
+			t.Errorf("the batch's describe_node results should all still be there, missing %q", want)
+		}
+	}
+}
+
+// Review finding: with the credential list gone from the catalog, a node
+// whose template is set through update_node left the model with no idea which
+// credential the user has to add.
+func TestUpdateNodeNamesTheCredentialsWhenItSetsATemplate(t *testing.T) {
+	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{{ID: "n1", Type: models.NodeTypeAction}}}
+	out, err := applyGraphOp(graph, "update_node", map[string]any{"id": "n1", "template": "slack"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "slackWebhookURL") {
+		t.Fatalf("setting a template must name the credential the user supplies, got %q", out)
+	}
+}
+
+// Review finding: the "no node was created" line was appended to every
+// add_node rejection, including the ones that point at a node that does
+// exist and say to use update_node. The two instructions contradict.
+func TestAddNodeRejectionsThatPointAtAnExistingNode(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	tester := &testTracker{}
+	args := map[string]any{"type": "trigger", "template": "manual", "name": "Start"}
+	if _, err := applyGraphOp(graph, "add_node", args); err != nil {
+		t.Fatal(err)
+	}
+	resp := runBuildCall(context.Background(), graph, geminiFuncCall{name: "add_node", args: args},
+		"k", newX402Session(nil), map[string]string{}, tester)
+	out, _ := resp["result"].(string)
+	if !strings.Contains(out, "update_node") {
+		t.Fatalf("setup: want the duplicate rejection, got %q", out)
+	}
+	if strings.Contains(out, "no node was created") {
+		t.Fatalf("this rejection names a node that does exist; it must not say nothing was created: %q", out)
+	}
+}
+
+// Review finding: the url probe refuses before the shared error path, so the
+// commonest rejected add_node never got the new wording.
+func TestRefusedURLProbeSaysNoNodeExists(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	SetURLValidatorForTest(func(string) error { return nil })
+	defer SetURLValidatorForTest(func(string) error { return nil })
+
+	graph := &models.WorkflowGraph{}
+	tester := &testTracker{}
+	resp := runBuildCall(context.Background(), graph, geminiFuncCall{
+		name: "add_node",
+		args: map[string]any{"type": "tool", "template": "http", "fields": map[string]any{"url": srv.URL + "/missing"}},
+	}, "k", newX402Session(nil), map[string]string{}, tester)
+	out, _ := resp["result"].(string)
+	if !strings.Contains(out, "no node was created") {
+		t.Fatalf("a refused url leaves no node either, got %q", out)
+	}
+	if len(graph.Nodes) != 0 {
+		t.Fatalf("setup: no node should exist, got %+v", graph.Nodes)
+	}
+}
+
+// Review finding: the prompt still described a "user supplies" clause the
+// catalog no longer prints.
+func TestPromptDoesNotDescribeAClauseItNoLongerPrints(t *testing.T) {
+	if strings.Contains(buildSystemPrompt, `Keys under "user supplies"`) {
+		t.Error("the prompt explains a catalog clause that is no longer emitted")
+	}
+}
+
+// Review finding: two of the kept example keys have no placeholder at all, so
+// keeping them did nothing, while dtOffset and graphqlVariables have real
+// ones and were dropped.
+func TestExampleConfigKeysAllHavePlaceholders(t *testing.T) {
+	placeholders := map[string]string{}
+	for _, ty := range NodeCatalogData().Types {
+		for _, tpl := range ty.Templates {
+			for _, f := range tpl.Fields {
+				if f.Where == "config" {
+					placeholders[f.Key] = f.Placeholder
+				}
+			}
+		}
+	}
+	for k := range exampleConfigKeys {
+		if placeholders[k] == "" {
+			t.Errorf("%q is kept for its example but has no placeholder", k)
+		}
+	}
+	for _, k := range []string{"dtOffset", "graphqlVariables"} {
+		if !exampleConfigKeys[k] {
+			t.Errorf("%q has a placeholder that prevents a run-time failure and should keep it", k)
+		}
 	}
 }
