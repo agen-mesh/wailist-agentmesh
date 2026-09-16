@@ -558,6 +558,14 @@ func identicalNode(graph *models.WorkflowGraph, nodeType, template, name string,
 	return ""
 }
 
+// nodeExistsError is an add_node rejection that names a node already on the
+// graph and tells the model to use update_node on it. Distinct from every
+// other rejection because the "nothing was created" note (graphsteps.go)
+// would contradict it and invite the re-add it just refused.
+type nodeExistsError struct{ msg string }
+
+func (e nodeExistsError) Error() string { return e.msg }
+
 func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, error) {
 	nodeType := argString(args, "type")
 	if !graphNodeTypes[nodeType] {
@@ -587,7 +595,7 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 	if nodeType == "trigger" {
 		for _, n := range graph.Nodes {
 			if n.Type == models.NodeTypeTrigger {
-				return "", fmt.Errorf("add_node: the workflow already has a trigger (%s, %s) and runs from exactly one -- to start it a different way, update that node's template with update_node; everything you have already built is still on the graph", n.ID, n.Template)
+				return "", nodeExistsError{fmt.Sprintf("add_node: the workflow already has a trigger (%s, %s) and runs from exactly one -- to start it a different way, update that node's template with update_node; everything you have already built is still on the graph", n.ID, n.Template)}
 			}
 		}
 	}
@@ -596,7 +604,7 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 		return "", fmt.Errorf("add_node: a tool402 node needs the endpoint it calls, and this one has none. Use add_x402_node with an id from search_x402, which fills in the endpoint, price and inputs for you -- add_node type=tool402 is only for an endpoint URL the user handed you themselves, and then \"endpoint\" is required")
 	}
 	if dup := identicalNode(graph, nodeType, template, argString(args, "name"), fields, cfg); dup != "" {
-		return "", fmt.Errorf("add_node: node %s is already exactly this %s/%s -- you have added it once; use update_node on %s if it needs changing, and check the graph you have before adding more", dup, nodeType, template, dup)
+		return "", nodeExistsError{fmt.Sprintf("add_node: node %s is already exactly this %s/%s -- you have added it once; use update_node on %s if it needs changing, and check the graph you have before adding more", dup, nodeType, template, dup)}
 	}
 	id := newGraphID("n_")
 	node := models.WorkflowNode{
@@ -743,6 +751,12 @@ func updateGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, 
 		// After every field is in place: a template or method change may
 		// have turned this node from a read into a write, or back.
 		applyReadRetryDefault(n)
+		// The catalog no longer lists, per template, which credentials the
+		// user supplies -- so a node that gets its template here is the one
+		// place the model would otherwise never be told.
+		if newTemplate != "" {
+			return fmt.Sprintf("updated node %s%s", id, rules.userSupplied()), nil
+		}
 		return fmt.Sprintf("updated node %s", id), nil
 	}
 	return "", fmt.Errorf("update_node: node %q not found", id)
@@ -1194,7 +1208,8 @@ together, then all add_edge calls together (edges need the node ids add_node ret
 Use ONLY the node types, templates and settings in the NODE CATALOG below. It is generated from the canvas
 and the engine, so anything not in it does not exist and will be rejected. For each template it lists the
 keys you may set: "fields" (top-level, via add_node fields) and "config" (node settings, via add_node
-config); "description" is always settable. Keys under "user supplies" are credentials or linked accounts:
+config); "description" is always settable. Credentials and linked accounts are named in the result of the
+add_node (or update_node) call that sets a node's template, and by describe_node:
 you cannot set them, so name the ones this workflow needs on the node's description and in your reply,
 together with where the user gets them. Read every NOTE -- it describes what the node really does, which
 can differ from its name. Presets (a state node's operation, a provider's default model) are applied for
@@ -1407,12 +1422,15 @@ var heavyResultTools = map[string]int{
 }
 
 // pruneHeavyResults replaces all but the newest few results of each heavy
-// tool with one line saying it was left out. The turn structure is untouched
+// tool with one line saying it was left out. The last protect turns are left
+// untouched -- the model has not read them yet -- but still count towards how
+// many of each tool's results are kept. The turn structure is untouched
 // -- every functionCall keeps its matching functionResponse, which Gemini
 // requires -- only the payload inside the superseded ones is dropped.
-func pruneHeavyResults(contents []map[string]any) {
+func pruneHeavyResults(contents []map[string]any, protect int) {
 	seen := map[string]int{}
 	for i := len(contents) - 1; i >= 0; i-- {
+		protected := i >= len(contents)-protect
 		parts, _ := contents[i]["parts"].([]map[string]any)
 		for _, p := range parts {
 			fr, ok := p["functionResponse"].(map[string]any)
@@ -1424,8 +1442,11 @@ func pruneHeavyResults(contents []map[string]any) {
 			if !heavy {
 				continue
 			}
+			// Counted even when protected: a result the model has not read
+			// yet is still the newest one, and that is what makes the result
+			// before it stale.
 			seen[name]++
-			if seen[name] <= keep {
+			if protected || seen[name] <= keep {
 				continue
 			}
 			fr["response"] = map[string]any{
@@ -1755,7 +1776,12 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 			})
 		}
 		contents = append(contents, map[string]any{"role": "user", "parts": responseParts})
-		pruneHeavyResults(contents)
+		// The turn just appended is protected: those results are what the
+		// model is about to read for the first time, and the prompt asks it
+		// to batch its research into one turn, so pruning there would take
+		// away answers it has never seen. It still counts as the newest,
+		// which is what makes the one before it stale.
+		pruneHeavyResults(contents, 1)
 		payload["contents"] = contents
 	}
 
