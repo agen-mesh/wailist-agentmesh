@@ -1018,6 +1018,23 @@ func graphToolDecls() []funcDecl {
 				"required": []string{"query"},
 			},
 		},
+		{
+			Name: "resolve_coin",
+			Description: "Turn a coin name or symbol into the CoinGecko id that the coingecko and coingecko_history templates need. " +
+				"This is the ONLY way to get a coin id: you may not guess one, read one out of a web search, or assume the name is the id. " +
+				"Call it once per coin the user named, before you add the node. " +
+				"If it returns no matches the token is not listed on CoinGecko at all -- say so to the user, name what you can track instead, and do NOT substitute a web search or a different asset with a similar name.",
+			Parameters: map[string]any{
+				"type": "OBJECT",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "The coin name or symbol exactly as the user wrote it. Do not correct the spelling.",
+					},
+				},
+				"required": []string{"query"},
+			},
+		},
 	}
 }
 

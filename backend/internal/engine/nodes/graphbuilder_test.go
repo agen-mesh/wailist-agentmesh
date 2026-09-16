@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -974,6 +975,16 @@ func TestFetchURLReportsStatusAndBody(t *testing.T) {
 	}
 	if got := fetchURL(context.Background(), "file:///etc/passwd"); !strings.Contains(got, "error") {
 		t.Fatalf("a non-http URL must be refused, got: %s", got)
+	}
+}
+
+func TestResolveCoinIsDeclaredToTheModel(t *testing.T) {
+	var names []string
+	for _, d := range graphToolDecls() {
+		names = append(names, d.Name)
+	}
+	if !slices.Contains(names, "resolve_coin") {
+		t.Fatalf("resolve_coin is not declared; tools are %v", names)
 	}
 }
 

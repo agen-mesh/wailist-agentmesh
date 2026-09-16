@@ -159,6 +159,19 @@ func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c gemin
 		}
 		return map[string]any{"result": out}
 
+	case "resolve_coin":
+		matches, err := resolveCoin(ctx, argString(c.args, "query"))
+		if err != nil {
+			return map[string]any{"result": "error: " + SanitizeRunError(err.Error())}
+		}
+		if len(matches) == 0 {
+			return map[string]any{"result": fmt.Sprintf(
+				"not_listed: CoinGecko has no coin matching %q. It cannot be tracked with a coingecko node. Tell the user plainly that this token is not listed, and do not use a different asset with a similar name or fall back to a web search for its price.",
+				argString(c.args, "query"))}
+		}
+		out, _ := json.Marshal(matches)
+		return map[string]any{"result": string(out) + " -- use the id field, not the name or the symbol."}
+
 	case "search_x402", "add_x402_node":
 		// These need the request's catalog loader. add_x402_node edits the
 		// graph, but only ever from a catalog entry -- never from model-typed
@@ -240,6 +253,8 @@ func runningLabel(graph *models.WorkflowGraph, name string, args map[string]any)
 		return fmt.Sprintf("Searching the web for “%s”", clip(argString(args, "query"), 80))
 	case "fetch_url":
 		return "Checking " + shortURL(argString(args, "url"))
+	case "resolve_coin":
+		return fmt.Sprintf("Looking up “%s” on CoinGecko", clip(argString(args, "query"), 60))
 	case "search_x402":
 		return fmt.Sprintf("Searching the x402 Bazaar for “%s”", clip(argString(args, "query"), 60))
 	case "add_x402_node":
@@ -289,6 +304,13 @@ func finishedStep(graph *models.WorkflowGraph, name string, args map[string]any,
 			step.Label = fmt.Sprintf("Web search for “%s” failed", clip(argString(args, "query"), 80))
 			// Never the error text: it can carry a raw upstream body.
 			step.Detail = "the search service returned an error"
+		}
+	case "resolve_coin":
+		step.Kind = "search"
+		step.Label = fmt.Sprintf("Looked up “%s” on CoinGecko", clip(argString(args, "query"), 60))
+		if strings.HasPrefix(text, "not_listed:") {
+			step.Status = "error"
+			step.Label = fmt.Sprintf("“%s” is not listed on CoinGecko", clip(argString(args, "query"), 60))
 		}
 	case "fetch_url":
 		step.Kind = "check"
