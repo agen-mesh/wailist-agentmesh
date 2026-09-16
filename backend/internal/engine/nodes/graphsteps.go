@@ -126,6 +126,14 @@ func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c gemin
 		out, _ := json.Marshal(res)
 		note := manualNote + " -- Steps marked simulated were not performed (they would send, pay or write). "
 		switch {
+		// Before the plain Failed case, which this one is also in: a degraded
+		// read sets both. The distinction matters to the model. A hard
+		// failure means the workflow produced nothing; a degraded read means
+		// it answered, without that source. Told only "the run FAILED", the
+		// model rebuilt steps that were fine, or replied as though there were
+		// no answer to quote.
+		case res.Degraded:
+			note += "A step that READS a source failed, and the run carried on past it the way a real run does -- so this workflow DOES answer, but with that source missing. Check that step's own settings first: at build time a wrong id, a wrong path or a dead endpoint is the usual cause, and shipping it unfixed means answering \"the source failed\" on every run from now on. If the source really is just unavailable, leave the workflow alone and tell the user which source was missing."
 		case res.Failed:
 			note += "The run FAILED: fix the step that failed and test again."
 		case res.Empty:

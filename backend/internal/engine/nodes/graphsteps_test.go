@@ -38,3 +38,44 @@ func TestTestRunIgnoresInputForAManualTrigger(t *testing.T) {
 		t.Errorf("a chat trigger's test input must be kept, got %q", got)
 	}
 }
+
+// DryRunResult.Degraded was written by the dry run and read by nothing: it
+// rode along in every replayed test response costing tokens, while the model
+// was told only "the run FAILED" about a run that had in fact answered.
+func TestTestRunTellsTheModelWhenAReadDegradedRatherThanFailed(t *testing.T) {
+	degraded := DryRunResult{
+		Failed:      true,
+		Degraded:    true,
+		FinalOutput: "I could not reach the price source.",
+		Steps:       []DryRunStep{{Name: "CoinGecko Price", Status: "failed", Error: "http: GET 503"}},
+	}
+	hardFail := DryRunResult{
+		Failed: true,
+		Steps:  []DryRunStep{{Name: "Send", Status: "failed", Error: "slack API 500"}},
+	}
+
+	run := func(res DryRunResult) string {
+		tester := &testTracker{run: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
+			return res
+		}}
+		out := dispatchBuildCall(context.Background(), &models.WorkflowGraph{}, geminiFuncCall{name: "test_run"}, "k", nil, nil, tester)
+		text, _ := out["result"].(string)
+		return text
+	}
+
+	got := run(degraded)
+	if !strings.Contains(got, "DOES answer") {
+		t.Errorf("a degraded test run must tell the model the workflow still answered, got:\n%s", got)
+	}
+	if strings.Contains(got, "The run FAILED") {
+		t.Errorf("a degraded run was reported as a plain hard failure, got:\n%s", got)
+	}
+
+	got = run(hardFail)
+	if !strings.Contains(got, "The run FAILED") {
+		t.Errorf("a hard failure must still be reported as one, got:\n%s", got)
+	}
+	if strings.Contains(got, "DOES answer") {
+		t.Errorf("a hard failure was described as having answered, got:\n%s", got)
+	}
+}
