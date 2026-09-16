@@ -1836,6 +1836,41 @@
               "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
             }
           ]
+        },
+        {
+          "id": "coingecko_history",
+          "name": "CoinGecko History",
+          "desc": "Price series + high/low (no key)",
+          "kind": "read",
+          "note": "One coin only. cgID is a CoinGecko coin id and MUST come from resolve_coin -- a name or symbol will 404. Returns first, last, high, low and changePct already computed, plus the points; quote those fields rather than working them out from the points yourself.",
+          "fields": [
+            {
+              "key": "cgID",
+              "where": "config",
+              "label": "Coin ID",
+              "placeholder": "bitcoin"
+            },
+            {
+              "key": "cgDays",
+              "where": "config",
+              "label": "Days",
+              "hint": "optional, default 30",
+              "placeholder": "28"
+            },
+            {
+              "key": "cgCurrency",
+              "where": "config",
+              "label": "Currency",
+              "hint": "optional, default usd",
+              "placeholder": "usd"
+            },
+            {
+              "key": "messageTemplate",
+              "where": "config",
+              "label": "Message",
+              "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
+            }
+          ]
         }
       ]
     },

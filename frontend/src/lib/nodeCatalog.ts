@@ -225,6 +225,8 @@ const ACTION_NOTES: Record<string, string> = {
   // resolves "myrad" to exactly one coin.
   coingecko:
     "cgIDs are CoinGecko coin ids, not names or symbols. Look each one up with fetch_url https://api.coingecko.com/api/v3/search?query=<the name the user gave> and use the id of the result whose name or symbol matches what they said -- never a similar-sounding coin, and never web_search for an id.",
+  coingecko_history:
+    "One coin only. cgID is a CoinGecko coin id and MUST come from resolve_coin -- a name or symbol will 404. Returns first, last, high, low and changePct already computed, plus the points; quote those fields rather than working them out from the points yourself.",
 };
 
 const TRIGGER_NOTES: Record<string, string> = {
@@ -293,6 +295,7 @@ const READ_TEMPLATES = new Set<string>([
   "action/rss",
   "action/hackernews",
   "action/coingecko",
+  "action/coingecko_history",
   // Google reads. gmail_send, gmail_reply, sheets_append and calendar_create
   // are sends and stay actions.
   "google/gmail_list",
