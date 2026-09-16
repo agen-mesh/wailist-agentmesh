@@ -227,7 +227,8 @@ func CredentialRejectedOrMissing(n models.WorkflowNode) string {
 // query, no city, missing config -- is a setting the builder can fill in.
 //
 // Only the skips of the connectors a test run executes matter here, which is
-// readOnlyActions (coingecko, openweathermap, hackernews, rss); every other
+// readOnlyActions (see that map -- listing its members here only went stale);
+// every other
 // action is simulated and never skips. Adding a connector to readOnlyActions
 // means checking its credential skip code is in this list, or its missing key
 // will be reported as a setting the builder should fill in.
