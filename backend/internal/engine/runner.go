@@ -123,7 +123,12 @@ func (r *Runner) SetGoogleOAuth(clientID, clientSecret string) {
 func (r *Runner) preflightCheck(ctx context.Context, wf models.Workflow, amountUSDMicros int64) error {
 	balance, err := r.store.GetCreditBalance(ctx, wf.UserID)
 	if err != nil {
-		return err
+		// Wrapped for the same reason the refusal below is: this is the
+		// billing gate failing, not the node's own work. Left bare it reads
+		// as an ordinary node failure, and a read node would degrade -- the
+		// run would report success having silently skipped its paid step
+		// because of a database blip.
+		return fmt.Errorf("checking credit balance: %w", errBillingCheckFailed)
 	}
 	if balance < amountUSDMicros {
 		// Wrapped, not bare: a caller has to be able to tell a billing
@@ -137,16 +142,30 @@ func (r *Runner) preflightCheck(ctx context.Context, wf models.Workflow, amountU
 	return nil
 }
 
-// isBillingRefusal reports whether err is the platform declining to run a
-// node the user cannot pay for, rather than the node's own work failing.
+// isBillingRefusal reports whether err came from the billing gate rather than
+// from the node's own work: the platform declining to run a node the user
+// cannot pay for, or the gate being unable to reach a verdict at all.
 //
 // These must never degrade. A degraded run reports success and answers with
 // what it has, which for a billing refusal would mean a workflow that
 // silently stops doing the paid half of its job and never tells the user why
-// -- while the unpaid steps keep being skipped on every later run too.
+// -- while the unpaid steps keep being skipped on every later run too. A
+// gate that could not answer belongs here for the same reason: nothing
+// established that the work was affordable, so nothing may proceed as if it
+// were.
+// errBillingCheckFailed is the balance gate itself being unable to answer --
+// a database or pool error reading the user's credits, not a verdict on
+// whether they have enough. It is deliberately its own sentinel rather than
+// the underlying driver error: what matters downstream is only that no
+// billing decision was reached, and forwarding the driver's text would put
+// connection-string detail into a run log the user reads.
+var errBillingCheckFailed = errors.New("the billing check could not be completed")
+
 func isBillingRefusal(err error) bool {
 	var blocked *nodes.ErrBalanceBlocked
-	return errors.Is(err, db.ErrInsufficientCredits) || errors.As(err, &blocked)
+	return errors.Is(err, db.ErrInsufficientCredits) ||
+		errors.Is(err, errBillingCheckFailed) ||
+		errors.As(err, &blocked)
 }
 
 // debitOrLog charges amountUSDMicros against wf.UserID for nodeID and just
