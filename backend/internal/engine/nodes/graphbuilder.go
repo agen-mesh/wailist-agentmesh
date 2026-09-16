@@ -162,11 +162,18 @@ func newGraphID(prefix string) string {
 // meta-agent requested, and returns a short human-readable result string fed
 // back to the model as the tool's functionResponse.
 func applyGraphOp(graph *models.WorkflowGraph, funcName string, args map[string]any) (string, error) {
+	return applyGraphOpResolved(graph, funcName, args, nil)
+}
+
+// applyGraphOpResolved is applyGraphOp for the model's own calls: resolved is
+// the set of CoinGecko ids resolve_coin returned this build, and a node
+// carrying any other id is refused. nil skips the check.
+func applyGraphOpResolved(graph *models.WorkflowGraph, funcName string, args map[string]any, resolved map[string]bool) (string, error) {
 	switch funcName {
 	case "add_node":
-		return addGraphNode(graph, args)
+		return addGraphNodeResolved(graph, args, resolved)
 	case "update_node":
-		return updateGraphNode(graph, args)
+		return updateGraphNodeResolved(graph, args, resolved)
 	case "remove_node":
 		return removeGraphNode(graph, args)
 	case "add_edge":
@@ -558,7 +565,54 @@ func identicalNode(graph *models.WorkflowGraph, nodeType, template, name string,
 	return ""
 }
 
+// coinTemplates are the templates whose config carries CoinGecko ids.
+var coinTemplates = map[string]bool{"coingecko": true, "coingecko_history": true}
+
+// coinIDKeys are the config keys those templates keep ids in: cgIDs is the
+// comma-separated list on coingecko, cgID the single id on coingecko_history.
+var coinIDKeys = []string{"cgIDs", "cgID"}
+
+// coinIDsUnresolved returns the CoinGecko ids on this node that resolve_coin
+// did not return during this build.
+//
+// The check is against what was actually looked up, not against a syntax
+// rule, because a guessed id is perfectly well-formed: "myriad" looks exactly
+// like a real id and is not one. Only a live lookup can tell the difference,
+// and a build that skipped the lookup produced a 404 and then a confident
+// report about a different asset entirely.
+func coinIDsUnresolved(node models.WorkflowNode, resolved map[string]bool) []string {
+	if !coinTemplates[node.Template] {
+		return nil
+	}
+	var bad []string
+	for _, key := range coinIDKeys {
+		for _, id := range strings.Split(configVal(node, key, ""), ",") {
+			id = strings.TrimSpace(id)
+			if id == "" || strings.Contains(id, "{{") {
+				continue // empty, or a run-time reference we cannot check
+			}
+			if !resolved[id] {
+				bad = append(bad, id)
+			}
+		}
+	}
+	return bad
+}
+
+// coinIDRefusal is the error a node carrying an unlooked-up id gets. op is
+// the tool that was refused, add_node or update_node.
+func coinIDRefusal(op string, bad []string) error {
+	return fmt.Errorf("%s: %s was never looked up, so it may not be a real CoinGecko id -- call resolve_coin with the name the user gave, use the id field from a match, and if there are no matches tell the user the token is not listed on CoinGecko rather than substituting another one",
+		op, strings.Join(bad, ", "))
+}
+
+// addGraphNode adds a node with no coin-id checking. For the model's own
+// add_node calls use addGraphNodeResolved, which enforces it.
 func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, error) {
+	return addGraphNodeResolved(graph, args, nil)
+}
+
+func addGraphNodeResolved(graph *models.WorkflowGraph, args map[string]any, resolved map[string]bool) (string, error) {
 	nodeType := argString(args, "type")
 	if !graphNodeTypes[nodeType] {
 		return "", fmt.Errorf("add_node: invalid type %q; valid types: %s", nodeType, typeNames())
@@ -633,6 +687,13 @@ func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, err
 		node.KeyMode = "platform"
 	}
 	applyReadRetryDefault(&node)
+	// nil resolved means an internal caller that is not the model (the search
+	// fallback, a test): it is not guessing ids, so there is nothing to check.
+	if resolved != nil {
+		if bad := coinIDsUnresolved(node, resolved); len(bad) > 0 {
+			return "", coinIDRefusal("add_node", bad)
+		}
+	}
 	graph.Nodes = append(graph.Nodes, node)
 	return fmt.Sprintf("added node %s (%s/%s)%s", id, nodeType, node.Template, rules.userSupplied()), nil
 }
@@ -672,7 +733,13 @@ func applyReadRetryDefault(n *models.WorkflowNode) {
 	}
 }
 
+// updateGraphNode updates a node with no coin-id checking. For the model's
+// own update_node calls use updateGraphNodeResolved, which enforces it.
 func updateGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, error) {
+	return updateGraphNodeResolved(graph, args, nil)
+}
+
+func updateGraphNodeResolved(graph *models.WorkflowGraph, args map[string]any, resolved map[string]bool) (string, error) {
 	id := argString(args, "id")
 	for i := range graph.Nodes {
 		n := &graph.Nodes[i]
@@ -715,6 +782,18 @@ func updateGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, 
 		if err := credentialRedirectError(n, newTemplate, fields, cfg); err != nil {
 			return "", err
 		}
+		// Checked on the node as it WILL be, before anything is written, so a
+		// refused update leaves the node exactly as it was.
+		if resolved != nil && touchesCoinIDs(n, template, cfg) {
+			preview := models.WorkflowNode{Template: template, Config: maps.Clone(n.Config)}
+			if preview.Config == nil {
+				preview.Config = map[string]string{}
+			}
+			maps.Copy(preview.Config, cfg)
+			if bad := coinIDsUnresolved(preview, resolved); len(bad) > 0 {
+				return "", coinIDRefusal("update_node", bad)
+			}
+		}
 		if newTemplate != "" && newTemplate != n.Template {
 			n.Template = newTemplate
 			for k, v := range rules.tpl.Presets {
@@ -746,6 +825,25 @@ func updateGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, 
 		return fmt.Sprintf("updated node %s", id), nil
 	}
 	return "", fmt.Errorf("update_node: node %q not found", id)
+}
+
+// touchesCoinIDs says whether an update sets coin ids or turns the node into
+// a coin template. Only then is it checked: a coin node already on the canvas
+// may carry ids the user typed in the Inspector, and renaming it is not the
+// model guessing an id.
+func touchesCoinIDs(n *models.WorkflowNode, template string, cfg map[string]string) bool {
+	if !coinTemplates[template] {
+		return false
+	}
+	if template != n.Template {
+		return true
+	}
+	for _, key := range coinIDKeys {
+		if _, ok := cfg[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // describeNode returns the full catalog entry for one template -- labels,
@@ -1425,6 +1523,9 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	// probed caches fetchURL results per url for this build, so the model's
 	// own fetch_url and the automatic check on add_node share one request.
 	probed := map[string]string{}
+	// Which CoinGecko ids resolve_coin actually returned this build. A node
+	// carrying any other id is refused -- see coinIDsUnresolved.
+	resolvedCoins := map[string]bool{}
 	progress := &progressTracker{on: req.OnProgress}
 	tester := &testTracker{run: req.TestRun}
 	defer progress.idle()
@@ -1720,7 +1821,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		responseParts := make([]map[string]any, 0, len(calls))
 		for _, c := range calls {
 			progress.working(runningLabel(&graph, c.name, c.args))
-			response := runBuildCall(ctx, &graph, c, apiKey, x402, probed, tester)
+			response := runBuildCall(ctx, &graph, c, apiKey, x402, probed, resolvedCoins, tester)
 			progress.finished(finishedStep(&graph, c.name, c.args, response))
 			responseParts = append(responseParts, map[string]any{
 				"functionResponse": map[string]any{

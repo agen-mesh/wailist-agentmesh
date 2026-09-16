@@ -93,8 +93,8 @@ type testTracker struct {
 	runs   int
 }
 
-func runBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFuncCall, apiKey string, x402 *x402Session, probed map[string]string, tester *testTracker) map[string]any {
-	response := dispatchBuildCall(ctx, graph, c, apiKey, x402, probed, tester)
+func runBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFuncCall, apiKey string, x402 *x402Session, probed map[string]string, resolved map[string]bool, tester *testTracker) map[string]any {
+	response := dispatchBuildCall(ctx, graph, c, apiKey, x402, probed, resolved, tester)
 	if graphMutations[c.name] {
 		if text, _ := response["result"].(string); !strings.HasPrefix(text, "error: ") {
 			tester.dirty = true
@@ -103,7 +103,9 @@ func runBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFunc
 	return response
 }
 
-func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFuncCall, apiKey string, x402 *x402Session, probed map[string]string, tester *testTracker) map[string]any {
+// resolved is the build's set of CoinGecko ids that resolve_coin returned;
+// resolve_coin adds to it and add_node / update_node are checked against it.
+func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFuncCall, apiKey string, x402 *x402Session, probed map[string]string, resolved map[string]bool, tester *testTracker) map[string]any {
 	switch c.name {
 	case "test_run":
 		if tester.run == nil {
@@ -169,6 +171,11 @@ func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c gemin
 				"not_listed: CoinGecko has no coin matching %q. It cannot be tracked with a coingecko node. Tell the user plainly that this token is not listed, and do not use a different asset with a similar name or fall back to a web search for its price.",
 				argString(c.args, "query"))}
 		}
+		if resolved != nil {
+			for _, m := range matches {
+				resolved[m.ID] = true
+			}
+		}
 		out, _ := json.Marshal(matches)
 		return map[string]any{"result": string(out) + " -- use the id field, not the name or the symbol."}
 
@@ -223,7 +230,7 @@ func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c gemin
 		}
 		probeNote = note
 	}
-	result, err := applyGraphOp(graph, c.name, c.args)
+	result, err := applyGraphOpResolved(graph, c.name, c.args, resolved)
 	if err != nil {
 		return map[string]any{"result": "error: " + err.Error()}
 	}

@@ -2116,10 +2116,29 @@ func TestTemplateRefRejectsDotResultOnEngineShapedOutput(t *testing.T) {
 // A reset peer 77s into a live build returned an error, so the save was
 // never reached and every node built went with it.
 func TestBuildGraphKeepsItsWorkWhenTheConnectionDrops(t *testing.T) {
+	// The coin id has to be looked up before the node carrying it is accepted.
+	cg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"coins": []map[string]any{
+			{"id": "bitcoin", "symbol": "btc", "name": "Bitcoin", "market_cap_rank": 1},
+		}})
+	}))
+	defer cg.Close()
+	SetCoinGeckoAPIBaseForTest(cg.URL)
+	defer SetCoinGeckoAPIBaseForTest("")
+
 	var round int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		round++
 		if round == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"candidates": []map[string]any{
+				{"content": map[string]any{"parts": []map[string]any{
+					{"functionCall": map[string]any{"name": "resolve_coin", "args": map[string]any{"query": "bitcoin"}}},
+				}}},
+			}})
+			return
+		}
+		if round == 2 {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]any{"candidates": []map[string]any{
 				{"content": map[string]any{"parts": []map[string]any{

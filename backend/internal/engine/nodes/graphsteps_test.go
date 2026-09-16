@@ -21,7 +21,7 @@ func TestTestRunIgnoresInputForAManualTrigger(t *testing.T) {
 	}}
 	res := dispatchBuildCall(context.Background(), graph, geminiFuncCall{
 		name: "test_run", args: map[string]any{"input": "latest news about Algorand"},
-	}, "k", nil, map[string]string{}, tester)
+	}, "k", nil, map[string]string{}, nil, tester)
 	if got != "" {
 		t.Errorf("a manual trigger carries no message, but the test ran with %q", got)
 	}
@@ -33,7 +33,7 @@ func TestTestRunIgnoresInputForAManualTrigger(t *testing.T) {
 	graph.Nodes[0].Template = "chat"
 	dispatchBuildCall(context.Background(), graph, geminiFuncCall{
 		name: "test_run", args: map[string]any{"input": "hello"},
-	}, "k", nil, map[string]string{}, tester)
+	}, "k", nil, map[string]string{}, nil, tester)
 	if got != "hello" {
 		t.Errorf("a chat trigger's test input must be kept, got %q", got)
 	}
@@ -58,7 +58,7 @@ func TestTestRunTellsTheModelWhenAReadDegradedRatherThanFailed(t *testing.T) {
 		tester := &testTracker{run: func(ctx context.Context, g models.WorkflowGraph, input string) DryRunResult {
 			return res
 		}}
-		out := dispatchBuildCall(context.Background(), &models.WorkflowGraph{}, geminiFuncCall{name: "test_run"}, "k", nil, nil, tester)
+		out := dispatchBuildCall(context.Background(), &models.WorkflowGraph{}, geminiFuncCall{name: "test_run"}, "k", nil, nil, nil, tester)
 		text, _ := out["result"].(string)
 		return text
 	}
