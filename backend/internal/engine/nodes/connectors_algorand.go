@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -29,15 +30,73 @@ func SetAlgorandBases(algod string) { algodAPIBase = strings.TrimRight(strings.T
 // person uses.
 const microAlgosPerAlgo = 1_000_000
 
+// maxAlgorandAssetLookups caps the per-holding /v2/assets calls one read
+// makes. An account can hold thousands of ASAs, and each lookup is a round
+// trip; holdings past the cap are still listed, in base units only, and
+// counted in unresolvedAssets so the gap is visible rather than silent.
+const maxAlgorandAssetLookups = 20
+
+// maxASADecimals is the protocol ceiling on an ASA's decimals. Anything above
+// it is not a real asset, so it is reported unresolved rather than formatted.
+const maxASADecimals = 19
+
+// getAlgodJSON GETs an algod path and decodes the body straight into dst.
+//
+// Deliberately not getAndDecode: that decodes into `any` first, which turns
+// every number into a float64. algod amounts are uint64, so a round trip
+// through float silently rounds anything past 2^53 and fails outright on
+// anything past the int64 range -- both reachable for a large balance of a
+// high-decimal token. getRaw applies the same SSRF guard, status handling
+// and retry classification getJSON does, and leaves the body as bytes.
+func getAlgodJSON(ctx context.Context, path string, dst any) error {
+	b, err := getRaw(ctx, algodAPIBase+path, map[string]string{"Accept": "application/json"}, "Algorand")
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(b, dst); err != nil {
+		return fmt.Errorf("Algorand: decode response: %w", err)
+	}
+	return nil
+}
+
+// algorandAssetParams is the part of GET /v2/assets/{id} this connector uses.
+type algorandAssetParams struct {
+	Params struct {
+		Decimals uint64 `json:"decimals"`
+		UnitName string `json:"unit-name"`
+		Name     string `json:"name"`
+	} `json:"params"`
+}
+
+// formatBaseUnits renders an ASA amount in whole units as an exact decimal
+// string: 1500000 at 6 decimals is "1.5". Integer arithmetic only, because a
+// float cannot hold every uint64 and a balance is not the place to round.
+func formatBaseUnits(v, decimals uint64) string {
+	digits := strconv.FormatUint(v, 10)
+	if decimals == 0 {
+		return digits
+	}
+	d := int(decimals)
+	if len(digits) <= d {
+		digits = strings.Repeat("0", d-len(digits)+1) + digits
+	}
+	whole, frac := digits[:len(digits)-d], strings.TrimRight(digits[len(digits)-d:], "0")
+	if frac == "" {
+		return whole
+	}
+	return whole + "." + frac
+}
+
 // fetchAlgorandAccount returns an address's ALGO balance and its ASA
 // holdings.
 //
 // The output is flattened on purpose. algod nests holdings under
 // account.assets[].asset-id, and every extra level is a jsonPath the builder
 // can get wrong -- which it demonstrably does, a real test run failing with
-// `path "prices" descends past a scalar`. Balances are converted to whole
-// ALGO here for the same class of reason: an agent handed microalgos reports
-// them as ALGO.
+// `path "prices" descends past a scalar`. Amounts are converted to whole
+// units here for the same class of reason: an agent handed base units
+// reports them as whole units, so 1.5 USDC would read as 1,500,000 USDC.
+// Each holding keeps its exact amountBaseUnits beside the converted amount.
 //
 // algod answers current state only. Transaction history needs an indexer, a
 // separate service this connector does not talk to; the catalog note sends
@@ -50,36 +109,54 @@ func fetchAlgorandAccount(ctx context.Context, node models.WorkflowNode, rc RunC
 	if algodAPIBase == "" {
 		return nil, fmt.Errorf("algorand: no Algorand node is configured -- set ALGOD_URL")
 	}
-	raw, err := getAndDecode(ctx, algodAPIBase+"/v2/accounts/"+url.PathEscape(address), nil, "Algorand")
-	if err != nil {
-		return nil, err
-	}
-	b, err := json.Marshal(raw)
-	if err != nil {
-		return nil, fmt.Errorf("algorand: %w", err)
-	}
 	var body struct {
 		Address    string `json:"address"`
-		Amount     int64  `json:"amount"`
-		MinBalance int64  `json:"min-balance"`
+		Amount     uint64 `json:"amount"`
+		MinBalance uint64 `json:"min-balance"`
 		Assets     []struct {
-			AssetID int64 `json:"asset-id"`
-			Amount  int64 `json:"amount"`
+			AssetID uint64 `json:"asset-id"`
+			Amount  uint64 `json:"amount"`
 		} `json:"assets"`
 	}
-	if err := json.Unmarshal(b, &body); err != nil {
-		return nil, fmt.Errorf("algorand: %w", err)
+	if err := getAlgodJSON(ctx, "/v2/accounts/"+url.PathEscape(address), &body); err != nil {
+		return nil, err
 	}
 	// Non-nil even when empty: nil marshals to null, and an agent handed null
 	// says "unknown" where the true answer is "none".
 	assets := make([]map[string]any, 0, len(body.Assets))
-	for _, a := range body.Assets {
-		assets = append(assets, map[string]any{"assetId": a.AssetID, "amount": a.Amount})
+	unresolved := 0
+	for i, a := range body.Assets {
+		holding := map[string]any{"assetId": a.AssetID, "amountBaseUnits": a.Amount}
+		assets = append(assets, holding)
+		if i >= maxAlgorandAssetLookups {
+			unresolved++
+			continue
+		}
+		var info algorandAssetParams
+		if err := getAlgodJSON(ctx, "/v2/assets/"+strconv.FormatUint(a.AssetID, 10), &info); err != nil {
+			// A cancelled run is not an unresolved asset; stop and say so.
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			// One asset that will not resolve (deleted, algod hiccup) must not
+			// cost the caller the balance and every other holding.
+			unresolved++
+			continue
+		}
+		if info.Params.Decimals > maxASADecimals {
+			unresolved++
+			continue
+		}
+		holding["decimals"] = info.Params.Decimals
+		holding["unitName"] = info.Params.UnitName
+		holding["name"] = info.Params.Name
+		holding["amount"] = formatBaseUnits(a.Amount, info.Params.Decimals)
 	}
 	return map[string]any{
-		"address":    body.Address,
-		"algo":       float64(body.Amount) / microAlgosPerAlgo,
-		"minBalance": float64(body.MinBalance) / microAlgosPerAlgo,
-		"assets":     assets,
+		"address":          body.Address,
+		"algo":             float64(body.Amount) / microAlgosPerAlgo,
+		"minBalance":       float64(body.MinBalance) / microAlgosPerAlgo,
+		"assets":           assets,
+		"unresolvedAssets": unresolved,
 	}, nil
 }
