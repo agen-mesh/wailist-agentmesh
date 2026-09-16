@@ -1835,7 +1835,7 @@
           "name": "CoinGecko Price",
           "desc": "Spot prices (no key)",
           "kind": "read",
-          "note": "cgIDs are CoinGecko coin ids, not names or symbols. Look each one up with fetch_url https://api.coingecko.com/api/v3/search?query=<the name the user gave> and use the id of the result whose name or symbol matches what they said -- never a similar-sounding coin, and never web_search for an id.",
+          "note": "cgIDs are CoinGecko coin ids, not names or symbols. Get each one from resolve_coin, which is the only source add_node accepts -- an id from fetch_url or web_search is refused. Use the id of the match whose name or symbol matches what the user said, never a similar-sounding coin. If resolve_coin finds nothing, that token is not listed: say so and stop.",
           "fields": [
             {
               "key": "cgIDs",
