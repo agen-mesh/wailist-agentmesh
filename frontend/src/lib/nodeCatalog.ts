@@ -140,13 +140,20 @@ const TOOL_FIELDS: Record<string, CatalogField[]> = {
       hint: "a math expression such as (2+3)*4 -- the calculator stores it in the url field",
     },
   ],
-  websearch: [],
+  websearch: [
+    {
+      key: "searchQuery",
+      where: "config",
+      label: "Search query",
+      hint: "what to search for when this node runs in the flow; {{ result }} inserts the previous step's output",
+    },
+  ],
   xml: [],
 };
 
 const TOOL_NOTES: Record<string, string> = {
   websearch:
-    "Answers with a live Google Search. Attached to an agent it searches whatever the agent asks; as a flow step it searches the previous step's output.",
+    "Answers with a live Google Search. Attached to an agent's tools port it searches whatever the agent asks and needs no settings. As a FLOW step it needs searchQuery, or it searches the previous step's output -- and a manual trigger produces no output, so a flow node fed by one with no searchQuery fails at run time.",
   xml: "Parses the previous step's XML output into JSON. No settings.",
 };
 

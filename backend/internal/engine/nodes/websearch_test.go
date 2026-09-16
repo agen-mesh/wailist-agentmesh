@@ -76,7 +76,7 @@ func TestWebSearchRejectsMissingKey(t *testing.T) {
 
 func TestWebsearchQueryPrefersLLMArgOverMessage(t *testing.T) {
 	rc := &fakeRC{message: "original run message"}
-	got := websearchQuery(map[string]any{"query": "llm chosen query"}, rc)
+	got := websearchQuery(models.WorkflowNode{Template: "websearch"}, map[string]any{"query": "llm chosen query"}, rc)
 	if got != "llm chosen query" {
 		t.Fatalf("want LLM arg, got %q", got)
 	}
@@ -84,7 +84,7 @@ func TestWebsearchQueryPrefersLLMArgOverMessage(t *testing.T) {
 
 func TestWebsearchQueryFallsBackToMessageWhenNoArg(t *testing.T) {
 	rc := &fakeRC{message: "original run message"}
-	got := websearchQuery(nil, rc)
+	got := websearchQuery(models.WorkflowNode{Template: "websearch"}, nil, rc)
 	if got != "original run message" {
 		t.Fatalf("want fallback to rc.Message(), got %q", got)
 	}
@@ -124,5 +124,52 @@ func TestExecuteToolWebsearchWithoutPlatformKeyFails(t *testing.T) {
 	rc := &fakeRC{message: "fallback query"}
 	if _, err := ExecuteTool(context.Background(), node, rc); err == nil {
 		t.Fatal("expected error when no platform Gemini key is configured")
+	}
+}
+
+// A standalone Web Search node had no way to say what to search for: the
+// catalog gave tool/websearch zero fields, so the builder wired one into the
+// flow and it failed at run time with "query is required" -- a manual trigger
+// carries no message for it to fall back to.
+func TestWebsearchQueryPrefersTheAgentThenTheNodeThenTheUpstream(t *testing.T) {
+	configured := models.WorkflowNode{
+		Type: models.NodeTypeTool, Template: "websearch",
+		Config: map[string]string{"searchQuery": "top tokens on Base by volume"},
+	}
+	bare := models.WorkflowNode{Type: models.NodeTypeTool, Template: "websearch"}
+	rc := &fakeRC{message: "upstream text"}
+
+	// An agent calling the tool supplies the query as a function argument,
+	// and that always wins: it is the question actually being asked.
+	if got := websearchQuery(configured, map[string]any{"query": "from the agent"}, rc); got != "from the agent" {
+		t.Errorf("agent argument ignored, got %q", got)
+	}
+	// A flow node with no agent uses its own configured query.
+	if got := websearchQuery(configured, nil, rc); got != "top tokens on Base by volume" {
+		t.Errorf("configured query ignored, got %q", got)
+	}
+	// With neither, the previous step's output, which is the old behaviour.
+	if got := websearchQuery(bare, nil, rc); got != "upstream text" {
+		t.Errorf("upstream fallback broken, got %q", got)
+	}
+	// A blank configured query is not a query.
+	blank := models.WorkflowNode{
+		Type: models.NodeTypeTool, Template: "websearch",
+		Config: map[string]string{"searchQuery": "   "},
+	}
+	if got := websearchQuery(blank, nil, rc); got != "upstream text" {
+		t.Errorf("a blank searchQuery should fall through, got %q", got)
+	}
+}
+
+// The configured query resolves {{ }} references like every other setting,
+// so a node can search for whatever the step before it produced.
+func TestWebsearchQueryResolvesTemplateReferences(t *testing.T) {
+	node := models.WorkflowNode{
+		Type: models.NodeTypeTool, Template: "websearch",
+		Config: map[string]string{"searchQuery": "price of {{ result }}"},
+	}
+	if got := websearchQuery(node, nil, &fakeRC{message: "ALGO"}); got != "price of ALGO" {
+		t.Errorf("template not resolved, got %q", got)
 	}
 }
