@@ -558,9 +558,41 @@ func identicalNode(graph *models.WorkflowGraph, nodeType, template, name string,
 	return ""
 }
 
+// typesOwningTemplate lists the node types that have a template with this id.
+//
+// Usually zero or one. "http" is deliberately both a tool (an HTTP request)
+// and an end node (respond to a webhook), so this returns a slice rather than
+// a string: offering only one of them would send the model to the wrong one
+// half the time.
+func typesOwningTemplate(template string) []string {
+	var out []string
+	for _, t := range NodeCatalogData().Types {
+		for _, tpl := range t.Templates {
+			if tpl.ID == template {
+				out = append(out, t.Type)
+				break
+			}
+		}
+	}
+	return out
+}
+
 func addGraphNode(graph *models.WorkflowGraph, args map[string]any) (string, error) {
 	nodeType := argString(args, "type")
 	if !graphNodeTypes[nodeType] {
+		// A type that is really a template name is the common mistake, and
+		// the plain list of valid types does not help with it: the model
+		// already knows "tool" is a type, it just put "http" where the type
+		// goes. Naming the pair it meant turns a wasted round into a
+		// corrected one -- and a failed add_node here is what leads to
+		// add_edge calls against node ids that were never created.
+		if owners := typesOwningTemplate(nodeType); len(owners) > 0 {
+			pairs := make([]string, 0, len(owners))
+			for _, o := range owners {
+				pairs = append(pairs, fmt.Sprintf("type=%s, template=%s", o, nodeType))
+			}
+			return "", fmt.Errorf("add_node: %q is a template, not a type -- you want %s", nodeType, strings.Join(pairs, " or "))
+		}
 		return "", fmt.Errorf("add_node: invalid type %q; valid types: %s", nodeType, typeNames())
 	}
 	template := argString(args, "template")
