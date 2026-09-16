@@ -84,12 +84,19 @@ func TestAlgorandAccountFlattensTheHoldings(t *testing.T) {
 
 	m := readAlgorandAccount(t)
 	// Whole ALGO, not microalgos: every agent that has ever been handed
-	// microalgos has reported them as ALGO.
-	if m["algo"] != 2.5 {
-		t.Errorf("algo = %v, want 2.5", m["algo"])
+	// microalgos has reported them as ALGO. The exact integer travels beside
+	// it, the same shape every asset holding uses.
+	if m["algo"] != "2.5" {
+		t.Errorf("algo = %#v, want \"2.5\"", m["algo"])
 	}
-	if m["minBalance"] != 0.1 {
-		t.Errorf("minBalance = %v, want 0.1", m["minBalance"])
+	if m["algoMicro"] != uint64(2500000) {
+		t.Errorf("algoMicro = %#v, want 2500000", m["algoMicro"])
+	}
+	if m["minBalance"] != "0.1" {
+		t.Errorf("minBalance = %#v, want \"0.1\"", m["minBalance"])
+	}
+	if m["minBalanceMicro"] != uint64(100000) {
+		t.Errorf("minBalanceMicro = %#v, want 100000", m["minBalanceMicro"])
 	}
 	if m["address"] != "ABCDEF" {
 		t.Errorf("address = %v, want ABCDEF", m["address"])
@@ -140,6 +147,27 @@ func TestAlgorandAccountKeepsLargeAmountsExact(t *testing.T) {
 	}
 	if got := assets[1]["amount"]; got != "9007199254740993" {
 		t.Errorf("2^53+1 amount = %v", got)
+	}
+}
+
+// The headline balance is the field most likely to be on screen, and a whale
+// or exchange wallet is past what float64 holds exactly: ALGO supply is 10^16
+// microalgos and float64 stops being exact at about 9.007e15.
+func TestAlgorandAccountKeepsALargeAlgoBalanceExact(t *testing.T) {
+	algodStub(t, `{"address":"ABCDEF","amount":9007199254740993,"min-balance":0,"assets":[]}`, nil)
+	m := readAlgorandAccount(t)
+	// 9007199254740993 microalgos is 9,007,199,254.740993 ALGO.
+	if m["algo"] != "9007199254.740993" {
+		t.Errorf("algo = %#v, want \"9007199254.740993\"", m["algo"])
+	}
+	if m["algoMicro"] != uint64(9007199254740993) {
+		t.Errorf("algoMicro = %#v, want 9007199254740993", m["algoMicro"])
+	}
+	if m["minBalance"] != "0" {
+		t.Errorf("minBalance = %#v, want \"0\"", m["minBalance"])
+	}
+	if m["minBalanceMicro"] != uint64(0) {
+		t.Errorf("minBalanceMicro = %#v, want 0", m["minBalanceMicro"])
 	}
 }
 

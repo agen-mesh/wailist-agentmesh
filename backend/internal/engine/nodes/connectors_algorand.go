@@ -26,9 +26,13 @@ var algodAPIBase string
 // which then fails closed naming the setting.
 func SetAlgorandBases(algod string) { algodAPIBase = strings.TrimRight(strings.TrimSpace(algod), "/") }
 
-// microAlgosPerAlgo converts the only unit algod reports into the only unit a
-// person uses.
-const microAlgosPerAlgo = 1_000_000
+// algoDecimals is how many decimal places separate the only unit algod
+// reports (microalgos) from the only unit a person uses. ALGO is just an
+// asset with six decimals as far as formatting goes, so it goes through
+// formatBaseUnits like every ASA holding rather than through a float: total
+// supply is 10^16 microalgos and float64 stops being exact at about
+// 9.007e15, which is every exchange and foundation wallet.
+const algoDecimals = 6
 
 // maxAlgorandAssetLookups caps the per-holding /v2/assets calls one read
 // makes. An account can hold thousands of ASAs, and each lookup is a round
@@ -96,7 +100,10 @@ func formatBaseUnits(v, decimals uint64) string {
 // `path "prices" descends past a scalar`. Amounts are converted to whole
 // units here for the same class of reason: an agent handed base units
 // reports them as whole units, so 1.5 USDC would read as 1,500,000 USDC.
-// Each holding keeps its exact amountBaseUnits beside the converted amount.
+// Every converted amount is an exact decimal string with the exact integer
+// beside it (algo/algoMicro, amount/amountBaseUnits), because a balance is
+// not the place to round and float64 cannot hold every uint64: ALGO supply
+// alone is 10^16 microalgos, past where float64 stays exact.
 //
 // algod answers current state only. Transaction history needs an indexer, a
 // separate service this connector does not talk to; the catalog note sends
@@ -154,8 +161,10 @@ func fetchAlgorandAccount(ctx context.Context, node models.WorkflowNode, rc RunC
 	}
 	return map[string]any{
 		"address":          body.Address,
-		"algo":             float64(body.Amount) / microAlgosPerAlgo,
-		"minBalance":       float64(body.MinBalance) / microAlgosPerAlgo,
+		"algo":             formatBaseUnits(body.Amount, algoDecimals),
+		"algoMicro":        body.Amount,
+		"minBalance":       formatBaseUnits(body.MinBalance, algoDecimals),
+		"minBalanceMicro":  body.MinBalance,
 		"assets":           assets,
 		"unresolvedAssets": unresolved,
 	}, nil
