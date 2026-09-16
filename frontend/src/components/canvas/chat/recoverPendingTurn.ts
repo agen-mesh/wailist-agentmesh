@@ -1,4 +1,4 @@
-import type { RunLogRecord } from "@/lib/api";
+import { isSettledLogStatus, type RunLogRecord } from "@/lib/api";
 import type { LogEvent } from "../useRunTranscript";
 import { resolveReply } from "./resolveReply";
 
@@ -34,15 +34,20 @@ const TERMINAL = new Set(["success", "failed", "stopped"]);
  * Only settled rows carry a meaningful result: a row still marked `pending` or
  * `running` is a step the engine had not finished writing, so including it
  * would let resolveReply treat a half-written step as the answer.
+ *
+ * Settledness comes from isSettledLogStatus rather than a local allowlist:
+ * resolveReply counts the `degraded` rows to decide whether to warn that the
+ * answer is partial, so dropping them here would recover the turn as a clean
+ * answer for a run that lost a source.
  */
 export function toLogEvents(rows: RunLogRecord[]): LogEvent[] {
   return rows
-    .filter((r) => r.status === "success" || r.status === "failed")
+    .filter((r) => isSettledLogStatus(r.status))
     .map((r) => ({
       stepIndex: r.stepIndex,
       nodeId: r.nodeId,
       nodeType: r.nodeType,
-      status: r.status as "success" | "failed",
+      status: r.status as LogEvent["status"],
       output: r.output,
       durationMs: r.durationMs ?? 0,
       ts: r.ts,

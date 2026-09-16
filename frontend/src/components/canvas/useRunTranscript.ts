@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   runs as runsApi,
+  isSettledLogStatus,
   type RunLogRecord,
   type DeadLetterRun,
 } from "@/lib/api";
@@ -349,7 +350,10 @@ export function useRunTranscript({
         let next = prev;
         let mutated = false;
         for (const l of dbLogs) {
-          if (l.status !== "success" && l.status !== "failed") continue;
+          // Every settled status, not a hand-listed pair: this is the path
+          // that repairs a transcript when an SSE event was dropped, so a
+          // status missing here is a step the console never learns about.
+          if (!isSettledLogStatus(l.status)) continue;
           if (
             next.some(
               (e) =>
@@ -364,7 +368,7 @@ export function useRunTranscript({
             stepIndex: l.stepIndex,
             nodeId: l.nodeId,
             nodeType: l.nodeType,
-            status: l.status as "success" | "failed",
+            status: l.status as LogEvent["status"],
             output: l.output,
             durationMs: l.durationMs ?? 0,
             ts: l.ts,

@@ -701,6 +701,33 @@ export interface RunLogRecord {
   ts: string;
 }
 
+/**
+ * Which run-log statuses mean a step has finished and its result is final.
+ *
+ * Written as a Record over every status in RunLogRecord rather than as an
+ * inline `status === "success" || status === "failed"` test, so that adding a
+ * status to the union above fails to compile here instead of being silently
+ * dropped. That is not hypothetical: "degraded" was added to the union and to
+ * the live SSE path, while both readers of the stored rows kept their own
+ * two-value allowlist and discarded every degraded step -- so a run that lost
+ * a source was replayed from the database as a clean one.
+ */
+const SETTLED_LOG_STATUS: Record<RunLogRecord["status"], boolean> = {
+  pending: false,
+  running: false,
+  success: true,
+  failed: true,
+  degraded: true,
+};
+
+/**
+ * Whether a stored run-log row carries a final result. A row still marked
+ * pending or running is a step the engine had not finished writing.
+ */
+export function isSettledLogStatus(status: RunLogRecord["status"]): boolean {
+  return SETTLED_LOG_STATUS[status];
+}
+
 export interface DeadLetterRun {
   id: string;
   runId: string;
