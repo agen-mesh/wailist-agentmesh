@@ -32,9 +32,12 @@ type CatalogTemplate struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Desc string `json:"desc"`
-	// Kind is "read" or "action". A read template's failure may be degraded
-	// into an error payload the run continues with; an action's may not,
-	// because it may already have had an effect outside the workflow.
+	// Kind is "read", "compute" or "action". Only a read's failure may be
+	// degraded into an error payload the run continues with: it fetches from
+	// a source outside the workflow, and that source can be down now and back
+	// later. A compute template runs entirely in-process, so its failure is a
+	// fault in the workflow that would repeat on every run; an action's may
+	// already have had an effect outside the workflow. Both fail the run.
 	// Generated from frontend/src/lib/nodeCatalog.ts -- see IsDegradable.
 	Kind          string            `json:"kind"`
 	Note          string            `json:"note,omitempty"`

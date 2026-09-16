@@ -58,8 +58,17 @@ export interface CatalogTemplate {
   id: string;
   name: string;
   desc: string;
-  /** "read" (its failure may be degraded) or "action" (its failure fails the run). */
-  kind: "read" | "action";
+  /**
+   * What kind of work the template does, which is what decides whether its
+   * failure may be degraded into an error payload the run continues with:
+   * - "read":    fetches from a source outside the workflow, which can be
+   *              down. Its failure may be degraded.
+   * - "compute": pure local computation, or a read of the workflow's own
+   *              saved state. Nothing outside can make it fail, so a failure
+   *              is a fault in the workflow and must fail the run.
+   * - "action":  sends, pays or writes. Its failure fails the run.
+   */
+  kind: "read" | "compute" | "action";
   /** A caveat the builder must respect, e.g. behaviour that is not implemented. */
   note?: string;
   /** Fields set automatically when the node is created, exactly as the palette does. */
@@ -227,18 +236,25 @@ const AGENT_NOTES: Record<string, string> = {
 };
 
 /**
- * Templates whose failure may be degraded: they read, and nothing outside the
- * workflow changes when they run. Everything absent from this set is an
- * action, which is the fail-closed default the backend also applies.
+ * How every template is classified, keyed "<type>/<id>" because ids repeat
+ * across types ("http" is both a tool and an end node, "get" is both a state
+ * op and a Drive one).
  *
- * Keyed "<type>/<id>" because ids repeat across types ("http" is both a tool
- * and an end node, "get" is both a state op and a Drive one).
- *
- * tool/http is deliberately absent: it is classified at run time by its
- * method, since the same template GETs or POSTs depending on its config.
+ * tool/http is deliberately in neither set: it is classified at run time by
+ * its method, since the same template GETs or POSTs depending on its config.
  */
-const READ_TEMPLATES = new Set<string>([
-  // tools: pure computation or a read, none of them leave the workflow
+// Templates that are pure local computation, or that read only what this
+// workflow itself saved. Nothing outside the workflow can make one of these
+// fail, so a failure is a fault in the workflow -- a malformed expression, a
+// jsonPath that does not match -- and it fails the run rather than degrading.
+// Degrading them would turn an authoring bug into an answer that says "the
+// step failed" on this run and on every run after it, since the same input
+// produces the same failure forever.
+//
+// Every one of these executes entirely inside the process: none of the tool
+// cases in the engine's tool.go makes a network call, and state/get reads a
+// value this workflow stored.
+const COMPUTE_TEMPLATES = new Set<string>([
   "tool/calc",
   "tool/set",
   "tool/json_extract",
@@ -249,6 +265,17 @@ const READ_TEMPLATES = new Set<string>([
   "tool/html_extract",
   "tool/markdown",
   "tool/quickchart",
+  // Reading a variable is safe, but it is this workflow's own value, not a
+  // live source -- so a miss is a wrong key, not an outage.
+  "state/get",
+]);
+
+// Templates that fetch from a source outside the workflow. These are the only
+// ones whose failure may be degraded: the source really can be unavailable,
+// and on the next run it may well be back.
+const READ_TEMPLATES = new Set<string>([
+  // The only tool that leaves the workflow. tool/http is decided by method
+  // instead -- see kindOf.
   "tool/websearch",
   // connectors that fetch rather than send. graphql stays an action: an
   // endpoint can mutate and nothing in the node's config says whether this
@@ -268,19 +295,26 @@ const READ_TEMPLATES = new Set<string>([
   "google/drive_list",
   "google/drive_get",
   "google/drive_download",
-  // state: reading a variable is safe, writing one is not
-  "state/get",
 ]);
 
 /**
  * kindOf answers the question the runner asks when a node fails: may this
  * failure be degraded into an error payload the run continues with?
  *
+ * Only a "read" may. "compute" is a template that cannot fail for any reason
+ * outside the workflow, so its failure is an authoring bug the user needs to
+ * see. Everything unlisted is "action", which fails the run -- the safe
+ * answer, and the one a template added later gets until someone classifies
+ * it deliberately.
+ *
  * tool/http is decided by method at run time; "action" here is the safe
  * catalog answer, and the backend overrides it for a GET.
  */
-function kindOf(type: string, id: string): "read" | "action" {
-  return READ_TEMPLATES.has(`${type}/${id}`) ? "read" : "action";
+function kindOf(type: string, id: string): "read" | "compute" | "action" {
+  const key = `${type}/${id}`;
+  if (READ_TEMPLATES.has(key)) return "read";
+  if (COMPUTE_TEMPLATES.has(key)) return "compute";
+  return "action";
 }
 
 export function buildNodeCatalog(): NodeCatalog {

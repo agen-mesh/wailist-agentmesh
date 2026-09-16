@@ -287,7 +287,7 @@
           "id": "calc",
           "name": "Calculator",
           "desc": "Math expressions",
-          "kind": "read",
+          "kind": "compute",
           "fields": [
             {
               "key": "url",
@@ -301,7 +301,7 @@
           "id": "set",
           "name": "Edit Fields",
           "desc": "Build an object from refs",
-          "kind": "read",
+          "kind": "compute",
           "fields": [
             {
               "key": "setFields",
@@ -316,7 +316,7 @@
           "id": "json_extract",
           "name": "JSON Extract",
           "desc": "Pick a value by path",
-          "kind": "read",
+          "kind": "compute",
           "fields": [
             {
               "key": "jsonPath",
@@ -331,7 +331,7 @@
           "id": "crypto",
           "name": "Crypto",
           "desc": "Hash / HMAC / base64",
-          "kind": "read",
+          "kind": "compute",
           "fields": [
             {
               "key": "cryptoAction",
@@ -353,7 +353,7 @@
           "id": "datetime",
           "name": "Date & Time",
           "desc": "Now, offset, timezone",
-          "kind": "read",
+          "kind": "compute",
           "fields": [
             {
               "key": "dtFormat",
@@ -382,7 +382,7 @@
           "id": "xml",
           "name": "XML → JSON",
           "desc": "Parse XML payloads",
-          "kind": "read",
+          "kind": "compute",
           "note": "Parses the previous step's XML output into JSON. No settings.",
           "fields": []
         },
@@ -390,7 +390,7 @@
           "id": "template",
           "name": "Text Template",
           "desc": "Compose with {{ refs }}",
-          "kind": "read",
+          "kind": "compute",
           "fields": [
             {
               "key": "templateText",
@@ -405,7 +405,7 @@
           "id": "html_extract",
           "name": "HTML Extract",
           "desc": "CSS selector → text",
-          "kind": "read",
+          "kind": "compute",
           "fields": [
             {
               "key": "htmlSelector",
@@ -433,7 +433,7 @@
           "id": "markdown",
           "name": "Markdown → HTML",
           "desc": "Render agent output",
-          "kind": "read",
+          "kind": "compute",
           "fields": [
             {
               "key": "mdGFM",
@@ -448,7 +448,7 @@
           "id": "quickchart",
           "name": "QuickChart",
           "desc": "Chart image URL",
-          "kind": "read",
+          "kind": "compute",
           "fields": [
             {
               "key": "qcConfig",
@@ -2144,7 +2144,7 @@
           "id": "get",
           "name": "Read State",
           "desc": "Load a saved value",
-          "kind": "read",
+          "kind": "compute",
           "presets": {
             "stateOp": "get"
           },
