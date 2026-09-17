@@ -96,13 +96,9 @@ func cadenceCron(cadence string, hour, minute int, dayOfWeek time.Weekday, dayOf
 	case "weekly":
 		return fmt.Sprintf("%d %d * * %d", utc.Minute(), utc.Hour(), int(utc.Weekday()))
 	case "monthly":
-		// A shift across a month boundary would name a day in the wrong
-		// month; the picked day (1-28) is valid in every month, so keep it.
-		dom := utc.Day()
-		if utc.Month() != local.Month() || utc.Year() != local.Year() {
-			dom = dayOfMonth
-		}
-		return fmt.Sprintf("%d %d %d * *", utc.Minute(), utc.Hour(), dom)
+		// Only reached when the UTC day is the local day (see set), so the
+		// picked day is the day in both.
+		return fmt.Sprintf("%d %d %d * *", utc.Minute(), utc.Hour(), dayOfMonth)
 	default:
 		return fmt.Sprintf("%d %d * * *", utc.Minute(), utc.Hour())
 	}
@@ -142,6 +138,20 @@ func (s *builderSchedule) set(args map[string]any, now time.Time) (string, error
 			// 28, not 31: a day that does not exist in every month would
 			// silently skip February, and the Schedule picker offers 1-28.
 			return "", fmt.Errorf("set_schedule: a monthly schedule needs dayOfMonth between 1 and 28")
+		}
+		// A standard cron names a UTC day of the month. If this local time
+		// is on a different UTC day, the schedule would either fire a day
+		// off (day 1 early in India is the previous month's last day in
+		// UTC, which cron cannot name) or not at all in some months (day 28
+		// late in New York is the 29th in UTC). Checked in winter and in
+		// summer, since daylight saving moves the boundary, so the answer
+		// does not depend on today.
+		for _, month := range []time.Month{time.January, time.July} {
+			local := time.Date(2026, month, n, hour, minute, 0, 0, s.loc)
+			if local.UTC().Day() != n {
+				return "", fmt.Errorf("set_schedule: %02d:%02d on day %d in %s is on a different day in UTC, so it cannot be saved as a monthly schedule without firing on the wrong day -- ask the user for a different time or day, or tell them to set it on the Workflows page",
+					hour, minute, n, zoneName(s.loc))
+			}
 		}
 		dom = n
 		when = fmt.Sprintf("on day %d of every month", n)

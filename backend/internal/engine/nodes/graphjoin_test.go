@@ -83,6 +83,8 @@ func TestAddNodeRejectsBadSetFieldsPairs(t *testing.T) {
 	bad := map[string]any{
 		"empty list":     []any{},
 		"missing name":   []any{map[string]any{"value": "x"}},
+		"missing value":  []any{map[string]any{"name": "price"}},
+		"null value":     []any{map[string]any{"name": "price", "value": nil}},
 		"duplicate name": []any{map[string]any{"name": "a", "value": "1"}, map[string]any{"name": "a", "value": "2"}},
 		"a number":       float64(3),
 	}

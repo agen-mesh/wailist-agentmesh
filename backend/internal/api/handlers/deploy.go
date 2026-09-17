@@ -45,20 +45,32 @@ func (d *Deps) Deploy(w http.ResponseWriter, r *http.Request) {
 
 	runEndpoint := fmt.Sprintf("%s/run/%s", d.BaseURL, id)
 	now := time.Now()
-	if err := d.Store.SetWorkflowDeployed(ctx, id, runEndpoint, now); err != nil {
-		respond.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
 	// A schedule can be saved before deployment (the chat builder does), and
 	// its next run was computed then. Left alone, a next run that has since
 	// passed is due the moment the workflow goes live, so deploying would
 	// fire an unasked-for run. Count from now instead.
+	//
+	// Before marking it deployed, not after: the scheduler only claims
+	// deployed workflows, so while this runs the stale time cannot fire. A
+	// failure here stops the deploy for the same reason. Conditional on the
+	// schedule still being the one read above, so a schedule removed in the
+	// meantime is not written back.
 	if wf.ScheduleCron != nil && *wf.ScheduleCron != "" {
-		if sched, err := cron.ParseStandard(*wf.ScheduleCron); err != nil {
+		sched, err := cron.ParseStandard(*wf.ScheduleCron)
+		if err != nil {
 			log.Printf("deploy %s: stored schedule %q does not parse: %v", id, *wf.ScheduleCron, err)
-		} else if err := d.Store.SetWorkflowSchedule(ctx, id, *wf.ScheduleCron, sched.Next(now.UTC())); err != nil {
-			log.Printf("deploy %s: recompute next scheduled run: %v", id, err)
+			respond.Error(w, http.StatusConflict, "this workflow's schedule is not valid -- remove it or set it again, then deploy")
+			return
 		}
+		if _, err := d.Store.RescheduleWorkflowNextRun(ctx, id, *wf.ScheduleCron, sched.Next(now.UTC())); err != nil {
+			log.Printf("deploy %s: recompute next scheduled run: %v", id, err)
+			respond.Error(w, http.StatusInternalServerError, "could not update the workflow's schedule")
+			return
+		}
+	}
+	if err := d.Store.SetWorkflowDeployed(ctx, id, runEndpoint, now); err != nil {
+		respond.Error(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 
 	respond.JSON(w, http.StatusOK, map[string]any{

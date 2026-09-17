@@ -143,3 +143,32 @@ func TestBuildWorkflowReplyMentionsNothingExtraWhenTheScheduleSaves(t *testing.T
 		t.Errorf("a saved schedule was reported as failed: %s", rec.Body.String())
 	}
 }
+
+// Deploy's recompute is conditional: a schedule removed after Deploy read
+// the workflow is not written back.
+func TestRescheduleLeavesAChangedScheduleAlone(t *testing.T) {
+	d := testDeps(t)
+	ctx := context.Background()
+	wf, err := d.Store.CreateWorkflow(ctx, "Changed", "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Store.DeleteWorkflow(context.Background(), wf.ID) })
+	if err := d.Store.SetWorkflowSchedule(ctx, wf.ID, "0 9 * * *", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Store.ClearWorkflowSchedule(ctx, wf.ID); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := d.Store.RescheduleWorkflowNextRun(ctx, wf.ID, "0 9 * * *", time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated {
+		t.Error("a removed schedule was updated")
+	}
+	saved, _ := d.Store.GetWorkflow(ctx, wf.ID)
+	if saved.ScheduleCron != nil || saved.ScheduleNextRunAt != nil {
+		t.Errorf("the removed schedule came back: %v %v", saved.ScheduleCron, saved.ScheduleNextRunAt)
+	}
+}

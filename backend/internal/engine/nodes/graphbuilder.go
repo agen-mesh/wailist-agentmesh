@@ -334,13 +334,14 @@ func encodeJSONObjectValue(key string, v any) (string, error) {
 		for _, item := range t {
 			pair, _ := item.(map[string]any)
 			name, _ := pair["name"].(string)
-			if strings.TrimSpace(name) == "" {
+			value, hasValue := pair["value"].(string)
+			if strings.TrimSpace(name) == "" || !hasValue {
 				return "", fmt.Errorf("%s: every entry needs a name and a value, such as {\"name\": \"price\", \"value\": \"{{ node.n2 }}\"}", key)
 			}
 			if _, dup := obj[name]; dup {
 				return "", fmt.Errorf("%s: %q is listed twice", key, name)
 			}
-			obj[name] = pair["value"]
+			obj[name] = value
 		}
 	default:
 		return "", fmt.Errorf("%s must be a list of name/value pairs, got %T", key, v)

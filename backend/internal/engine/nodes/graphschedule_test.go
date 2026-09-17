@@ -39,9 +39,7 @@ func TestSetScheduleConvertsLocalTimeToUTC(t *testing.T) {
 		// Crosses forward a day: Monday 20:00 in LA is Tuesday 04:00 UTC.
 		{"los angeles weekly", "America/Los_Angeles", map[string]any{"cadence": "weekly", "time": "20:00", "day": "monday"}, "0 4 * * 2"},
 		{"india monthly", "Asia/Kolkata", map[string]any{"cadence": "monthly", "time": "09:00", "dayOfMonth": float64(15)}, "30 3 15 * *"},
-		// Day 1 at 02:00 in India is the last day of the previous month in
-		// UTC; the picked day is kept rather than naming the wrong month.
-		{"monthly across a month boundary", "Asia/Kolkata", map[string]any{"cadence": "monthly", "time": "02:00", "dayOfMonth": "1"}, "30 20 1 * *"},
+		{"new york monthly, same UTC day", "America/New_York", map[string]any{"cadence": "monthly", "time": "09:00", "dayOfMonth": float64(28)}, "0 14 28 * *"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -161,5 +159,60 @@ func TestBuildGraphWithoutSetScheduleLeavesItNil(t *testing.T) {
 	}
 	if res.Schedule != nil {
 		t.Errorf("schedule = %q, want nil so an existing schedule is left alone", *res.Schedule)
+	}
+}
+
+// A monthly time whose UTC equivalent falls on a different day cannot be
+// written as a standard cron without firing on the wrong day. Day 1 at 02:00
+// in India is 20:30 UTC on the LAST day of the previous month, which cron
+// cannot name; day 28 at 23:00 in New York is 04:00 UTC on the 29th, which
+// February does not have. Refused, not saved wrong.
+func TestSetScheduleRefusesAMonthlyTimeThatChangesDayInUTC(t *testing.T) {
+	cases := []struct {
+		tz   string
+		time string
+		day  float64
+	}{
+		{"Asia/Kolkata", "02:00", 1},
+		{"America/New_York", "23:00", 28},
+		{"America/New_York", "20:00", 15},
+		// Same UTC day in winter (00:30), the previous day in summer
+		// (23:30): only a summer check catches it.
+		{"Europe/Berlin", "01:30", 10},
+	}
+	for _, c := range cases {
+		s := newBuilderSchedule(c.tz)
+		_, err := s.set(map[string]any{"cadence": "monthly", "time": c.time, "dayOfMonth": c.day}, schedNow)
+		if err == nil {
+			t.Errorf("%s day %v at %s was accepted as %q", c.tz, c.day, c.time, *s.cron)
+			continue
+		}
+		if s.cron != nil {
+			t.Errorf("%s: the schedule changed despite the refusal", c.tz)
+		}
+		if !strings.Contains(err.Error(), "Workflows page") && !strings.Contains(err.Error(), "different time") {
+			t.Errorf("%s: the refusal should say what to do instead: %v", c.tz, err)
+		}
+	}
+}
+
+// The same request must give the same cron whatever month the build runs in.
+func TestSetScheduleMonthlyDoesNotDependOnTheCurrentMonth(t *testing.T) {
+	args := map[string]any{"cadence": "monthly", "time": "09:00", "dayOfMonth": float64(28)}
+	var first string
+	for m := time.January; m <= time.December; m++ {
+		s := newBuilderSchedule("America/New_York")
+		if _, err := s.set(args, time.Date(2026, m, 3, 12, 0, 0, 0, time.UTC)); err != nil {
+			t.Fatalf("%s: %v", m, err)
+		}
+		// New York moves between UTC-5 and UTC-4, so the hour legitimately
+		// differs with DST; the day must not.
+		fields := strings.Fields(*s.cron)
+		if first == "" {
+			first = fields[2]
+		}
+		if fields[2] != "28" {
+			t.Errorf("%s: day-of-month = %s, want 28", m, fields[2])
+		}
 	}
 }
