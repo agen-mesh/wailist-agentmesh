@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/agentmesh/backend/internal/bazaar"
@@ -90,12 +89,17 @@ func probeX402Resource(ctx context.Context, r bazaar.Resource) x402Probe {
 		return out
 	}
 	a := challenge.Accepts[0]
-	if s, ok := a["amount"].(string); ok {
-		// Parsed from the string the challenge sent, never via float: these
-		// are atomic units and a price is not the place to round.
-		if v, err := strconv.ParseInt(s, 10, 64); err == nil && v >= 0 {
-			out.AmountMicros = v
-		}
+	// Read exactly the way the payer reads it (probeTool402Endpoint): both
+	// field names, maxAmountRequired first, as a string or a JSON number,
+	// with the same ceiling. A probe stricter than the payer would call a
+	// challenge unreadable that the payer then pays, and keep the stale
+	// catalog price for it.
+	amount, ok := ParseMaxAmountRequiredAsMicros(a["maxAmountRequired"])
+	if !ok {
+		amount, ok = ParseMaxAmountRequiredAsMicros(a["amount"])
+	}
+	if ok {
+		out.AmountMicros = amount
 	}
 	if s, ok := a["asset"].(string); ok {
 		out.Asset = s
@@ -106,56 +110,62 @@ func probeX402Resource(ctx context.Context, r bazaar.Resource) x402Probe {
 // judgeX402Probe turns a probe into what the builder does with the entry:
 // refuse it, or add it with a note and the price to put on the node.
 //
-// price is the endpoint's own per-call price in atomic units, taken from the
-// live challenge when it gave one and from the catalog otherwise. The live
-// value wins because it is what the user will actually be charged; the
-// catalog is a mirror that can be hours out of date.
+// price and asset are the endpoint's own per-call price in atomic units and
+// the asset it is denominated in, taken together from the live challenge when
+// it gave them and from the catalog otherwise. Together, because a number is
+// not a price without its asset. The live values win because they are what
+// the user will actually be charged; the catalog is a mirror that can be
+// hours out of date.
 //
 // A non-GET entry is judged loosely on purpose. The probe sends no body, so
 // a 400 from a POST endpoint says "you sent me nothing", not "I am broken",
 // and refusing on it would reject working endpoints. Only a refusal that
 // cannot be explained by the missing body -- unreachable, or gone -- stands.
-func judgeX402Probe(r bazaar.Resource, p x402Probe) (refuse, note string, price int64) {
-	price = r.AmountMicros
+func judgeX402Probe(r bazaar.Resource, p x402Probe) (refuse, note string, price int64, asset string) {
+	price, asset = r.AmountMicros, r.Asset
 	isGet := r.Method == "" || strings.EqualFold(r.Method, http.MethodGet)
 
 	switch {
 	case p.Err != nil:
 		return fmt.Sprintf("refused: the x402 endpoint %s could not be reached, so paying it would fail the same way. "+
-			"Call search_x402 again and pick a different endpoint, or build this another way.", r.URL), "", price
+			"Call search_x402 again and pick a different endpoint, or build this another way.", r.URL), "", price, asset
 
 	case p.Status == http.StatusPaymentRequired:
 		if p.AmountMicros < 0 {
 			return "", " -- checked: the endpoint still answers and still asks for payment, but its challenge could not be read," +
-				" so the catalog price below is the best available and may be out of date.", price
+				" so the price above is the catalog's and may be out of date.", price, asset
+		}
+		liveAsset := p.Asset
+		if liveAsset == "" {
+			liveAsset = r.Asset
 		}
 		note = " -- verified: the endpoint answered with a live payment challenge."
-		if p.AmountMicros != r.AmountMicros {
-			note += fmt.Sprintf(" Its price has changed since the catalog was mirrored: it now charges %s %s per call, not %s. The node uses the live price.",
-				formatMicros(p.AmountMicros), assetSymbol(p.Asset), formatMicros(r.AmountMicros))
+		if p.AmountMicros != r.AmountMicros || liveAsset != r.Asset {
+			note += fmt.Sprintf(" Its price has changed since the catalog was mirrored: it charged %s %s, and now charges the price above. The node uses the live price.",
+				formatMicros(r.AmountMicros), assetSymbol(r.Asset))
 		}
-		return "", note, p.AmountMicros
+		return "", note, p.AmountMicros, liveAsset
 
 	case p.Status == http.StatusNotFound || p.Status == http.StatusGone:
 		return fmt.Sprintf("refused: the x402 endpoint %s answered HTTP %d, so it is gone. "+
-			"Call search_x402 again and pick a different endpoint, or build this another way.", r.URL, p.Status), "", price
+			"Call search_x402 again and pick a different endpoint, or build this another way.", r.URL, p.Status), "", price, asset
 
 	case !isGet:
 		// Everything below this point is read as a statement about the
 		// endpoint's health, which a body-less non-GET probe cannot make.
 		return "", fmt.Sprintf(" -- note: this is a %s endpoint, so it could not be checked without sending a real request."+
-			" Its price and its response shape are the catalog's, unverified.", strings.ToUpper(r.Method)), price
+			" Its price and its response shape are the catalog's, unverified.", strings.ToUpper(r.Method)), price, asset
 
 	case p.Status == http.StatusUnauthorized || p.Status == http.StatusForbidden:
 		return "", fmt.Sprintf(" -- note: the endpoint answered HTTP %d rather than a payment challenge, so it wants a credential as well as payment."+
-			" Say so in your reply; the user adds it in the Inspector.", p.Status), price
+			" Say so in your reply; the user adds it in the Inspector.", p.Status), price, asset
 
 	case p.Status >= 200 && p.Status < 300:
 		return "", fmt.Sprintf(" -- warning: the endpoint answered HTTP %d without asking for payment."+
-			" It is either free now or returning an error page, and either way it is not behaving as a paid endpoint. Tell the user before relying on it.", p.Status), price
+			" It is either free now or returning an error page, and either way it is not behaving as a paid endpoint. Tell the user before relying on it.", p.Status), price, asset
 
 	default:
 		return fmt.Sprintf("refused: the x402 endpoint %s answered HTTP %d instead of a payment challenge, so a paid call would fail on it. "+
-			"Call search_x402 again and pick a different endpoint, or build this another way.", r.URL, p.Status), "", price
+			"Call search_x402 again and pick a different endpoint, or build this another way.", r.URL, p.Status), "", price, asset
 	}
 }

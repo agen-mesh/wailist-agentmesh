@@ -145,11 +145,13 @@ func main() {
 	// Both optional; see backend/.env.example. Blank WEB_SEARCH_MODEL keeps
 	// grounded search on gemini-2.5-flash.
 	nodes.SetWebSearchModel(os.Getenv("WEB_SEARCH_MODEL"))
-	// The same ALGOD_URL the wallet uses. One setting, one node, so a
-	// deployment cannot end up reading one chain and paying on another.
+	// The same ALGOD_URL the wallet uses, so a deployment cannot end up
+	// reading one chain and paying on another. The indexer is a separate
+	// service with its own setting; left unset, its default follows
+	// ALGORAND_NETWORK so it names the same chain as everything else here.
 	nodes.SetAlgorandBases(
 		envOr("ALGOD_URL", "https://testnet-api.algonode.cloud"),
-		envOr("ALGORAND_INDEXER_URL", "https://testnet-idx.algonode.cloud"),
+		envOr("ALGORAND_INDEXER_URL", nodes.AlgorandIndexerDefault(envOr("ALGORAND_NETWORK", "testnet"))),
 	)
 	// Blank BUILDER_THINKING_BUDGET sends no thinking config, leaving builder
 	// thinking as it is today. Unlike envInt64Or, a value that does not parse

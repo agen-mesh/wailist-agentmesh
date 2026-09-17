@@ -168,15 +168,46 @@ func TestAlgorandTransactionsClampsTheLimit(t *testing.T) {
 
 func TestAlgorandTransactionsPassesTheTypeFilter(t *testing.T) {
 	_, lastQuery := indexerStub(t, payAndTransfer, usdcParams)
-	readTxns(t, map[string]string{"algoTxType": "axfer"})
+	out := readTxns(t, map[string]string{"algoTxType": "AXFER"})
 	if q := lastQuery(); !strings.Contains(q, "tx-type=axfer") {
 		t.Errorf("query = %q, want the type filter passed through", q)
 	}
-	// A type the chain does not have must not be sent as a filter that
-	// silently returns nothing.
-	readTxns(t, map[string]string{"algoTxType": "nonsense"})
+	// The applied filter is echoed, so an agent can see what it asked for
+	// rather than infer it from the rows.
+	if got := out["type"]; got != "axfer" {
+		t.Errorf("type = %v, want the applied filter echoed", got)
+	}
+}
+
+// "payment" is the natural guess and the chain's code is "pay". Dropping an
+// unknown filter returns every type, and the agent reports app calls and
+// asset transfers as the payments it asked for. Forwarding it returns an
+// empty page, which reads as "no payments". Both are wrong answers that look
+// right, so the only honest response is to refuse and name the real codes.
+func TestAlgorandTransactionsRefusesAnUnknownType(t *testing.T) {
+	indexerStub(t, payAndTransfer, usdcParams)
+	node := models.WorkflowNode{Type: models.NodeTypeAction, Template: "algorand_transactions",
+		Config: map[string]string{"algoAddress": "ABCDEF", "algoTxType": "payment"}}
+	_, err := fetchAlgorandTransactions(context.Background(), node, emptyRunContext{})
+	if err == nil {
+		t.Fatal("an unknown transaction type must be refused, not ignored")
+	}
+	for _, want := range []string{"payment", "pay", "axfer"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q should mention %q", err, want)
+		}
+	}
+}
+
+// No filter set is not an unknown filter.
+func TestAlgorandTransactionsWithNoTypeReadsEveryType(t *testing.T) {
+	_, lastQuery := indexerStub(t, payAndTransfer, usdcParams)
+	out := readTxns(t, nil)
 	if q := lastQuery(); strings.Contains(q, "tx-type=") {
-		t.Errorf("query = %q, want an unknown type dropped rather than sent", q)
+		t.Errorf("query = %q, want no type filter", q)
+	}
+	if got := out["type"]; got != "all" {
+		t.Errorf("type = %v, want all", got)
 	}
 }
 
@@ -272,5 +303,22 @@ func TestAlgorandAssetSkipsWithoutAnId(t *testing.T) {
 	_, err := fetchAlgorandAsset(context.Background(), node, emptyRunContext{})
 	if err != ErrActionSkipped {
 		t.Fatalf("want ErrActionSkipped, got %v", err)
+	}
+}
+
+// A mainnet deployment that sets ALGORAND_NETWORK and ALGOD_URL but not the
+// new ALGORAND_INDEXER_URL must not read mainnet balances beside testnet
+// history. The default follows the declared network, the same way the relay's
+// USDC asset id and CAIP-2 network do.
+func TestAlgorandIndexerDefaultFollowsTheNetwork(t *testing.T) {
+	cases := map[string]string{
+		"mainnet": "https://mainnet-idx.algonode.cloud",
+		"testnet": "https://testnet-idx.algonode.cloud",
+		"":        "https://testnet-idx.algonode.cloud",
+	}
+	for network, want := range cases {
+		if got := AlgorandIndexerDefault(network); got != want {
+			t.Errorf("AlgorandIndexerDefault(%q) = %q, want %q", network, got, want)
+		}
 	}
 }

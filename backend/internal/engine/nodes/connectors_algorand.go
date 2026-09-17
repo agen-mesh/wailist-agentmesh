@@ -32,6 +32,21 @@ var algodAPIBase string
 // which is why both are set in one call from one place.
 var indexerAPIBase string
 
+// AlgorandIndexerDefault is the public indexer for a declared network, used
+// when ALGORAND_INDEXER_URL is not set.
+//
+// Keyed on ALGORAND_NETWORK rather than hard-coded to one chain, the same way
+// the relay's USDC asset id and CAIP-2 network are: a mainnet deployment that
+// predates this setting sets the network and algod but not the indexer, and a
+// fixed testnet default would then read mainnet balances beside testnet
+// history with no error anywhere.
+func AlgorandIndexerDefault(network string) string {
+	if network == "mainnet" {
+		return "https://mainnet-idx.algonode.cloud"
+	}
+	return "https://testnet-idx.algonode.cloud"
+}
+
 // SetAlgorandBases installs the algod and indexer base URLs. Either blank
 // disables the connectors that need it, which then fail closed naming the
 // setting they want.

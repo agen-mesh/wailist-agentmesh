@@ -147,11 +147,11 @@ func (x *x402Session) add(ctx context.Context, graph *models.WorkflowGraph, args
 		// Ask the endpoint whether it is still there before putting it in
 		// front of the user. See graphx402probe.go for why a paid node
 		// needs this more than an http node does.
-		refuse, note, price := judgeX402Probe(r, x402Prober(ctx, r))
+		refuse, note, price, asset := judgeX402Probe(r, x402Prober(ctx, r))
 		if refuse != "" {
 			return "", fmt.Errorf("%s", refuse)
 		}
-		r.AmountMicros = price
+		r.AmountMicros, r.Asset = price, asset
 		node := x402NodeFromResource(r, newGraphID("n_"),
 			80+240*float64(len(graph.Nodes)%4), 120+160*float64(len(graph.Nodes)/4),
 			argString(args, "name"))

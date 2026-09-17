@@ -167,8 +167,11 @@ func TestSearchX402ReportsTrustAlongsideEachResult(t *testing.T) {
 	stale := bazaar.Resource{
 		ID: "stale", Host: "old.example.com", URL: "https://old.example.com/v1",
 		Description: "Algorand transaction history for an address", SettleCount: 900,
-		FirstSeen: time.Now().AddDate(0, 0, -300).Format(time.RFC3339),
-		LastSeen:  time.Now().AddDate(0, 0, -112).Format(time.RFC3339),
+		// Fixed durations, not AddDate: AddDate keeps local wall-clock time,
+		// so across a daylight-saving change the elapsed time is a day plus
+		// or minus an hour, and 112 days becomes 111.
+		FirstSeen: time.Now().Add(-300 * 24 * time.Hour).Format(time.RFC3339),
+		LastSeen:  time.Now().Add(-112 * 24 * time.Hour).Format(time.RFC3339),
 	}
 	x := newX402Session(func(context.Context) ([]bazaar.Resource, error) {
 		return []bazaar.Resource{stale}, nil
@@ -198,5 +201,69 @@ func TestSearchX402ReportsTrustAlongsideEachResult(t *testing.T) {
 	}
 	if !strings.Contains(got.Note, "stale") {
 		t.Errorf("the note must explain what the tiers mean, got %q", got.Note)
+	}
+}
+
+// The payer reads maxAmountRequired first and accepts either field as a
+// string or a JSON number (ParseMaxAmountRequiredAsMicros). A probe that read
+// only a string "amount" would call every other real challenge unreadable,
+// keep the stale catalog price, and never notice a price change -- the whole
+// point of reading the live challenge.
+func TestAddX402NodeReadsThePriceTheWayThePayerDoes(t *testing.T) {
+	shapes := map[string]string{
+		"maxAmountRequired as a string": `"maxAmountRequired":"250000"`,
+		"amount as a JSON number":       `"amount":250000`,
+		"maxAmountRequired wins":        `"maxAmountRequired":"250000","amount":"1"`,
+	}
+	for name, field := range shapes {
+		t.Run(name, func(t *testing.T) {
+			r := x402Stub(t, "GET", func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusPaymentRequired)
+				w.Write([]byte(`{"x402Version":2,"accepts":[{"scheme":"exact",` + field + `,"asset":"31566704","payTo":"ABC"}]}`))
+			})
+			graph, msg, err := addOne(t, r)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if graph.Nodes[0].Price != "0.25" {
+				t.Errorf("price = %q, want the live 0.25 (message: %s)", graph.Nodes[0].Price, msg)
+			}
+		})
+	}
+}
+
+// A price is a number AND an asset. If the live challenge moved to a
+// different asset, quoting the live number against the catalog's ticker
+// states a price nobody charges.
+func TestAddX402NodeTakesTheAssetFromTheLiveChallenge(t *testing.T) {
+	r := x402Stub(t, "GET", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusPaymentRequired)
+		w.Write([]byte(`{"x402Version":2,"accepts":[{"scheme":"exact","amount":"250000","asset":"0","payTo":"ABC"}]}`))
+	})
+	_, msg, err := addOne(t, r)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(msg, "0.25 USDC") {
+		t.Errorf("the live ALGO price was quoted as USDC: %s", msg)
+	}
+	if !strings.Contains(msg, "0.25 ALGO") {
+		t.Errorf("want the live price in the live asset, got: %s", msg)
+	}
+}
+
+// A 402 whose challenge cannot be read must not claim a price is "below"
+// when it is not: the note follows the price.
+func TestAddX402NodeUnreadableChallengeNoteReadsInOrder(t *testing.T) {
+	r := x402Stub(t, "GET", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusPaymentRequired)
+		w.Write([]byte(`{}`))
+	})
+	_, msg, err := addOne(t, r)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(msg, "below") {
+		t.Errorf("the note points at a price below it, but the price comes first: %s", msg)
 	}
 }

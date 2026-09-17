@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -28,14 +29,15 @@ const (
 	maxTxLimit     = 50
 )
 
-// algorandTxTypes are the transaction types the chain has. A filter is only
-// forwarded if it is one of these: an unknown value passed straight through
-// makes the indexer return an empty page, which reads as "this address has
-// no transactions" -- a wrong answer that looks like a right one.
-var algorandTxTypes = map[string]bool{
-	"pay": true, "keyreg": true, "acfg": true, "axfer": true,
-	"afrz": true, "appl": true, "stpf": true, "hb": true,
-}
+// algorandTxTypes are the transaction types the chain has, in the order they
+// are listed back to anyone who asks for one that is not here.
+//
+// An unknown filter is refused, never guessed at. Forwarding it makes the
+// indexer return an empty page, which reads as "this address has none of
+// those". Dropping it returns every type, which reads as "these are the ones
+// you asked for". "payment" is the natural guess and the chain's code is
+// "pay", so both failures are one typo away and both look like right answers.
+var algorandTxTypes = []string{"pay", "axfer", "appl", "acfg", "afrz", "keyreg", "stpf", "hb"}
 
 // indexerTransaction is the part of an indexer transaction this connector
 // reads. Amounts and rounds are uint64 and stay uint64: see getAlgodJSON.
@@ -123,8 +125,15 @@ func fetchAlgorandTransactions(ctx context.Context, node models.WorkflowNode, rc
 		limit = min(n, maxTxLimit)
 	}
 	query := url.Values{"limit": {strconv.Itoa(limit)}}
-	if t := strings.ToLower(strings.TrimSpace(resolveTemplate(configVal(node, "algoTxType", ""), rc))); algorandTxTypes[t] {
-		query.Set("tx-type", t)
+	txType := strings.ToLower(strings.TrimSpace(resolveTemplate(configVal(node, "algoTxType", ""), rc)))
+	switch {
+	case txType == "":
+		txType = "all"
+	case slices.Contains(algorandTxTypes, txType):
+		query.Set("tx-type", txType)
+	default:
+		return nil, fmt.Errorf("algorand: %q is not an Algorand transaction type -- use one of %s, or leave it blank for every type",
+			txType, strings.Join(algorandTxTypes, ", "))
 	}
 
 	var body struct {
@@ -180,7 +189,10 @@ func fetchAlgorandTransactions(ctx context.Context, node models.WorkflowNode, rc
 		out = append(out, row)
 	}
 	return map[string]any{
-		"address":          address,
+		"address": address,
+		// Echoed so the agent reads which filter was applied rather than
+		// inferring it from the rows it happened to get back.
+		"type":             txType,
 		"count":            len(out),
 		"transactions":     out,
 		"unresolvedAssets": unresolved,
