@@ -167,6 +167,7 @@ var coinGeckoAPIBase = "https://api.coingecko.com/api/v3"
 // SetCoinGeckoAPIBaseForTest overrides the CoinGecko API base URL. Call only
 // from tests. Pass "" to reset to the real API.
 func SetCoinGeckoAPIBaseForTest(base string) {
+	resetCoinGeckoCache()
 	if base == "" {
 		coinGeckoAPIBase = "https://api.coingecko.com/api/v3"
 	} else {
@@ -183,7 +184,7 @@ func fetchCoinGecko(ctx context.Context, node models.WorkflowNode, rc RunContext
 	q := url.Values{}
 	q.Set("ids", ids)
 	q.Set("vs_currencies", configVal(node, "cgCurrencies", "usd"))
-	return getAndDecode(ctx, coinGeckoAPIBase+"/simple/price?"+q.Encode(), nil, "CoinGecko")
+	return coinGeckoGet(ctx, coinGeckoAPIBase+"/simple/price?"+q.Encode())
 }
 
 // maxHistoryPointsReturned bounds what goes downstream. market_chart at 28
@@ -211,7 +212,7 @@ func fetchCoinGeckoHistory(ctx context.Context, node models.WorkflowNode, rc Run
 	q := url.Values{}
 	q.Set("vs_currency", currency)
 	q.Set("days", days)
-	raw, err := getAndDecode(ctx, coinGeckoAPIBase+"/coins/"+url.PathEscape(id)+"/market_chart?"+q.Encode(), nil, "CoinGecko")
+	raw, err := coinGeckoGet(ctx, coinGeckoAPIBase+"/coins/"+url.PathEscape(id)+"/market_chart?"+q.Encode())
 	if err != nil {
 		return nil, err
 	}
