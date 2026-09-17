@@ -387,7 +387,12 @@ export const workflows = {
         }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "build failed");
+      if (!res.ok) {
+        throw new BuildRequestError(
+          data.error ?? "build failed",
+          typeof data.error === "string",
+        );
+      }
       return data;
     }
     await delay(300);
@@ -1169,5 +1174,21 @@ export function browserTimeZone(): string {
     return Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
   } catch {
     return "";
+  }
+}
+
+/**
+ * A build request that did not succeed. `answered` is true when the backend
+ * itself replied with an error, which means the build is over. False means
+ * the reply never came from the backend at all (a proxy timeout, a dropped
+ * connection), and the build may well still be running.
+ */
+export class BuildRequestError extends Error {
+  constructor(
+    message: string,
+    readonly answered: boolean,
+  ) {
+    super(message);
+    this.name = "BuildRequestError";
   }
 }

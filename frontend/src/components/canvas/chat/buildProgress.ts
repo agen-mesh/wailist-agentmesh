@@ -29,7 +29,7 @@ export interface BuildProgress {
    * The finished reply, once `done`. Present because the build's own POST
    * may never reach the browser: the backend runs the build on a context
    * detached from the request, so a proxy timeout ends the response while
-   * the build carries on and saves. See recoverFinishedBuild.
+   * the build carries on and saves. See waitForFinishedBuild.
    */
   reply?: string;
 }
@@ -137,28 +137,85 @@ export function startProgressPolling(
 }
 
 /**
- * Asks the progress endpoint whether a build whose request failed had in fact
- * finished, and returns its reply if so.
+ * How a build whose request failed actually ended, as far as the progress
+ * endpoint can tell.
  *
- * The backend detaches a build from its request on purpose, so that a closed
- * tab or a proxy timeout does not throw away work that is already half done.
- * The consequence is that a failed POST does not mean a failed build: past
- * the proxy window the build runs on, saves, and records its reply, while the
- * browser sees only a dead request and used to tell the user "Build failed".
- *
- * Returns null whenever the original error should stand: the build is still
- * running, it ended without an answer, or the progress endpoint is itself
- * unreachable. Progress is a nicety and must never turn a real failure into a
- * success.
+ * - finished: it completed and saved; `reply` is what the chat shows.
+ * - ended: it is over without an answer (it failed, or the workflow changed
+ *   under it), and nothing was saved.
+ * - unknown: no answer within the wait, or the server has no record of it
+ *   (a backend restart forgets builds in flight).
  */
-export async function recoverFinishedBuild(
+export type BuildOutcome =
+  | { kind: "finished"; reply: string }
+  | { kind: "ended" }
+  | { kind: "unknown" };
+
+export interface WaitOptions {
+  /** Receives every snapshot, so the steps keep appearing while it waits. */
+  onProgress?: (p: BuildProgress) => void;
+  intervalMs?: number;
+  /** Longest wait; the backend's own build budget is 240s. */
+  maxWaitMs?: number;
+  /** Polls in a row with no record of the build before giving up on it. */
+  maxEmptyPolls?: number;
+  /** Failed polls in a row before giving up. */
+  maxFailedPolls?: number;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+}
+
+/**
+ * Waits for a build whose request failed to actually end, and says how.
+ *
+ * The backend detaches a build from its request on purpose, so a closed tab
+ * or a proxy timeout does not throw away work already under way. The
+ * consequence is that a failed request says nothing about the build: past
+ * the proxy window it runs on, saves, and records its reply. Asking once, at
+ * the moment the request died, nearly always caught it still running, and
+ * the chat reported "build failed" for a build that finished seconds later.
+ *
+ * Only the progress endpoint's own `done` settles it. The endpoint answers
+ * "not done, no steps" for a build it has never heard of, so a run of such
+ * answers ends the wait early instead of spinning for minutes. A real build
+ * has steps within its first round.
+ */
+export async function waitForFinishedBuild(
   fetchProgress: () => Promise<BuildProgress>,
-): Promise<string | null> {
-  try {
-    const p = await fetchProgress();
-    if (p.done && p.reply && p.reply.trim() !== "") return p.reply;
-    return null;
-  } catch {
-    return null;
+  {
+    onProgress,
+    intervalMs = 2000,
+    maxWaitMs = 300_000,
+    maxEmptyPolls = 3,
+    maxFailedPolls = 5,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now = () => Date.now(),
+  }: WaitOptions = {},
+): Promise<BuildOutcome> {
+  const deadline = now() + maxWaitMs;
+  let empty = 0;
+  let failed = 0;
+  for (;;) {
+    try {
+      const p = await fetchProgress();
+      failed = 0;
+      if (p.done) {
+        return p.reply && p.reply.trim() !== ""
+          ? { kind: "finished", reply: p.reply }
+          : { kind: "ended" };
+      }
+      onProgress?.(p);
+      if (p.steps.length === 0 && !p.current) {
+        empty += 1;
+        if (empty >= maxEmptyPolls) return { kind: "unknown" };
+      } else {
+        empty = 0;
+      }
+    } catch {
+      failed += 1;
+      if (failed >= maxFailedPolls) return { kind: "unknown" };
+    }
+    if (now() + intervalMs > deadline) return { kind: "unknown" };
+    await sleep(intervalMs);
   }
 }
