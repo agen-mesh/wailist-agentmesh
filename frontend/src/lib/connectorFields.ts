@@ -970,6 +970,43 @@ export const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
+  algorand_transactions: {
+    label: "Algorand History config",
+    fields: [
+      {
+        kind: "config",
+        key: "algoAddress",
+        label: "Address",
+        placeholder: "58-character Algorand address",
+      },
+      {
+        kind: "config",
+        key: "algoTxLimit",
+        label: "How many",
+        hint: "newest first; 10 by default, 50 at most",
+        placeholder: "10",
+      },
+      {
+        kind: "config",
+        key: "algoTxType",
+        label: "Only this type",
+        hint: "blank for every type; pay, axfer, appl, acfg, afrz, keyreg, stpf, hb",
+        placeholder: "axfer",
+      },
+    ],
+  },
+  algorand_asset: {
+    label: "Algorand Asset config",
+    fields: [
+      {
+        kind: "config",
+        key: "algoAssetId",
+        label: "Asset id",
+        hint: "the ASA's number, not its ticker",
+        placeholder: "31566704",
+      },
+    ],
+  },
   hackernews: {
     label: "Hacker News config",
     fields: [

@@ -221,7 +221,11 @@ const EMAIL_FIELDS: CatalogField[] = [
 // Action notes, keyed by template.
 const ACTION_NOTES: Record<string, string> = {
   algorand_account:
-    "Current state only: balance and ASA holdings for one address. It cannot answer transaction history -- that needs an indexer, which this node does not talk to. For history, search the x402 Bazaar (search_x402) for an Algorand transaction endpoint. algo is an exact decimal string in whole ALGO (quote it as-is) and algoMicro is the raw integer in microalgos; minBalance and minBalanceMicro are the same pair. Each holding's amount is already decimal-adjusted (a string such as \"1.5\" with its unitName): quote it as-is. amountBaseUnits is the raw integer in base units and must never be reported as a token amount. A holding with no amount could not be looked up; unresolvedAssets counts those.",
+    "Current state only: balance and ASA holdings for one address. It cannot answer transaction history: use algorand_transactions for that, never a paid x402 endpoint. algo is an exact decimal string in whole ALGO (quote it as-is) and algoMicro is the raw integer in microalgos; minBalance and minBalanceMicro are the same pair. Each holding's amount is already decimal-adjusted (a string such as \"1.5\" with its unitName): quote it as-is. amountBaseUnits is the raw integer in base units and must never be reported as a token amount. A holding with no amount could not be looked up; unresolvedAssets counts those. To describe an asset this account does NOT hold, use algorand_asset.",
+  algorand_transactions:
+    "Recent transaction history for one address, newest first, read from an Algorand indexer. This is the node for \"what did this address do\"; algorand_account cannot answer it. Each row carries type (pay, axfer, appl, ...), direction (out if this address sent it, in if it received it, other otherwise), sender, receiver, round, time as an RFC3339 string, and an amount. A pay row has algo (an exact decimal string in whole ALGO, quote it as-is) and algoMicro (the raw integer). An axfer row has amount (already decimal-adjusted, quote it as-is), amountBaseUnits (the raw integer, never report this as a token amount), assetId and unitName. A row with no amount could not have its asset looked up; unresolvedAssets counts those. Set algoTxLimit for how many (10 by default, 50 at most). algoTxType narrows to one type and must be the chain's own code -- pay, axfer, appl, acfg, afrz, keyreg, stpf or hb (a payment is \"pay\", not \"payment\") -- or blank for every type; anything else fails the step. The output's type field says which filter was applied.",
+  algorand_asset:
+    "Describes one ASA by id: name, unitName, decimals, total supply, creator and the manager/reserve/freeze/clawback addresses. algoAssetId is the asset's NUMBER, never its ticker -- 31566704 is USDC. Use this for \"what is this token\" about an asset nobody in the workflow holds; algorand_account only describes assets the account being read already holds. total is an exact decimal string and totalBaseUnits is the raw integer.",
   // A live build turned the user's "myrad" into "myriad" and then "myria" --
   // two other coins -- by web-searching for the id. CoinGecko's own search
   // resolves "myrad" to exactly one coin.
@@ -295,6 +299,8 @@ const READ_TEMPLATES = new Set<string>([
   "action/calendly",
   "action/openweathermap",
   "action/algorand_account",
+  "action/algorand_transactions",
+  "action/algorand_asset",
   "action/rss",
   "action/hackernews",
   "action/coingecko",

@@ -413,6 +413,13 @@ func TestBuildWorkflowSearchesTheBazaarAndSavesTheX402Node(t *testing.T) {
 	}))
 	defer bazaarSrv.Close()
 	d.BazaarBaseURL = bazaarSrv.URL
+	// add_x402_node probes the endpoint before saving it. The catalog only
+	// keeps public https hosts, so the entry cannot point at a test server;
+	// stand the probe in for a live endpoint still charging the catalog price.
+	nodes.SetX402ProbeForTest(func(string) (int, int64, string, error) {
+		return http.StatusPaymentRequired, 5000, "31566704", nil
+	})
+	defer nodes.SetX402ProbeForTest(nil)
 
 	user, err := d.Store.CreateUser(ctx, "wf-x402-"+randSuffix(t)+"@example.com", "hash")
 	if err != nil {

@@ -22,9 +22,38 @@ import (
 // other connector gets.
 var algodAPIBase string
 
-// SetAlgorandBases installs the algod base URL. Blank disables the connector,
-// which then fails closed naming the setting.
-func SetAlgorandBases(algod string) { algodAPIBase = strings.TrimRight(strings.TrimSpace(algod), "/") }
+// indexerAPIBase is the Algorand indexer transaction history is read from,
+// set at startup from ALGORAND_INDEXER_URL.
+//
+// A second setting rather than a path on algodAPIBase, because they are
+// genuinely two services: algod holds current state only and has no
+// transaction history at all, while an indexer is a separate process with
+// its own database and its own URL. They must still name the same chain,
+// which is why both are set in one call from one place.
+var indexerAPIBase string
+
+// AlgorandIndexerDefault is the public indexer for a declared network, used
+// when ALGORAND_INDEXER_URL is not set.
+//
+// Keyed on ALGORAND_NETWORK rather than hard-coded to one chain, the same way
+// the relay's USDC asset id and CAIP-2 network are: a mainnet deployment that
+// predates this setting sets the network and algod but not the indexer, and a
+// fixed testnet default would then read mainnet balances beside testnet
+// history with no error anywhere.
+func AlgorandIndexerDefault(network string) string {
+	if network == "mainnet" {
+		return "https://mainnet-idx.algonode.cloud"
+	}
+	return "https://testnet-idx.algonode.cloud"
+}
+
+// SetAlgorandBases installs the algod and indexer base URLs. Either blank
+// disables the connectors that need it, which then fail closed naming the
+// setting they want.
+func SetAlgorandBases(algod, indexer string) {
+	algodAPIBase = strings.TrimRight(strings.TrimSpace(algod), "/")
+	indexerAPIBase = strings.TrimRight(strings.TrimSpace(indexer), "/")
+}
 
 // algoDecimals is how many decimal places separate the only unit algod
 // reports (microalgos) from the only unit a person uses. ALGO is just an
@@ -43,6 +72,20 @@ const maxAlgorandAssetLookups = 20
 // maxASADecimals is the protocol ceiling on an ASA's decimals. Anything above
 // it is not a real asset, so it is reported unresolved rather than formatted.
 const maxASADecimals = 19
+
+// getIndexerJSON is getAlgodJSON against the indexer instead. Same reasons
+// for not going through getAndDecode: an indexer's amounts and rounds are
+// uint64 and a float round trip would round them.
+func getIndexerJSON(ctx context.Context, path string, dst any) error {
+	b, err := getRaw(ctx, indexerAPIBase+path, map[string]string{"Accept": "application/json"}, "Algorand indexer")
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(b, dst); err != nil {
+		return fmt.Errorf("Algorand indexer: decode response: %w", err)
+	}
+	return nil
+}
 
 // getAlgodJSON GETs an algod path and decodes the body straight into dst.
 //
@@ -106,8 +149,8 @@ func formatBaseUnits(v, decimals uint64) string {
 // alone is 10^16 microalgos, past where float64 stays exact.
 //
 // algod answers current state only. Transaction history needs an indexer, a
-// separate service this connector does not talk to; the catalog note sends
-// the builder to the x402 Bazaar for that instead.
+// separate service this connector does not talk to -- see
+// fetchAlgorandTransactions, which does.
 func fetchAlgorandAccount(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	address := strings.TrimSpace(resolveTemplate(configVal(node, "algoAddress", ""), rc))
 	if address == "" {

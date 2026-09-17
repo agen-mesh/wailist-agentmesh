@@ -764,10 +764,19 @@ func TestBuildGraphSearchesAndAddsX402Node(t *testing.T) {
 	SetGeminiBaseURL(srv.URL)
 	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
 
+	// add_x402_node probes the endpoint before wiring it in, so the entry
+	// has to point at something that answers a real payment challenge.
+	endpoint := httptest.NewServer(challenge402("5000"))
+	defer endpoint.Close()
+	SetURLValidatorForTest(func(string) error { return nil })
+	defer SetURLValidatorForTest(func(string) error { return nil })
+	entry := sampleX402()
+	entry.URL = endpoint.URL + "/v1/index"
+
 	res, err := BuildGraph(context.Background(), BuildRequest{
 		APIKey: "k", Message: "fetch NSE index prices",
 		X402Catalog: func(context.Context) ([]bazaar.Resource, error) {
-			return []bazaar.Resource{sampleX402()}, nil
+			return []bazaar.Resource{entry}, nil
 		},
 	})
 	if err != nil {
@@ -784,8 +793,51 @@ func TestBuildGraphSearchesAndAddsX402Node(t *testing.T) {
 			x402 = &res.Graph.Nodes[i]
 		}
 	}
-	if x402 == nil || x402.Endpoint != "https://stocks.example.com/v1/index" {
+	if x402 == nil || x402.Endpoint != entry.URL {
 		t.Fatalf("want a tool402 node on the catalog endpoint, got %+v", res.Graph.Nodes)
+	}
+}
+
+// The same build, against an endpoint that is no longer there: the node must
+// not reach the canvas, because adding it means a real payment for nothing.
+func TestBuildGraphWillNotAddADeadX402Endpoint(t *testing.T) {
+	turn := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		turn++
+		w.Header().Set("Content-Type", "application/json")
+		switch turn {
+		case 1:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_x402_node","args":{"id":"res-stocks-1"}}}]}}]}`)
+		default:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"That endpoint is gone."}]}}]}`)
+		}
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer dead.Close()
+	SetURLValidatorForTest(func(string) error { return nil })
+	defer SetURLValidatorForTest(func(string) error { return nil })
+	entry := sampleX402()
+	entry.URL = dead.URL + "/v1/index"
+
+	res, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "fetch NSE index prices",
+		X402Catalog: func(context.Context) ([]bazaar.Resource, error) {
+			return []bazaar.Resource{entry}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, n := range res.Graph.Nodes {
+		if n.Type == models.NodeTypeTool402 {
+			t.Fatalf("a dead endpoint reached the canvas: %+v", n)
+		}
 	}
 }
 

@@ -74,6 +74,7 @@ type DryRunResult struct {
 var readOnlyActions = map[string]bool{
 	"coingecko": true, "openweathermap": true, "hackernews": true, "rss": true,
 	"coingecko_history": true, "algorand_account": true,
+	"algorand_transactions": true, "algorand_asset": true,
 }
 
 // DryRunExecutes says whether a dry run executes this node for real, and if

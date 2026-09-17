@@ -43,8 +43,8 @@ func algodStub(t *testing.T, account string, assets map[string]string) (*httptes
 		}
 	}))
 	t.Cleanup(srv.Close)
-	SetAlgorandBases(srv.URL)
-	t.Cleanup(func() { SetAlgorandBases("") })
+	SetAlgorandBases(srv.URL, srv.URL)
+	t.Cleanup(func() { SetAlgorandBases("", "") })
 	return srv, &lookups
 }
 
@@ -79,8 +79,8 @@ func TestAlgorandAccountFlattensTheHoldings(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	SetAlgorandBases(srv.URL)
-	defer SetAlgorandBases("")
+	SetAlgorandBases(srv.URL, srv.URL)
+	defer SetAlgorandBases("", "")
 
 	m := readAlgorandAccount(t)
 	// Whole ALGO, not microalgos: every agent that has ever been handed
@@ -264,8 +264,8 @@ func TestAlgorandAccountWithNoAssetsReturnsAnEmptyList(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{"address": "ABCDEF", "amount": 0, "min-balance": 100000})
 	}))
 	defer srv.Close()
-	SetAlgorandBases(srv.URL)
-	defer SetAlgorandBases("")
+	SetAlgorandBases(srv.URL, srv.URL)
+	defer SetAlgorandBases("", "")
 
 	node := models.WorkflowNode{Type: models.NodeTypeAction, Template: "algorand_account",
 		Config: map[string]string{"algoAddress": "ABCDEF"}}
@@ -297,7 +297,7 @@ func TestAlgorandAccountSkipsWithoutAnAddress(t *testing.T) {
 }
 
 func TestAlgorandAccountFailsClosedWithNoAlgodConfigured(t *testing.T) {
-	SetAlgorandBases("")
+	SetAlgorandBases("", "")
 	node := models.WorkflowNode{Type: models.NodeTypeAction, Template: "algorand_account",
 		Config: map[string]string{"algoAddress": "ABCDEF"}}
 	_, err := fetchAlgorandAccount(context.Background(), node, emptyRunContext{})
