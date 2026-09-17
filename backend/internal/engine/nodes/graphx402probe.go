@@ -26,6 +26,23 @@ import (
 // the add path without a network, mirroring urlValidator/geminiBaseURL.
 var x402Prober = probeX402Resource
 
+// SetX402ProbeForTest replaces the pre-add probe for tests outside this
+// package, whose catalog entries must name public https hosts (the catalog
+// filter drops anything else) and so cannot point at a local test server.
+// fn receives the entry's URL and reports the status it answered with and,
+// for a 402, the price and asset its challenge named. Pass nil to reset.
+// Call only from tests.
+func SetX402ProbeForTest(fn func(url string) (status int, amountMicros int64, asset string, err error)) {
+	if fn == nil {
+		x402Prober = probeX402Resource
+		return
+	}
+	x402Prober = func(_ context.Context, r bazaar.Resource) x402Probe {
+		status, amount, asset, err := fn(r.URL)
+		return x402Probe{Status: status, AmountMicros: amount, Asset: asset, Err: err}
+	}
+}
+
 // x402Probe is what one unpaid request to a catalog endpoint found.
 type x402Probe struct {
 	// Status is the HTTP status, or 0 when the request never completed.
