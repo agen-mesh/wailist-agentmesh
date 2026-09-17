@@ -230,9 +230,9 @@ const ACTION_NOTES: Record<string, string> = {
   // two other coins -- by web-searching for the id. CoinGecko's own search
   // resolves "myrad" to exactly one coin.
   coingecko:
-    "cgIDs are CoinGecko coin ids, not names or symbols. Get each one from resolve_coin, which is the only source add_node accepts -- an id from fetch_url or web_search is refused. Use the id of the match whose name or symbol matches what the user said, never a similar-sounding coin. If resolve_coin finds nothing, that token is not listed: say so and stop.",
+    "cgIDs are CoinGecko coin ids, not names or symbols. Get each one from resolve_coin, which is the only source add_node accepts -- an id from fetch_url or web_search is refused. Use the id of the match whose name or symbol matches what the user said, never a similar-sounding coin. If resolve_coin finds nothing, that token is not listed: say so and stop. When CoinGecko is unavailable, well-known coins are priced from Coinbase or CoinPaprika instead, in the same shape plus source and note fields, and any coin that could not be priced is listed in unavailable: an agent reading this should name the source when source is present and say which coins are unavailable.",
   coingecko_history:
-    "One coin only. cgID is a CoinGecko coin id and MUST come from resolve_coin -- a name or symbol will 404. Returns first, last, high, low and changePct already computed, plus the points; quote those fields rather than working them out from the points yourself.",
+    "One coin only. cgID is a CoinGecko coin id and MUST come from resolve_coin -- a name or symbol will 404. Returns first, last, high, low and changePct already computed, plus the points; quote those fields rather than working them out from the points yourself. When CoinGecko is unavailable the history may come from Coinbase closing prices instead; source and note then say so.",
 };
 
 const TRIGGER_NOTES: Record<string, string> = {

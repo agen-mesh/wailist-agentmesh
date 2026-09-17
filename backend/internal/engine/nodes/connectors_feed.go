@@ -181,10 +181,20 @@ func fetchCoinGecko(ctx context.Context, node models.WorkflowNode, rc RunContext
 	if ids == "" {
 		return "coingecko_skipped_no_ids", ErrActionSkipped
 	}
+	currencies := configVal(node, "cgCurrencies", "usd")
 	q := url.Values{}
 	q.Set("ids", ids)
-	q.Set("vs_currencies", configVal(node, "cgCurrencies", "usd"))
-	return coinGeckoGet(ctx, coinGeckoAPIBase+"/simple/price?"+q.Encode())
+	q.Set("vs_currencies", currencies)
+	out, err := coinGeckoGet(ctx, coinGeckoAPIBase+"/simple/price?"+q.Encode())
+	if err == nil || ctx.Err() != nil {
+		return out, err
+	}
+	// CoinGecko refused or failed; see coinfallback.go.
+	if fb, ok := spotFallback(ctx, ids, currencies); ok {
+		logPriceFallback("spot "+ids+" from "+fmt.Sprint(fb["source"]), err)
+		return fb, nil
+	}
+	return nil, err
 }
 
 // maxHistoryPointsReturned bounds what goes downstream. market_chart at 28
@@ -212,9 +222,19 @@ func fetchCoinGeckoHistory(ctx context.Context, node models.WorkflowNode, rc Run
 	q := url.Values{}
 	q.Set("vs_currency", currency)
 	q.Set("days", days)
+	source := "coingecko"
 	raw, err := coinGeckoGet(ctx, coinGeckoAPIBase+"/coins/"+url.PathEscape(id)+"/market_chart?"+q.Encode())
 	if err != nil {
-		return nil, err
+		if ctx.Err() != nil {
+			return nil, err
+		}
+		// CoinGecko refused or failed; see coinfallback.go.
+		fb, ok := historyFallback(ctx, id, currency, days, time.Now())
+		if !ok {
+			return nil, err
+		}
+		logPriceFallback("history "+id+" from coinbase", err)
+		raw, source = fb, "coinbase"
 	}
 	b, err := json.Marshal(raw)
 	if err != nil {
@@ -257,6 +277,11 @@ func fetchCoinGeckoHistory(ctx context.Context, node models.WorkflowNode, rc Run
 		"id": id, "currency": currency, "days": days,
 		"first": first, "last": last, "high": high, "low": low,
 		"points": points,
+	}
+	if source != "coingecko" {
+		// Only on a backup answer, so a normal one is unchanged.
+		out["source"] = source
+		out["note"] = "CoinGecko was unavailable, so this history comes from Coinbase daily or hourly closing prices."
 	}
 	// Left absent rather than zero when it cannot be computed: a reported
 	// "0% change" against a zero first price is a statement, and a wrong one.

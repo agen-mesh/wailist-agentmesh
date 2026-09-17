@@ -30,7 +30,19 @@ func cgStub(t *testing.T, status *atomic.Int32, delay time.Duration) *atomic.Int
 	t.Cleanup(func() { SetURLValidatorForTest(func(string) error { return nil }) })
 	SetCoinGeckoAPIBaseForTest(srv.URL)
 	t.Cleanup(func() { SetCoinGeckoAPIBaseForTest("") })
+	// These tests are about CoinGecko and the cache alone. Without this a
+	// refusal falls through to the real Coinbase over the network.
+	offlineBackups(t)
 	return &hits
+}
+
+// offlineBackups points the price backups at a server that knows nothing.
+func offlineBackups(t *testing.T) {
+	t.Helper()
+	dead := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(dead.Close)
+	SetPriceFallbackBasesForTest(dead.URL, dead.URL, dead.URL)
+	t.Cleanup(restoreOfflineBackups)
 }
 
 // fakeClock replaces the cache's clock for one test.
