@@ -379,7 +379,12 @@ export const workflows = {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         // buildId lets the chat poll buildProgress for this build's steps.
-        body: JSON.stringify(buildId ? { message, buildId } : { message }),
+        // timeZone is what the builder reads "every morning at 9" in.
+        body: JSON.stringify({
+          message,
+          ...(buildId ? { buildId } : {}),
+          ...(browserTimeZone() ? { timeZone: browserTimeZone() } : {}),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "build failed");
@@ -1156,4 +1161,13 @@ export const usage = {
 // mock-mode delay rather than a second copy that can drift out of sync.
 export function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** The browser's IANA timezone, or "" where the runtime cannot say. */
+export function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
+  } catch {
+    return "";
+  }
 }

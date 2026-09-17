@@ -3,10 +3,12 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/robfig/cron/v3"
 
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/respond"
@@ -46,6 +48,17 @@ func (d *Deps) Deploy(w http.ResponseWriter, r *http.Request) {
 	if err := d.Store.SetWorkflowDeployed(ctx, id, runEndpoint, now); err != nil {
 		respond.Error(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// A schedule can be saved before deployment (the chat builder does), and
+	// its next run was computed then. Left alone, a next run that has since
+	// passed is due the moment the workflow goes live, so deploying would
+	// fire an unasked-for run. Count from now instead.
+	if wf.ScheduleCron != nil && *wf.ScheduleCron != "" {
+		if sched, err := cron.ParseStandard(*wf.ScheduleCron); err != nil {
+			log.Printf("deploy %s: stored schedule %q does not parse: %v", id, *wf.ScheduleCron, err)
+		} else if err := d.Store.SetWorkflowSchedule(ctx, id, *wf.ScheduleCron, sched.Next(now.UTC())); err != nil {
+			log.Printf("deploy %s: recompute next scheduled run: %v", id, err)
+		}
 	}
 
 	respond.JSON(w, http.StatusOK, map[string]any{

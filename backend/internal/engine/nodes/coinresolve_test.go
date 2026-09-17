@@ -99,7 +99,7 @@ func TestResolveCoinThroughTheBuildDispatcher(t *testing.T) {
 	call := func(q string) string {
 		res := dispatchBuildCall(context.Background(), nil, geminiFuncCall{
 			name: "resolve_coin", args: map[string]any{"query": q},
-		}, "k", nil, nil, resolved, &testTracker{})
+		}, "k", nil, nil, resolved, nil, &testTracker{})
 		text, _ := res["result"].(string)
 		return text
 	}
@@ -260,16 +260,16 @@ func TestBuildDispatcherEnforcesResolvedCoinIDs(t *testing.T) {
 		"type": "action", "template": "coingecko", "name": "Price",
 		"config": map[string]any{"cgIDs": "algorand"},
 	}}
-	res := dispatchBuildCall(context.Background(), graph, add, "k", nil, map[string]string{}, resolved, &testTracker{})
+	res := dispatchBuildCall(context.Background(), graph, add, "k", nil, map[string]string{}, resolved, nil, &testTracker{})
 	if text, _ := res["result"].(string); !strings.HasPrefix(text, "error: ") {
 		t.Fatalf("an id nobody looked up was accepted: %q", text)
 	}
 
 	dispatchBuildCall(context.Background(), graph, geminiFuncCall{
 		name: "resolve_coin", args: map[string]any{"query": "algo"},
-	}, "k", nil, map[string]string{}, resolved, &testTracker{})
+	}, "k", nil, map[string]string{}, resolved, nil, &testTracker{})
 
-	res = dispatchBuildCall(context.Background(), graph, add, "k", nil, map[string]string{}, resolved, &testTracker{})
+	res = dispatchBuildCall(context.Background(), graph, add, "k", nil, map[string]string{}, resolved, nil, &testTracker{})
 	if text, _ := res["result"].(string); strings.HasPrefix(text, "error: ") {
 		t.Fatalf("a resolved id was refused: %q", text)
 	}
