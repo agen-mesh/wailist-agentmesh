@@ -281,6 +281,13 @@ func (r nodeRules) parse(args map[string]any, param string, allowed []string) (m
 			return nil, fmt.Errorf("%s has no %s key %q%s; its %s keys are: %s -- call describe_node for details", label, param, k, hint, param, have)
 		}
 		s, ok := v.(string)
+		if !ok && jsonObjectKeys[k] {
+			encoded, err := encodeJSONObjectValue(k, v)
+			if err != nil {
+				return nil, err
+			}
+			s, ok = encoded, true
+		}
 		if !ok {
 			return nil, fmt.Errorf("%s value %q must be a string, got %T", param, k, v)
 		}
@@ -290,6 +297,62 @@ func (r nodeRules) parse(args map[string]any, param string, allowed []string) (m
 		out[k] = s
 	}
 	return out, nil
+}
+
+// jsonObjectKeys are config keys whose value is a JSON object. The model
+// passes them as a list of name/value pairs and the server writes the JSON:
+// hand-written JSON in a string is where a live build failed twice in a row
+// (single quotes, then a truncated object) before it got one through. A
+// list, not an open object, because an OBJECT schema with no declared
+// properties is rejected by some Gemini validators (see graphToolDecls).
+var jsonObjectKeys = map[string]bool{"setFields": true}
+
+// jsonObjectKeySchema is the declared shape of a jsonObjectKeys value.
+var jsonObjectKeySchema = map[string]any{
+	"type": "ARRAY",
+	"description": "One entry per output field. value may use {{ node.<id> }}, {{ result }} or {{ input }}. " +
+		"The server writes the JSON; never pass JSON text.",
+	"items": map[string]any{
+		"type": "OBJECT",
+		"properties": map[string]any{
+			"name":  map[string]any{"type": "string"},
+			"value": map[string]any{"type": "string"},
+		},
+		"required": []string{"name", "value"},
+	},
+}
+
+// encodeJSONObjectValue turns a jsonObjectKeys value the model sent as
+// name/value pairs (or, tolerated, as an object) into the JSON string the
+// node stores.
+func encodeJSONObjectValue(key string, v any) (string, error) {
+	obj := map[string]any{}
+	switch t := v.(type) {
+	case map[string]any:
+		obj = t
+	case []any:
+		for _, item := range t {
+			pair, _ := item.(map[string]any)
+			name, _ := pair["name"].(string)
+			if strings.TrimSpace(name) == "" {
+				return "", fmt.Errorf("%s: every entry needs a name and a value, such as {\"name\": \"price\", \"value\": \"{{ node.n2 }}\"}", key)
+			}
+			if _, dup := obj[name]; dup {
+				return "", fmt.Errorf("%s: %q is listed twice", key, name)
+			}
+			obj[name] = pair["value"]
+		}
+	default:
+		return "", fmt.Errorf("%s must be a list of name/value pairs, got %T", key, v)
+	}
+	if len(obj) == 0 {
+		return "", fmt.Errorf("%s: list at least one field", key)
+	}
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return "", fmt.Errorf("%s could not be encoded: %v", key, err)
+	}
+	return string(b), nil
 }
 
 // validateValue catches values that are the right key but a wrong shape --
@@ -345,7 +408,7 @@ func (r nodeRules) validateValue(k, v string) error {
 		}
 		var probe map[string]any
 		if err := json.Unmarshal([]byte(v), &probe); err != nil {
-			return fmt.Errorf("setFields is not a JSON object: %v -- it must be strict JSON with quoted keys, such as {\"story\": \"{{ node.n1 }}\", \"price\": \"{{ node.n2 }}\"}", err)
+			return fmt.Errorf("setFields is not a JSON object: %v -- pass it as a list of name/value pairs instead, such as [{\"name\": \"story\", \"value\": \"{{ node.n1 }}\"}, {\"name\": \"price\", \"value\": \"{{ node.n2 }}\"}], and the server writes the JSON", err)
 		}
 	case "jsonPath":
 		// walkPath splits on dots and nothing else, so JSONPath syntax (the
@@ -975,6 +1038,10 @@ func catalogKeyUnion(where string, extra ...string) map[string]any {
 	for _, t := range NodeCatalogData().Types {
 		for _, tpl := range t.Templates {
 			for _, k := range tpl.keysWhere(where) {
+				if jsonObjectKeys[k] {
+					props[k] = jsonObjectKeySchema
+					continue
+				}
 				props[k] = map[string]any{"type": "string"}
 			}
 		}
@@ -997,7 +1064,7 @@ func graphToolDecls() []funcDecl {
 	}
 	configSchema := map[string]any{
 		"type": "OBJECT",
-		"description": "Non-secret node settings (node.config), all strings. Only the keys listed for this template in the node catalog are accepted. " +
+		"description": "Non-secret node settings (node.config), all strings except setFields, which is a list of name/value pairs. Only the keys listed for this template in the node catalog are accepted. " +
 			"Credentials are never settable -- name them on the node's description instead.",
 		"properties": catalogKeyUnion("config"),
 	}
@@ -1463,6 +1530,10 @@ When the workflow needs to call an API:
    A step nothing flows into is not skipped -- the engine runs it first, on an empty input, and the run fails.
    To combine several values, reference each earlier step as {{ node.<id> }} (or {{ node.<id>.field }}),
    using the ids add_node returned.
+   Several sources in one answer ("news and the price"): never build two chains side by side, each with its
+   own agent -- steps that run at the same time read each other's data. Fetch each source, flow them all
+   into ONE Edit Fields step (tool/set) whose setFields lists each source by {{ node.<id> }}, then ONE agent,
+   then the end.
 5. Do NOT use a tool402 node for an API you found by searching. tool402 is for paid x402 endpoints, and only
    ever when the user hands you a real endpoint URL themselves.
 
