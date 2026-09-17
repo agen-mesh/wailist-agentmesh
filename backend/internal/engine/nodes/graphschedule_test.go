@@ -40,6 +40,10 @@ func TestSetScheduleConvertsLocalTimeToUTC(t *testing.T) {
 		{"los angeles weekly", "America/Los_Angeles", map[string]any{"cadence": "weekly", "time": "20:00", "day": "monday"}, "0 4 * * 2"},
 		{"india monthly", "Asia/Kolkata", map[string]any{"cadence": "monthly", "time": "09:00", "dayOfMonth": float64(15)}, "30 3 15 * *"},
 		{"new york monthly, same UTC day", "America/New_York", map[string]any{"cadence": "monthly", "time": "09:00", "dayOfMonth": float64(28)}, "0 14 28 * *"},
+		// 20:00 in New York is the next UTC day all year: the 16th, every month.
+		{"new york monthly, next UTC day", "America/New_York", map[string]any{"cadence": "monthly", "time": "20:00", "dayOfMonth": float64(15)}, "0 1 16 * *"},
+		// 02:00 in India is the previous UTC day: fine while that day is >= 1.
+		{"india monthly, previous UTC day", "Asia/Kolkata", map[string]any{"cadence": "monthly", "time": "02:00", "dayOfMonth": float64(10)}, "30 20 9 * *"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -175,7 +179,8 @@ func TestSetScheduleRefusesAMonthlyTimeThatChangesDayInUTC(t *testing.T) {
 	}{
 		{"Asia/Kolkata", "02:00", 1},
 		{"America/New_York", "23:00", 28},
-		{"America/New_York", "20:00", 15},
+		// 19:30 is the next UTC day in winter and the same day in summer.
+		{"America/New_York", "19:30", 10},
 		// Same UTC day in winter (00:30), the previous day in summer
 		// (23:30): only a summer check catches it.
 		{"Europe/Berlin", "01:30", 10},
@@ -190,7 +195,7 @@ func TestSetScheduleRefusesAMonthlyTimeThatChangesDayInUTC(t *testing.T) {
 		if s.cron != nil {
 			t.Errorf("%s: the schedule changed despite the refusal", c.tz)
 		}
-		if !strings.Contains(err.Error(), "Workflows page") && !strings.Contains(err.Error(), "different time") {
+		if !strings.Contains(err.Error(), "different time or day") {
 			t.Errorf("%s: the refusal should say what to do instead: %v", c.tz, err)
 		}
 	}

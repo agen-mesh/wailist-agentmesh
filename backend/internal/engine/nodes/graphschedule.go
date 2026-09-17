@@ -96,8 +96,7 @@ func cadenceCron(cadence string, hour, minute int, dayOfWeek time.Weekday, dayOf
 	case "weekly":
 		return fmt.Sprintf("%d %d * * %d", utc.Minute(), utc.Hour(), int(utc.Weekday()))
 	case "monthly":
-		// Only reached when the UTC day is the local day (see set), so the
-		// picked day is the day in both.
+		// dayOfMonth is already the UTC day (see monthlyUTCDay).
 		return fmt.Sprintf("%d %d %d * *", utc.Minute(), utc.Hour(), dayOfMonth)
 	default:
 		return fmt.Sprintf("%d %d * * *", utc.Minute(), utc.Hour())
@@ -139,21 +138,21 @@ func (s *builderSchedule) set(args map[string]any, now time.Time) (string, error
 			// silently skip February, and the Schedule picker offers 1-28.
 			return "", fmt.Errorf("set_schedule: a monthly schedule needs dayOfMonth between 1 and 28")
 		}
-		// A standard cron names a UTC day of the month. If this local time
-		// is on a different UTC day, the schedule would either fire a day
-		// off (day 1 early in India is the previous month's last day in
-		// UTC, which cron cannot name) or not at all in some months (day 28
-		// late in New York is the 29th in UTC). Checked in winter and in
-		// summer, since daylight saving moves the boundary, so the answer
-		// does not depend on today.
-		for _, month := range []time.Month{time.January, time.July} {
-			local := time.Date(2026, month, n, hour, minute, 0, 0, s.loc)
-			if local.UTC().Day() != n {
-				return "", fmt.Errorf("set_schedule: %02d:%02d on day %d in %s is on a different day in UTC, so it cannot be saved as a monthly schedule without firing on the wrong day -- ask the user for a different time or day, or tell them to set it on the Workflows page",
-					hour, minute, n, zoneName(s.loc))
-			}
+		// A standard cron names a UTC day of the month, so the local day
+		// has to be expressible as one: day 15 at 21:00 in New York is the
+		// 16th at 02:00 UTC, every month. That holds only when the UTC day
+		// exists in every month (1-28) and is the same in winter and in
+		// summer. Day 28 late in New York is the 29th, which February
+		// lacks; day 1 early in India is the previous month's last day,
+		// which cron cannot name; near midnight UTC, daylight saving moves
+		// the day. The Schedule picker applies the same rule
+		// (monthlyUtcDay in frontend/src/lib/cronCadence.ts).
+		utcDom, ok := monthlyUTCDay(n, hour, minute, s.loc)
+		if !ok {
+			return "", fmt.Errorf("set_schedule: %02d:%02d on day %d in %s falls on a different day in UTC for some months, so it cannot be scheduled monthly -- ask the user for a different time or day",
+				hour, minute, n, zoneName(s.loc))
 		}
-		dom = n
+		dom = utcDom
 		when = fmt.Sprintf("on day %d of every month", n)
 	default:
 		when = "every day"
@@ -172,4 +171,23 @@ func zoneName(loc *time.Location) string {
 		return "UTC"
 	}
 	return loc.String()
+}
+
+// monthlyUTCDay is the UTC day-of-month a local monthly time runs on,
+// checked in winter and in summer. Reports false when there is no single
+// such day in 1-28.
+func monthlyUTCDay(day, hour, minute int, loc *time.Location) (int, bool) {
+	shift := func(month time.Month) int {
+		at := time.Date(2026, month, day, hour, minute, 0, 0, loc)
+		u := at.UTC()
+		localDay := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, time.UTC)
+		utcDay := time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
+		return int(utcDay.Sub(localDay).Hours() / 24)
+	}
+	winter, summer := shift(time.January), shift(time.July)
+	utcDom := day + winter
+	if winter != summer || utcDom < 1 || utcDom > 28 {
+		return 0, false
+	}
+	return utcDom, true
 }
