@@ -489,6 +489,20 @@ export const ACTION_TEMPLATES = [
     category: "Utilities",
   },
   {
+    id: "algorand_transactions",
+    name: "Algorand History",
+    desc: "Recent transactions for an address",
+    icon: "al",
+    category: "Utilities",
+  },
+  {
+    id: "algorand_asset",
+    name: "Algorand Asset",
+    desc: "Look up any ASA by id",
+    icon: "al",
+    category: "Utilities",
+  },
+  {
     id: "hackernews",
     name: "Hacker News",
     desc: "Search stories (no key)",
