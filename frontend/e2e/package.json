@@ -1,0 +1,14 @@
+{
+  "name": "agentmesh-smoke-tests",
+  "private": true,
+  "description": "Playwright smoke tests for the AgentMesh web app in the parent directory.",
+  "scripts": {
+    "smoke": "playwright test",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "^26.4.0",
+    "typescript": "^6"
+  }
+}
