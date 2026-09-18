@@ -96,3 +96,12 @@ jobs:
       - name: assembleDebug
         working-directory: mobile/android
         run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      # testDebugUnitTest is separate from assembleDebug: a compile pass says
+      # nothing about SecureStorePlugin, GeofenceStore, or the other
+      # app/src/main/java classes actually behaving -- only a JVM unit test
+      # run does. Without this step, unit tests under app/src/test/java can
+      # be added, broken, and merged without CI ever executing them.
+      - name: testDebugUnitTest
+        working-directory: mobile/android
+        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
