@@ -58,6 +58,50 @@ func TestRunAndLogs(t *testing.T) {
 	}
 }
 
+func TestGetRunReturnsLiveSpend(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	userID, workflowID, runID := setupDebitTestFixtures(t, store, 100000) // 10 cents
+
+	got, err := store.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SpendUSDMicros != 0 {
+		t.Fatalf("want 0 spend before any debit, got %d", got.SpendUSDMicros)
+	}
+
+	// A run still `running` (setupDebitTestFixtures never finishes it) must
+	// already reflect what has been charged so far — this is the case a
+	// polled RunSheet depends on.
+	if err := store.DebitCredits(ctx, userID, 10000, "byok_flat_fee", workflowID, runID, "node1"); err != nil {
+		t.Fatal(err)
+	}
+	got, err = store.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != models.RunStatusRunning {
+		t.Fatalf("want the run still running, got %s", got.Status)
+	}
+	if got.SpendUSDMicros != 10000 {
+		t.Fatalf("want spend 10000 after one debit, got %d", got.SpendUSDMicros)
+	}
+
+	// A second debit on the same run must add, not replace.
+	if err := store.DebitCredits(ctx, userID, 5000, "byok_flat_fee", workflowID, runID, "node2"); err != nil {
+		t.Fatal(err)
+	}
+	got, err = store.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SpendUSDMicros != 15000 {
+		t.Fatalf("want spend 15000 after two debits, got %d", got.SpendUSDMicros)
+	}
+}
+
 func TestCreateRunWithCooldownAllowsFirstRun(t *testing.T) {
 	store := testStore(t)
 	ctx := context.Background()

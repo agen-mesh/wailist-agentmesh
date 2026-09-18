@@ -6,9 +6,11 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { ghostBtn } from "@/components/ui/buttons";
 import { RunSheet } from "@/components/runs/RunSheet";
 import { RunStatusPill } from "@/components/runs/RunStatusPill";
+import { useNow } from "@/hooks/useNow";
 import { runs as runsApi, RunsUnavailableError } from "@/lib/api";
 import type { RunPage, RunSummary } from "@/lib/types";
 import { groupRunsByDay } from "@/lib/runDays";
+import { mergeRuns } from "@/lib/runMerge";
 import {
   formatDuration,
   formatRunTime,
@@ -21,6 +23,9 @@ import {
 // the workflow list.
 
 const PAGE_SIZE = 20;
+// How often the list refreshes while a listed run is still going, matching
+// WorkflowSummary's own POLL_MS.
+const POLL_MS = 3_000;
 
 export function ActivityPage() {
   const [runList, setRunList] = useState<RunSummary[]>([]);
@@ -69,6 +74,30 @@ export function ActivityPage() {
       cancelled = true;
     };
   }, [applyFirstPage, applyError]);
+
+  const anyRunning = runList.some((r) => r.status === "running");
+
+  // Refresh while something is running and the screen is actually visible,
+  // the same rule WorkflowSummary uses. Without this a running run in the
+  // list stayed frozen until a manual pull-to-refresh.
+  //
+  // Merged rather than replaced (mergeRuns, not applyFirstPage): a pull is a
+  // deliberate "start over from the top" gesture, but a silent background
+  // poll must not truncate pages the user has already loaded with
+  // "Show older runs".
+  useEffect(() => {
+    if (!anyRunning) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      runsApi
+        .recent({ limit: PAGE_SIZE })
+        .then((page) => setRunList((prev) => mergeRuns(page.runs, prev)))
+        .catch(() => {});
+    }, POLL_MS);
+    return () => clearInterval(timer);
+  }, [anyRunning]);
+
+  const now = useNow(anyRunning);
 
   const loadMore = async () => {
     if (!nextCursor || loadingMore) return;
@@ -171,7 +200,7 @@ export function ActivityPage() {
                               <span style={rowMeta}>
                                 {triggerLabel(r.triggeredBy)} ·{" "}
                                 {formatRunTime(r.startedAt)} ·{" "}
-                                {formatDuration(r.startedAt, r.finishedAt)}
+                                {formatDuration(r.startedAt, r.finishedAt, now)}
                               </span>
                             </span>
                           </button>

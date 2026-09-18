@@ -735,12 +735,24 @@ func (s *Store) CreateRunWithCooldown(ctx context.Context, workflowID, triggered
 func (s *Store) GetRun(ctx context.Context, runID string) (models.Run, error) {
 	var r models.Run
 	var ic []byte
+	// Spend joins the same way runSpendJoin does for the list endpoints
+	// (runs_list.go): a lateral sum over debit_ledger, defaulted to 0 so a
+	// run with no charges yet still scans cleanly. No user_id filter here —
+	// GetRun has never been user-scoped; the handler enforces ownership
+	// afterward via GetWorkflow.
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, workflow_id, triggered_by, status, started_at, finished_at, input_context
-		FROM runs WHERE id=$1
+		SELECT r.id, r.workflow_id, r.triggered_by, r.status, r.started_at,
+		       r.finished_at, r.input_context, COALESCE(spend.total, 0)
+		FROM runs r
+		LEFT JOIN LATERAL (
+			SELECT SUM(d.amount_usd_micros) AS total
+			FROM debit_ledger d
+			WHERE d.run_id = r.id
+		) spend ON true
+		WHERE r.id = $1
 	`, runID).Scan(
 		&r.ID, &r.WorkflowID, &r.TriggeredBy, &r.Status,
-		&r.StartedAt, &r.FinishedAt, &ic,
+		&r.StartedAt, &r.FinishedAt, &ic, &r.SpendUSDMicros,
 	)
 	if err != nil {
 		return r, err

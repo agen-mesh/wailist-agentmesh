@@ -31,6 +31,17 @@ describe("fixtureRunPage", () => {
     expect(page.nextCursor).toBeNull();
   });
 
+  it("keeps a running sample's start fixed across polls", () => {
+    // Re-derived per call, the start crept forward with every poll and a
+    // ticking duration snapped back every few seconds.
+    const startOf = (now: number) =>
+      fixtureRunPage({ limit: 50 }, now).runs.find(
+        (r) => r.status === "running",
+      )?.startedAt;
+    expect(startOf(NOW)).toBeDefined();
+    expect(startOf(NOW + 5_000)).toBe(startOf(NOW));
+  });
+
   it("gives a running run no finish time and every other run one", () => {
     for (const r of fixtureRunPage({ limit: 50 }, NOW).runs) {
       if (r.status === "running") expect(r.finishedAt).toBeUndefined();
