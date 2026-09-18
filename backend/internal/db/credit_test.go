@@ -397,3 +397,126 @@ func TestExpireStalePendingTransactionsScopesToProvider(t *testing.T) {
 		t.Fatalf("want control-provider row untouched by a scoped sweep, got status %q", controlStatus)
 	}
 }
+
+func TestGetCreditTransactionUserID(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	email := fmt.Sprintf("credit-owner-test-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	orderID := fmt.Sprintf("order_owner_test_%d", time.Now().UnixNano())
+	if _, err := store.CreateCreditTransaction(ctx, user.ID, orderID, 50000, 0.012); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.GetCreditTransactionUserID(ctx, "cashfree", orderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != user.ID {
+		t.Fatalf("want %s got %s", user.ID, got)
+	}
+}
+
+func TestGetCreditTransactionUserIDUnknownOrder(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	_, err := store.GetCreditTransactionUserID(ctx, "cashfree", "no-such-order")
+	if err == nil {
+		t.Fatal("want an error for an unknown order")
+	}
+}
+
+func TestCheckAndMarkLowBalance(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	email := fmt.Sprintf("low-balance-test-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fundUser(t, store, user.ID, 10_000_000) // $10
+	threshold := int64(5_000_000)           // $5
+	workflowID, runID := mustWorkflowAndRun(t, store, user.ID)
+
+	// Above the threshold: no notification, nothing recorded.
+	notify, _, err := store.CheckAndMarkLowBalance(ctx, user.ID, threshold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if notify {
+		t.Fatal("want no notification while above the threshold")
+	}
+
+	// Cross below the threshold: notifies exactly once, quoting the balance
+	// the decision was made on.
+	if err := store.DebitCredits(ctx, user.ID, 6_000_000, "byok_flat_fee", workflowID, runID, "n1"); err != nil {
+		t.Fatal(err)
+	}
+	notify, balance, err := store.CheckAndMarkLowBalance(ctx, user.ID, threshold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !notify {
+		t.Fatal("want a notification on the crossing")
+	}
+	if balance != 4_000_000 {
+		t.Fatalf("want balance 4000000 at the crossing, got %d", balance)
+	}
+
+	// A second check while still low must not notify again.
+	notify, _, err = store.CheckAndMarkLowBalance(ctx, user.ID, threshold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if notify {
+		t.Fatal("want no repeat notification while still below the threshold")
+	}
+
+	// Recover back above the threshold, then dip below again: notifies once more.
+	if err := store.ReleaseReservedCredits(ctx, user.ID, 6_000_000); err != nil {
+		t.Fatal(err)
+	}
+	notify, _, err = store.CheckAndMarkLowBalance(ctx, user.ID, threshold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if notify {
+		t.Fatal("recovering above the threshold should not itself notify")
+	}
+
+	if err := store.DebitCredits(ctx, user.ID, 6_000_000, "byok_flat_fee", workflowID, runID, "n2"); err != nil {
+		t.Fatal(err)
+	}
+	notify, _, err = store.CheckAndMarkLowBalance(ctx, user.ID, threshold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !notify {
+		t.Fatal("want a fresh notification on the second crossing, after recovering in between")
+	}
+}
+
+// mustWorkflowAndRun exists only so TestCheckAndMarkLowBalance can call
+// DebitCredits, which requires a workflow_id/run_id to satisfy debit_ledger's
+// foreign keys -- the test itself is about the users row, not these.
+func mustWorkflowAndRun(t *testing.T, store *db.Store, userID string) (workflowID, runID string) {
+	t.Helper()
+	ctx := context.Background()
+	wf, err := store.CreateWorkflow(ctx, "Low Balance Test WF", userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.DeleteWorkflow(context.Background(), wf.ID) })
+	run, err := store.CreateRun(ctx, wf.ID, "test", []byte("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return wf.ID, run.ID
+}

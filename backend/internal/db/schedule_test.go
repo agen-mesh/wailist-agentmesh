@@ -533,3 +533,90 @@ func TestClaimDueSchedulesAnchorsNextRunOnDueTimeNotSweepTime(t *testing.T) {
 		t.Fatalf("schedule_next_run_at is %v after dueAt, want exactly 2h (anchored on the due time's own cadence)", diff)
 	}
 }
+
+func TestListSchedulesNeedingWarning(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	email := fmt.Sprintf("schedule-warn-test-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wf, err := store.CreateWorkflow(ctx, "Schedule Warn Test WF", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetWorkflowDeployed(ctx, wf.ID, "https://example.com/run", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	window := now.Add(5 * time.Minute)
+	soon := now.Add(3 * time.Minute)
+	if err := store.SetWorkflowSchedule(ctx, wf.ID, "0 9 * * *", soon); err != nil {
+		t.Fatal(err)
+	}
+
+	// Never warned: appears.
+	due, err := store.ListSchedulesNeedingWarning(ctx, now, window)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 1 || due[0].ID != wf.ID {
+		t.Fatalf("got %d schedules, want exactly [%s]", len(due), wf.ID)
+	}
+
+	// Warned for this exact occurrence: does not appear again.
+	if err := store.MarkScheduleWarned(ctx, wf.ID, soon); err != nil {
+		t.Fatal(err)
+	}
+	due, err = store.ListSchedulesNeedingWarning(ctx, now, window)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("got %d schedules, want 0 (already warned for this occurrence)", len(due))
+	}
+
+	// The occurrence advances (what ClaimDueSchedules does when it actually
+	// fires): schedule_warned_for now names a PAST occurrence, so the new one
+	// is unwarned again.
+	nextSoon := now.Add(4 * time.Minute)
+	if err := store.SetWorkflowSchedule(ctx, wf.ID, "0 9 * * *", nextSoon); err != nil {
+		t.Fatal(err)
+	}
+	due, err = store.ListSchedulesNeedingWarning(ctx, now, window)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 1 || due[0].ID != wf.ID {
+		t.Fatalf("got %d schedules after advancing, want exactly [%s]", len(due), wf.ID)
+	}
+
+	// Outside the lookahead window: does not appear.
+	tooFar := now.Add(time.Hour)
+	if err := store.SetWorkflowSchedule(ctx, wf.ID, "0 9 * * *", tooFar); err != nil {
+		t.Fatal(err)
+	}
+	due, err = store.ListSchedulesNeedingWarning(ctx, now, window)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("got %d schedules, want 0 (next occurrence is past the lookahead window)", len(due))
+	}
+
+	// Already due (ClaimDueSchedules' job, not this one's): does not appear.
+	alreadyDue := now.Add(-time.Minute)
+	if err := store.SetWorkflowSchedule(ctx, wf.ID, "0 9 * * *", alreadyDue); err != nil {
+		t.Fatal(err)
+	}
+	due, err = store.ListSchedulesNeedingWarning(ctx, now, window)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("got %d schedules, want 0 (already due, belongs to ClaimDueSchedules)", len(due))
+	}
+}

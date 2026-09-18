@@ -105,6 +105,80 @@ func TestRunFinished(t *testing.T) {
 			t.Fatal("title is blank")
 		}
 	})
+
+	t.Run("carries a type so a tap can be routed", func(t *testing.T) {
+		n := RunFinished("wf_1", "Morning briefing", "run_1", models.RunStatusSuccess)
+		if n.Data["type"] != "run_finished" {
+			t.Fatalf("data type = %q, want run_finished", n.Data["type"])
+		}
+	})
+}
+
+func TestLowBalance(t *testing.T) {
+	n := LowBalance(4_500_000) // $4.50
+	if !strings.Contains(n.Body, "$4.50") {
+		t.Fatalf("body = %q, want it to name the balance", n.Body)
+	}
+	if n.Data["type"] != "low_balance" {
+		t.Fatalf("data type = %q, want low_balance", n.Data["type"])
+	}
+	// No workflow id: the tap destination is billing, not a run.
+	if _, ok := n.Data["workflowId"]; ok {
+		t.Fatal("low balance notification should not carry a workflowId")
+	}
+}
+
+func TestGeofenceCrossing(t *testing.T) {
+	t.Run("says entered on the way in", func(t *testing.T) {
+		n := GeofenceCrossing("wf_1", "Home Alert", "enter")
+		if !strings.Contains(n.Body, "entered") {
+			t.Fatalf("body = %q, want it to say entered", n.Body)
+		}
+		if n.Data["direction"] != "enter" {
+			t.Fatalf("data direction = %q", n.Data["direction"])
+		}
+	})
+
+	t.Run("says left on the way out", func(t *testing.T) {
+		n := GeofenceCrossing("wf_1", "Home Alert", "leave")
+		if !strings.Contains(n.Body, "left") {
+			t.Fatalf("body = %q, want it to say left", n.Body)
+		}
+	})
+
+	t.Run("carries the workflow id and type", func(t *testing.T) {
+		n := GeofenceCrossing("wf_1", "Home Alert", "enter")
+		if n.Data["workflowId"] != "wf_1" || n.Data["type"] != "geofence" {
+			t.Fatalf("data = %+v", n.Data)
+		}
+	})
+
+	t.Run("does not render an empty title", func(t *testing.T) {
+		n := GeofenceCrossing("wf_1", "  ", "enter")
+		if strings.TrimSpace(n.Title) == "" {
+			t.Fatal("title is blank")
+		}
+	})
+}
+
+func TestScheduleUpcoming(t *testing.T) {
+	n := ScheduleUpcoming("wf_1", "Daily Brief")
+	if n.Title != "Daily Brief" {
+		t.Fatalf("title = %q", n.Title)
+	}
+	if n.Data["type"] != "schedule_upcoming" || n.Data["workflowId"] != "wf_1" {
+		t.Fatalf("data = %+v", n.Data)
+	}
+}
+
+func TestTopUpCompleted(t *testing.T) {
+	n := TopUpCompleted(10_000_000) // $10.00
+	if !strings.Contains(n.Body, "$10.00") {
+		t.Fatalf("body = %q, want it to name the amount", n.Body)
+	}
+	if n.Data["type"] != "topup_completed" {
+		t.Fatalf("data type = %q, want topup_completed", n.Data["type"])
+	}
 }
 
 func TestParseCredentials(t *testing.T) {

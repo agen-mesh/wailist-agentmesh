@@ -17,6 +17,7 @@ import (
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine"
 	"github.com/agentmesh/backend/internal/models"
+	"github.com/agentmesh/backend/internal/push"
 	"github.com/agentmesh/backend/internal/sse"
 )
 
@@ -25,6 +26,12 @@ import (
 // continuously. A minute matches typical cron granularity (nothing finer
 // than "* * * * *" exists to fire late against anyway).
 const pollInterval = time.Minute
+
+// scheduleWarnAhead is how far before a scheduled run's own due time its
+// heads-up push fires. Fixed rather than configurable for now -- the same
+// reasoning as pollInterval: nothing here needs finer control yet, and a
+// per-workflow setting is a real feature to design, not a constant to add.
+const scheduleWarnAhead = 5 * time.Minute
 
 // cronParser accepts the standard 5-field expression only (no seconds
 // field, no macro extensions like @hourly) -- ParseStandard, not the
@@ -72,6 +79,11 @@ func (s *Scheduler) Run(ctx context.Context) {
 }
 
 func (s *Scheduler) tick(ctx context.Context) {
+	// Read-only and independent of the claim below: a lookahead warning must
+	// never touch schedule_next_run_at, which stays exclusively
+	// ClaimDueSchedules' column to advance.
+	s.warnUpcomingSchedules(ctx)
+
 	due, err := s.store.ClaimDueSchedules(ctx, time.Now().UTC(), nextCronRun)
 	if err != nil {
 		log.Printf("scheduler: claim failed: %v", err)
@@ -130,5 +142,29 @@ func (s *Scheduler) tick(ctx context.Context) {
 				log.Printf("scheduler: marking redundant run %s failed also failed: %v", run.ID, err)
 			}
 		}
+	}
+}
+
+// warnUpcomingSchedules sends a heads-up push for any schedule whose next
+// occurrence is coming up within scheduleWarnAhead and has not already been
+// warned about. Marks the occurrence warned before delivering, matching
+// CheckAndMarkLowBalance's shape: what matters for exactly-once is the
+// state written, not whether the fire-and-forget push actually lands.
+func (s *Scheduler) warnUpcomingSchedules(ctx context.Context) {
+	now := time.Now().UTC()
+	upcoming, err := s.store.ListSchedulesNeedingWarning(ctx, now, now.Add(scheduleWarnAhead))
+	if err != nil {
+		log.Printf("scheduler: list upcoming schedules failed: %v", err)
+		return
+	}
+	for _, wf := range upcoming {
+		if wf.ScheduleNextRunAt == nil {
+			continue // defensive; the query already requires this non-nil
+		}
+		if err := s.store.MarkScheduleWarned(ctx, wf.ID, *wf.ScheduleNextRunAt); err != nil {
+			log.Printf("scheduler: mark schedule warned failed for workflow %s: %v", wf.ID, err)
+			continue
+		}
+		go push.NotifyScheduleUpcoming(context.Background(), s.store, wf.UserID, wf.ID, wf.Name)
 	}
 }

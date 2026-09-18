@@ -410,6 +410,56 @@ func (s *Store) ClaimDueSchedules(ctx context.Context, now time.Time, nextRun fu
 	return out, nil
 }
 
+// ListSchedulesNeedingWarning finds deployed, scheduled workflows whose next
+// occurrence falls strictly after `now` (not yet due -- ClaimDueSchedules
+// owns anything due already) and at or before `before` (the lookahead
+// window), and have not already been warned about that exact occurrence.
+//
+// schedule_warned_for IS DISTINCT FROM schedule_next_run_at covers both
+// "never warned" (the column starts NULL) and "warned for an occurrence that
+// has since advanced" -- a schedule that fired and moved to its next
+// occurrence, or was edited, is correctly treated as unwarned again.
+//
+// Read-only and deliberately separate from ClaimDueSchedules: this never
+// claims or advances schedule_next_run_at, which stays exclusively that
+// function's column to write.
+func (s *Store) ListSchedulesNeedingWarning(ctx context.Context, now, before time.Time) ([]models.Workflow, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+workflowColumns+`
+		FROM workflows
+		WHERE status = 'deployed'
+		  AND schedule_cron IS NOT NULL
+		  AND schedule_next_run_at > $1
+		  AND schedule_next_run_at <= $2
+		  AND schedule_warned_for IS DISTINCT FROM schedule_next_run_at
+	`, now, before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []models.Workflow
+	for rows.Next() {
+		w, err := scanWorkflowRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+// MarkScheduleWarned records that the upcoming-run heads-up has been sent for
+// this schedule's occurrence, identified by its schedule_next_run_at at the
+// time of warning rather than a boolean -- so a schedule that has since
+// advanced (fired, or been edited to a new time) is correctly treated as
+// unwarned again for whatever occurrence comes next.
+func (s *Store) MarkScheduleWarned(ctx context.Context, workflowID string, forOccurrence time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE workflows SET schedule_warned_for = $2 WHERE id = $1
+	`, workflowID, forOccurrence)
+	return err
+}
+
 // AND NOT is_system excludes a partner console's hidden row (Tendril,
 // Prism): the user never authored it and there is nothing to open on a
 // canvas, so it has no place in a list of things the user built. Filtered
@@ -1203,6 +1253,21 @@ func (s *Store) CompleteCreditTransaction(ctx context.Context, provider, provide
 	return creditUSDMicros, true, nil
 }
 
+// GetCreditTransactionUserID looks up who a completed ledger row belongs to.
+//
+// CompleteCreditTransaction already knows this internally but does not return
+// it, since its many call sites (production and test) would all need updating
+// for one field only two callers need. Those two are exactly the payment
+// webhooks (Cashfree, NOWPayments): unauthenticated routes with no session to
+// read a user id from, needed only to address a top-up-completed push.
+func (s *Store) GetCreditTransactionUserID(ctx context.Context, provider, providerOrderID string) (string, error) {
+	var userID string
+	err := s.pool.QueryRow(ctx, `
+		SELECT user_id FROM credit_ledger WHERE provider_order_id = $1 AND provider = $2
+	`, providerOrderID, provider).Scan(&userID)
+	return userID, err
+}
+
 // RefundCreditTransaction reverses previously-credited USD micros when Razorpay reports a
 // refund against an order. totalRefundedINRPaise is the *cumulative* amount refunded on the
 // payment so far — Razorpay resends this on every refund event (partial or full), so this
@@ -1288,6 +1353,56 @@ func (s *Store) GetCreditBalance(ctx context.Context, userID string) (int64, err
 // as a pair there) without a second implementation of the same query.
 func (s *Store) CreditBalance(ctx context.Context, userID string) (int64, error) {
 	return s.GetCreditBalance(ctx, userID)
+}
+
+// CheckAndMarkLowBalance reports whether a low-balance push is worth sending
+// right now, and records the answer atomically so the next call sees it.
+//
+// A crossing notifies once: the first check to find the balance below
+// thresholdUSDMicros with low_balance_notified_at still unset marks it and
+// reports true. Every check after that sees the marker already set and stays
+// quiet, however many more debits land while the balance stays low. Once the
+// balance recovers back to or above the threshold, the marker clears, so the
+// next time it dips back down notifies again.
+//
+// Same FOR UPDATE shape as debitCredits/ReserveCredits above: read the row
+// locked, decide, write, commit. The balance it read is returned too, so the
+// notification quotes the figure the decision was made on.
+func (s *Store) CheckAndMarkLowBalance(ctx context.Context, userID string, thresholdUSDMicros int64) (notify bool, balance int64, err error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	var notifiedAt *time.Time
+	if err := tx.QueryRow(ctx, `
+		SELECT credit_balance_usd_micros, low_balance_notified_at
+		FROM users WHERE id = $1 FOR UPDATE
+	`, userID).Scan(&balance, &notifiedAt); err != nil {
+		return false, 0, err
+	}
+
+	switch {
+	case balance < thresholdUSDMicros && notifiedAt == nil:
+		if _, err := tx.Exec(ctx, `
+			UPDATE users SET low_balance_notified_at = NOW() WHERE id = $1
+		`, userID); err != nil {
+			return false, 0, err
+		}
+		notify = true
+	case balance >= thresholdUSDMicros && notifiedAt != nil:
+		if _, err := tx.Exec(ctx, `
+			UPDATE users SET low_balance_notified_at = NULL WHERE id = $1
+		`, userID); err != nil {
+			return false, 0, err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, 0, err
+	}
+	return notify, balance, nil
 }
 
 // ListCreditTransactions returns a user's top-up history, newest first.

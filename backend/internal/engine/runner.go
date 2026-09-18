@@ -992,6 +992,26 @@ func (r *Runner) finishRun(wf models.Workflow, run models.Run, status models.Run
 	// worth notifying about, and does nothing at all until a Firebase service
 	// account is configured.
 	go push.NotifyRunFinished(context.Background(), r.store, wf.UserID, wf.ID, wf.Name, run.ID, run.TriggeredBy, status)
+
+	// A run's own debits have just landed (CommitReservedDebit/DebitCredits,
+	// during execution above), so right after it finishes is the natural
+	// point to notice a balance that has crossed low -- same fire-and-forget
+	// shape, same reason: this must never hold a run open.
+	go r.notifyIfBalanceLow(context.Background(), wf.UserID)
+}
+
+// notifyIfBalanceLow checks the crossing and delivers the push if it just
+// happened. Split out so the crossing decision (store-side, atomic) and the
+// delivery (push package) each stay testable on their own terms.
+func (r *Runner) notifyIfBalanceLow(ctx context.Context, userID string) {
+	notify, balance, err := r.store.CheckAndMarkLowBalance(ctx, userID, models.LowBalanceThresholdUSDMicros)
+	if err != nil {
+		log.Printf("low balance check: %v", err)
+		return
+	}
+	if notify {
+		push.NotifyLowBalance(ctx, r.store, userID, balance)
+	}
 }
 
 // Run executes a workflow from scratch. Call via Start rather than directly.

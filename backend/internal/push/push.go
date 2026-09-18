@@ -123,6 +123,7 @@ func RunFinished(workflowID, workflowName, runID string, status models.RunStatus
 		Title: workflowName,
 		Body:  fmt.Sprintf("Run %s.", outcome),
 		Data: map[string]string{
+			"type":  "run_finished",
 			"runId": runID,
 			// The workflow id, not only the run id: the app's only view of a
 			// run lives inside that workflow's page, so a tap with just a run
@@ -144,6 +145,92 @@ func NotifyRunFinished(ctx context.Context, store TokenStore, userID, workflowID
 		return
 	}
 	Deliver(ctx, store, userID, RunFinished(workflowID, workflowName, runID, status))
+}
+
+// LowBalance builds the notification for a credit balance that just crossed
+// below the low-balance threshold. No workflow id: the tap destination is the
+// billing page, not a run.
+func LowBalance(balanceUSDMicros int64) Notification {
+	dollars := float64(balanceUSDMicros) / 1e6
+	return Notification{
+		Title: "Credit balance low",
+		Body:  fmt.Sprintf("Your balance is $%.2f — top up to keep runs going.", dollars),
+		Data:  map[string]string{"type": "low_balance"},
+	}
+}
+
+// NotifyLowBalance sends the low-balance notification. The crossing decision
+// itself (whether this call happens at all) lives in Store.CheckAndMarkLowBalance
+// -- this function only delivers.
+func NotifyLowBalance(ctx context.Context, store TokenStore, userID string, balanceUSDMicros int64) {
+	Deliver(ctx, store, userID, LowBalance(balanceUSDMicros))
+}
+
+// GeofenceCrossing builds the notification for a workflow's geofence being
+// entered or left. direction is "enter" or "leave", the same vocabulary
+// handlers/geofence.go already uses.
+func GeofenceCrossing(workflowID, workflowName, direction string) Notification {
+	if strings.TrimSpace(workflowName) == "" {
+		workflowName = "A workflow"
+	}
+	verb := "left"
+	if direction == "enter" {
+		verb = "entered"
+	}
+	return Notification{
+		Title: workflowName,
+		Body:  fmt.Sprintf("You %s the zone.", verb),
+		Data: map[string]string{
+			"type":       "geofence",
+			"workflowId": workflowID,
+			"direction":  direction,
+		},
+	}
+}
+
+// NotifyGeofenceCrossing sends the geofence notification. Fires on the
+// crossing itself, independent of whether it went on to start a run (a
+// cooldown or an already-running workflow can still no-op that separately).
+func NotifyGeofenceCrossing(ctx context.Context, store TokenStore, userID, workflowID, workflowName, direction string) {
+	Deliver(ctx, store, userID, GeofenceCrossing(workflowID, workflowName, direction))
+}
+
+// ScheduleUpcoming builds the heads-up notification for a scheduled run about
+// to fire.
+func ScheduleUpcoming(workflowID, workflowName string) Notification {
+	if strings.TrimSpace(workflowName) == "" {
+		workflowName = "A workflow"
+	}
+	return Notification{
+		Title: workflowName,
+		Body:  "Scheduled run starting soon.",
+		Data: map[string]string{
+			"type":       "schedule_upcoming",
+			"workflowId": workflowID,
+		},
+	}
+}
+
+// NotifyScheduleUpcoming sends the schedule heads-up notification. The
+// lookahead decision (whether this run's next occurrence is close enough,
+// and whether it has already been warned about) lives in the scheduler.
+func NotifyScheduleUpcoming(ctx context.Context, store TokenStore, userID, workflowID, workflowName string) {
+	Deliver(ctx, store, userID, ScheduleUpcoming(workflowID, workflowName))
+}
+
+// TopUpCompleted builds the notification confirming a credit purchase landed.
+func TopUpCompleted(creditedUSDMicros int64) Notification {
+	dollars := float64(creditedUSDMicros) / 1e6
+	return Notification{
+		Title: "Top-up complete",
+		Body:  fmt.Sprintf("$%.2f added to your balance.", dollars),
+		Data:  map[string]string{"type": "topup_completed"},
+	}
+}
+
+// NotifyTopUpCompleted sends the top-up notification.
+func NotifyTopUpCompleted(ctx context.Context, store TokenStore, userID string, creditedUSDMicros int64) {
+	Deliver(ctx, store, userID, TopUpCompleted(creditedUSDMicros))
 }
 
 // Deliver sends one notification to every device belonging to userID.
