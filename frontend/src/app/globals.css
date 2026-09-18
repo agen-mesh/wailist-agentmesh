@@ -1252,6 +1252,19 @@ body[data-bottomnav] .appnav__trigger {
   display: none;
 }
 
+/* The attribute above is set after hydration, so at a tab root on a phone the
+   hamburger paints for one frame before the bar takes over from it. The top
+   bar marks a tab root in its own markup (AppNav's data-tabroot, rendered from
+   the pathname, so the server HTML carries it), and these are the same two
+   device signals the handheld check reads -- which together keep the button
+   out of that first frame. A touchscreen laptop still hovers, so it keeps its
+   hamburger and never shows the bar. */
+@media (pointer: coarse) and (hover: none) {
+  .appnav[data-tabroot] .appnav__trigger {
+    display: none;
+  }
+}
+
 /* While a text field has focus the on-screen keyboard is up, and the fixed
    bar would ride up above it, over the field being typed in. BottomNav sets
    the attribute. */

@@ -31,12 +31,33 @@ export const APP_NAV_ITEMS: readonly NavItem[] = [
   { label: "Credits", href: "/billing" },
 ];
 
+/**
+ * Tabs for the bottom bar on a phone or tablet. A handheld is mostly used to
+ * check on workflows, so Activity takes a tab and Usage and Credits sit under
+ * Account instead. APP_NAV_ITEMS stays the desktop and top bar navigation.
+ */
+export const HANDHELD_TAB_ITEMS: readonly NavItem[] = [
+  { label: "Workflows", href: "/workflows" },
+  { label: "Activity", href: "/activity" },
+  { label: "Bazaar", href: "/bazaar" },
+  { label: "Account", href: "/account" },
+];
+
 /** In-page sections for the marketing landing page. */
 export const LANDING_NAV_ITEMS: readonly NavItem[] = [
   { label: "Overview", sectionId: "pillars" },
   { label: "How it works", sectionId: "flow" },
   { label: "Waitlist", sectionId: "waitlist" },
 ];
+
+/**
+ * Whether `pathname` is the root of a handheld tab, as opposed to a screen
+ * pushed on top of one. The bottom bar only shows at these routes, and the top
+ * bar's hamburger only hides at them, so both ask this one question.
+ */
+export function isTabRoot(pathname: string): boolean {
+  return HANDHELD_TAB_ITEMS.some((item) => item.href === pathname);
+}
 
 /** Whether `item` represents the currently open page. */
 export function isNavItemActive(item: NavItem, pathname: string): boolean {

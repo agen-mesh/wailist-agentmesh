@@ -63,7 +63,12 @@ export const PROVIDER_TEMPLATES = [
 // googleConnectorScopes, requested together in one consent screen.
 // "product" groups the palette's Google tab into sections the way
 // ACTION_CATEGORIES groups the Actions tab.
-export const GOOGLE_PRODUCTS = ["Gmail", "Sheets", "Calendar", "Drive"] as const;
+export const GOOGLE_PRODUCTS = [
+  "Gmail",
+  "Sheets",
+  "Calendar",
+  "Drive",
+] as const;
 
 // usesMessage marks the operations that actually send/write something and
 // so benefit from a {{ }} message template (see resolveMessage/
@@ -72,17 +77,87 @@ export const GOOGLE_PRODUCTS = ["Gmail", "Sheets", "Calendar", "Drive"] as const
 // sheets_append/calendar_create) so the Inspector's Message section can
 // derive from this table instead of keeping its own separate id list.
 export const GOOGLE_TEMPLATES = [
-  { id: "gmail_list", name: "Gmail: List Messages", desc: "Search/list inbox messages", icon: "✉", product: "Gmail" },
-  { id: "gmail_get", name: "Gmail: Get Message", desc: "Read one message's content", icon: "✉", product: "Gmail" },
-  { id: "gmail_send", name: "Gmail: Send Message", desc: "Send a new email", icon: "✉", product: "Gmail", usesMessage: true },
-  { id: "gmail_reply", name: "Gmail: Reply", desc: "Reply within a thread", icon: "✉", product: "Gmail", usesMessage: true },
-  { id: "sheets_read", name: "Sheets: Read Range", desc: "Read cell values", icon: "▦", product: "Sheets" },
-  { id: "sheets_append", name: "Sheets: Append Row", desc: "Add a row of data", icon: "▦", product: "Sheets", usesMessage: true },
-  { id: "calendar_list", name: "Calendar: List Events", desc: "List upcoming events", icon: "◔", product: "Calendar" },
-  { id: "calendar_create", name: "Calendar: Create Event", desc: "Schedule a new event", icon: "◔", product: "Calendar", usesMessage: true },
-  { id: "drive_list", name: "Drive: List Files", desc: "Search/list files", icon: "▤", product: "Drive" },
-  { id: "drive_get", name: "Drive: Get File Info", desc: "Read file metadata", icon: "▤", product: "Drive" },
-  { id: "drive_download", name: "Drive: Download File", desc: "Fetch file contents", icon: "▤", product: "Drive" },
+  {
+    id: "gmail_list",
+    name: "Gmail: List Messages",
+    desc: "Search/list inbox messages",
+    icon: "✉",
+    product: "Gmail",
+  },
+  {
+    id: "gmail_get",
+    name: "Gmail: Get Message",
+    desc: "Read one message's content",
+    icon: "✉",
+    product: "Gmail",
+  },
+  {
+    id: "gmail_send",
+    name: "Gmail: Send Message",
+    desc: "Send a new email",
+    icon: "✉",
+    product: "Gmail",
+    usesMessage: true,
+  },
+  {
+    id: "gmail_reply",
+    name: "Gmail: Reply",
+    desc: "Reply within a thread",
+    icon: "✉",
+    product: "Gmail",
+    usesMessage: true,
+  },
+  {
+    id: "sheets_read",
+    name: "Sheets: Read Range",
+    desc: "Read cell values",
+    icon: "▦",
+    product: "Sheets",
+  },
+  {
+    id: "sheets_append",
+    name: "Sheets: Append Row",
+    desc: "Add a row of data",
+    icon: "▦",
+    product: "Sheets",
+    usesMessage: true,
+  },
+  {
+    id: "calendar_list",
+    name: "Calendar: List Events",
+    desc: "List upcoming events",
+    icon: "◔",
+    product: "Calendar",
+  },
+  {
+    id: "calendar_create",
+    name: "Calendar: Create Event",
+    desc: "Schedule a new event",
+    icon: "◔",
+    product: "Calendar",
+    usesMessage: true,
+  },
+  {
+    id: "drive_list",
+    name: "Drive: List Files",
+    desc: "Search/list files",
+    icon: "▤",
+    product: "Drive",
+  },
+  {
+    id: "drive_get",
+    name: "Drive: Get File Info",
+    desc: "Read file metadata",
+    icon: "▤",
+    product: "Drive",
+  },
+  {
+    id: "drive_download",
+    name: "Drive: Download File",
+    desc: "Fetch file contents",
+    icon: "▤",
+    product: "Drive",
+  },
 ];
 
 // Display-only mirror of backend/internal/engine/nodes/tier.go's modelTiers
@@ -132,12 +207,11 @@ export const MODEL_TIERS: Record<
 // FrontierFeeUSDMicros -- same hand-sync caveat as MODEL_TIERS above: the
 // backend is billing-authoritative, this only drives the Inspector's fee
 // badge. Keep in sync by hand when the Go constants change.
-export const TIER_FEES: Record<"economy" | "standard" | "frontier", number> =
-  {
-    economy: 0.03,
-    standard: 0.09,
-    frontier: 0.15,
-  };
+export const TIER_FEES: Record<"economy" | "standard" | "frontier", number> = {
+  economy: 0.03,
+  standard: 0.09,
+  frontier: 0.15,
+};
 
 // modelTier mirrors nodes.ModelTier's default: unrecognized template/model
 // pairs are "standard", never "economy".
@@ -157,14 +231,44 @@ export function modelTier(
 export const TOOL_TEMPLATES = [
   { id: "http", name: "HTTP Request", desc: "GET/POST any URL", icon: "⟶" },
   { id: "calc", name: "Calculator", desc: "Math expressions", icon: "Σ" },
-  { id: "set", name: "Edit Fields", desc: "Build an object from refs", icon: "≔" },
-  { id: "json_extract", name: "JSON Extract", desc: "Pick a value by path", icon: "⌗" },
+  {
+    id: "set",
+    name: "Edit Fields",
+    desc: "Build an object from refs",
+    icon: "≔",
+  },
+  {
+    id: "json_extract",
+    name: "JSON Extract",
+    desc: "Pick a value by path",
+    icon: "⌗",
+  },
   { id: "crypto", name: "Crypto", desc: "Hash / HMAC / base64", icon: "⚿" },
-  { id: "datetime", name: "Date & Time", desc: "Now, offset, timezone", icon: "◔" },
+  {
+    id: "datetime",
+    name: "Date & Time",
+    desc: "Now, offset, timezone",
+    icon: "◔",
+  },
   { id: "xml", name: "XML → JSON", desc: "Parse XML payloads", icon: "⋔" },
-  { id: "template", name: "Text Template", desc: "Compose with {{ refs }}", icon: "¶" },
-  { id: "html_extract", name: "HTML Extract", desc: "CSS selector → text", icon: "⌸" },
-  { id: "markdown", name: "Markdown → HTML", desc: "Render agent output", icon: "⌘" },
+  {
+    id: "template",
+    name: "Text Template",
+    desc: "Compose with {{ refs }}",
+    icon: "¶",
+  },
+  {
+    id: "html_extract",
+    name: "HTML Extract",
+    desc: "CSS selector → text",
+    icon: "⌸",
+  },
+  {
+    id: "markdown",
+    name: "Markdown → HTML",
+    desc: "Render agent output",
+    icon: "⌘",
+  },
   { id: "quickchart", name: "QuickChart", desc: "Chart image URL", icon: "▦" },
   {
     id: "websearch",
@@ -896,7 +1000,8 @@ function tendrilNode(
         name: "payload",
         type: "string",
         required: true,
-        description: "Python source to execute. Its stdout is returned as `result`.",
+        description:
+          "Python source to execute. Its stdout is returned as `result`.",
       },
     ],
     paramDefaults: { payload: opts.payload },
@@ -1020,7 +1125,13 @@ function prismCodeReviewNode(
   id: string,
   x: number,
   y: number,
-  opts: { name: string; description: string; tier: "fast" | "accurate"; rawUrl: string; filePath: string },
+  opts: {
+    name: string;
+    description: string;
+    tier: "fast" | "accurate";
+    rawUrl: string;
+    filePath: string;
+  },
 ): WorkflowNode {
   return {
     id,
@@ -1046,7 +1157,8 @@ function prismCodeReviewNode(
         name: "file_path",
         type: "string",
         required: true,
-        description: "The file's name, extension included -- tells Prism which language to expect.",
+        description:
+          "The file's name, extension included -- tells Prism which language to expect.",
       },
     ],
     paramDefaults: { raw_url: opts.rawUrl, file_path: opts.filePath },
@@ -1175,7 +1287,7 @@ export const WORKFLOWS: Workflow[] = [
     name: "Customer Support Triage",
     status: "deployed",
     updated: "2m ago",
-    agents: 1,
+    agents: 2,
     runs: 1842,
     spend: "4.218",
     tags: ["support", "production"],
@@ -1187,7 +1299,7 @@ export const WORKFLOWS: Workflow[] = [
     name: "Daily Market Brief",
     status: "deployed",
     updated: "1h ago",
-    agents: 4,
+    agents: 1,
     runs: 38,
     spend: "1.482",
     tags: ["research"],
@@ -1199,7 +1311,7 @@ export const WORKFLOWS: Workflow[] = [
     name: "Invoice Reconciliation",
     status: "paused",
     updated: "yesterday",
-    agents: 2,
+    agents: 1,
     runs: 217,
     spend: "0.890",
     tags: ["finance"],
@@ -1211,7 +1323,7 @@ export const WORKFLOWS: Workflow[] = [
     name: "Lead Enrichment v2",
     status: "draft",
     updated: "3d ago",
-    agents: 3,
+    agents: 1,
     runs: 0,
     spend: "0.000",
     tags: ["sales"],
@@ -1223,7 +1335,7 @@ export const WORKFLOWS: Workflow[] = [
     name: "On-chain Compliance Watch",
     status: "deployed",
     updated: "5h ago",
-    agents: 2,
+    agents: 1,
     runs: 642,
     spend: "2.118",
     tags: ["compliance", "production"],
@@ -1235,7 +1347,7 @@ export const WORKFLOWS: Workflow[] = [
     name: "Content Pipeline",
     status: "draft",
     updated: "1w ago",
-    agents: 5,
+    agents: 2,
     runs: 0,
     spend: "0.000",
     tags: ["marketing"],

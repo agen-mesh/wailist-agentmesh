@@ -92,6 +92,25 @@ describe("isWriteBlocked", () => {
     expect(isWriteBlocked("GET", "/prism/endpoints", VIEWER)).toBe(false);
   });
 
+  // The two lists had drifted: the backend blocked GET /helixbox/console and
+  // neither blocked variable writes, though lib/api.ts guards them. Pinned so
+  // they stay in step with backend/internal/api/readonly.go.
+  it("blocks variable writes and the helixbox console for a viewer", () => {
+    expect(
+      isWriteBlocked("PUT", "/workflows/wf_123/variables/API_KEY", VIEWER),
+    ).toBe(true);
+    expect(
+      isWriteBlocked("DELETE", "/workflows/wf_123/variables/API_KEY", VIEWER),
+    ).toBe(true);
+    expect(isWriteBlocked("GET", "/workflows/wf_123/variables", VIEWER)).toBe(
+      false,
+    );
+    expect(isWriteBlocked("GET", "/helixbox/console", VIEWER)).toBe(true);
+    expect(isWriteBlocked("GET", "/helixbox/console/exists", VIEWER)).toBe(
+      false,
+    );
+  });
+
   // The geofence exception, pinned from the guard's side.
   //
   // This is the half that actually ships the decision: the capability above
