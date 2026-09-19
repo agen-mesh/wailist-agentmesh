@@ -285,8 +285,8 @@ function HeroSection({
                 )}
                 <button
                   onClick={openStudio}
+                  className="lp-open-studio"
                   style={{
-                    padding: "8px 18px",
                     borderRadius: 999,
                     background: "var(--accent)",
                     color: "var(--accent-fg)",
@@ -302,7 +302,10 @@ function HeroSection({
                     gap: 6,
                   }}
                 >
-                  Open Studio <IconArrow size={11} />
+                  Open Studio
+                  <span className="lp-open-studio__arrow">
+                    <IconArrow size={11} />
+                  </span>
                 </button>
               </>
             }

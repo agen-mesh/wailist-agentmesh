@@ -49,8 +49,11 @@ export function useScrollLock(
     // Only the document path uses this — see the cleanup.
     const scrollY = window.scrollY;
 
-    // Width of the scrollbar that is about to disappear. Zero on overlay-
-    // scrollbar platforms, ~8px here (see the ::-webkit-scrollbar rule).
+    // Width of the scrollbar that is about to disappear. ~8px with a mouse
+    // (see the ::-webkit-scrollbar rule); zero on overlay-scrollbar platforms,
+    // and zero on a touchscreen too, where globals.css hides the vertical bar.
+    // Measured rather than assumed for exactly that reason -- a hard-coded 8
+    // would push the page 8px sideways on every sheet a phone opens.
     const gutter = el
       ? el.offsetWidth - el.clientWidth
       : window.innerWidth - document.documentElement.clientWidth;

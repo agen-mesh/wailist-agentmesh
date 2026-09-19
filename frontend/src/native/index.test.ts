@@ -14,7 +14,15 @@ function harness(opts: {
   optedIn: boolean;
   restore?: () => Promise<void>;
 }) {
-  const calls = { enable: 0, disable: 0, clears: 0, taps: 0, flushes: 0, oauth: 0 };
+  const calls = {
+    enable: 0,
+    disable: 0,
+    clears: 0,
+    taps: 0,
+    back: 0,
+    flushes: 0,
+    oauth: 0,
+  };
   const prefs = { optedIn: opts.optedIn };
   const navigate = vi.fn();
   const persistNativeSession = vi
@@ -22,12 +30,17 @@ function harness(opts: {
     .mockResolvedValue(undefined);
   let onOAuth: ((result: OAuthResult) => void | Promise<void>) | undefined;
 
-  vi.stubGlobal("window", { location: { assign: navigate } });
+  vi.doMock("@/lib/nativeNav", () => ({ navigateInApp: navigate }));
   vi.doMock("@/hooks/useAuth", () => ({ persistNativeSession }));
   vi.doMock("./oauth", () => ({
     listenForCallback: async (callback: typeof onOAuth) => {
       calls.oauth += 1;
       onOAuth = callback;
+    },
+  }));
+  vi.doMock("./back", () => ({
+    listenForBack: async () => {
+      calls.back += 1;
     },
   }));
 
@@ -82,14 +95,14 @@ function harness(opts: {
     navigate,
     persistNativeSession,
     async deliverOAuth(result: OAuthResult) {
-      if (!onOAuth) throw new Error("OAuth callback listener was not registered");
+      if (!onOAuth)
+        throw new Error("OAuth callback listener was not registered");
       await onOAuth(result);
     },
   };
 }
 
 afterEach(() => {
-  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -133,7 +146,7 @@ describe("boot", () => {
     expect(calls.enable).toBe(0);
   });
 
-  it("still attaches the tap listener and flushes whatever the push state", async () => {
+  it("still attaches the tap and Back listeners and flushes whatever the push state", async () => {
     // The re-arm is an addition to boot(), not a gate on it. A notification
     // tapped from a cold start arrives during launch, so the listener has to
     // go on regardless.
@@ -142,6 +155,7 @@ describe("boot", () => {
 
     await boot();
     expect(calls.taps).toBe(1);
+    expect(calls.back).toBe(1);
     expect(calls.flushes).toBe(1);
   });
 
@@ -156,7 +170,8 @@ describe("boot", () => {
     expect(h.calls.taps).toBe(1);
     expect(h.calls.enable).toBe(0);
     expect(h.persistNativeSession).toHaveBeenCalledWith("tok_oauth");
-    expect(h.navigate).toHaveBeenCalledWith("/workflows");
+    // Inside the app, replacing the sign-in screen, not a page load.
+    expect(h.navigate).toHaveBeenCalledWith("/workflows", { replace: true });
   });
 
   it("handles OAuth while notification restoration is still pending", async () => {
@@ -176,7 +191,7 @@ describe("boot", () => {
     expect(h.calls.enable).toBe(0);
     expect(h.calls.taps).toBe(1);
     expect(h.persistNativeSession).toHaveBeenCalledWith("tok_oauth");
-    expect(h.navigate).toHaveBeenCalledWith("/workflows");
+    expect(h.navigate).toHaveBeenCalledWith("/workflows", { replace: true });
 
     finishRestore();
     await settle();
@@ -198,7 +213,7 @@ describe("boot", () => {
     await h.deliverOAuth({ ok: true, token: "tok_oauth" });
 
     expect(h.persistNativeSession).toHaveBeenCalledWith("tok_oauth");
-    expect(h.navigate).toHaveBeenCalledWith("/workflows");
+    expect(h.navigate).toHaveBeenCalledWith("/workflows", { replace: true });
     expect(h.calls.taps).toBe(1);
     expect(h.calls.enable).toBe(0);
   });
@@ -213,7 +228,23 @@ describe("boot", () => {
 
     expect(h.calls.enable).toBe(1);
     expect(h.persistNativeSession).not.toHaveBeenCalled();
-    expect(h.navigate).toHaveBeenCalledWith("/signin?error=cancelled");
+    // The reason survives to the sign-in screen.
+    expect(h.navigate).toHaveBeenCalledWith("/signin?error=cancelled", {
+      replace: true,
+    });
+  });
+
+  it("sends a session the device could not keep back to sign-in with its reason", async () => {
+    const h = harness({ token: null, optedIn: false });
+    h.persistNativeSession.mockRejectedValueOnce(new Error("keystore"));
+    const { boot } = await import("./index");
+
+    await boot();
+    await h.deliverOAuth({ ok: true, token: "tok_oauth" });
+
+    expect(h.navigate).toHaveBeenCalledWith("/signin?error=session_persist", {
+      replace: true,
+    });
   });
 });
 

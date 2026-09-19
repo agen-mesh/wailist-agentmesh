@@ -60,6 +60,15 @@
   min-height: 100dvh;
 }
 
+/* In landscape a navigation bar or a camera cutout can sit on the left or
+   right edge. App screens keep their content, top bar included, clear of it.
+   The values are zero in portrait and in a browser. */
+.am-viewport,
+.am-viewport-min {
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
 /* ── Safe areas ─────────────────────────────────────────────────────────────
    The app targets Android SDK 36, so from Android 15 the WebView draws behind
    the status and navigation bars and the page is responsible for keeping its
@@ -81,7 +90,8 @@
    The top and bottom values are also published as custom properties, because a
    bar that has to GROW by the inset needs it inside a calc() rather than as
    padding, and repeating the whole var/env/floor chain inline is where a typo
-   hides. Only those two: nothing yet needs to compute against the side insets.
+   hides. The side values are for landscape, where 3-button navigation and a
+   camera cutout sit on the left or right edge.
    This is the one place in this file that is not an `.am-*` class; it defines
    new custom properties rather than overriding any existing rule. */
 :root {
@@ -90,6 +100,8 @@
     --safe-area-inset-bottom,
     env(safe-area-inset-bottom, 0px)
   );
+  --safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  --safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
 }
 
 .am-safe-top {
@@ -110,6 +122,94 @@
 .am-safe-x {
   padding-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
   padding-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+}
+
+/* Legal pages (/privacy, /terms, /refund-policy). They have no app top bar, so
+   in the Android app, where content draws under the status bar, their own
+   header takes the inset. The phone step narrows the 32px desktop margins,
+   which left 256px for the text at 320px wide.
+
+   A highlighted section bleeds 24px past the text column on wider screens.
+   That bleed fits inside 32px of page padding but not inside 16px, so on a
+   phone the section sits inside the column instead. */
+.am-legal-bar {
+  padding: calc(16px + var(--safe-top)) calc(32px + var(--safe-right)) 16px
+    calc(32px + var(--safe-left));
+}
+.am-legal-main {
+  max-width: 740px;
+  margin: 0 auto;
+  padding: 64px calc(32px + var(--safe-right)) calc(96px + var(--safe-bottom))
+    calc(32px + var(--safe-left));
+}
+.am-legal-callout {
+  margin: 8px -24px;
+  padding: 32px 24px;
+}
+/* The bar's link is a standalone control, not a link inside a sentence, so it
+   takes the 44px touch floor the app's buttons get. */
+@media (pointer: coarse) and (hover: none) {
+  .am-legal-bar a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+}
+@media (max-width: 520px) {
+  .am-legal-bar {
+    padding-left: calc(16px + var(--safe-left));
+    padding-right: calc(16px + var(--safe-right));
+  }
+  .am-legal-main {
+    padding: 40px calc(16px + var(--safe-right)) calc(64px + var(--safe-bottom))
+      calc(16px + var(--safe-left));
+  }
+  .am-legal-callout {
+    margin: 8px 0;
+    padding: 24px 16px;
+  }
+}
+
+/* Partner console pages (/bazaar/tendril, /bazaar/prism, /bazaar/helixbox).
+   Their padding and heading were fixed at desktop sizes, which left a 360px
+   phone about 312px for the page; the phone step gives some of that back. */
+.am-console-page {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 28px 24px 96px;
+}
+.am-console-title {
+  margin: 14px 0 6px;
+  font-size: 34px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+@media (max-width: 520px) {
+  .am-console-page {
+    padding: 20px 16px 64px;
+  }
+  .am-console-title {
+    font-size: 26px;
+  }
+}
+/* The consoles size their buttons and inputs at 26–32px for a mouse. A finger
+   needs 44px. min-height wins over the inline height; !important is only for
+   ghostBtnSm, which sets an inline minHeight of its own. */
+@media (pointer: coarse) {
+  .am-console-page
+    :is(
+      button,
+      select,
+      input:not(
+        [type="checkbox"],
+        [type="radio"],
+        [type="range"],
+        [type="file"]
+      )
+    ) {
+    min-height: 44px !important;
+  }
 }
 
 /* ── Touch ──────────────────────────────────────────────────────────────────
@@ -155,6 +255,37 @@
   body {
     overscroll-behavior-y: contain;
   }
+
+  /* 44px touch targets. These controls are drawn small for a mouse, and a
+     fingertip needs more. Where the control's own box can grow it does; the
+     avatar and the Usage "+" keep their size and take the tap through an
+     invisible 44px square centred on them. */
+  .wf-filter,
+  .profile-menu__item,
+  .am-touch {
+    min-height: 44px;
+  }
+  /* ghostBtnSm sets its height inline, and an inline style beats a
+     stylesheet rule unless the rule is important. */
+  .wf-row-actions > button,
+  .wf-view-toggle {
+    min-height: 44px !important;
+  }
+  .profile-menu__trigger {
+    position: relative;
+  }
+  /* .credit-topup is already absolutely positioned, so it anchors the square
+     without a position rule of its own. */
+  .profile-menu__trigger::before,
+  .credit-topup::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
 }
 
 @media (pointer: coarse) and (prefers-reduced-motion: reduce) {
@@ -162,6 +293,160 @@
   button:not(:disabled):active,
   [role="button"]:active {
     transform: none;
+  }
+}
+
+/* ── Route transitions ──────────────────────────────────────────────────────
+   Applied by components/nav/RouteTransition.tsx, which decides when and in
+   which direction. See that file for why this is a keyframe on the arriving
+   screen rather than the View Transitions API.
+
+   16px, not a full-width slide. The travel only has to say WHICH WAY the screen
+   came from; a screen-width push with no outgoing frame to push against reads
+   as the content sliding around inside a static window, which is worse than not
+   moving at all. Paired with a fade so the short distance still registers.
+
+   220ms sits in the app's standard-UI band (150-250ms) and under its 300ms cap
+   for anything the user is waiting on. var(--ease) is the house entrance curve. */
+@keyframes route-in-forward {
+  from {
+    opacity: 0;
+    transform: translate3d(16px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes route-in-back {
+  from {
+    opacity: 0;
+    transform: translate3d(-16px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.route-enter-fwd {
+  animation: route-in-forward 0.22s var(--ease);
+}
+.route-enter-back {
+  animation: route-in-back 0.22s var(--ease);
+}
+/* The arriving screen starts 16px to one side, which would widen the page for
+   the length of the animation. Clipped only while a class is on, so overflow
+   that is a real layout bug still shows at rest. `clip`, not `hidden`, so the
+   frame does not become a scroll container. */
+.route-frame:has(> .route-enter-fwd, > .route-enter-back) {
+  overflow-x: clip;
+}
+
+/* Not decoration, so it goes entirely rather than being shortened: someone who
+   has asked for less motion is not asking for faster motion.
+
+   With no animation there is no animationend, so the class is never cleaned off
+   the wrapper. That is deliberate and harmless -- it paints nothing, and the
+   next navigation strips both classes before adding one. Worth writing down,
+   because "the class is still on the element" looks like a leak to anyone
+   reading the DOM rather than this comment. */
+@media (prefers-reduced-motion: reduce) {
+  .route-enter-fwd,
+  .route-enter-back {
+    animation: none;
+  }
+}
+
+/* ── Skeletons ──────────────────────────────────────────────────────────────
+   A sweep of light across a slightly raised block. The sweep is what separates
+   "loading" from "empty": a static grey box reads as content that has arrived
+   and is blank. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-elev-2);
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.06),
+    transparent
+  );
+  animation: skeleton-sweep 1.4s var(--ease) infinite;
+}
+
+/* 1.4s, well outside the app's 300ms interactive-feedback cap, and rightly so:
+   that cap governs a response to something the user just did. This is ambient,
+   like the marquee and the glow -- a pulse at interaction speed would read as
+   frantic. */
+@keyframes skeleton-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+}
+
+/* ── Pull to refresh ────────────────────────────────────────────────────────
+   The indicator only; the gesture lives in components/PullToRefresh.tsx. It is
+   positioned from the top centre and moved by an inline transform that tracks
+   the finger, so everything here is the chrome around that. */
+.ptr-indicator {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  z-index: 5;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+  /* The one surface here that genuinely floats above the page, so it is the
+     one that gets a shadow. */
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.ptr-indicator[data-spinning] {
+  color: var(--accent);
+  animation: ptr-spin 0.7s linear infinite;
+}
+
+/* Animates `rotate`, NOT `transform`. The element's transform is set inline and
+   tracks the finger; a keyframe touching `transform` would fight it and snap the
+   indicator back to the top mid-pull. `rotate` is an independent transform
+   property, so the two compose instead of overwriting each other.
+
+   linear, not var(--ease): a spinner is continuous motion, and an eased curve
+   makes it visibly hesitate once per revolution. */
+@keyframes ptr-spin {
+  from {
+    rotate: 0deg;
+  }
+  to {
+    rotate: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ptr-indicator[data-spinning] {
+    animation: none;
   }
 }
 
@@ -220,8 +505,12 @@
   cursor: pointer;
   transition: color 0.12s var(--ease);
 }
-.am-sheet-grip:hover {
-  color: var(--fg-muted);
+/* Hover only where a pointer hovers: a tap leaves :hover set on a touch
+   screen, and the grip would stay lit after the sheet moves. */
+@media (hover: hover) {
+  .am-sheet-grip:hover {
+    color: var(--fg-muted);
+  }
 }
 .am-sheet-grip:active {
   transform: scale(0.97);
@@ -262,13 +551,54 @@
   }
 }
 
-/* Usage tables keep their columns and scroll sideways inside their own card,
-   so the page body never does. */
-@media (max-width: 1024px) {
-  .am-usage-table {
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    -webkit-overflow-scrolling: touch;
+/* ── Sideways scroll, made visible ──────────────────────────────────────────
+   Scrolling was already the right answer for these tables -- the settlements
+   card was tried as a two-up stack and measured WORSE (833px against 18 rows
+   that scrolled), and the endpoints table is nine sortable columns wide. What
+   was missing is any sign that scrolling is possible: on a 375px screen the
+   endpoints table shows 305 of its 984 pixels and simply looks cut off, with a
+   type pill sliced down the middle at the edge.
+
+   So this adds the affordance rather than changing the layout. A fade at the
+   right edge says "there is more this way" -- the standard treatment, and the
+   only one that does not cost vertical space on a page whose length was the
+   actual complaint.
+
+   It is on a wrapper, not the scroller itself: a pseudo-element on the
+   scrolling box scrolls away with the content, so it would drift off exactly
+   when it is needed. `pointer-events: none` so it never eats a tap on the cell
+   underneath. */
+.am-hscroll {
+  position: relative;
+}
+.am-hscroll__pane {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.am-hscroll::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 40px;
+  pointer-events: none;
+  /* Ends in the card's own background so the fade reads as the content
+     running under the edge, not as a grey bar laid over it. */
+  background: linear-gradient(to right, transparent, var(--bg-elev-1));
+  opacity: 1;
+  transition: opacity 0.15s var(--ease);
+}
+/* Nothing further to scroll: the fade goes, so it never lies about there being
+   more. Set by the component once it has measured, which is also why the
+   attribute is absent (not "false") until then. */
+.am-hscroll[data-at-end]::after {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .am-hscroll::after {
+    transition: none;
   }
 }
 
@@ -307,5 +637,31 @@
 @media (max-width: 900px) {
   .am-studio-stats-extra {
     display: none;
+  }
+}
+
+/* The studio top bar on a phone. At 360px it needed about 393px: the logo,
+   the "/" separator, the placeholder avatar and a 120px floor on the name
+   pushed the Run button past the edge. Below 520px those go, as does the
+   run-cost estimate (the credit balance stays, for the reason above), the
+   back button keeps only its arrow with a full 44px target, and the spacing,
+   the name floor and the Run width tighten. Every token falls back to the
+   desktop value in CanvasPage.tsx, so nothing above this step moves. */
+@media (max-width: 520px) {
+  .am-canvas-bar {
+    --canvas-bar-pad: 12px;
+    --canvas-bar-gap: 8px;
+    --canvas-name-min: 72px;
+    --canvas-stats-pad: 10px;
+    --canvas-run-min: 64px;
+  }
+  .am-canvas-bar__wide,
+  .am-canvas-bar__label {
+    display: none !important;
+  }
+  .am-canvas-bar__back {
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
   }
 }

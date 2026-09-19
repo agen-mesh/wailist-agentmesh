@@ -1,6 +1,12 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { IS_NATIVE, setAuthToken, markAuthReady } from "@/lib/nativeAuth";
+import {
+  setInAppNavigator,
+  takePendingRoute,
+  type InAppRoute,
+} from "@/lib/nativeNav";
 
 // Restores the session the native shell persisted, once, on first mount.
 //
@@ -23,7 +29,10 @@ import { IS_NATIVE, setAuthToken, markAuthReady } from "@/lib/nativeAuth";
 const BOOT_TIMEOUT_MS = 10_000;
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("native boot timed out")), ms);
+    const timer = setTimeout(
+      () => reject(new Error("native boot timed out")),
+      ms,
+    );
     p.then(
       (v) => {
         clearTimeout(timer);
@@ -40,11 +49,53 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 // Renders nothing. Mounted in the root layout because the session has to be
 // restored before any page makes its first authenticated call, not when some
 // particular screen happens to appear.
+//
+// It also gives the shell a router (lib/nativeNav.ts). A notification tap or an
+// OAuth result arrives from native code with nowhere to navigate, and a page
+// load would reopen the app on its launch page.
 export function NativeBoot() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  });
+
+  // Registered before boot() runs below (effects run in order), because boot()
+  // attaches the listeners that navigate.
+  useEffect(() => {
+    if (!IS_NATIVE) return;
+    const go = ({ href, replace }: InAppRoute) => {
+      if (replace) router.replace(href);
+      else router.push(href);
+    };
+    setInAppNavigator((route) => {
+      // The launch page is still choosing between /workflows and /signin. It
+      // takes the held route in place of its default (app/page.tsx).
+      if (pathnameRef.current === "/") return false;
+      go(route);
+      return true;
+    });
+    return () => setInAppNavigator(null);
+  }, [router]);
+
+  // A route that arrived while the launch page was already redirecting is
+  // still held once the redirect lands. Follow it then.
+  useEffect(() => {
+    if (!IS_NATIVE || pathname === "/") return;
+    const held = takePendingRoute();
+    if (!held) return;
+    if (held.replace) router.replace(held.href);
+    else router.push(held.href);
+  }, [pathname, router]);
+
   useEffect(() => {
     if (!IS_NATIVE) return;
     let cancelled = false;
-    void withTimeout(import("@/native").then(({ boot }) => boot()), BOOT_TIMEOUT_MS)
+    void withTimeout(
+      import("@/native").then(({ boot }) => boot()),
+      BOOT_TIMEOUT_MS,
+    )
       .then((token) => {
         if (!cancelled && token) setAuthToken(token);
       })

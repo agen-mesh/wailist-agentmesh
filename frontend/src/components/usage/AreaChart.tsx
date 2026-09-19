@@ -84,10 +84,18 @@ export function AreaChart({
     >
       <svg
         width="100%"
-        height={H}
         viewBox={`0 0 ${W} ${H}`}
+        // Already "none", so the drawing has always stretched to whatever box it
+        // is given -- which is what makes the height safe to change from CSS
+        // without touching a single path below.
         preserveAspectRatio="none"
-        style={{ display: "block" }}
+        style={{
+          display: "block",
+          // Was a hard height={H}. 210px of chart is right on a desktop and is
+          // a quarter of a phone screen; the token drops it to 150 there. The
+          // fallback keeps H authoritative if the property is ever missing.
+          height: `var(--us-chart-h, ${H}px)`,
+        }}
       >
         <defs>
           <linearGradient id="am-gx402" x1="0" y1="0" x2="0" y2="1">

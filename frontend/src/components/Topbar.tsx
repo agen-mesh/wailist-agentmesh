@@ -1,12 +1,10 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Logo, Pill, Hairline, ghostBtnSm } from "@/components/ui";
+import { Logo, Hairline, ghostBtnSm } from "@/components/ui";
 import { useAuth } from "@/hooks/useAuth";
 import { AppNav } from "@/components/nav/AppNav";
 import { APP_NAV_ITEMS, type NavItem } from "@/lib/nav";
-import { can } from "@/lib/readonly";
-import { useReadOnly } from "@/hooks/useReadOnly";
 import { IS_NATIVE } from "@/lib/nativeAuth";
 import { NotificationsSheet } from "@/components/notifications/NotificationsSheet";
 
@@ -16,7 +14,6 @@ export function Topbar() {
   const router = useRouter();
   const pathname = usePathname();
   const { signOut, user, completeOnboarding } = useAuth();
-  const readOnly = useReadOnly();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   // The account button, so the notifications sheet can hand focus back to
   // something that still exists. The menu item that opens it does not: the
@@ -87,7 +84,9 @@ export function Topbar() {
 
   const handleSignOut = async () => {
     await signOut();
-    router.push("/");
+    // replace, not push: Back from the signed-out screen would otherwise
+    // return to a page this account can no longer load.
+    router.replace("/signin");
   };
 
   return (
@@ -114,26 +113,17 @@ export function Topbar() {
             >
               <Logo size={18} />
             </button>
-            <Hairline vertical length={22} />
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {/* Workspace switcher drops out on narrow screens — it is the widest
-                element in the cluster and the least load-bearing. */}
-              <button className="hide-md" style={ghostBtnSm}>
-                {orgName} ▾
-              </button>
+            {/* The workspace switcher drops out on narrow screens — it is the
+              widest element in the cluster and the least load-bearing — and
+              the divider before it goes too, so the logo is not left trailing
+              a rule with nothing after it. */}
+            <Hairline className="hide-md" vertical length={22} />
+            <div
+              className="hide-md"
+              style={{ display: "flex", alignItems: "center", gap: 8 }}
+            >
+              <button style={ghostBtnSm}>{orgName} ▾</button>
             </div>
-            {/* Deliberately OUTSIDE the context cluster above. This pill is not
-              context -- it is the explanation for why the create/deploy
-              controls are missing, and a phone is where it is needed most.
-              Collapsing it with the workspace switcher left a viewer on a
-              narrow screen with the controls gone and nothing saying why. */}
-            {!can("workflow.editGraph", readOnly) && (
-              <span title="Editing happens in the AgentMesh desktop app.">
-                <Pill mono dot tone="warm">
-                  viewing only
-                </Pill>
-              </span>
-            )}
           </div>
         }
         actions={
@@ -302,12 +292,19 @@ function OnboardingModal({
         alignItems: "center",
         justifyContent: "center",
         zIndex: 1000,
+        // Keeps the form clear of the system bars and screen edges. On a
+        // landscape phone the form is taller than the screen and scrolls.
+        padding:
+          "calc(16px + var(--safe-top)) calc(16px + var(--safe-right)) calc(16px + var(--safe-bottom)) calc(16px + var(--safe-left))",
       }}
     >
       <form
         onSubmit={handleSubmit}
         style={{
-          width: 340,
+          width: "min(340px, 100%)",
+          maxHeight: "100%",
+          overflowY: "auto",
+          boxSizing: "border-box",
           background: "var(--bg-elev-1)",
           border: "1px solid var(--border)",
           borderRadius: "var(--r-2)",
@@ -337,6 +334,7 @@ function OnboardingModal({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Ada Lovelace"
+            className="am-touch"
             style={onboardingInputStyle}
           />
         </label>
@@ -348,6 +346,7 @@ function OnboardingModal({
             value={org}
             onChange={(e) => setOrg(e.target.value)}
             placeholder="Acme Capital"
+            className="am-touch"
             style={onboardingInputStyle}
           />
         </label>
@@ -364,6 +363,7 @@ function OnboardingModal({
         )}
         <button
           type="submit"
+          className="am-touch"
           disabled={saving || !name.trim()}
           style={{
             height: 38,
@@ -413,8 +413,11 @@ function NavLink({
       className="am-nav-link"
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      onMouseEnter={(e) => {
-        if (!active) e.currentTarget.style.background = "var(--bg-elev-2)";
+      // Mouse only: on a tablet, where these links show, a tap would leave the
+      // link highlighted.
+      onPointerEnter={(e) => {
+        if (!active && e.pointerType === "mouse")
+          e.currentTarget.style.background = "var(--bg-elev-2)";
       }}
       onMouseLeave={(e) => {
         if (!active) e.currentTarget.style.background = "transparent";

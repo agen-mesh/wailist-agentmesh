@@ -11,12 +11,15 @@ import {
   ghostBtnSm,
 } from "@/components/ui";
 import { Topbar } from "@/components/Topbar";
+import { PullToRefresh } from "@/components/PullToRefresh";
+import { WorkflowListSkeleton } from "@/components/ui/Skeleton";
 import { Workflow } from "@/lib/types";
 import { workflows as workflowsApi } from "@/lib/api";
 import { useCredits } from "@/lib/credits/store";
 import { DEMO_WORKFLOW } from "@/lib/data";
 import { loadTemplateWorkflow } from "@/lib/templateWorkflow";
 import { can } from "@/lib/readonly";
+import { workflowHref } from "@/lib/routes";
 import { ImportModal } from "./ImportModal";
 import { ShareModal } from "./ShareModal";
 import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
@@ -44,7 +47,7 @@ export function WorkflowsPage() {
   // other. A success only clears the error if it's the one that owns it,
   // so it never wipes an unrelated action's still-relevant error.
   const [pageError, setPageError] = useState<{
-    source: "demo" | "delete" | "schedule";
+    source: "list" | "demo" | "delete" | "schedule";
     message: string;
   } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -54,13 +57,52 @@ export function WorkflowsPage() {
   const [shareWorkflowId, setShareWorkflowId] = useState<string | null>(null);
   const { balanceUSD, balanceKnown, refreshBalance } = useCredits();
 
+  // Extracted from the mount effect so pull-to-refresh can run the same fetch
+  // rather than a second copy of it that could drift.
+  //
+  // The two callers want different recoveries from the same failure, which is
+  // the one thing sharing the function must not flatten. On mount there is
+  // nothing to lose, so an empty list is the honest result. On a refresh there
+  // is a list already on screen, and emptying it turns a dropped request on a
+  // phone network into "you have no workflows" -- worse than the refresh
+  // simply not happening, because the user pulled expecting the list to be
+  // updated, not removed.
+  //
+  // Either way the failure is now said out loud through the same tagged banner
+  // the delete and schedule paths use, rather than being silently rendered as
+  // an empty state. UsagePage's settlements fetch already keeps whatever
+  // loaded last for the same reason (UsagePage.tsx:322).
+  const reload = useCallback(
+    (opts?: { keepOnError?: boolean }) =>
+      workflowsApi
+        .list()
+        .then((rows) => {
+          setWfList(rows);
+          setPageError((prev) => (prev?.source === "list" ? null : prev));
+        })
+        .catch((e: unknown) => {
+          if (!opts?.keepOnError) setWfList([]);
+          setPageError({
+            source: "list",
+            message:
+              e instanceof Error ? e.message : "could not load your workflows",
+          });
+        })
+        .finally(() => setLoading(false)),
+    [],
+  );
+
   useEffect(() => {
-    workflowsApi
-      .list()
-      .then(setWfList)
-      .catch(() => setWfList([]))
-      .finally(() => setLoading(false));
-  }, []);
+    void reload();
+  }, [reload]);
+
+  // What the pull gesture runs. The balance goes with it: the two are read
+  // together on mount for the same reason, and a refresh that updated the list
+  // while leaving a stale figure above it would look like a bug.
+  const refreshAll = useCallback(
+    () => Promise.all([reload({ keepOnError: true }), refreshBalance()]),
+    [reload, refreshBalance],
+  );
 
   // Same authoritative balance the engine spends against, re-read on mount so
   // this page never shows a figure left over from before the last run.
@@ -84,7 +126,7 @@ export function WorkflowsPage() {
     setCreating(true);
     try {
       const wf = await workflowsApi.create("Untitled workflow");
-      router.push(`/workflows/${wf.id}`);
+      router.push(workflowHref(wf.id));
     } catch {
       setCreating(false);
     }
@@ -102,7 +144,7 @@ export function WorkflowsPage() {
     setPageError((prev) => (prev?.source === "demo" ? null : prev));
     try {
       const id = await loadTemplateWorkflow(DEMO_WORKFLOW);
-      router.push(`/workflows/${id}`);
+      router.push(workflowHref(id));
     } catch (e) {
       setPageError({
         source: "demo",
@@ -190,8 +232,13 @@ export function WorkflowsPage() {
     >
       <Topbar />
 
-      {/* Main */}
-      <div style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>
+      {/* Main. PullToRefresh owns the scrolling, because the gesture has to
+          know the scroll position to tell a pull from an ordinary drag. On
+          desktop it is a plain overflow container and adds no listeners. */}
+      <PullToRefresh
+        onRefresh={refreshAll}
+        style={{ flex: 1, minHeight: 0, background: "var(--bg)" }}
+      >
         <div
           style={{
             maxWidth: 1280,
@@ -284,7 +331,9 @@ export function WorkflowsPage() {
               <div
                 style={{
                   marginTop: 8,
-                  fontSize: 28,
+                  // Token, not a literal: the phone step shrinks it. This is
+                  // the largest single element on the screen at 375px.
+                  fontSize: "var(--wf-balance-size)",
                   fontWeight: 500,
                   letterSpacing: "-0.02em",
                   fontFamily: "var(--font-mono)",
@@ -368,6 +417,7 @@ export function WorkflowsPage() {
               {["all", "active", "paused", "draft"].map((s) => (
                 <button
                   key={s}
+                  className="wf-filter"
                   onClick={() => setStatus(s)}
                   style={{
                     border: "none",
@@ -399,6 +449,7 @@ export function WorkflowsPage() {
               }}
             >
               <button
+                className="wf-view-toggle"
                 onClick={() => setView("rows")}
                 style={{
                   ...ghostBtnSm,
@@ -411,6 +462,7 @@ export function WorkflowsPage() {
                 ☰ Rows
               </button>
               <button
+                className="wf-view-toggle"
                 onClick={() => setView("grid")}
                 style={{
                   ...ghostBtnSm,
@@ -430,22 +482,14 @@ export function WorkflowsPage() {
 
           {/* List */}
           {loading ? (
-            <div
-              style={{
-                padding: 48,
-                textAlign: "center",
-                color: "var(--fg-dim)",
-                fontFamily: "var(--font-mono)",
-                fontSize: 12,
-              }}
-            >
-              loading workflows…
-            </div>
+            <WorkflowListSkeleton />
           ) : view === "rows" ? (
             <WorkflowRows
               items={filtered}
-              onOpen={(id) => router.push(`/workflows/${id}`)}
-              onGeofence={(id) => router.push(`/workflows/${id}/geofence`)}
+              onOpen={(id) => router.push(workflowHref(id))}
+              onGeofence={(id) =>
+                router.push(workflowHref(id, { geofence: true }))
+              }
               onDelete={handleDelete}
               onSetSchedule={handleSetSchedule}
               onClearSchedule={handleClearSchedule}
@@ -454,7 +498,7 @@ export function WorkflowsPage() {
           ) : (
             <WorkflowGrid
               items={filtered}
-              onOpen={(id) => router.push(`/workflows/${id}`)}
+              onOpen={(id) => router.push(workflowHref(id))}
             />
           )}
 
@@ -476,13 +520,13 @@ export function WorkflowsPage() {
             </div>
           )}
         </div>
-      </div>
+      </PullToRefresh>
       {importOpen && (
         <ImportModal
           onClose={() => setImportOpen(false)}
           onImported={(id) => {
             setImportOpen(false);
-            router.push(`/workflows/${id}`);
+            router.push(workflowHref(id));
           }}
         />
       )}
@@ -1086,7 +1130,7 @@ function SchedulePopover({
           color: "var(--fg)",
         }}
       />
-      <div style={{ fontSize: 9.5, color: "var(--fg-dim)", marginBottom: 8 }}>
+      <div style={{ fontSize: 11, color: "var(--fg-dim)", marginBottom: 8 }}>
         Stored in UTC — may shift by an hour across daylight saving.
       </div>
       {cadence === "weekly" && (
@@ -1259,17 +1303,28 @@ function WorkflowRows({
           style={{
             display: "grid",
             gridTemplateColumns: "var(--wf-row-cols)",
-            gap: 12,
-            padding: "14px 16px",
+            // Tokenised for the same reason as the padding: an inline value
+            // beats the stylesheet, so a media query could never have reached
+            // it. There are five gaps per card on a phone.
+            // Fallbacks are not decoration. `var(--x)` with no fallback and no
+            // definition resolves to nothing, and `padding: <nothing>` collapses to
+            // ZERO -- the card goes from spacious to clamped with no error anywhere.
+            // The desktop values are the fallback, so the worst case is desktop
+            // spacing on a phone rather than none at all.
+            gap: "var(--wf-row-gap, 12px)",
+            padding: "var(--wf-row-pad, 14px 16px)",
             alignItems: "center",
             borderBottom:
               i < items.length - 1 ? "1px solid var(--border-soft)" : "none",
             cursor: "pointer",
             transition: "background .12s",
           }}
-          onMouseEnter={(e) =>
-            (e.currentTarget.style.background = "var(--bg-elev-2)")
-          }
+          // Mouse only: a tap fires the enter event too, and the highlight
+          // then stays on the row after the finger lifts.
+          onPointerEnter={(e) => {
+            if (e.pointerType === "mouse")
+              e.currentTarget.style.background = "var(--bg-elev-2)";
+          }}
           onMouseLeave={(e) =>
             (e.currentTarget.style.background = "transparent")
           }
@@ -1295,13 +1350,20 @@ function WorkflowRows({
               >
                 {wf.name}
               </div>
-              <div style={{ display: "flex", gap: 5, marginTop: 4 }}>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "2px 5px",
+                  marginTop: 4,
+                }}
+              >
                 {wf.tags?.map((t) => (
                   <span
                     key={t}
                     style={{
                       fontFamily: "var(--font-mono)",
-                      fontSize: 9,
+                      fontSize: 11,
                       color: "var(--fg-dim)",
                       textTransform: "uppercase",
                       letterSpacing: "0.06em",
@@ -1427,7 +1489,10 @@ function WorkflowGrid({
             cursor: "pointer",
             transition: "border-color .15s, transform .15s",
           }}
-          onMouseEnter={(e) => {
+          // Mouse only, as on the row above: after a tap the card would stay
+          // lifted.
+          onPointerEnter={(e) => {
+            if (e.pointerType !== "mouse") return;
             (e.currentTarget as HTMLElement).style.borderColor =
               "var(--border-strong)";
             (e.currentTarget as HTMLElement).style.transform =
@@ -1459,13 +1524,20 @@ function WorkflowGrid({
           >
             {wf.name}
           </div>
-          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "2px 6px",
+              marginTop: 6,
+            }}
+          >
             {wf.tags?.map((t) => (
               <span
                 key={t}
                 style={{
                   fontFamily: "var(--font-mono)",
-                  fontSize: 9,
+                  fontSize: 11,
                   color: "var(--fg-dim)",
                   textTransform: "uppercase",
                   letterSpacing: "0.06em",
@@ -1503,7 +1575,7 @@ function WorkflowGrid({
                 <div
                   style={{
                     color: "var(--fg-dim)",
-                    fontSize: 9,
+                    fontSize: 11,
                     textTransform: "uppercase",
                     letterSpacing: "0.06em",
                   }}

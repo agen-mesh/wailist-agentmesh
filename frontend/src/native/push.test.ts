@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// These cases are about a build WITH Firebase; push-availability.test.ts
+// covers the build without it.
+vi.mock("./pushAvailability", () => ({ pushAvailable: async () => true }));
+
 // Listener bookkeeping for @capacitor/push-notifications.
 //
 // Both bugs these tests pin are about which listeners survive which call, so

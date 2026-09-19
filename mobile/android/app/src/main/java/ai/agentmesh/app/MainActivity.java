@@ -1,12 +1,17 @@
 package ai.agentmesh.app;
 
 import android.content.pm.ApplicationInfo;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.webkit.WebView;
 
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+    // Bounds for the system font scale the WebView follows; see applyTextZoom.
+    private static final float MIN_FONT_SCALE = 0.85f;
+    private static final float MAX_FONT_SCALE = 1.15f;
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         // Capacitor auto-discovers plugins shipped as packages; one that lives
@@ -14,6 +19,7 @@ public class MainActivity extends BridgeActivity {
         // super.onCreate, or the bridge is built without it.
         registerPlugin(GeofencePlugin.class);
         registerPlugin(SecureStorePlugin.class);
+        registerPlugin(PushAvailabilityPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Belt and braces on WebView debugging.
@@ -37,5 +43,30 @@ public class MainActivity extends BridgeActivity {
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) == 0) {
             WebView.setWebContentsDebuggingEnabled(false);
         }
+
+        applyTextZoom(getResources().getConfiguration());
+    }
+
+    // fontScale is in configChanges in AndroidManifest.xml, so changing the
+    // system font size arrives here instead of recreating the activity. A
+    // recreate reloaded the WebView, replayed the launch splash and dropped
+    // whatever screen and state the user was on.
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        applyTextZoom(newConfig);
+    }
+
+    // Follow the phone's text size, within limits.
+    //
+    // The WebView scales text with Android's system font size, and nothing
+    // here bounded it. A larger system font makes text wider while layout
+    // widths stay in fixed CSS pixels, so rows sized for the standard scale
+    // overflow and get cut off. Clamping keeps a larger system font readable
+    // without letting it break layouts built for the standard scale.
+    private void applyTextZoom(Configuration config) {
+        if (getBridge() == null) return;
+        float cappedScale = Math.max(MIN_FONT_SCALE, Math.min(config.fontScale, MAX_FONT_SCALE));
+        getBridge().getWebView().getSettings().setTextZoom(Math.round(cappedScale * 100));
     }
 }

@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { auth, AuthUser } from "@/lib/api";
+import { auth, AuthUser, isConnectionFailure } from "@/lib/api";
 import { IS_NATIVE, setAuthToken, authReady } from "@/lib/nativeAuth";
 import { resetCredits } from "@/lib/credits/store";
 
@@ -69,8 +69,13 @@ export function useAuth() {
   const [signedIn, setSignedIn] = useState(false);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<AuthUser | null>(null);
+  // The last session check could not reach the server. Not the same as signed
+  // out: nothing is cleared, and the check can be run again with retry().
+  const [offline, setOffline] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
     // On native, wait for NativeBoot to finish restoring (or fail to
     // restore) the persisted token before asking who's signed in -- calling
     // auth.me() first would race it and 401 with no Authorization header
@@ -78,16 +83,38 @@ export function useAuth() {
     authReady
       .then(() => auth.me())
       .then((u) => {
+        if (cancelled) return;
         setUICookie();
+        setOffline(false);
         setSignedIn(true);
         setUser(u);
       })
-      .catch(() => {
+      .catch((err) => {
+        if (cancelled) return;
+        // A check that never got an answer says nothing about the session.
+        // Treating it as signed out sent a signed-in user to the sign-in
+        // screen whenever the phone was offline or the server was down.
+        if (isConnectionFailure(err)) {
+          setOffline(true);
+          return;
+        }
         clearUICookie();
+        setOffline(false);
         setSignedIn(false);
         setUser(null);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
+
+  // Runs the session check again, for the offline screen's Retry.
+  const retry = useCallback(() => {
+    setLoading(true);
+    setAttempt((n) => n + 1);
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
@@ -143,7 +170,10 @@ export function useAuth() {
     try {
       await auth.signOut();
     } catch (err) {
-      console.error("sign-out request failed; clearing local session anyway", err);
+      console.error(
+        "sign-out request failed; clearing local session anyway",
+        err,
+      );
     } finally {
       clearLocalSession();
     }
@@ -160,6 +190,8 @@ export function useAuth() {
   return {
     signedIn,
     loading,
+    offline,
+    retry,
     user,
     signIn,
     signUp,

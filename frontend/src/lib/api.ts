@@ -80,6 +80,24 @@ export interface AuthUser {
   needsOnboarding: boolean;
 }
 
+// Thrown by auth.me() when the server answered without confirming a session.
+// The status is kept so a caller can tell being signed out (401, 403) from the
+// server failing (5xx), which says nothing about the session.
+export class AuthCheckError extends Error {
+  constructor(readonly status: number) {
+    super("unauthorized");
+    this.name = "AuthCheckError";
+  }
+}
+
+// Whether a failed session check is a connection problem rather than an
+// answer: the request never reached the server (fetch rejects with a
+// TypeError), or the server itself failed.
+export function isConnectionFailure(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  return err instanceof AuthCheckError && err.status >= 500;
+}
+
 export const auth = {
   // Returns the bearer token when the caller is a native client, null
   // otherwise. The web app authenticates with the HttpOnly cookie the same
@@ -131,7 +149,7 @@ export const auth = {
   me: async (): Promise<AuthUser> => {
     if (BASE) {
       const res = await apiFetch(`${BASE}/auth/me`, { credentials: "include" });
-      if (!res.ok) throw new Error("unauthorized");
+      if (!res.ok) throw new AuthCheckError(res.status);
       return res.json();
     }
     return {

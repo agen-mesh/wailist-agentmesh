@@ -48,6 +48,48 @@ export function BottomNav() {
     return () => document.body.removeAttribute("data-bottomnav");
   }, [visible]);
 
+  // While a field that brings up the on-screen keyboard has focus, the bar
+  // steps aside (body[data-typing] in globals.css). The WebView shrinks to the
+  // space above the keyboard, and a fixed bar would sit over the field.
+  useEffect(() => {
+    if (!visible) return;
+    let live = true;
+    const textTypes = new Set([
+      "text",
+      "search",
+      "email",
+      "password",
+      "number",
+      "tel",
+      "url",
+    ]);
+    const sync = () => {
+      if (!live) return;
+      const el = document.activeElement;
+      const typing =
+        (el instanceof HTMLInputElement &&
+          textTypes.has(el.type) &&
+          !el.readOnly) ||
+        (el instanceof HTMLTextAreaElement && !el.readOnly) ||
+        (el instanceof HTMLElement && el.isContentEditable);
+      if (typing) document.body.setAttribute("data-typing", "");
+      else document.body.removeAttribute("data-typing");
+    };
+    // focusout fires before focus reaches the next element, so the new focus
+    // is read on the next task.
+    const onFocusOut = () => {
+      window.setTimeout(sync, 0);
+    };
+    document.addEventListener("focusin", sync);
+    document.addEventListener("focusout", onFocusOut);
+    return () => {
+      live = false;
+      document.removeEventListener("focusin", sync);
+      document.removeEventListener("focusout", onFocusOut);
+      document.body.removeAttribute("data-typing");
+    };
+  }, [visible]);
+
   // Renders nothing until hydration, on the server's desktop answer, by design.
   // See useIsHandheld: the alternative is markup that does not match.
   if (!visible) return null;
