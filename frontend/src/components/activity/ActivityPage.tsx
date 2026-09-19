@@ -7,6 +7,7 @@ import { ghostBtn } from "@/components/ui/buttons";
 import { RunSheet } from "@/components/runs/RunSheet";
 import { RunStatusPill } from "@/components/runs/RunStatusPill";
 import { useNow } from "@/hooks/useNow";
+import { usePolling } from "@/hooks/usePolling";
 import { runs as runsApi, RunsUnavailableError } from "@/lib/api";
 import type { RunPage, RunSummary } from "@/lib/types";
 import { groupRunsByDay } from "@/lib/runDays";
@@ -23,9 +24,10 @@ import {
 // the workflow list.
 
 const PAGE_SIZE = 20;
-// How often the list refreshes while a listed run is still going, matching
-// WorkflowSummary's own POLL_MS.
+// How often the list refreshes while a listed run is still going, and while
+// nothing listed is, matching WorkflowSummary's own values.
 const POLL_MS = 3_000;
+const IDLE_POLL_MS = 10_000;
 
 export function ActivityPage() {
   const [runList, setRunList] = useState<RunSummary[]>([]);
@@ -77,25 +79,28 @@ export function ActivityPage() {
 
   const anyRunning = runList.some((r) => r.status === "running");
 
-  // Refresh while something is running and the screen is actually visible,
-  // the same rule WorkflowSummary uses. Without this a running run in the
-  // list stayed frozen until a manual pull-to-refresh.
+  // Keep refreshing while the screen is visible, and at once on coming back
+  // to it. Runs start in places this screen never hears about (the website,
+  // a schedule, a geofence), so an idle list is polled too, only more slowly
+  // than one with a run still going.
   //
   // Merged rather than replaced (mergeRuns, not applyFirstPage): a pull is a
   // deliberate "start over from the top" gesture, but a silent background
   // poll must not truncate pages the user has already loaded with
   // "Show older runs".
-  useEffect(() => {
-    if (!anyRunning) return;
-    const timer = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      runsApi
-        .recent({ limit: PAGE_SIZE })
-        .then((page) => setRunList((prev) => mergeRuns(page.runs, prev)))
-        .catch(() => {});
-    }, POLL_MS);
-    return () => clearInterval(timer);
-  }, [anyRunning]);
+  //
+  // A server that gained run history while the screen was open has nothing
+  // listed yet to merge into, so its first page is taken as a fresh load.
+  const poll = useCallback(() => {
+    runsApi
+      .recent({ limit: PAGE_SIZE })
+      .then((page) => {
+        if (unavailable) applyFirstPage(page);
+        else setRunList((prev) => mergeRuns(page.runs, prev));
+      })
+      .catch(() => {});
+  }, [unavailable, applyFirstPage]);
+  usePolling(poll, anyRunning ? POLL_MS : IDLE_POLL_MS);
 
   const now = useNow(anyRunning);
 

@@ -9,6 +9,7 @@ import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
 import { RunSheet } from "@/components/runs/RunSheet";
 import { RunStatusPill } from "@/components/runs/RunStatusPill";
 import { useNow } from "@/hooks/useNow";
+import { usePolling } from "@/hooks/usePolling";
 import {
   runs as runsApi,
   workflows as workflowsApi,
@@ -30,8 +31,9 @@ import { workflowHref } from "@/lib/routes";
 // desktop, and a read-only canvas on a small screen answered none of these.
 
 const PAGE_SIZE = 20;
-// How often the list refreshes while a run is still going.
+// How often the list refreshes while a run is still going, and while none is.
 const POLL_MS = 3_000;
+const IDLE_POLL_MS = 10_000;
 
 const WORKFLOW_STATUS: Record<
   string,
@@ -137,36 +139,34 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
   const anyRunning = shown.some((r) => r.status === "running");
   const newestRunning = shown[0]?.status === "running";
 
-  // Refresh while something is running and the screen is actually visible. A
-  // backgrounded app has nobody to show a status change to.
-  useEffect(() => {
-    if (!anyRunning) return;
-    const pendingId = pendingShown?.id ?? null;
-    const timer = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      void refreshRuns();
-      // A run the list has not picked up yet is asked about directly, so it
-      // still settles when the list is slow to include it.
-      if (pendingId) {
-        runsApi
-          .get(pendingId)
-          .then(({ run }) => {
-            if (run.status === "running") return;
-            setPending((p) =>
-              p && p.id === pendingId
-                ? {
-                    ...p,
-                    status: run.status as RunStatus,
-                    finishedAt: run.finishedAt,
-                  }
-                : p,
-            );
-          })
-          .catch(() => {});
-      }
-    }, POLL_MS);
-    return () => clearInterval(timer);
-  }, [anyRunning, pendingShown?.id, refreshRuns]);
+  // Keep refreshing while the screen is visible, and at once on coming back
+  // to it. A backgrounded app has nobody to show a status change to, but this
+  // workflow can be run from the website or by its trigger at any time, so an
+  // idle list is polled too, only more slowly than one with a run going.
+  const pendingId = pendingShown?.id ?? null;
+  const poll = useCallback(() => {
+    void refreshRuns();
+    // A run the list has not picked up yet is asked about directly, so it
+    // still settles when the list is slow to include it.
+    if (pendingId) {
+      runsApi
+        .get(pendingId)
+        .then(({ run }) => {
+          if (run.status === "running") return;
+          setPending((p) =>
+            p && p.id === pendingId
+              ? {
+                  ...p,
+                  status: run.status as RunStatus,
+                  finishedAt: run.finishedAt,
+                }
+              : p,
+          );
+        })
+        .catch(() => {});
+    }
+  }, [pendingId, refreshRuns]);
+  usePolling(poll, anyRunning ? POLL_MS : IDLE_POLL_MS);
 
   const now = useNow(anyRunning);
 

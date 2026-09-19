@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import type { RunPage, RunSummary } from "@/lib/types";
 
 // The screen is tested against a stubbed API. The top bar, the pull gesture
@@ -122,5 +128,66 @@ describe("ActivityPage", () => {
     expect(
       screen.queryByRole("button", { name: "Show older runs" }),
     ).toBeNull();
+  });
+
+  // A run started somewhere else, such as on the website, while this screen
+  // is open and nothing on it is running.
+  it("picks up a run started elsewhere without a pull", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      api.recent
+        .mockResolvedValueOnce(page([run({ id: "r-1" })]))
+        .mockResolvedValue(
+          page([
+            run({
+              id: "r-2",
+              workflowName: "Started on the website",
+              triggeredBy: "manual",
+              status: "running",
+              finishedAt: undefined,
+            }),
+            run({ id: "r-1" }),
+          ]),
+        );
+      render(<ActivityPage />);
+      await screen.findByText("Morning digest");
+
+      await act(async () => {
+        vi.advanceTimersByTime(10_000);
+      });
+
+      expect(await screen.findByText("Started on the website")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refreshes on coming back to the foreground", async () => {
+    api.recent
+      .mockResolvedValueOnce(page([run({ id: "r-1" })]))
+      .mockResolvedValue(
+        page([
+          run({ id: "r-2", workflowName: "Ran while away" }),
+          run({ id: "r-1" }),
+        ]),
+      );
+    render(<ActivityPage />);
+    await screen.findByText("Morning digest");
+
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(await screen.findByText("Ran while away")).toBeTruthy();
+  });
+
+  it("recovers once the server gains run history", async () => {
+    api.recent
+      .mockRejectedValueOnce(new api.RunsUnavailableError())
+      .mockResolvedValue(page([run({ id: "r-1" })]));
+    render(<ActivityPage />);
+    await screen.findByText("Run history is not available on this server yet.");
+
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(await screen.findByText("Morning digest")).toBeTruthy();
   });
 });

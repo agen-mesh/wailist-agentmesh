@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -181,5 +182,50 @@ describe("WorkflowSummary", () => {
     expect(
       screen.queryByRole("button", { name: "Show older runs" }),
     ).toBeNull();
+  });
+
+  it("picks up a run started elsewhere without a pull", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      api.listForWorkflow
+        .mockResolvedValueOnce(page([FINISHED]))
+        .mockResolvedValue(
+          page([
+            {
+              ...FINISHED,
+              id: "r-2",
+              triggeredBy: "manual",
+              status: "running",
+              startedAt: new Date().toISOString(),
+              finishedAt: undefined,
+            },
+            FINISHED,
+          ]),
+        );
+      render(<WorkflowSummary workflowId="wf-1" />);
+      await screen.findByText("Succeeded");
+
+      await act(async () => {
+        vi.advanceTimersByTime(10_000);
+      });
+
+      expect(await screen.findByText("Running")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refreshes on coming back to the foreground", async () => {
+    api.listForWorkflow
+      .mockResolvedValueOnce(page([FINISHED]))
+      .mockResolvedValue(
+        page([{ ...FINISHED, id: "r-2", status: "failed" }, FINISHED]),
+      );
+    render(<WorkflowSummary workflowId="wf-1" />);
+    await screen.findByText("Succeeded");
+
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(await screen.findByText("Failed")).toBeTruthy();
   });
 });
