@@ -118,6 +118,10 @@ export interface Workflow {
   status?: "active" | "paused" | "draft" | "deployed";
   updated?: string;
   updatedAt?: string;
+  createdAt?: string;
+  // The newest run within the same 30 days `runs` counts. Absent when
+  // nothing ran in that window.
+  lastRunAt?: string;
   agents?: number;
   runs?: number;
   spend?: string;

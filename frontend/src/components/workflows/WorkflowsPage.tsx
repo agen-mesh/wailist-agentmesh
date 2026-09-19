@@ -20,8 +20,10 @@ import { DEMO_WORKFLOW } from "@/lib/data";
 import { loadTemplateWorkflow } from "@/lib/templateWorkflow";
 import { can } from "@/lib/readonly";
 import { workflowHref } from "@/lib/routes";
+import { filterWorkflows, type StatusFilter } from "@/lib/workflowList";
 import { ImportModal } from "./ImportModal";
 import { ShareModal } from "./ShareModal";
+import { WorkflowsPhoneList } from "./phone/WorkflowsPhoneList";
 import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import {
@@ -35,7 +37,7 @@ export function WorkflowsPage() {
   const router = useRouter();
   const readOnly = useReadOnly();
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState("all");
+  const [status, setStatus] = useState<StatusFilter>("all");
   const [view, setView] = useState<"rows" | "grid">("rows");
   const [wfList, setWfList] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,16 +112,10 @@ export function WorkflowsPage() {
     void refreshBalance();
   }, [refreshBalance]);
 
-  const filtered = useMemo(() => {
-    return wfList.filter((wf) => {
-      const matchesQ =
-        !q ||
-        wf.name?.toLowerCase().includes(q.toLowerCase()) ||
-        wf.tags?.join(" ").includes(q.toLowerCase());
-      const matchesS = status === "all" || wf.status === status;
-      return matchesQ && matchesS;
-    });
-  }, [wfList, q, status]);
+  const filtered = useMemo(
+    () => filterWorkflows(wfList, { query: q, status }),
+    [wfList, q, status],
+  );
 
   const handleNewWorkflow = useCallback(async () => {
     if (creating) return;
@@ -218,6 +214,36 @@ export function WorkflowsPage() {
       throw e;
     }
   }, []);
+
+  // A phone gets its own thin list: no create, import, schedule or share
+  // actions (those are desktop-only), no view toggle, and the status tabs
+  // folded into the filter menu. It shares the fetch and the pull above.
+  if (readOnly) {
+    return (
+      <div
+        className="am-viewport"
+        style={{
+          height: "100dvh",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          background: "var(--bg)",
+        }}
+      >
+        <Topbar />
+        <PullToRefresh
+          onRefresh={refreshAll}
+          style={{ flex: 1, minHeight: 0, background: "var(--bg)" }}
+        >
+          <WorkflowsPhoneList
+            workflows={wfList}
+            loading={loading}
+            error={pageError?.message ?? null}
+          />
+        </PullToRefresh>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -414,7 +440,7 @@ export function WorkflowsPage() {
                 border: "1px solid var(--border)",
               }}
             >
-              {["all", "active", "paused", "draft"].map((s) => (
+              {(["all", "active", "paused", "draft"] as const).map((s) => (
                 <button
                   key={s}
                   className="wf-filter"

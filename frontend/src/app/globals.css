@@ -1849,3 +1849,350 @@ body[data-typing] .bottomnav {
     transition: none;
   }
 }
+
+/* ── Phone workflows list ─────────────────────────────────────────────────
+   The Workflows screen on a phone: flat, one line per fact, separated by
+   hairlines rather than boxed. Every control keeps the 44px touch floor;
+   "thin" comes from dropping chrome, not from shrinking targets. */
+.wfp-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+}
+.wfp-strip__label {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.wfp-strip__amount {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.wfp-strip__add {
+  margin-left: auto;
+  width: 32px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    transform 0.12s var(--ease),
+    border-color 0.15s var(--ease);
+}
+.wfp-strip__add:active {
+  transform: scale(0.96);
+  background: var(--bg-elev-1);
+}
+.wfp-strip__add:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 2px;
+}
+@media (hover: hover) {
+  .wfp-strip__add:hover {
+    border-color: var(--accent-line);
+  }
+}
+
+/* Search at four fifths, the filter at the last fifth. */
+.wfp-controls {
+  display: flex;
+  gap: 8px;
+  padding: 10px 0;
+}
+.wfp-search {
+  position: relative;
+  flex: 4 1 0;
+  min-width: 0;
+}
+.wfp-search__icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--fg-dim);
+  pointer-events: none;
+  display: inline-flex;
+}
+.wfp-search__input {
+  width: 100%;
+  height: 44px;
+  padding: 0 12px 0 34px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  background: var(--bg-elev-1);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 16px; /* 16px keeps mobile browsers from zooming on focus */
+}
+.wfp-search__input::placeholder {
+  color: var(--fg-dim);
+}
+.wfp-search__input:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: -1px;
+}
+.wfp-filter {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 44px;
+}
+.wfp-filter__trigger {
+  position: relative;
+  width: 100%;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  background: var(--bg-elev-1);
+  color: var(--fg-muted);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.12s var(--ease);
+}
+.wfp-filter__trigger[aria-expanded="true"] {
+  border-color: var(--accent-line);
+  color: var(--fg);
+}
+.wfp-filter__trigger:active {
+  transform: scale(0.97);
+}
+.wfp-filter__trigger:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 2px;
+}
+/* Marks a filter or sort that is not the default. */
+.wfp-filter__badge {
+  position: absolute;
+  top: 9px;
+  right: calc(50% - 14px);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.wfp-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  width: min(248px, calc(100vw - 32px));
+  padding: 4px 0;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  overscroll-behavior: contain;
+  animation: wfp-menu-in 0.15s var(--ease);
+}
+@keyframes wfp-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.wfp-menu__group {
+  padding: 8px 14px 4px;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.wfp-menu__divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+.wfp-menu__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.wfp-menu__item[aria-checked="true"] {
+  color: var(--fg);
+}
+.wfp-menu__item:active {
+  background: var(--bg-elev-3);
+}
+.wfp-menu__item:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: -2px;
+}
+.wfp-menu__hint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  .wfp-menu__item:hover {
+    background: var(--bg-elev-3);
+    color: var(--fg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wfp-menu {
+    animation: none;
+  }
+  .wfp-filter__trigger,
+  .wfp-strip__add {
+    transition: none;
+  }
+}
+
+/* One workflow per row: name and status, then Spent, Runs and Upcoming run.
+   The row bleeds to the page edge so its pressed state spans the screen. */
+.wfp-list {
+  list-style: none;
+  margin: 0 calc(-1 * var(--wfp-gutter, 16px));
+  padding: 0;
+}
+.wfp-row {
+  display: block;
+  padding: 9px var(--wfp-gutter, 16px);
+  border-bottom: 1px solid var(--border-soft);
+  color: inherit;
+  text-decoration: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.wfp-row:active {
+  background: var(--bg-elev-1);
+}
+.wfp-row:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: -2px;
+}
+@media (hover: hover) {
+  .wfp-row:hover {
+    background: var(--bg-elev-1);
+  }
+}
+.wfp-row__top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.wfp-row__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wfp-row__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.wfp-row__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.wfp-row__facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 4px 0 0;
+}
+.wfp-row__facts dt {
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--fg-dim);
+}
+.wfp-row__facts dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  line-height: 17px;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The phone Workflows screen around those pieces. */
+.wfp-page {
+  --wfp-gutter: 16px;
+  padding: 12px var(--wfp-gutter) 48px;
+}
+.wfp-title {
+  margin: 0 0 2px;
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.wfp-error {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--danger);
+}
+.wfp-empty {
+  padding: 32px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+.wfp-empty__clear {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-top: 4px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.wfp-empty__clear:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 2px;
+}
+.wfp-skeleton {
+  display: grid;
+  gap: 6px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.wfp-menu__check {
+  display: inline-flex;
+  color: var(--accent);
+}

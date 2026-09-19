@@ -214,6 +214,9 @@ type Workflow struct {
 	Updated     string         `json:"updated,omitempty"`
 	CreatedAt   time.Time      `json:"createdAt"`
 	UpdatedAt   time.Time      `json:"updatedAt"`
+	// LastRunAt is when the newest run inside the same window as Runs
+	// started. Nil when nothing ran in that window.
+	LastRunAt *time.Time `json:"lastRunAt,omitempty"`
 	// ScheduleCron is a standard 5-field cron expression (UTC). Empty/nil
 	// means the workflow has no schedule -- set via SetWorkflowSchedule,
 	// never written directly through UpdateWorkflow's graph save.
