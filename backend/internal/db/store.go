@@ -174,6 +174,20 @@ func (s *Store) SetWorkflowSchedule(ctx context.Context, workflowID, cronExpr st
 	return err
 }
 
+// RescheduleWorkflowNextRun moves a workflow's next scheduled run to next,
+// but only while its schedule is still cronExpr: a schedule changed or
+// removed since the caller read it is left as it now is. Reports whether a
+// row was updated.
+func (s *Store) RescheduleWorkflowNextRun(ctx context.Context, workflowID, cronExpr string, next time.Time) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE workflows SET schedule_next_run_at=$3 WHERE id=$1 AND schedule_cron=$2
+	`, workflowID, cronExpr, next)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // ClearWorkflowSchedule disables scheduling for a workflow. Idempotent --
 // clearing an already-unscheduled workflow is a no-op, not an error.
 func (s *Store) ClearWorkflowSchedule(ctx context.Context, workflowID string) error {

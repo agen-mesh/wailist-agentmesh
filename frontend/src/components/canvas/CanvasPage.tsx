@@ -11,7 +11,11 @@ import {
   IconPlay,
   IconStop,
 } from "@/components/ui";
-import { workflows as workflowsApi, runs as runsApi } from "@/lib/api";
+import {
+  workflows as workflowsApi,
+  runs as runsApi,
+  BuildRequestError,
+} from "@/lib/api";
 import {
   useCredits,
   refreshBalance as refreshCredits,
@@ -39,7 +43,7 @@ import { RunBlockedCard } from "./chat/RunBlockedCard";
 import {
   newBuildId,
   startProgressPolling,
-  recoverFinishedBuild,
+  waitForFinishedBuild,
   type BuildProgress,
 } from "./chat/buildProgress";
 import { useReadOnly } from "@/hooks/useReadOnly";
@@ -620,39 +624,53 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         };
       } catch (err: unknown) {
         await poller?.stop();
-        // A failed request is not necessarily a failed build. The backend
-        // runs the build detached from its request, so past the proxy window
-        // the request dies while the build finishes and saves. Ask before
-        // reporting a failure; the saved graph is reloaded from the workflow
-        // record rather than trusted from anywhere else.
-        const recovered = await recoverFinishedBuild(() =>
-          workflowsApi.buildProgress(wfId, buildId),
-        );
-        if (recovered !== null) {
-          try {
-            const saved = await workflowsApi.get(wfId);
-            setWorkflow((wf) =>
-              wf ? { ...wf, nodes: saved.nodes, edges: saved.edges } : wf,
-            );
-            return {
-              ok: true,
-              reply: recovered,
-              onSettled: shouldReleaseBuildMode(before, saved)
-                ? () => setManualBuildMode(false)
-                : undefined,
-            };
-          } catch {
-            // The reply is real even if the reload failed; show it, and let
-            // the next autosave cycle or a reload bring the canvas up to date.
-            return { ok: true, reply: recovered };
-          }
-        }
         const message = err instanceof Error ? err.message : "unknown error";
-        showToast(`Build failed · ${message}`, "error");
-        return {
-          ok: false,
-          reply: `Could not update the workflow: ${message}`,
+        const fail = (reply: string) => {
+          showToast(`Build failed · ${message}`, "error");
+          return { ok: false, reply };
         };
+        // The backend answered with an error, so the build is over and the
+        // message is the real reason.
+        if (err instanceof BuildRequestError && err.answered) {
+          return fail(`Could not update the workflow: ${message}`);
+        }
+        // Otherwise the request died on its way back, and the build -- which
+        // the backend runs detached from the request -- may still be going.
+        // Wait for it, with its steps still showing, rather than calling a
+        // build failed that is about to finish and save.
+        const outcome = await waitForFinishedBuild(
+          () => workflowsApi.buildProgress(wfId, buildId),
+          { onProgress },
+        );
+        if (outcome.kind === "ended") {
+          return fail(
+            "The builder stopped without finishing, so nothing was saved. Send your message again.",
+          );
+        }
+        if (outcome.kind === "unknown") {
+          return fail(
+            "Lost contact with the builder while it was working. It may still have finished: reload the page to see the latest workflow.",
+          );
+        }
+        // The saved graph is reloaded from the workflow record rather than
+        // trusted from anywhere else.
+        try {
+          const saved = await workflowsApi.get(wfId);
+          setWorkflow((wf) =>
+            wf ? { ...wf, nodes: saved.nodes, edges: saved.edges } : wf,
+          );
+          return {
+            ok: true,
+            reply: outcome.reply,
+            onSettled: shouldReleaseBuildMode(before, saved)
+              ? () => setManualBuildMode(false)
+              : undefined,
+          };
+        } catch {
+          // The reply is real even if the reload failed; show it, and let
+          // the next autosave cycle or a reload bring the canvas up to date.
+          return { ok: true, reply: outcome.reply };
+        }
       }
     },
     [workflow, showToast, flushPendingSave],

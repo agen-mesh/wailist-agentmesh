@@ -326,6 +326,8 @@ func auditGraph(graph models.WorkflowGraph) []string {
 		}
 	}
 
+	findings = append(findings, racyInputFindings(graph)...)
+
 	sort.Strings(findings)
 	return findings
 }

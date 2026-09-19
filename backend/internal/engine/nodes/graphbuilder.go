@@ -225,7 +225,7 @@ func rulesFor(nodeType, template string) (nodeRules, error) {
 		}
 		msg := fmt.Sprintf("%s has no template %q; its templates are: %s", nodeType, template, strings.Join(ids, ", "))
 		if nodeType == "trigger" && scheduleTriggerNames[template] {
-			msg += ". There is no schedule or cron trigger: use a manual trigger, and tell the user to deploy the workflow and set the timetable from its Schedule option on the Workflows page (a 5-field cron expression, in UTC)"
+			msg += ". There is no schedule or cron trigger: use a manual trigger and call set_schedule with the time the user asked for"
 		}
 		return nodeRules{}, fmt.Errorf("%s", msg)
 	}
@@ -281,6 +281,13 @@ func (r nodeRules) parse(args map[string]any, param string, allowed []string) (m
 			return nil, fmt.Errorf("%s has no %s key %q%s; its %s keys are: %s -- call describe_node for details", label, param, k, hint, param, have)
 		}
 		s, ok := v.(string)
+		if !ok && jsonObjectKeys[k] {
+			encoded, err := encodeJSONObjectValue(k, v)
+			if err != nil {
+				return nil, err
+			}
+			s, ok = encoded, true
+		}
 		if !ok {
 			return nil, fmt.Errorf("%s value %q must be a string, got %T", param, k, v)
 		}
@@ -290,6 +297,63 @@ func (r nodeRules) parse(args map[string]any, param string, allowed []string) (m
 		out[k] = s
 	}
 	return out, nil
+}
+
+// jsonObjectKeys are config keys whose value is a JSON object. The model
+// passes them as a list of name/value pairs and the server writes the JSON:
+// hand-written JSON in a string is where a live build failed twice in a row
+// (single quotes, then a truncated object) before it got one through. A
+// list, not an open object, because an OBJECT schema with no declared
+// properties is rejected by some Gemini validators (see graphToolDecls).
+var jsonObjectKeys = map[string]bool{"setFields": true}
+
+// jsonObjectKeySchema is the declared shape of a jsonObjectKeys value.
+var jsonObjectKeySchema = map[string]any{
+	"type": "ARRAY",
+	"description": "One entry per output field. value may use {{ node.<id> }}, {{ result }} or {{ input }}. " +
+		"The server writes the JSON; never pass JSON text.",
+	"items": map[string]any{
+		"type": "OBJECT",
+		"properties": map[string]any{
+			"name":  map[string]any{"type": "string"},
+			"value": map[string]any{"type": "string"},
+		},
+		"required": []string{"name", "value"},
+	},
+}
+
+// encodeJSONObjectValue turns a jsonObjectKeys value the model sent as
+// name/value pairs (or, tolerated, as an object) into the JSON string the
+// node stores.
+func encodeJSONObjectValue(key string, v any) (string, error) {
+	obj := map[string]any{}
+	switch t := v.(type) {
+	case map[string]any:
+		obj = t
+	case []any:
+		for _, item := range t {
+			pair, _ := item.(map[string]any)
+			name, _ := pair["name"].(string)
+			value, hasValue := pair["value"].(string)
+			if strings.TrimSpace(name) == "" || !hasValue {
+				return "", fmt.Errorf("%s: every entry needs a name and a value, such as {\"name\": \"price\", \"value\": \"{{ node.n2 }}\"}", key)
+			}
+			if _, dup := obj[name]; dup {
+				return "", fmt.Errorf("%s: %q is listed twice", key, name)
+			}
+			obj[name] = value
+		}
+	default:
+		return "", fmt.Errorf("%s must be a list of name/value pairs, got %T", key, v)
+	}
+	if len(obj) == 0 {
+		return "", fmt.Errorf("%s: list at least one field", key)
+	}
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return "", fmt.Errorf("%s could not be encoded: %v", key, err)
+	}
+	return string(b), nil
 }
 
 // validateValue catches values that are the right key but a wrong shape --
@@ -345,7 +409,7 @@ func (r nodeRules) validateValue(k, v string) error {
 		}
 		var probe map[string]any
 		if err := json.Unmarshal([]byte(v), &probe); err != nil {
-			return fmt.Errorf("setFields is not a JSON object: %v -- it must be strict JSON with quoted keys, such as {\"story\": \"{{ node.n1 }}\", \"price\": \"{{ node.n2 }}\"}", err)
+			return fmt.Errorf("setFields is not a JSON object: %v -- pass it as a list of name/value pairs instead, such as [{\"name\": \"story\", \"value\": \"{{ node.n1 }}\"}, {\"name\": \"price\", \"value\": \"{{ node.n2 }}\"}], and the server writes the JSON", err)
 		}
 	case "jsonPath":
 		// walkPath splits on dots and nothing else, so JSONPath syntax (the
@@ -975,6 +1039,10 @@ func catalogKeyUnion(where string, extra ...string) map[string]any {
 	for _, t := range NodeCatalogData().Types {
 		for _, tpl := range t.Templates {
 			for _, k := range tpl.keysWhere(where) {
+				if jsonObjectKeys[k] {
+					props[k] = jsonObjectKeySchema
+					continue
+				}
 				props[k] = map[string]any{"type": "string"}
 			}
 		}
@@ -997,7 +1065,7 @@ func graphToolDecls() []funcDecl {
 	}
 	configSchema := map[string]any{
 		"type": "OBJECT",
-		"description": "Non-secret node settings (node.config), all strings. Only the keys listed for this template in the node catalog are accepted. " +
+		"description": "Non-secret node settings (node.config), all strings except setFields, which is a list of name/value pairs. Only the keys listed for this template in the node catalog are accepted. " +
 			"Credentials are never settable -- name them on the node's description instead.",
 		"properties": catalogKeyUnion("config"),
 	}
@@ -1163,6 +1231,35 @@ func graphToolDecls() []funcDecl {
 					},
 				},
 				"required": []string{"query"},
+			},
+		},
+		{
+			Name: "set_schedule",
+			Description: "Make the workflow run on a timetable. Give the time exactly as the user said it, in their own timezone -- the server converts it, so never convert to UTC yourself. " +
+				"The workflow keeps its manual trigger; do not add another one. It only fires once the user deploys the workflow. " +
+				"cadence off removes an existing schedule.",
+			Parameters: map[string]any{
+				"type": "OBJECT",
+				"properties": map[string]any{
+					"cadence": map[string]any{
+						"type":        "string",
+						"enum":        []string{"daily", "weekly", "monthly", "off"},
+						"description": "How often it runs.",
+					},
+					"time": map[string]any{
+						"type":        "string",
+						"description": "24-hour HH:MM in the user's own timezone, e.g. 09:00 for \"9 am\". Not needed for off.",
+					},
+					"day": map[string]any{
+						"type":        "string",
+						"description": "Weekly only: the weekday name, e.g. monday.",
+					},
+					"dayOfMonth": map[string]any{
+						"type":        "integer",
+						"description": "Monthly only: 1 to 28.",
+					},
+				},
+				"required": []string{"cadence"},
 			},
 		},
 	}
@@ -1380,11 +1477,12 @@ provider's keyMode and model unset unless the user asks for a specific model: th
 platform key and need nothing from the user. A public API you found may still block server requests or
 need headers, so say in your reply that its step should be checked with a manual run.
 
-Schedules: there is no schedule or cron trigger. For anything that should run on a timetable (daily,
-hourly, every Monday, ...), use a manual trigger, then tell the user to deploy the workflow and set the
-timetable from its Schedule option on the Workflows page. It takes a standard 5-field cron expression
-evaluated in UTC -- give them the exact expression, converted from their time zone (09:00 IST every day is
-"30 3 * * *"). Never claim you set a schedule yourself.
+Schedules: there is no schedule or cron trigger. For anything that should run on a timetable ("every morning
+at 9", "each Monday"), build it from a manual trigger and call set_schedule with the time the user said, in
+their own words: the server knows their timezone and converts it. Never convert a time to UTC yourself.
+set_schedule covers daily, weekly and monthly. For anything else (hourly, weekdays only, several times a day)
+tell the user to set it from the Schedule option on the Workflows page. A schedule only fires once the
+workflow is deployed, so say that in your reply. Never claim a schedule is set unless set_schedule said so.
 
 x402 endpoints (node type tool402): real pay-per-call services from the x402 Bazaar. Every call costs the user
 the endpoint's price PLUS a 1.50 USD AgentMesh fee -- usually far more than the endpoint itself -- and an agent
@@ -1433,6 +1531,10 @@ When the workflow needs to call an API:
    A step nothing flows into is not skipped -- the engine runs it first, on an empty input, and the run fails.
    To combine several values, reference each earlier step as {{ node.<id> }} (or {{ node.<id>.field }}),
    using the ids add_node returned.
+   Several sources in one answer ("news and the price"): never build two chains side by side, each with its
+   own agent -- steps that run at the same time read each other's data. Fetch each source, flow them all
+   into ONE Edit Fields step (tool/set) whose setFields lists each source by {{ node.<id> }}, then ONE agent,
+   then the end.
 5. Do NOT use a tool402 node for an API you found by searching. tool402 is for paid x402 endpoints, and only
    ever when the user hands you a real endpoint URL themselves.
 
@@ -1507,6 +1609,10 @@ type BuildTurn struct {
 type BuildGraphResult struct {
 	Reply string
 	Graph models.WorkflowGraph
+	// Schedule is what set_schedule decided: nil leaves the workflow's
+	// schedule as it is, a pointer to "" removes it, and anything else is
+	// the UTC cron expression to save.
+	Schedule *string
 }
 
 // BuildRequest is one build-mode chat turn.
@@ -1537,6 +1643,9 @@ type BuildRequest struct {
 	// finishes, so the chat can show what the builder is doing as it works.
 	// Called synchronously from the build loop; keep it cheap.
 	OnProgress func(BuildProgress)
+	// TimeZone is the user's IANA timezone (from the browser), which
+	// set_schedule reads the time the user asked for in. Blank means UTC.
+	TimeZone string
 }
 
 // cloneGraph copies a graph down to every slice and map a node holds, so
@@ -1559,7 +1668,7 @@ func cloneGraph(g models.WorkflowGraph) models.WorkflowGraph {
 // things up with web_search/describe_node/search_x402, until it responds
 // with plain text instead of a function call. Running out of rounds returns
 // the partial graph rather than an error -- see the tail of the loop.
-func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error) {
+func BuildGraph(ctx context.Context, req BuildRequest) (result BuildGraphResult, err error) {
 	// A deep copy: the tools edit the graph in place (remove_edge filters
 	// Edges into its own backing array, update_node merges into a node's
 	// Config map), and the caller's graph -- which BuildWorkflow later
@@ -1572,6 +1681,16 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 	// Which CoinGecko ids resolve_coin actually returned this build. A node
 	// carrying any other id is refused -- see coinIDsUnresolved.
 	resolvedCoins := map[string]bool{}
+	// What set_schedule decided. Attached to every successful return here
+	// rather than at each return site: a build that stops early on the time
+	// or round limit still saves its graph, and a schedule the model already
+	// confirmed to the user belongs with it.
+	schedule := newBuilderSchedule(req.TimeZone)
+	defer func() {
+		if err == nil {
+			result.Schedule = schedule.cron
+		}
+	}()
 	progress := &progressTracker{on: req.OnProgress}
 	tester := &testTracker{run: req.TestRun}
 	defer progress.idle()
@@ -1867,7 +1986,7 @@ func BuildGraph(ctx context.Context, req BuildRequest) (BuildGraphResult, error)
 		responseParts := make([]map[string]any, 0, len(calls))
 		for _, c := range calls {
 			progress.working(runningLabel(&graph, c.name, c.args))
-			response := runBuildCall(ctx, &graph, c, apiKey, x402, probed, resolvedCoins, tester)
+			response := runBuildCall(ctx, &graph, c, apiKey, x402, probed, resolvedCoins, schedule, tester)
 			progress.finished(finishedStep(&graph, c.name, c.args, response))
 			responseParts = append(responseParts, map[string]any{
 				"functionResponse": map[string]any{

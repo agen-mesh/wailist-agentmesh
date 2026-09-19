@@ -64,32 +64,60 @@ export function cadenceToCron(
   if (value.cadence === "weekly") {
     return `${minute} ${hour} * * ${local.getUTCDay()}`;
   }
-  // Monthly: use the day the UTC rollover actually lands on -- like
-  // weekly's local.getUTCDay() above, which never clamps -- so a chosen
-  // local day near the UTC boundary maps to the correct instant instead of
-  // silently drifting by a day for the common case. Reaching here means
-  // cadence === "monthly", which the monthly branch above only entered
-  // (and thus only set `local` off) when dayOfMonth was defined -- the
-  // fallback below just satisfies the type, it never actually changes
-  // behavior for a well-formed CadenceValue.
+  // Monthly. A standard cron names a UTC day of the month, so the local day
+  // has to be expressed as one: day 15 at 21:00 in New York is the 16th at
+  // 02:00 UTC, every month. That only works when the UTC day exists in every
+  // month (1-28) and is the same all year. Day 28 late in the evening west
+  // of UTC is the 29th, which February lacks; day 1 early in the morning
+  // east of UTC is the last day of the previous month, which cron cannot
+  // name; and near midnight UTC, daylight saving moves the day back and
+  // forth between winter and summer. Those are refused rather than saved on
+  // a day that is wrong for part of the year.
   const dayOfMonth = value.dayOfMonth ?? local.getDate();
-  // A rollover that crosses an actual MONTH (or year) boundary means
-  // local.getUTCDate() belongs to a DIFFERENT month than the one the user
-  // picked -- e.g. day 28 in a non-leap February rolling forward lands on
-  // March 1, not "day 29". Propagating that day number would silently
-  // point the schedule at the wrong month's day 1/29/30/31 entirely, and
-  // cron's day-of-month field has no way to express "this month's day 28,
-  // but nonexistent in February" either -- so whenever a month boundary
-  // was actually crossed, fall back to the originally-picked day, which is
-  // always valid in every month by construction (the picker only offers
-  // 1-28). A same-month rollover (the vast majority of timezone/time
-  // combinations, since the picker's range makes crossing TWO days in one
-  // direction impossible) keeps the day the user actually selected.
-  const crossedMonthBoundary =
-    local.getUTCMonth() !== local.getMonth() ||
-    local.getUTCFullYear() !== local.getFullYear();
-  const dom = crossedMonthBoundary ? dayOfMonth : local.getUTCDate();
-  return `${minute} ${hour} ${dom} * *`;
+  const utcDom = monthlyUtcDay(dayOfMonth, localHour, localMinute, now);
+  return `${minute} ${hour} ${utcDom} * *`;
+}
+
+/** Thrown when a local monthly time has no single UTC day-of-month. */
+export class ScheduleDayError extends Error {
+  constructor() {
+    super(
+      "That time falls on a different day in UTC for some months, so it cannot be scheduled monthly. Pick a different time or day.",
+    );
+    this.name = "ScheduleDayError";
+  }
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * The UTC day-of-month a local monthly time runs on, checked in winter and
+ * in summer. The backend's set_schedule applies the same rule (see
+ * backend/internal/engine/nodes/graphschedule.go); keep the two in step.
+ */
+function monthlyUtcDay(
+  dayOfMonth: number,
+  hour: number,
+  minute: number,
+  now: Date,
+): number {
+  const shiftIn = (month: number) => {
+    const at = new Date(now.getFullYear(), month, dayOfMonth, hour, minute);
+    const localDay = Date.UTC(at.getFullYear(), at.getMonth(), at.getDate());
+    const utcDay = Date.UTC(
+      at.getUTCFullYear(),
+      at.getUTCMonth(),
+      at.getUTCDate(),
+    );
+    return Math.round((utcDay - localDay) / DAY_MS);
+  };
+  const winter = shiftIn(0);
+  const summer = shiftIn(6);
+  const utcDom = dayOfMonth + winter;
+  if (winter !== summer || utcDom < 1 || utcDom > 28) {
+    throw new ScheduleDayError();
+  }
+  return utcDom;
 }
 
 // cronToCadence is cadenceToCron's inverse, for pre-filling the picker when

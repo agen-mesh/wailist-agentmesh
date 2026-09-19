@@ -7,8 +7,10 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/robfig/cron/v3"
 
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine"
@@ -282,6 +284,9 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 		// BuildID, when the client supplies one, lets it poll
 		// BuildWorkflowProgress for this build's steps while it runs.
 		BuildID string `json:"buildId"`
+		// TimeZone is the browser's IANA zone, which set_schedule reads the
+		// user's "9 am" in.
+		TimeZone string `json:"timeZone"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 	if strings.TrimSpace(body.Message) == "" {
@@ -341,6 +346,7 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 		X402Catalog: d.catalog,
 		TraceID:     id,
 		OnProgress:  onProgress,
+		TimeZone:    body.TimeZone,
 		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) nodes.DryRunResult {
 			// The builder edits a redacted copy: credentials are the "__enc__"
 			// sentinel. Merge them back exactly as the save below does, then
@@ -434,6 +440,15 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The schedule is saved after the graph, never before: a schedule on a
+	// graph that failed to save would fire a workflow the user never saw.
+	reply := result.Reply
+	if result.Schedule != nil {
+		if note := d.applyBuildSchedule(buildCtx, &wf, *result.Schedule); note != "" {
+			reply += "\n\n" + note
+		}
+	}
+
 	// Recorded only once the graph is actually saved, and only as a pair.
 	// Before the build call, a model error would leave an unanswered question
 	// in the history; before the save, a save failure would leave the model
@@ -443,15 +458,52 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 	// not worth failing a request whose work is already persisted.
 	if err := d.Store.AppendBuildMessage(buildCtx, id, "user", body.Message); err != nil {
 		log.Printf("build workflow %s: save user turn: %v", id, err)
-	} else if err := d.Store.AppendBuildMessage(buildCtx, id, "model", result.Reply); err != nil {
+	} else if err := d.Store.AppendBuildMessage(buildCtx, id, "model", reply); err != nil {
 		log.Printf("build workflow %s: save model turn: %v", id, err)
 	}
 	decrypted := decryptNodes(wf.Nodes, d.EncryptionKey)
 	wf.Nodes = unmaskWebhookSecrets(maskNodes(wf.Nodes), decrypted)
 	// Set before responding, so the deferred finish records it even if the
 	// client is already gone and this write goes nowhere.
-	finishedReply = result.Reply
-	respond.JSON(w, http.StatusOK, map[string]any{"reply": result.Reply, "workflow": wf})
+	finishedReply = reply
+	respond.JSON(w, http.StatusOK, map[string]any{"reply": reply, "workflow": wf})
+}
+
+// applyBuildSchedule saves the schedule a build set, onto wf as well as the
+// store, and returns a note for the reply when it could not be saved.
+//
+// Unlike SetSchedule, this saves onto a draft. The builder is where a
+// workflow is still being made, so it is nearly always a draft here, and
+// refusing would bring back the "go and set it yourself" chore this exists
+// to remove. It stays safe because the scheduler only claims deployed
+// workflows, and Deploy recomputes the next run from the moment of
+// deployment, so a schedule saved days before deploying cannot fire a
+// stale catch-up run the instant it goes live.
+//
+// The model has already told the user the schedule is set, so a failure
+// here must say otherwise in the same reply rather than only in a log.
+func (d *Deps) applyBuildSchedule(ctx context.Context, wf *models.Workflow, expr string) string {
+	const failed = "The schedule could not be saved, so this workflow will not run on its own yet. Set it from the Schedule option on the Workflows page."
+	if expr == "" {
+		if err := d.Store.ClearWorkflowSchedule(ctx, wf.ID); err != nil {
+			log.Printf("build workflow %s: clear schedule: %v", wf.ID, err)
+			return "The schedule could not be removed. Remove it from the Schedule option on the Workflows page."
+		}
+		wf.ScheduleCron, wf.ScheduleNextRunAt = nil, nil
+		return ""
+	}
+	sched, err := cron.ParseStandard(expr)
+	if err != nil {
+		log.Printf("build workflow %s: builder produced an invalid cron %q: %v", wf.ID, expr, err)
+		return failed
+	}
+	next := sched.Next(time.Now().UTC())
+	if err := d.Store.SetWorkflowSchedule(ctx, wf.ID, expr, next); err != nil {
+		log.Printf("build workflow %s: save schedule: %v", wf.ID, err)
+		return failed
+	}
+	wf.ScheduleCron, wf.ScheduleNextRunAt = &expr, &next
+	return ""
 }
 
 // graphFingerprint is a graph's nodes and edges with canvas positions left
