@@ -1,6 +1,6 @@
 import type { DeadLetterRun, RunDetail, RunLogRecord } from "./api";
 import { WORKFLOWS } from "./data";
-import type { RunPage, RunStatus, RunSummary } from "./types";
+import type { RunPage, RunStatus, RunSummary, UpcomingRun } from "./types";
 import { fixtureNode } from "./workflowFixtures";
 
 // Run history for mock mode (NEXT_PUBLIC_API_URL unset).
@@ -757,4 +757,39 @@ export function fixtureRunDetail(
   const row = FIXTURE_RUNS.find((r) => r.id === runId);
   if (row) return build(row, fixedStart(row, now), now).detail;
   return buildStarted(runId, now)?.detail ?? null;
+}
+
+// The sample schedules' cadences. Each sample cron fires at a fixed period,
+// which is all the mock needs to list the occurrences after the first.
+const SAMPLE_CRON_PERIOD_MS: Record<string, number> = {
+  "0 9 * * *": 24 * HOUR_MS,
+  "0 */6 * * *": 6 * HOUR_MS,
+};
+
+// What the mock scheduler would run next, soonest first, the same shape as
+// GET /schedules/upcoming: deployed sample workflows with a schedule, up to
+// `per` occurrences each, cut to `limit`.
+export function fixtureUpcoming(
+  options: { limit?: number; per?: number } = {},
+): UpcomingRun[] {
+  const limit = options.limit ?? 20;
+  const per = options.per ?? 3;
+  const out: UpcomingRun[] = [];
+  for (const wf of WORKFLOWS) {
+    if (wf.status !== "deployed" || !wf.scheduleCron || !wf.scheduleNextRunAt)
+      continue;
+    const period = SAMPLE_CRON_PERIOD_MS[wf.scheduleCron] ?? 24 * HOUR_MS;
+    const first = Date.parse(wf.scheduleNextRunAt);
+    for (let i = 0; i < per; i++) {
+      out.push({
+        workflowId: wf.id,
+        workflowName: wf.name,
+        at: new Date(first + i * period).toISOString(),
+        cron: wf.scheduleCron,
+      });
+    }
+  }
+  return out
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+    .slice(0, limit);
 }

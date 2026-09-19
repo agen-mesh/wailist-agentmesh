@@ -24,6 +24,7 @@ import { filterWorkflows, type StatusFilter } from "@/lib/workflowList";
 import { ImportModal } from "./ImportModal";
 import { ShareModal } from "./ShareModal";
 import { WorkflowsPhoneList } from "./phone/WorkflowsPhoneList";
+import { UpcomingRuns } from "@/components/runs/UpcomingRuns";
 import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import {
@@ -381,6 +382,12 @@ export function WorkflowsPage() {
               Add credits
             </button>
           </Card>
+
+          {/* The scheduled runs coming up, the same list the phone shows on
+              Activity. Takes no room when nothing is scheduled. */}
+          <div style={{ marginBottom: 24, maxWidth: 560 }}>
+            <UpcomingRuns limit={5} hideWhenEmpty />
+          </div>
 
           {pageError && (
             <div

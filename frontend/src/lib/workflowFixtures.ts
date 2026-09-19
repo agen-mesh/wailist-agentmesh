@@ -492,7 +492,11 @@ export function fixtureWorkflow(id: string): Workflow | null {
   const row = WORKFLOWS.find((w) => w.id === id);
   const graph = GRAPHS[id];
   if (!row || !graph) return null;
-  return JSON.parse(JSON.stringify({ ...row, ...graph })) as Workflow;
+  // The detail endpoint also counts every run; the samples have no runs
+  // older than their 30-day figure, so the two agree.
+  return JSON.parse(
+    JSON.stringify({ ...row, ...graph, totalRuns: row.runs }),
+  ) as Workflow;
 }
 
 // A node of a mock workflow, for the run steps that refer to it by id.

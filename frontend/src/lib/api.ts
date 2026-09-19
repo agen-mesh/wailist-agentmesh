@@ -11,11 +11,13 @@ import {
   Settlement,
   CostEstimate,
   RunPage,
+  UpcomingRun,
 } from "./types";
 import { WORKFLOWS, SAMPLE_WORKFLOW, buildUsage } from "./data";
 import {
   fixtureRunDetail,
   fixtureRunPage,
+  fixtureUpcoming,
   recordStartedRun,
 } from "./runFixtures";
 import { fixtureWorkflow } from "./workflowFixtures";
@@ -747,6 +749,46 @@ async function readRunPage(res: Response, fallback: string): Promise<RunPage> {
   if (res.status === 404 && error === null) throw new RunsUnavailableError();
   throw new Error(error ?? fallback);
 }
+
+// Thrown when the backend has no upcoming-runs route yet, told apart from a
+// real failure the same way RunsUnavailableError is: an older server answers
+// with chi's plain-text 404. Screens that show upcoming runs hide the section
+// rather than show an error.
+export class UpcomingUnavailableError extends Error {
+  constructor() {
+    super("Upcoming runs aren't available on this server yet.");
+    this.name = "UpcomingUnavailableError";
+  }
+}
+
+export const schedules = {
+  // What the scheduler will run next, soonest first: up to `per` occurrences
+  // of each schedule, `limit` in all (GET /schedules/upcoming).
+  upcoming: async (
+    options: { limit?: number; per?: number } = {},
+  ): Promise<UpcomingRun[]> => {
+    if (BASE) {
+      const q = new URLSearchParams();
+      if (options.limit) q.set("limit", String(options.limit));
+      if (options.per) q.set("per", String(options.per));
+      const query = q.toString() ? `?${q}` : "";
+      const res = await apiFetch(`${BASE}/schedules/upcoming${query}`, {
+        credentials: "include",
+      });
+      const data = (await res.json().catch(() => null)) as {
+        upcoming?: UpcomingRun[];
+        error?: string;
+      } | null;
+      if (res.ok) return data?.upcoming ?? [];
+      if (res.status === 404 && typeof data?.error !== "string") {
+        throw new UpcomingUnavailableError();
+      }
+      throw new Error(data?.error ?? "failed to load upcoming runs");
+    }
+    await delay(150);
+    return fixtureUpcoming(options);
+  },
+};
 
 export const runs = {
   // The DB-backed source of truth for a run's logs — used as a reconciliation

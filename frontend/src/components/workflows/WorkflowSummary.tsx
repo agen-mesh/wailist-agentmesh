@@ -1,13 +1,13 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Pill } from "@/components/ui";
 import { Topbar } from "@/components/Topbar";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
 import { RunSheet } from "@/components/runs/RunSheet";
 import { RunStatusPill } from "@/components/runs/RunStatusPill";
+import { UpcomingRuns } from "@/components/runs/UpcomingRuns";
 import { useNow } from "@/hooks/useNow";
 import { usePolling } from "@/hooks/usePolling";
 import {
@@ -22,9 +22,11 @@ import {
   formatDuration,
   formatRunTime,
   formatSpend,
+  formatUntil,
   triggerLabel,
 } from "@/lib/runFormat";
 import { workflowHref } from "@/lib/routes";
+import { describeWorkflow, workflowAgents } from "@/lib/describeWorkflow";
 
 // A workflow as a phone needs it: is it running, what did its runs do and
 // cost, and Run or Stop. The graph itself is not shown here; it is edited on a
@@ -44,6 +46,93 @@ const WORKFLOW_STATUS: Record<
   error: { tone: "danger", label: "Error" },
   draft: { tone: "default", label: "Draft" },
 };
+
+// Status colour by tone, the same dot the phone Workflows list uses.
+const TONE_COLOR: Record<string, string> = {
+  ok: "var(--accent)",
+  warm: "var(--warm)",
+  danger: "var(--danger)",
+  default: "var(--fg-dim)",
+};
+
+const count = new Intl.NumberFormat();
+
+// What the workflow is and what it has done: its description (or, until one
+// is written, a summary read off its graph), its run figures, its agents
+// and its next scheduled runs.
+function WorkflowDetails({ workflow }: { workflow: Workflow }) {
+  const agents = workflowAgents(workflow);
+  const spent = Number.parseFloat(workflow.spend ?? "");
+  return (
+    <>
+      <section aria-label="About this workflow" style={{ marginTop: 24 }}>
+        <p className="wfd-desc">
+          {workflow.description || describeWorkflow(workflow)}
+        </p>
+        {!workflow.description && (
+          <p className="wfd-note">Summarised from its steps.</p>
+        )}
+        <dl className="wfd-stats">
+          <div>
+            <dt>Total runs</dt>
+            <dd>
+              {workflow.totalRuns !== undefined
+                ? count.format(workflow.totalRuns)
+                : "—"}
+            </dd>
+          </div>
+          <div>
+            <dt>Runs · 30 days</dt>
+            <dd>{count.format(workflow.runs ?? 0)}</dd>
+          </div>
+          <div>
+            <dt>Spent · 30 days</dt>
+            <dd>
+              {formatSpend(
+                Number.isFinite(spent) ? Math.round(spent * 1e6) : 0,
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Next run</dt>
+            <dd>{formatUntil(workflow.scheduleNextRunAt)}</dd>
+          </div>
+        </dl>
+      </section>
+
+      {agents.length > 0 && (
+        <section aria-labelledby="wf-summary-agents" style={{ marginTop: 24 }}>
+          <h2 id="wf-summary-agents" style={sectionLabel}>
+            Agents
+          </h2>
+          <ul className="wfd-agents">
+            {agents.map((a) => (
+              <li key={a.id} className="wfd-agent">
+                <span className="wfd-agent__name">{a.name}</span>
+                <span className="wfd-agent__meta">
+                  {[
+                    a.model ?? "No model attached",
+                    a.tools
+                      ? `${a.tools} ${a.tools === 1 ? "tool" : "tools"}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {workflow.scheduleCron && (
+        <div style={{ marginTop: 24 }}>
+          <UpcomingRuns workflowId={workflow.id} limit={3} hideWhenEmpty />
+        </div>
+      )}
+    </>
+  );
+}
 
 function isChatWorkflow(wf: Workflow): boolean {
   return wf.nodes.some((n) => n.type === "trigger" && n.template === "chat");
@@ -295,9 +384,14 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
             <header style={{ marginTop: 20 }}>
               <div style={titleRow}>
                 <h1 style={title}>{workflow.name}</h1>
-                <Pill tone={status.tone} dot mono>
+                <span className="wfd-status">
+                  <span
+                    className="wfd-status__dot"
+                    style={{ background: TONE_COLOR[status.tone] }}
+                    aria-hidden
+                  />
                   {status.label}
-                </Pill>
+                </span>
               </div>
 
               <p style={{ ...copy, marginTop: 6 }}>
@@ -376,6 +470,8 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
               </div>
             </header>
           )}
+
+          {ready && workflow && <WorkflowDetails workflow={workflow} />}
 
           {ready && (
             <section
@@ -545,12 +641,11 @@ const fullWidth: React.CSSProperties = {
   justifyContent: "center",
 };
 
+// Sentence case, like the Upcoming heading beside it on this screen.
 const sectionLabel: React.CSSProperties = {
-  margin: "0 0 12px",
-  font: "500 11px/1 var(--font-mono)",
-  letterSpacing: "0.08em",
-  textTransform: "uppercase",
-  color: "var(--fg-dim)",
+  margin: "0 0 8px",
+  font: "600 13px/1.3 var(--font-sans)",
+  color: "var(--fg)",
 };
 
 const dayLabel: React.CSSProperties = {

@@ -217,6 +217,12 @@ type Workflow struct {
 	// LastRunAt is when the newest run inside the same window as Runs
 	// started. Nil when nothing ran in that window.
 	LastRunAt *time.Time `json:"lastRunAt,omitempty"`
+	// Description says in a sentence or two what the workflow does. Empty
+	// until someone writes one; the app then summarises the graph instead.
+	Description string `json:"description,omitempty"`
+	// TotalRuns counts every run the workflow has ever had. Only the detail
+	// endpoint fills it; the list carries the 30-day Runs instead.
+	TotalRuns int `json:"totalRuns,omitempty"`
 	// ScheduleCron is a standard 5-field cron expression (UTC). Empty/nil
 	// means the workflow has no schedule -- set via SetWorkflowSchedule,
 	// never written directly through UpdateWorkflow's graph save.

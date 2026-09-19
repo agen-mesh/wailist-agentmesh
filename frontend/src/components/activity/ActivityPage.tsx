@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { ghostBtn } from "@/components/ui/buttons";
 import { RunSheet } from "@/components/runs/RunSheet";
 import { RunStatusPill } from "@/components/runs/RunStatusPill";
+import { UpcomingRuns } from "@/components/runs/UpcomingRuns";
 import { useNow } from "@/hooks/useNow";
 import { usePolling } from "@/hooks/usePolling";
 import { runs as runsApi, RunsUnavailableError } from "@/lib/api";
@@ -145,6 +146,12 @@ export function ActivityPage() {
           <p style={{ ...copy, marginTop: 4 }}>
             What your workflows ran, and what each run spent.
           </p>
+
+          {/* What will run next, above what already ran. Hidden when nothing
+              is scheduled, so an unscheduled account sees only its history. */}
+          <div style={{ marginTop: 20 }}>
+            <UpcomingRuns limit={5} hideWhenEmpty />
+          </div>
 
           <div style={{ marginTop: 20 }}>
             {unavailable ? (

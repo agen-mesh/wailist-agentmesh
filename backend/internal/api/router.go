@@ -98,6 +98,8 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		// Run history, newest first, a page at a time (#205).
 		r.Get("/workflows/{id}/runs", d.ListWorkflowRuns)
 		r.Get("/runs", d.ListRecentRuns)
+		// What the scheduler will run next, soonest first.
+		r.Get("/schedules/upcoming", d.ListUpcomingRuns)
 		r.Get("/runs/{runId}", d.GetRun)
 		r.Get("/runs/{runId}/stream", d.StreamRun)
 		r.Post("/runs/{runId}/resume", d.ResumeRun)

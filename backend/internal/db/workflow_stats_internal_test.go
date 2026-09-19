@@ -57,3 +57,49 @@ func TestListWorkflowsAttachesRunsSpendAndLastRun(t *testing.T) {
 		t.Errorf("idle = runs %d spend %q lastRunAt %v, want 0, empty, nil", i.Runs, i.Spend, i.LastRunAt)
 	}
 }
+
+func TestSetWorkflowDescriptionAndCountRuns(t *testing.T) {
+	s := runsListStore(t)
+	ctx := context.Background()
+	user := runsListUser(t, s)
+	wf := runsListWorkflow(t, s, user, "Described")
+
+	description := func() string {
+		t.Helper()
+		got, err := s.GetWorkflow(ctx, wf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.Description
+	}
+	if got := description(); got != "" {
+		t.Fatalf("new workflow description = %q, want empty", got)
+	}
+	if err := s.SetWorkflowDescription(ctx, wf, "Sorts support email."); err != nil {
+		t.Fatal(err)
+	}
+	if got := description(); got != "Sorts support email." {
+		t.Fatalf("description = %q after set", got)
+	}
+	// A graph save through UpdateWorkflow must not touch it.
+	if _, err := s.UpdateWorkflow(ctx, wf, "Described", models.WorkflowGraph{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := description(); got != "Sorts support email." {
+		t.Fatalf("description = %q after a graph save", got)
+	}
+	if err := s.SetWorkflowDescription(ctx, wf, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := description(); got != "" {
+		t.Fatalf("description = %q after clearing", got)
+	}
+
+	now := time.Now().UTC()
+	runAt(t, s, wf, now.Add(-time.Hour))
+	// Older than the list's 30-day window, but still a run.
+	runAt(t, s, wf, now.Add(-90*24*time.Hour))
+	if n, err := s.CountRuns(ctx, wf); err != nil || n != 2 {
+		t.Fatalf("CountRuns = %d, %v; want 2", n, err)
+	}
+}

@@ -228,4 +228,58 @@ describe("WorkflowSummary", () => {
 
     expect(await screen.findByText("Failed")).toBeTruthy();
   });
+
+  it("describes itself from its graph until a description is written", async () => {
+    render(<WorkflowSummary workflowId="wf-1" />);
+    expect(await screen.findByText(/^Runs when started\./)).toBeTruthy();
+    expect(screen.getByText("Summarised from its steps.")).toBeTruthy();
+  });
+
+  it("shows a written description as it is", async () => {
+    api.get.mockResolvedValue(
+      workflow({ description: "Sorts support email." }),
+    );
+    render(<WorkflowSummary workflowId="wf-1" />);
+    expect(await screen.findByText("Sorts support email.")).toBeTruthy();
+    expect(screen.queryByText("Summarised from its steps.")).toBeNull();
+  });
+
+  it("shows its run figures", async () => {
+    api.get.mockResolvedValue(
+      workflow({ totalRuns: 1842, runs: 38, spend: "1.482" }),
+    );
+    render(<WorkflowSummary workflowId="wf-1" />);
+    const fact = async (label: string) =>
+      (await screen.findByText(label)).nextElementSibling?.textContent;
+    expect(await fact("Total runs")).toBe((1842).toLocaleString());
+    expect(await fact("Runs · 30 days")).toBe("38");
+    expect(await fact("Spent · 30 days")).toBe("$1.48");
+    expect(await fact("Next run")).toBe("—");
+  });
+
+  it("lists its agents with the model and tools each uses", async () => {
+    api.get.mockResolvedValue(
+      workflow({
+        nodes: [
+          { id: "t", type: "trigger", template: "manual", x: 0, y: 0 },
+          { id: "a", type: "agent", name: "Triage agent", x: 0, y: 0 },
+          { id: "p", type: "provider", model: "gemini-2.5-flash", x: 0, y: 0 },
+          { id: "h", type: "tool", template: "http", x: 0, y: 0 },
+        ],
+        edges: [
+          { id: "e1", from: "p", to: "a", kind: "attach", toPort: "model" },
+          { id: "e2", from: "h", to: "a", kind: "attach", toPort: "tools" },
+        ],
+      }),
+    );
+    render(<WorkflowSummary workflowId="wf-1" />);
+    expect(await screen.findByText("Triage agent")).toBeTruthy();
+    expect(screen.getByText("gemini-2.5-flash · 1 tool")).toBeTruthy();
+  });
+
+  it("shows status as a word beside a dot, not a pill", async () => {
+    render(<WorkflowSummary workflowId="wf-1" />);
+    const status = await screen.findByText("Deployed");
+    expect(status.className).toBe("wfd-status");
+  });
 });

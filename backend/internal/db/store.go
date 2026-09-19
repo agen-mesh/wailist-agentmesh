@@ -48,7 +48,7 @@ func (s *Store) Close() {
 // sites, and one was missed. A future column now only needs to be added
 // here and in scanWorkflowRow's Scan call, once, for every caller to pick
 // it up automatically.
-const workflowColumns = `id, user_id, name, status, graph, deployed_at, run_endpoint, created_at, updated_at, schedule_cron, schedule_next_run_at, geofence_lat, geofence_lng, geofence_radius_m, geofence_inside, geofence_last_fix_at, is_system`
+const workflowColumns = `id, user_id, name, status, graph, deployed_at, run_endpoint, created_at, updated_at, schedule_cron, schedule_next_run_at, geofence_lat, geofence_lng, geofence_radius_m, geofence_inside, geofence_last_fix_at, is_system, description`
 
 // rowScanner is satisfied by both pgx.Row (QueryRow) and *pgx.Rows
 // (Query's per-row iteration) -- scanWorkflowRow works with either, so a
@@ -63,18 +63,22 @@ type rowScanner interface {
 func scanWorkflowRow(row rowScanner) (models.Workflow, error) {
 	var w models.Workflow
 	var graphJSON []byte
-	var runEndpoint *string
+	var runEndpoint, description *string
 	if err := row.Scan(
 		&w.ID, &w.UserID, &w.Name, &w.Status, &graphJSON,
 		&w.DeployedAt, &runEndpoint, &w.CreatedAt, &w.UpdatedAt,
 		&w.ScheduleCron, &w.ScheduleNextRunAt,
 		&w.GeofenceLat, &w.GeofenceLng, &w.GeofenceRadiusM,
 		&w.GeofenceInside, &w.GeofenceLastFixAt, &w.IsSystem,
+		&description,
 	); err != nil {
 		return models.Workflow{}, err
 	}
 	if runEndpoint != nil {
 		w.RunEndpoint = *runEndpoint
+	}
+	if description != nil {
+		w.Description = *description
 	}
 	unmarshalGraph(graphJSON, &w)
 	return w, nil
@@ -592,6 +596,36 @@ func (s *Store) UpdateWorkflow(ctx context.Context, id, name string, graph model
 		RETURNING `+workflowColumns+`
 	`, id, name, string(graphJSON))
 	return scanWorkflowRow(row)
+}
+
+// SetWorkflowDescription writes a workflow's description, or clears it when
+// description is empty. Kept apart from UpdateWorkflow so saving the graph
+// from the editor, which never sends a description, cannot wipe one.
+func (s *Store) SetWorkflowDescription(ctx context.Context, id, description string) error {
+	var value *string
+	if description != "" {
+		value = &description
+	}
+	_, err := s.pool.Exec(ctx, `UPDATE workflows SET description=$2 WHERE id=$1`, id, value)
+	return err
+}
+
+// CountRuns counts every run a workflow has had, however old.
+func (s *Store) CountRuns(ctx context.Context, workflowID string) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM runs WHERE workflow_id = $1`, workflowID).Scan(&n)
+	return n, err
+}
+
+// AttachWorkflowStats fills one workflow's 30-day Runs, Spend and LastRunAt
+// the same way the list does, for the detail endpoint.
+func (s *Store) AttachWorkflowStats(ctx context.Context, userID string, wf *models.Workflow) error {
+	wfs := []models.Workflow{*wf}
+	if err := s.attachWorkflowStats(ctx, userID, wfs); err != nil {
+		return err
+	}
+	*wf = wfs[0]
+	return nil
 }
 
 func (s *Store) DeleteWorkflow(ctx context.Context, id string) error {

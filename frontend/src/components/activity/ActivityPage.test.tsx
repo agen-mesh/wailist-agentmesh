@@ -21,6 +21,9 @@ vi.mock("@/lib/api", () => ({
   runs: { recent: api.recent },
 }));
 vi.mock("@/components/Topbar", () => ({ Topbar: () => null }));
+vi.mock("@/components/runs/UpcomingRuns", () => ({
+  UpcomingRuns: () => null,
+}));
 vi.mock("@/components/PullToRefresh", () => ({
   PullToRefresh: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>

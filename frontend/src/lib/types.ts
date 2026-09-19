@@ -122,6 +122,10 @@ export interface Workflow {
   // The newest run within the same 30 days `runs` counts. Absent when
   // nothing ran in that window.
   lastRunAt?: string;
+  // What the workflow does, in a sentence or two. Absent until written.
+  description?: string;
+  // Every run the workflow has had. Only GET /workflows/{id} sends it.
+  totalRuns?: number;
   agents?: number;
   runs?: number;
   spend?: string;
@@ -165,6 +169,14 @@ export interface RunSummary {
 export interface RunPage {
   runs: RunSummary[];
   nextCursor: string | null;
+}
+
+// One run the scheduler will start (GET /schedules/upcoming).
+export interface UpcomingRun {
+  workflowId: string;
+  workflowName: string;
+  at: string;
+  cron: string;
 }
 
 export interface NodeTypeMeta {

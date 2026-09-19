@@ -78,10 +78,23 @@ func (d *Deps) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusNotFound, "workflow not found")
 		return
 	}
+	// The figures a workflow's own screen shows. Like the list, a failure
+	// here leaves them out rather than failing the whole response.
+	if err := d.Store.AttachWorkflowStats(r.Context(), userID, &wf); err != nil {
+		log.Printf("workflow %s stats: %v", wf.ID, err)
+	}
+	if n, err := d.Store.CountRuns(r.Context(), wf.ID); err != nil {
+		log.Printf("workflow %s run count: %v", wf.ID, err)
+	} else {
+		wf.TotalRuns = n
+	}
 	decrypted := decryptNodes(wf.Nodes, d.EncryptionKey)
 	wf.Nodes = unmaskWebhookSecrets(maskNodes(wf.Nodes), decrypted)
 	respond.JSON(w, http.StatusOK, wf)
 }
+
+// maxDescriptionLen matches the CHECK on workflows.description.
+const maxDescriptionLen = 2000
 
 // EstimateWorkflowCost returns a static low/high USD-micros band for one
 // run of the workflow. It reads only non-secret node fields (node type,
@@ -110,8 +123,19 @@ func (d *Deps) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		Name  string                `json:"name"`
 		Nodes []models.WorkflowNode `json:"nodes"`
 		Edges []models.WorkflowEdge `json:"edges"`
+		// Optional. Absent leaves the description as it is, so a save
+		// that does not know about it (the editor's) never clears it.
+		Description *string `json:"description"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
+	var description string
+	if body.Description != nil {
+		description = strings.TrimSpace(*body.Description)
+		if len([]rune(description)) > maxDescriptionLen {
+			respond.Error(w, http.StatusBadRequest, "Description is too long. Keep it under 2000 characters.")
+			return
+		}
+	}
 	// is_system is the real identity guard (FindSystemWorkflow requires it,
 	// so a rename alone can no longer forge a console). This check exists so
 	// the collision shape can't arise at all: an ordinary workflow renamed to
@@ -131,6 +155,13 @@ func (d *Deps) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if body.Description != nil {
+		if err := d.Store.SetWorkflowDescription(r.Context(), id, description); err != nil {
+			respond.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		wf.Description = description
 	}
 	decrypted := decryptNodes(wf.Nodes, d.EncryptionKey)
 	wf.Nodes = unmaskWebhookSecrets(maskNodes(wf.Nodes), decrypted)
