@@ -581,7 +581,6 @@ function RowMenu({
   workflowId,
   onDelete,
   onShare,
-  onViewUsage,
   deployed,
   scheduleCron,
   onSetSchedule,
@@ -590,8 +589,6 @@ function RowMenu({
   workflowId: string;
   onDelete: () => void;
   onShare: () => void;
-  // Opens the Usage page scoped to this workflow (#9).
-  onViewUsage: () => void;
   deployed: boolean;
   scheduleCron?: string;
   onSetSchedule: (cron: string) => Promise<void>;
@@ -825,35 +822,6 @@ function RowMenu({
                 }}
               >
                 Share
-              </button>
-              <button
-                role="menuitem"
-                onClick={() => {
-                  close();
-                  onViewUsage();
-                }}
-                style={{
-                  display: "block",
-                  width: "100%",
-                  textAlign: "left",
-                  padding: "8px 10px",
-                  border: "none",
-                  borderRadius: 5,
-                  background: "transparent",
-                  color: "var(--fg)",
-                  fontSize: 12.5,
-                  fontWeight: 500,
-                  fontFamily: "var(--font-sans)",
-                  cursor: "pointer",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--bg-elev-3)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "transparent";
-                }}
-              >
-                View usage
               </button>
               <div
                 style={{
@@ -1400,6 +1368,21 @@ function WorkflowRows({
             >
               Open
             </button>
+            {/* View usage is its own button rather than an item in RowMenu
+                below, because that menu is gated on "workflow.delete" and so
+                never appears on a handheld viewer -- yet reading usage is
+                read-only and stays available to everyone (see
+                lib/readonly.ts). */}
+            <button
+              style={ghostBtnSm}
+              onClick={(e) => {
+                e.stopPropagation();
+                onViewUsage(wf.id);
+              }}
+              title="Usage scoped to this workflow"
+            >
+              Usage
+            </button>
             {/* Its own button rather than an item in RowMenu below, because
                 that menu is gated on "workflow.delete" and so never appears on
                 a phone -- which is the one device this screen is for. Shown
@@ -1427,7 +1410,6 @@ function WorkflowRows({
                 workflowId={wf.id}
                 onDelete={() => onDelete(wf.id)}
                 onShare={() => onShare(wf.id)}
-                onViewUsage={() => onViewUsage(wf.id)}
                 deployed={wf.status === "deployed"}
                 scheduleCron={wf.scheduleCron}
                 onSetSchedule={(cron) => onSetSchedule(wf.id, cron)}
