@@ -14,6 +14,15 @@ describe("formatUsdMicros", () => {
     expect(formatUsdMicros(2_490_000)).toBe("$2.49");
   });
 
+  // A half-cent total must round UP in integer space, not down through a
+  // binary float: 1_565_000 micros is the common 65_000 relay cost plus the
+  // 1_500_000 platform fee, and `micros / 1e6` would print $1.56.
+  it("rounds an exact half-cent total up", () => {
+    expect(formatUsdMicros(1_565_000)).toBe("$1.57");
+    expect(formatUsdMicros(1_500_000)).toBe("$1.50");
+    expect(formatUsdMicros(65_000)).toBe("$0.07");
+  });
+
   // #111: a fractional relay cost must not display as $0.00.
   it("keeps sub-cent amounts visible", () => {
     expect(formatUsdMicros(500)).toBe("$0.0005");

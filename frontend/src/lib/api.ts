@@ -720,14 +720,16 @@ export const runs = {
     return {
       run: { status: "success" },
       deadLetters: [],
-      // The paid weather call below, as the ledger would record it.
+      // The paid weather call below, as the ledger would record it: the
+      // $0.065 relay cost plus the fixed $1.50 x402 platform fee, so the
+      // hover exercises the multi-kind breakdown rather than a single charge.
       costs: {
-        totalUsdMicros: 65000,
+        totalUsdMicros: 1_565_000,
         steps: [
           {
             nodeId: "n4",
-            totalUsdMicros: 65000,
-            byKind: { x402_relay_cost: 65000 },
+            totalUsdMicros: 1_565_000,
+            byKind: { x402_relay_cost: 65_000, x402_platform_fee: 1_500_000 },
           },
         ],
       },

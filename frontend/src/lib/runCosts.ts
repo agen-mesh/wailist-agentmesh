@@ -33,12 +33,24 @@ const KIND_LABELS: Record<string, string> = {
  * Formats USD micros for display. Amounts of a cent or more use two decimals;
  * smaller ones keep their significant digits (up to six), so a fractional relay
  * cost reads "$0.0005" rather than rounding away to "$0.00".
+ *
+ * All rounding stays in integer micros: dividing by 1e6 first lands on binary
+ * floating point, where an exact half-cent total like 1_565_000 micros
+ * ($1.565) rounds DOWN to "$1.56" instead of up to "$1.57".
  */
 export function formatUsdMicros(micros: number): string {
   if (micros <= 0) return "$0.00";
-  const usd = micros / 1e6;
-  if (micros >= 10_000) return `$${usd.toFixed(2)}`;
-  return `$${usd.toFixed(6).replace(/0+$/, "")}`;
+  if (micros >= 10_000) {
+    // 1 cent = 10_000 micros. Round to the nearest cent in integer space,
+    // then split that integer into dollars and cents for the format string.
+    const cents = Math.round(micros / 10_000);
+    return `$${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`;
+  }
+  // Sub-cent: integer micros already encode six decimal places of a dollar
+  // (1e6 micros = $1), so pad to six digits and trim trailing zeros instead
+  // of round-tripping through a float.
+  const frac = String(micros).padStart(6, "0").replace(/0+$/, "");
+  return `$0.${frac}`;
 }
 
 /** Each charged node's cost, keyed by node id. Empty when costs are unknown. */
