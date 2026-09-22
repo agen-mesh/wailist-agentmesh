@@ -255,9 +255,9 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   const inFlightSave = useRef<Promise<boolean> | null>(null);
 
   // Resolves true only when the update reached the server. The autosave timer
-  // can swallow the result, but Run/Deploy/Build flush through it first and
-  // must not proceed against a graph the backend never persisted -- so the
-  // failure is surfaced here rather than lost behind the save label.
+  // can swallow the result, but Run and Deploy flush through it first and must
+  // not proceed against a graph the backend never persisted -- so the failure
+  // is surfaced here rather than lost behind the save label.
   const saveWorkflow = useCallback((wf: Workflow): Promise<boolean> => {
     const p = workflowsApi
       .update(wf.id, { name: wf.name, nodes: wf.nodes, edges: wf.edges })
@@ -284,10 +284,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   // first, or it edits a stale copy and its response overwrites the newer
   // client state -- silently reverting the edit that was mid-debounce.
   //
-  // Resolves true only when every pending save landed. Run and Deploy check
-  // the result and abort when it is false: a run or deploy against a graph
-  // the server never received is exactly the stale-graph failure this whole
-  // mechanism exists to prevent (#67).
+  // Resolves true only when the latest graph reached the server. Run and
+  // Deploy check the result and abort when it is false: a run or deploy
+  // against a graph the server never received is exactly the stale-graph
+  // failure this whole mechanism exists to prevent (#67).
   const flushPendingSave = useCallback(async (): Promise<boolean> => {
     if (saveTimer.current !== null) {
       clearTimeout(saveTimer.current);
@@ -299,8 +299,13 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     // newer) pending save, so the two land in order and neither is skipped.
     const inFlight = inFlightSave.current;
     const inFlightOk = inFlight ? await inFlight : true;
-    const pendingOk = pending ? await saveWorkflow(pending) : true;
-    return inFlightOk && pendingOk;
+    if (pending) {
+      // The pending graph is the newest; its save alone decides whether the
+      // run/deploy may proceed. A failed older in-flight save is superseded
+      // by a successful newer pending save.
+      return saveWorkflow(pending);
+    }
+    return inFlightOk;
   }, [saveWorkflow]);
 
   useEffect(() => {
