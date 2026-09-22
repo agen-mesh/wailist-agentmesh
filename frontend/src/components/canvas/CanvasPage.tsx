@@ -252,9 +252,13 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   // force both to land before something else reads the graph server-side.
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSave = useRef<Workflow | null>(null);
-  const inFlightSave = useRef<Promise<void> | null>(null);
+  const inFlightSave = useRef<Promise<boolean> | null>(null);
 
-  const saveWorkflow = useCallback((wf: Workflow) => {
+  // Resolves true only when the update reached the server. The autosave timer
+  // can swallow the result, but Run/Deploy/Build flush through it first and
+  // must not proceed against a graph the backend never persisted -- so the
+  // failure is surfaced here rather than lost behind the save label.
+  const saveWorkflow = useCallback((wf: Workflow): Promise<boolean> => {
     const p = workflowsApi
       .update(wf.id, { name: wf.name, nodes: wf.nodes, edges: wf.edges })
       .then(() => {
@@ -262,8 +266,12 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         setSaveLabel(
           `saved · ${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`,
         );
+        return true;
       })
-      .catch(() => setSaveLabel("save failed"))
+      .catch(() => {
+        setSaveLabel("save failed");
+        return false;
+      })
       .finally(() => {
         if (inFlightSave.current === p) inFlightSave.current = null;
       });
@@ -275,15 +283,24 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   // the backend re-read the graph from the DB (build mode) must await this
   // first, or it edits a stale copy and its response overwrites the newer
   // client state -- silently reverting the edit that was mid-debounce.
-  const flushPendingSave = useCallback(async () => {
+  //
+  // Resolves true only when every pending save landed. Run and Deploy check
+  // the result and abort when it is false: a run or deploy against a graph
+  // the server never received is exactly the stale-graph failure this whole
+  // mechanism exists to prevent (#67).
+  const flushPendingSave = useCallback(async (): Promise<boolean> => {
     if (saveTimer.current !== null) {
       clearTimeout(saveTimer.current);
       saveTimer.current = null;
     }
     const pending = pendingSave.current;
     pendingSave.current = null;
-    await inFlightSave.current;
-    if (pending) await saveWorkflow(pending);
+    // Await whatever is already on the wire before starting the (possibly
+    // newer) pending save, so the two land in order and neither is skipped.
+    const inFlight = inFlightSave.current;
+    const inFlightOk = inFlight ? await inFlight : true;
+    const pendingOk = pending ? await saveWorkflow(pending) : true;
+    return inFlightOk && pendingOk;
   }, [saveWorkflow]);
 
   useEffect(() => {
@@ -450,9 +467,16 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       // Deploy reads the graph from the DB to provision a wallet per agent
       // node, so an edit still sitting in the autosave debounce (an agent
       // added a moment ago) would be deployed without. Same reason startBuild
-      // flushes first (#67). flushPendingSave never throws: a failed save
-      // only updates the save label.
-      await flushPendingSave();
+      // flushes first (#67). A failed flush means the server never got the
+      // latest graph: abort rather than deploy the stale one.
+      const flushed = await flushPendingSave();
+      if (!flushed) {
+        showToast(
+          "Deploy cancelled · latest changes failed to save",
+          "error",
+        );
+        return;
+      }
       const res = await workflowsApi.deploy(workflow.id);
       setDeployed(true);
       setEstimateTick((t) => t + 1);
@@ -551,8 +575,16 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       // The run executes the graph the backend loads from the DB, so an edit
       // still in the autosave debounce would not be part of it -- the user
       // changes a URL, hits Run, and the old URL gets called. Same reason
-      // startBuild flushes first (#67).
-      await flushPendingSave();
+      // startBuild flushes first (#67). A failed flush means the server never
+      // got the latest graph: abort rather than run the stale one.
+      const flushed = await flushPendingSave();
+      if (!flushed) {
+        showToast(
+          "Run cancelled · latest changes failed to save",
+          "error",
+        );
+        return null;
+      }
       try {
         const res = await workflowsApi.run(workflow.id, input);
         setRunId(res.runId);
