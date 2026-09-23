@@ -50,6 +50,7 @@ import {
   loadWidths,
   saveWidths,
 } from "./panelSizing";
+import { createSaveFlushQueue } from "./saveFlushQueue";
 
 interface CanvasPageProps {
   workflowId: string;
@@ -253,6 +254,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSave = useRef<Workflow | null>(null);
   const inFlightSave = useRef<Promise<boolean> | null>(null);
+  const [saveFlushQueue] = useState(createSaveFlushQueue);
 
   // Resolves true only when the update reached the server. The autosave timer
   // can swallow the result, but Run and Deploy flush through it first and must
@@ -262,6 +264,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     const p = workflowsApi
       .update(wf.id, { name: wf.name, nodes: wf.nodes, edges: wf.edges })
       .then(() => {
+        saveFlushQueue.record(true);
         const now = new Date();
         setSaveLabel(
           `saved · ${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`,
@@ -269,6 +272,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         return true;
       })
       .catch(() => {
+        saveFlushQueue.record(false);
         setSaveLabel("save failed");
         return false;
       })
@@ -277,7 +281,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       });
     inFlightSave.current = p;
     return p;
-  }, []);
+  }, [saveFlushQueue]);
 
   // Settles whatever the autosave still owes the server. Anything that makes
   // the backend re-read the graph from the DB (build mode) must await this
@@ -288,25 +292,29 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   // Deploy check the result and abort when it is false: a run or deploy
   // against a graph the server never received is exactly the stale-graph
   // failure this whole mechanism exists to prevent (#67).
-  const flushPendingSave = useCallback(async (): Promise<boolean> => {
-    if (saveTimer.current !== null) {
-      clearTimeout(saveTimer.current);
-      saveTimer.current = null;
-    }
-    const pending = pendingSave.current;
-    pendingSave.current = null;
-    // Await whatever is already on the wire before starting the (possibly
-    // newer) pending save, so the two land in order and neither is skipped.
-    const inFlight = inFlightSave.current;
-    const inFlightOk = inFlight ? await inFlight : true;
-    if (pending) {
-      // The pending graph is the newest; its save alone decides whether the
-      // run/deploy may proceed. A failed older in-flight save is superseded
-      // by a successful newer pending save.
-      return saveWorkflow(pending);
-    }
-    return inFlightOk;
-  }, [saveWorkflow]);
+  const flushPendingSave = useCallback(
+    (): Promise<boolean> =>
+      saveFlushQueue.run(async () => {
+        if (saveTimer.current !== null) {
+          clearTimeout(saveTimer.current);
+          saveTimer.current = null;
+        }
+        const pending = pendingSave.current;
+        pendingSave.current = null;
+        // Await whatever is already on the wire before starting the (possibly
+        // newer) pending save, so the two land in order and neither is skipped.
+        const inFlight = inFlightSave.current;
+        const inFlightOk = inFlight ? await inFlight : null;
+        if (pending) {
+          // The pending graph is the newest; its save alone decides whether the
+          // run/deploy may proceed. A failed older in-flight save is superseded
+          // by a successful newer pending save.
+          return saveWorkflow(pending);
+        }
+        return inFlightOk;
+      }),
+    [saveFlushQueue, saveWorkflow],
+  );
 
   useEffect(() => {
     if (!workflow) return;
