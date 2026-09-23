@@ -70,11 +70,12 @@ export function ConsolePanel({
     logs.forEach((l, i) => last.set(l.nodeId, i));
     return last;
   }, [logs]);
+  const showStepCosts = stepCosts.size > 0;
 
-  // Below this the four fixed columns (52 + 34 + 110 + gaps) leave the output
-  // cell so little room that JSON wraps a few characters per line -- a single
-  // step measured 431px tall in a 293px-wide console. Rows switch to a stacked
-  // layout instead of squeezing.
+  // Below this the fixed metadata columns (time, status, node, optional cost)
+  // leave the output cell so little room that JSON wraps a few characters per
+  // line -- a single step measured 431px tall in a 293px-wide console. Rows
+  // switch to a stacked layout instead of squeezing.
   const [compactRows, setCompactRows] = useState(false);
   const logListRef = useRef<HTMLDivElement | null>(null);
   // Observed on the list, not the window: the console's width is whatever is
@@ -309,14 +310,16 @@ export function ConsolePanel({
                 display: "grid",
                 gridTemplateColumns: compactRows
                   ? "1fr"
-                  : "52px 34px 110px 1fr",
+                  : showStepCosts
+                    ? "52px 34px 110px max-content minmax(0, 1fr)"
+                    : "52px 34px 110px minmax(0, 1fr)",
                 gap: compactRows ? 2 : 10,
                 alignItems: compactRows ? "stretch" : "baseline",
                 borderBottom: "1px solid var(--border-soft)",
                 padding: "3px 0",
               }}
             >
-              {/* display:contents keeps these three as real grid cells in the
+              {/* display:contents keeps these fields as real grid cells in the
                     wide layout; in compact mode they collapse onto one meta
                     line above the output instead of each taking a row. */}
               <div
@@ -365,22 +368,26 @@ export function ConsolePanel({
                       · {l.durationMs}ms
                     </span>
                   )}
-                  {(() => {
-                    // Every billable step's charge, from the debit ledger --
-                    // not only x402 steps whose output carries a receipt.
+                </span>
+                {showStepCosts &&
+                  (() => {
+                    // Ledger charges include billable steps without receipts.
                     const step = stepCosts.get(l.nodeId);
-                    if (!step || lastRowByNode.get(l.nodeId) !== i) return null;
+                    const showOnThisRow =
+                      step && lastRowByNode.get(l.nodeId) === i;
                     return (
                       <span
-                        style={{ color: "var(--warm)" }}
-                        title={describeStepCost(step)}
+                        style={{ color: "var(--warm)", whiteSpace: "nowrap" }}
+                        title={
+                          showOnThisRow ? describeStepCost(step) : undefined
+                        }
                       >
-                        {" "}
-                        · {formatUsdMicros(step.totalUsdMicros)}
+                        {showOnThisRow
+                          ? `· ${formatUsdMicros(step.totalUsdMicros)}`
+                          : null}
                       </span>
                     );
                   })()}
-                </span>
               </div>
               <OutputCell output={l.output} />
             </div>
