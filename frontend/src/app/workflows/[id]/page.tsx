@@ -1,12 +1,13 @@
 import { Suspense } from "react";
 import { WorkflowRouteFromUrl } from "@/components/workflows/WorkflowRouteFromUrl";
+import { MOBILE_SHELL_ID } from "@/lib/routes";
 
 // The native shell (mobile/) ships a static export, which cannot prerender a
 // page per workflow -- the ids belong to users who do not exist at build time.
 // So that build emits a single shell page and the real id arrives as ?id=,
 // resolved in WorkflowRouteFromUrl. The web build returns no params here and
-// keeps rendering every workflow on demand exactly as before.
-export const MOBILE_SHELL_ID = "app";
+// keeps rendering every workflow on demand exactly as before. Links to this
+// page are built by workflowHref() in lib/routes.ts, which owns the shell id.
 
 export function generateStaticParams() {
   return process.env.MOBILE_BUILD === "1" ? [{ id: MOBILE_SHELL_ID }] : [];

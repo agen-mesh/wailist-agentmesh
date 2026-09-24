@@ -1,6 +1,7 @@
 package ai.agentmesh.app;
 
 import android.content.pm.ApplicationInfo;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.webkit.WebView;
 
@@ -14,6 +15,7 @@ public class MainActivity extends BridgeActivity {
         // super.onCreate, or the bridge is built without it.
         registerPlugin(GeofencePlugin.class);
         registerPlugin(SecureStorePlugin.class);
+        registerPlugin(PushAvailabilityPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Belt and braces on WebView debugging.
@@ -37,5 +39,28 @@ public class MainActivity extends BridgeActivity {
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) == 0) {
             WebView.setWebContentsDebuggingEnabled(false);
         }
+
+        applyTextZoom(getResources().getConfiguration());
+    }
+
+    // fontScale is in configChanges in AndroidManifest.xml, so changing the
+    // system font size arrives here instead of recreating the activity. A
+    // recreate reloaded the WebView, replayed the launch splash and dropped
+    // whatever screen and state the user was on.
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        applyTextZoom(newConfig);
+    }
+
+    // Follow the phone's text size, all of it.
+    //
+    // Applied here as well as at startup so a change made while the app is
+    // open takes effect without a restart. Deliberately unclamped: the system
+    // font size is an accessibility setting, and someone who needs 200% text
+    // must get it. Layouts reflow to fit the text, not the other way round.
+    private void applyTextZoom(Configuration config) {
+        if (getBridge() == null) return;
+        getBridge().getWebView().getSettings().setTextZoom(Math.round(config.fontScale * 100));
     }
 }

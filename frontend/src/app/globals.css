@@ -3,6 +3,10 @@
 
 /* ── Design tokens ────────────────────────────────────────────────────── */
 :root {
+  /* The app has one theme, and it is dark. Saying so lets the controls the
+     browser draws itself (select pop-ups, date pickers, autofill, scrollbars)
+     match, instead of rendering light. */
+  color-scheme: dark;
   --bg: #08070c;
   --bg-elev-1: #0f0e18;
   --bg-elev-2: #161526;
@@ -80,6 +84,35 @@ body {
 }
 .chat-transcript::-webkit-scrollbar {
   display: none;
+}
+
+/* No vertical scrollbar on a touchscreen.
+
+   The rules above are a mouse design -- an 8px pill with a :hover state, and a
+   hover state is meaningless under a finger. On a phone that pill sits
+   permanently down the page edge, which is one of the things that makes a
+   screen read as a web page in a WebView instead of an app. A touch user
+   scrolls by dragging the content, not by aiming at a thumb.
+
+   Vertical ONLY, and that is deliberate. A horizontal bar appears only inside a
+   table somebody is already scrolling, and in two places -- the workflows row
+   list and the Helixbox console -- it is the only sign there is more to the
+   side. .am-hscroll does not need it (its fade is measured and says so on its
+   own), but those two are not wrapped in it, so hiding both axes would leave
+   them scrolling with nothing to announce it.
+
+   Here and not in responsive.css's `pointer: coarse` block, even though that
+   block is where touch rules live. responsive.css is imported at the TOP of
+   this file, so at equal specificity it loses to the *::-webkit-scrollbar rule
+   above and would silently do nothing. A rule that has to beat a globals.css
+   declaration belongs beside it -- responsive.css's own header says so.
+
+   useScrollLock needs no change: it measures the gutter as offsetWidth minus
+   clientWidth rather than assuming 8px, so a hidden bar measures as zero. */
+@media (pointer: coarse) {
+  *::-webkit-scrollbar:vertical {
+    display: none;
+  }
 }
 
 /* ── Keyframes ────────────────────────────────────────────────────────── */
@@ -405,12 +438,17 @@ body {
     background 0.15s var(--ease),
     color 0.15s var(--ease);
 }
-.profile-menu__item:hover {
-  background: var(--bg-elev-3);
-  color: var(--fg);
-}
-.profile-menu__item--danger:hover {
-  color: var(--danger);
+/* Hover rules in this file sit under (hover: hover). On a touch screen a tap
+   also sets :hover, and it stays set after the finger lifts, so the control
+   looks selected until something else is tapped. */
+@media (hover: hover) {
+  .profile-menu__item:hover {
+    background: var(--bg-elev-3);
+    color: var(--fg);
+  }
+  .profile-menu__item--danger:hover {
+    color: var(--danger);
+  }
 }
 .profile-menu__divider {
   height: 1px;
@@ -450,15 +488,17 @@ body {
   cursor: pointer;
   transition: color 0.18s var(--ease);
 }
-.credit-topup:hover {
-  color: var(--accent);
-}
 .credit-topup svg {
   display: block;
   transition: transform 0.3s var(--ease);
 }
-.credit-topup:hover svg {
-  transform: rotate(90deg) scale(1.15);
+@media (hover: hover) {
+  .credit-topup:hover {
+    color: var(--accent);
+  }
+  .credit-topup:hover svg {
+    transform: rotate(90deg) scale(1.15);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .credit-topup,
@@ -637,8 +677,12 @@ body {
    padding-top outright. responsive.css says so in its own header: a rule that
    has to beat a globals.css declaration belongs next to it, not there. */
 .auth-form-col {
-  padding: calc(40px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 56px
-    calc(40px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  padding: calc(
+      40px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))
+    )
+    calc(56px + var(--safe-right))
+    calc(40px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))
+    calc(56px + var(--safe-left));
   overflow: auto;
 }
 /* The form's own width. It was an inline `maxWidth: 360` on the element, which
@@ -662,8 +706,14 @@ body {
      follows the collapse now, and the card is allowed to use the width it
      just gained. */
   .auth-form-col {
-    padding: calc(28px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 24px
-      calc(28px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+    padding: calc(
+        28px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))
+      )
+      calc(24px + var(--safe-right))
+      calc(
+        28px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))
+      )
+      calc(24px + var(--safe-left));
   }
   .auth-card {
     max-width: 420px;
@@ -671,8 +721,14 @@ body {
 }
 @media (max-width: 520px) {
   .auth-form-col {
-    padding: calc(20px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 20px
-      calc(24px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+    padding: calc(
+        20px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))
+      )
+      calc(20px + var(--safe-right))
+      calc(
+        24px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))
+      )
+      calc(20px + var(--safe-left));
   }
   /* On a phone the form IS the screen: no card, no centred column, just the
      full width inside the padding. */
@@ -687,6 +743,11 @@ body {
    custom property redefined at :root can. */
 :root {
   --wf-page-pad: 36px 24px 80px;
+  /* Hero figures. Overridden smaller on a phone; see the 768 block. */
+  --wf-row-pad: 14px 16px;
+  --wf-row-gap: 12px;
+  --wf-balance-size: 28px;
+  --us-figure-size: 40px;
   --wf-h1: 36px;
   --wf-kpi-cols: repeat(4, 1fr);
   --wf-card-cols: repeat(3, 1fr);
@@ -703,6 +764,56 @@ body {
 .wf-actions {
   display: flex;
   gap: 8px;
+}
+/* ── Touch targets ─────────────────────────────────────────────────────────
+   Nearly every control in this app is sized for a mouse: 26px to 40px tall.
+   A fingertip needs 44px (WCAG 2.5.8, and Material and HIG agree within a
+   couple of pixels), so on a touch screen every control gets that as a floor.
+
+   !important because these heights are set inline, in the shared button
+   styles, and an inline style beats a stylesheet rule without it.
+
+   Not links in prose: growing one would break the line of text it sits in,
+   and the target-size rule exempts a link inside a sentence. The avatar and
+   the Usage "+" are also left alone -- they keep their drawn size and take
+   the tap through an invisible 44px square instead (see responsive.css), so
+   forcing a height here would only make the visible box bigger.
+
+   hover: none alongside pointer: coarse, so a touchscreen LAPTOP -- which has
+   a mouse as well -- keeps the compact layout it is drawn for. */
+@media (pointer: coarse) and (hover: none) {
+  button:not(.credit-topup):not(.profile-menu__trigger),
+  [role="button"],
+  select,
+  input:not(
+    [type="checkbox"],
+    [type="radio"],
+    [type="range"],
+    [type="file"],
+    [type="hidden"]
+  ) {
+    min-height: 44px !important;
+  }
+  /* A button that only grew because of the floor has to keep its label in the
+     middle. Several are inline-flex with no cross-axis alignment, where the
+     flex default would leave the text at the top of the taller box. A button
+     that sets its own alignment inline still wins over this. */
+  button,
+  [role="button"] {
+    align-items: center;
+  }
+}
+
+/* The device check that hides these cannot answer until after hydration (see
+   hooks/useIsHandheld: the server has no device to inspect), so on a phone
+   browser the create controls paint for one frame and then disappear. The two
+   signals the hook reads, as a media query, keep them out of that frame. The
+   hook still owns the policy; this only stops the flash, and a touchscreen
+   laptop -- coarse pointer, but it hovers -- is untouched. */
+@media (pointer: coarse) and (hover: none) {
+  .wf-actions {
+    display: none;
+  }
 }
 .wf-controls {
   display: flex;
@@ -731,7 +842,32 @@ body {
     --wf-kpi-cols: repeat(2, 1fr);
     --wf-card-cols: minmax(0, 1fr);
     /* Two even columns: the row stops being a table and becomes a card. */
-    --wf-row-cols: minmax(0, 1fr) minmax(0, 1fr);
+    /* Three, not two. Two columns left five stacked lines per card; three
+       fits (the widest value is the 85px status pill) and removes a whole
+       line from every row. */
+    --wf-row-cols: repeat(3, minmax(0, 1fr));
+
+    /* ── Density ───────────────────────────────────────────────────────────
+       The app used to shrink type in exactly two places, so a phone rendered
+       what is really desktop sizing: a workflow row came out ~246px tall and
+       three of them filled the screen. Spacing is supposed to scale DOWN with
+       the viewport, not stay put -- an 8pt-grid layout drops a 32px desktop
+       margin to 16px on a phone rather than keeping it.
+
+       This is the step that was missing: everything jumped straight from
+       desktop values to the ≤520 block. Padding and type only; nothing a thumb
+       aims at is touched, because density and tap-safety pull against each
+       other and tap-safety wins. */
+    --wf-page-pad: 20px 16px 56px;
+    --wf-h1: 26px;
+    /* The two loudest single elements on their screens. 28/40px is a desktop
+       hero figure; on a 343px column it is most of a card. */
+    --wf-row-pad: 10px 12px;
+    /* 10, not 8: eight read as clamped against the 9px captions once the
+       cells went to three columns. Still well under the 12 desktop uses. */
+    --wf-row-gap: 10px;
+    --wf-balance-size: 22px;
+    --us-figure-size: 28px;
   }
   .wf-header {
     flex-direction: column;
@@ -756,7 +892,8 @@ body {
      !important); each metric grows a caption from its data-label. */
   .wf-row {
     align-items: start;
-    row-gap: 12px;
+    /* 12 -> 8: five gaps per card, so this alone is 20px off every row. */
+    row-gap: 8px;
   }
   .wf-row > *:first-child,
   .wf-row > *:last-child {
@@ -765,10 +902,37 @@ body {
   .wf-row-actions {
     justify-content: flex-start;
   }
+  /* The caption has to sit ABOVE the value, which means the cell has to stack.
+     Most cells are blocks and did; the Status cell is a flex row (it centres a
+     Pill), so its ::before became a sibling flex item BESIDE the pill instead
+     of a line above it. That left Status 13px shorter than Agents beside it and
+     starting 6px lower -- the misalignment visible on the badge.
+
+     align-items matters as much as the direction: stretch is the flex default,
+     and it would run the Pill the full width of the column. */
+  .wf-row > [data-label] {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  /* And the cells have to hang from a common top edge.
+     `.wf-row { align-items: start }` above has never actually applied: the row
+     sets `alignItems: "center"` as an INLINE style, which beats any stylesheet
+     rule, so the cells were centred against each other and a taller cell (the
+     22px Pill vs 18px text) pushed its neighbour down by half the difference.
+     That is the last 2px of the badge misalignment.
+     `align-self` on the child wins where `align-items` on the parent cannot,
+     because the inline style does not set it -- and it needs no !important,
+     which the comment above resorts to for the header row. */
+  .wf-row > * {
+    align-self: start;
+  }
   .wf-row > [data-label]::before {
     content: attr(data-label);
     display: block;
-    margin-bottom: 3px;
+    /* 4, not 3: the caption is 9px and the value is 12-14px, so three pixels
+       between them let the two run together at a glance. */
+    margin-bottom: 4px;
     font-family: var(--font-mono);
     font-size: 9px;
     text-transform: uppercase;
@@ -779,8 +943,11 @@ body {
 
 @media (max-width: 520px) {
   :root {
-    --wf-page-pad: 24px 16px 64px;
-    --wf-h1: 28px;
+    /* Tighter again, not looser: this block sits AFTER the 768 one, so a
+       larger value here would silently undo it. */
+    --wf-page-pad: 16px 14px 48px;
+    /* Below the 768 step, not above it -- this block wins on a phone. */
+    --wf-h1: 24px;
     --wf-cardmeta-cols: repeat(2, 1fr);
   }
 }
@@ -792,10 +959,48 @@ body {
    horizontal scroll — it is nine columns wide and already self-contained. */
 :root {
   --us-settle-cols: minmax(0, 1.9fr) minmax(0, 1.15fr) 140px 114px 108px;
+  /* The width below which the settlements table scrolls sideways rather than
+     squeezing, and the headspace above the page header. Both collapse on a
+     phone -- see the 768 block. */
+  --us-settle-minw: 720px;
+  --us-headspace: 60px;
 }
 @media (max-width: 768px) {
   :root {
-    --us-settle-cols: minmax(0, 1fr) minmax(0, 1fr);
+    /* The <=768 collapse that lived here has been REMOVED, and measuring is
+       why. It had never applied (UsagePage hardcoded the same string and won),
+       so wiring the property up was the first time anyone saw what it does:
+       five fields in two columns wrap to three lines, taking a settlement row
+       from ~36px to 101px. Six rows then cost 833px -- more than all eighteen
+       did while scrolling sideways.
+
+       So the rule was not merely dead, it was wrong. The compact table stays,
+       and the length is cut by showing six rows with a "Show all" instead.
+       Sideways scroll is the right pattern for dense comparison data; it is
+       the vertical length that was the actual complaint. */
+    --us-headspace: 0px;
+    /* 210 -> 150: a quarter of a phone screen back, and the chart still
+       reads because preserveAspectRatio has always been none. */
+    --us-chart-h: 150px;
+  }
+}
+/* The credits card had a 300px floor and no grow, so on a 360px screen it
+   stopped short of the right edge beside empty space. On a phone it and its
+   group take the whole row. */
+@media (max-width: 520px) {
+  :root {
+    --us-credits-group-flex: 1 1 100%;
+    --us-credits-flex: 1 1 auto;
+    --us-credits-minw: 0px;
+  }
+}
+
+/* Billing custom amount. The "≈ $x credits" hint beside the input kept its
+   full width and squeezed the "Custom amount" placeholder until it was cut
+   off. On a phone the "≈ $x" figure alone is enough. */
+@media (max-width: 520px) {
+  .bill-custom-unit {
+    display: none;
   }
 }
 
@@ -941,8 +1146,10 @@ body {
   flex-shrink: 0;
   transition: color var(--nav-rate-slow) var(--ease-nav);
 }
-.appnav__trigger:hover {
-  color: var(--fg);
+@media (hover: hover) {
+  .appnav__trigger:hover {
+    color: var(--fg);
+  }
 }
 
 /* ── Bottom navigation (handheld) ───────────────────────────────────────────
@@ -959,6 +1166,9 @@ body {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
+  /* In landscape a navigation bar or a cutout can sit on either side. */
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
   background: var(--bg-elev-1);
   border-top: 1px solid var(--border);
 }
@@ -985,11 +1195,13 @@ body {
   color: var(--accent);
 }
 
-.bottomnav__item:hover {
-  color: var(--fg);
-}
-.bottomnav__item[data-active]:hover {
-  color: var(--accent);
+@media (hover: hover) {
+  .bottomnav__item:hover {
+    color: var(--fg);
+  }
+  .bottomnav__item[data-active]:hover {
+    color: var(--accent);
+  }
 }
 
 /* Physical acknowledgement of the press, per the app's motion rules. Scaling
@@ -1012,11 +1224,39 @@ body[data-bottomnav] .am-viewport-min {
   padding-bottom: calc(56px + var(--safe-bottom));
 }
 
+/* Short screens: a phone on its side is about 360px tall, and the keyboard
+   takes half of that. The bar keeps the 44px touch floor but puts the icon
+   and the label on one line, and the top bar gives up 8px. Together that is
+   20px of content back, on the screens with the least to spare. */
+@media (max-height: 480px) {
+  :root {
+    --nav-h: 48px;
+  }
+  .bottomnav__item {
+    min-height: 44px;
+    flex-direction: row;
+    gap: 6px;
+    padding: 4px;
+  }
+  body[data-bottomnav] .am-viewport,
+  body[data-bottomnav] .am-viewport-min {
+    padding-bottom: calc(44px + var(--safe-bottom));
+  }
+}
+
 /* Two navigations for the same four routes is one too many. While the bottom
    bar is up, the hamburger goes away; on a detail screen the bottom bar hides
    and the hamburger comes back, so there is never a screen with no way out.
    Driven off the same attribute the bar sets, so the two cannot disagree. */
 body[data-bottomnav] .appnav__trigger {
+  display: none;
+}
+
+/* While the on-screen keyboard is up for a text field, the fixed bar would
+   ride up above it, over the field being typed in. BottomNav sets the
+   attribute only while the keyboard is actually showing, not merely while a
+   field has focus: closing the keyboard with Back keeps the focus. */
+body[data-typing] .bottomnav {
   display: none;
 }
 
@@ -1040,7 +1280,9 @@ body[data-bottomnav] .appnav__trigger {
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--bg-elev-1);
-  padding: 8px 16px 40px;
+  /* Clear of the gesture bar, and of a side navigation bar in landscape. */
+  padding: 8px calc(16px + var(--safe-right)) calc(40px + var(--safe-bottom))
+    calc(16px + var(--safe-left));
   opacity: 0;
   visibility: hidden;
   transform: translateY(-6px);
@@ -1154,12 +1396,24 @@ body[data-bottomnav] .appnav__trigger {
 .appnav--landing .appnav__trigger {
   color: rgba(242, 240, 247, 0.9);
 }
-.appnav--landing .appnav__link[aria-current="page"],
-.appnav--landing .appnav__trigger:hover {
+.appnav--landing .appnav__link[aria-current="page"] {
   color: #fff;
+}
+@media (hover: hover) {
+  .appnav--landing .appnav__trigger:hover {
+    color: #fff;
+  }
 }
 .appnav--landing .appnav__sheet-foot {
   border-top-color: rgba(242, 240, 247, 0.12);
+}
+/* Open Studio stays in the landing bar at every width. Its padding and arrow
+   are set here rather than inline so the 520px rung below can reach them. */
+.lp-open-studio {
+  padding: 8px 18px;
+}
+.lp-open-studio__arrow {
+  display: inline-flex;
 }
 @media (min-width: 769px) {
   .appnav--landing .appnav__inline {
@@ -1172,8 +1426,17 @@ body[data-bottomnav] .appnav__trigger {
   .appnav--landing {
     --nav-h: 66px;
   }
+  /* At 320px the logo, Open Studio and the menu button overran the bar by
+     28px. Tighter spacing, a narrower button and no arrow give that back. */
   .appnav--landing .appnav__bar {
-    padding: 0 20px;
+    padding: 0 16px;
+    gap: 8px;
+  }
+  .lp-open-studio {
+    padding: 8px 14px;
+  }
+  .lp-open-studio__arrow {
+    display: none;
   }
 }
 

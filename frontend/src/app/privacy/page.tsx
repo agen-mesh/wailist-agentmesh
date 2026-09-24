@@ -35,9 +35,9 @@ export default function PrivacyPage() {
       }}
     >
       <div
+        className="am-legal-bar"
         style={{
           borderBottom: "1px solid var(--border)",
-          padding: "16px 32px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -67,9 +67,7 @@ export default function PrivacyPage() {
         </span>
       </div>
 
-      <main
-        style={{ maxWidth: 740, margin: "0 auto", padding: "64px 32px 96px" }}
-      >
+      <main className="am-legal-main">
         <div style={{ marginBottom: 56 }}>
           <div style={badge}>Legal</div>
           <h1

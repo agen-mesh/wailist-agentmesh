@@ -15,7 +15,9 @@ export function ResourceCard({
   onAdd,
 }: {
   resource: BazaarResource;
-  onAdd: (r: BazaarResource) => void;
+  // Omitted where the workflow graph cannot be edited; the card is then shown
+  // without its "Add to workflow" button.
+  onAdd?: (r: BazaarResource) => void;
 }) {
   // (resource.params ?? []): defense in depth. The backend guarantees a
   // non-nil array, but a mirror of an external catalog should never trust
@@ -34,7 +36,9 @@ export function ResourceCard({
     <div
       style={{
         border: `1px solid ${resource.supported ? "var(--accent-line)" : "var(--border)"}`,
-        background: resource.supported ? "var(--accent-soft)" : "var(--bg-elev-1)",
+        background: resource.supported
+          ? "var(--accent-soft)"
+          : "var(--bg-elev-1)",
         borderRadius: "var(--r-2)",
         padding: 14,
         display: "flex",
@@ -125,7 +129,9 @@ export function ResourceCard({
         </span>
         <span>/ call</span>
         {resource.testnet && <Pill>testnet</Pill>}
-        {resource.settleCount > 0 && <span>· {resource.settleCount} settles</span>}
+        {resource.settleCount > 0 && (
+          <span>· {resource.settleCount} settles</span>
+        )}
         {paramCount > 0 && (
           <span>
             · {paramCount} field{paramCount === 1 ? "" : "s"}
@@ -138,7 +144,8 @@ export function ResourceCard({
           ready to run. */}
       {!resource.supported && (
         <div style={{ fontSize: 11, color: "var(--fg-dim)", lineHeight: 1.5 }}>
-          Community listing — you&apos;ll configure its fields yourself after adding.
+          Community listing — you&apos;ll configure its fields yourself after
+          adding.
         </div>
       )}
 
@@ -154,23 +161,25 @@ export function ResourceCard({
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={() => onAdd(resource)}
-        style={{
-          height: 32,
-          border: `1px solid ${resource.supported ? "var(--accent)" : "var(--border-strong)"}`,
-          background: resource.supported ? "var(--accent)" : "transparent",
-          color: resource.supported ? "var(--accent-fg)" : "var(--fg)",
-          borderRadius: "var(--r-2)",
-          fontSize: 12,
-          fontWeight: 500,
-          cursor: "pointer",
-          fontFamily: "var(--font-sans)",
-        }}
-      >
-        Add to workflow
-      </button>
+      {onAdd && (
+        <button
+          type="button"
+          onClick={() => onAdd(resource)}
+          style={{
+            height: 32,
+            border: `1px solid ${resource.supported ? "var(--accent)" : "var(--border-strong)"}`,
+            background: resource.supported ? "var(--accent)" : "transparent",
+            color: resource.supported ? "var(--accent-fg)" : "var(--fg)",
+            borderRadius: "var(--r-2)",
+            fontSize: 12,
+            fontWeight: 500,
+            cursor: "pointer",
+            fontFamily: "var(--font-sans)",
+          }}
+        >
+          Add to workflow
+        </button>
+      )}
     </div>
   );
 }

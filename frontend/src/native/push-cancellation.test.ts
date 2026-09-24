@@ -2,7 +2,9 @@ import { beforeEach, expect, it, vi } from "vitest";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 }
 
@@ -19,18 +21,27 @@ const mocks = vi.hoisted(() => ({
   onRegistration: vi.fn<(token: { value: string }) => void>(),
 }));
 vi.mock("./api", () => mocks);
+vi.mock("./pushAvailability", () => ({ pushAvailable: async () => true }));
 vi.mock("./pushPrefs", () => ({
   hasOptedIn: mocks.hasOptedIn,
   setOptedIn: mocks.setOptedIn,
-  clearOptedIn: async () => { mocks.optedIn = false; },
-}));
-vi.mock("@capacitor/push-notifications", () => ({ PushNotifications: {
-  ...mocks,
-  addListener: async (event: string, callback: typeof mocks.onRegistration) => {
-    if (event === "registration") mocks.onRegistration.mockImplementation(callback);
-    return { remove: async () => {} };
+  clearOptedIn: async () => {
+    mocks.optedIn = false;
   },
-} }));
+}));
+vi.mock("@capacitor/push-notifications", () => ({
+  PushNotifications: {
+    ...mocks,
+    addListener: async (
+      event: string,
+      callback: typeof mocks.onRegistration,
+    ) => {
+      if (event === "registration")
+        mocks.onRegistration.mockImplementation(callback);
+      return { remove: async () => {} };
+    },
+  },
+}));
 
 beforeEach(() => {
   vi.resetModules();
@@ -41,17 +52,24 @@ beforeEach(() => {
   mocks.checkPermissions.mockResolvedValue({ receive: "granted" });
   mocks.requestPermissions.mockResolvedValue({ receive: "granted" });
   mocks.hasOptedIn.mockImplementation(async () => mocks.optedIn);
-  mocks.setOptedIn.mockImplementation(async () => { mocks.optedIn = true; });
-  mocks.register.mockImplementation(async () => { mocks.onRegistration({ value: "device-token" }); });
+  mocks.setOptedIn.mockImplementation(async () => {
+    mocks.optedIn = true;
+  });
+  mocks.register.mockImplementation(async () => {
+    mocks.onRegistration({ value: "device-token" });
+  });
   mocks.unregister.mockResolvedValue(undefined);
 });
 
-it.each([false, true])("restores notifications only with saved opt-in=%s", async (optedIn) => {
-  mocks.optedIn = optedIn;
-  const { restorePush } = await import("./push");
-  await restorePush();
-  expect(mocks.registerDevice).toHaveBeenCalledTimes(optedIn ? 1 : 0);
-});
+it.each([false, true])(
+  "restores notifications only with saved opt-in=%s",
+  async (optedIn) => {
+    mocks.optedIn = optedIn;
+    const { restorePush } = await import("./push");
+    await restorePush();
+    expect(mocks.registerDevice).toHaveBeenCalledTimes(optedIn ? 1 : 0);
+  },
+);
 
 it("keeps opt-out and deletes the server row when registration finishes late", async () => {
   const server = deferred<void>();

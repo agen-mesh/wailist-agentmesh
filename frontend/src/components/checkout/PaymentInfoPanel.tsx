@@ -42,7 +42,9 @@ const PANEL_CSS = `
    cursor and hover affordance belong to the box, not the whole strip. */
 .checkout-agree { transition: border-color 0.15s var(--ease), background 0.15s var(--ease); }
 .checkout-agree:focus-within { border-color: var(--accent-line) !important; }
-.checkout-agree-box:hover span { border-color: var(--accent) !important; }
+@media (hover: hover) {
+  .checkout-agree-box:hover span { border-color: var(--accent) !important; }
+}
 @media (prefers-reduced-motion: reduce) {
   .checkout-pay, .checkout-provider { transition: none; }
 }
@@ -104,8 +106,11 @@ export function PaymentInfoPanel({
     onDismiss: () => setStatus("idle"),
   });
 
-  const { providers, usdPerINR, loading: providersLoading } =
-    usePaymentProviders();
+  const {
+    providers,
+    usdPerINR,
+    loading: providersLoading,
+  } = usePaymentProviders();
   const selected = providers.find((p) => p.id === method);
 
   // NOWPayments charges in dollars while this panel is denominated in rupees,
@@ -119,9 +124,7 @@ export function PaymentInfoPanel({
   // (see usePaymentProviders), so only a USD gateway -- which needs that
   // fetch's rate to even price itself -- should block on it.
   const busy =
-    status === "processing" ||
-    cashfree.loading ||
-    (isUSD && providersLoading);
+    status === "processing" || cashfree.loading || (isUSD && providersLoading);
   const isSuccess = status === "success";
   // Cashfree specifically needs a real phone; other providers don't ask for
   // one, so this gate only applies when that method is selected.
@@ -522,8 +525,8 @@ export function PaymentInfoPanel({
                   : isUSD && amountUSDCents > MAX_CRYPTO_AMOUNT_USD_CENTS
                     ? `Maximum $${(MAX_CRYPTO_AMOUNT_USD_CENTS / 100).toFixed(2)} for crypto payments.`
                     : !agreed
-                    ? "Please confirm the credit policy above to continue."
-                    : `You'll be redirected to ${selected?.label ?? "the provider"} to complete payment.`}
+                      ? "Please confirm the credit policy above to continue."
+                      : `You'll be redirected to ${selected?.label ?? "the provider"} to complete payment.`}
           </p>
         )}
       </div>

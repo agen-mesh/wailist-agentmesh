@@ -147,18 +147,49 @@ export async function loadToken(): Promise<string | null> {
   return pending;
 }
 
-export async function saveToken(token: string): Promise<void> {
-  await secureStore.set(token);
-  // The memoised read has to reflect the new token immediately -- boot() and
-  // the geofence flush both call loadToken(), and a stale resolved promise
-  // would hand them the pre-sign-in answer.
-  pending = Promise.resolve(token);
+// Writes and deletes of the stored token run one at a time, in the order they
+// were asked for. A sign-out's cleanup awaits slow notification work before it
+// deletes anything, so without an order a sign-in that lands in that gap could
+// save its token and then have the older cleanup delete it.
+let writes: Promise<unknown> = Promise.resolve();
+function inOrder<T>(write: () => Promise<T>): Promise<T> {
+  const next = writes.then(write, write);
+  writes = next.catch(() => {});
+  return next;
+}
+
+export function saveToken(token: string): Promise<void> {
+  return inOrder(async () => {
+    await secureStore.set(token);
+    // The memoised read has to reflect the new token immediately -- boot()
+    // and the geofence flush both call loadToken(), and a stale resolved
+    // promise would hand them the pre-sign-in answer.
+    pending = Promise.resolve(token);
+  });
+}
+
+/**
+ * Clears the stored token only if it is still `expected`, the one the caller
+ * knows to be finished with. Resolves false, touching nothing, when another
+ * session has been saved since: a late cleanup must not sign out whoever has
+ * signed in after it started.
+ */
+export function clearTokenIf(expected: string | null): Promise<boolean> {
+  return inOrder(async () => {
+    if ((await loadToken()) !== expected) return false;
+    await removeToken();
+    return true;
+  });
 }
 
 // Called on sign-out and on any 401. Clearing on 401 matters: a token that has
 // expired or been revoked otherwise sits there failing every request forever,
 // with the app unable to explain why.
-export async function clearToken(): Promise<void> {
+export function clearToken(): Promise<void> {
+  return inOrder(removeToken);
+}
+
+async function removeToken(): Promise<void> {
   // Both stores, not just the secure one. An install that failed to migrate
   // still has the old key, and signing out has to mean signed out everywhere
   // rather than leaving something for the next launch to migrate back in.

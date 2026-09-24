@@ -32,6 +32,15 @@ const config: CapacitorConfig = {
   // file cannot ship an inspectable release by accident.
 
   plugins: {
+    SystemBars: {
+      // Light status-bar and navigation-bar icons, always. The app has one
+      // theme and it is dark (#08070c). Left at its DEFAULT, Capacitor's
+      // built-in SystemBars plugin follows the phone's theme instead: on a
+      // phone in light mode it switches the icons to dark ones, re-applies that
+      // on every theme change, and overrides windowLightStatusBar in
+      // styles.xml -- dark clock and battery icons on a black bar.
+      style: "DARK",
+    },
     SplashScreen: {
       // launchAutoHide false, and this is the whole point of adding the plugin.
       //

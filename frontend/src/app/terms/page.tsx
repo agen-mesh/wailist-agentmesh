@@ -22,9 +22,9 @@ export default function TermsPage() {
     >
       {/* Nav bar */}
       <div
+        className="am-legal-bar"
         style={{
           borderBottom: "1px solid var(--border)",
-          padding: "16px 32px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -54,9 +54,7 @@ export default function TermsPage() {
         </span>
       </div>
 
-      <main
-        style={{ maxWidth: 740, margin: "0 auto", padding: "64px 32px 96px" }}
-      >
+      <main className="am-legal-main">
         {/* Header */}
         <div style={{ marginBottom: 56 }}>
           <div
@@ -357,19 +355,20 @@ function Section({
 }) {
   return (
     <div
+      // A highlighted section's margin and padding live in .am-legal-callout
+      // (responsive.css), so a phone can take the bleed away. Inline values
+      // would override that rule.
+      className={highlight ? "am-legal-callout" : undefined}
       style={{
-        padding: "32px 0",
         borderBottom: "1px solid var(--border-soft)",
         ...(highlight
           ? {
-              margin: "8px -24px",
-              padding: "32px 24px",
               background: "var(--bg-elev-1)",
               borderRadius: "var(--r-3)",
               border: "1px solid var(--border)",
               borderBottom: "1px solid var(--border)",
             }
-          : {}),
+          : { padding: "32px 0" }),
       }}
     >
       <div
