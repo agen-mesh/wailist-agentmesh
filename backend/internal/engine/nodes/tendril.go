@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -85,6 +86,31 @@ func parseTopupUSD(raw string) (float64, error) {
 	return v, nil
 }
 
+// maxTendrilMinBalanceUSD bounds a topup's "only below" threshold so its
+// micros conversion can never overflow int64. Tendril's own maximum single
+// topup is $1,000, so any sane threshold sits far below this.
+const maxTendrilMinBalanceUSD = 1_000_000.0
+
+// parseMinBalanceUSD reads a topup node's optional "only top up below"
+// threshold. Empty means no threshold (always top up), reported as 0.
+func parseMinBalanceUSD(raw string) (float64, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return 0, nil
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0, fmt.Errorf("tendril: minimum balance %q is not a number", raw)
+	}
+	if v < 0 {
+		return 0, fmt.Errorf("tendril: minimum balance must not be negative, got %v", v)
+	}
+	if v > maxTendrilMinBalanceUSD {
+		return 0, fmt.Errorf("tendril: minimum balance must be at most %v, got %v", maxTendrilMinBalanceUSD, v)
+	}
+	return v, nil
+}
+
 // TendrilStore is the slice of *db.Store this package needs, as an interface
 // so tests can drive the executor without a database.
 type TendrilStore interface {
@@ -148,6 +174,31 @@ func executeTendrilTopup(ctx context.Context, node models.WorkflowNode, cfg Tend
 	}
 	atomic := int64(amountUSD*1e6 + 0.5)
 
+	// Conditional topup: a workflow that runs on a schedule should only buy
+	// credit when it's actually running low, not every time it fires.
+	minBalanceUSD, err := parseMinBalanceUSD(node.TendrilMinBalance)
+	if err != nil {
+		return nil, err
+	}
+	balance, err := cfg.Store.TendrilCreditBalance(ctx, cfg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if minBalanceUSD > 0 {
+		// Rounded up, so a tiny positive threshold still means "top up at
+		// $0" rather than rounding to 0 and skipping forever.
+		minAtomic := int64(math.Ceil(minBalanceUSD * 1e6))
+		if balance >= minAtomic {
+			return map[string]any{
+				"skipped":              true,
+				"toppedUp":             formatUSDCAmount(0),
+				"tendrilCreditBalance": formatUSDCAmount(balance),
+				"minBalance":           formatUSDCAmount(minAtomic),
+				"note":                 "Tendril credit is already at or above the minimum, so no topup was bought and nothing was charged.",
+			}, nil
+		}
+	}
+
 	// Tendril's own bounds, read live rather than hardcoded.
 	platform, err := cfg.Client.Platform(ctx)
 	if err != nil {
@@ -167,10 +218,6 @@ func executeTendrilTopup(ctx context.Context, node models.WorkflowNode, cfg Tend
 	// its `total :=` line), so the console path is billed the same markup
 	// as the main graph engine's standalone tool402 dispatch.
 	realCost := atomic + models.X402PlatformFeeUSDMicros
-	balance, err := cfg.Store.TendrilCreditBalance(ctx, cfg.UserID)
-	if err != nil {
-		return nil, err
-	}
 	agentMeshBalance, err := cfg.Store.CreditBalance(ctx, cfg.UserID)
 	if err != nil {
 		return nil, err

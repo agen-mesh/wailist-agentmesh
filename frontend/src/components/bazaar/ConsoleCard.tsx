@@ -39,9 +39,8 @@ const CONSOLE_COPY: Record<string, { verb: string; blurb: string }> = {
 
 // TRY_WORKFLOW_TEMPLATES backs the card's "try a workflow" icon: a real,
 // multi-node pipeline that actually calls this partner, as opposed to the
-// console's single-endpoint form. Lives in lib/data.ts next to DEMO_WORKFLOW
-// -- same shape, same reason (real endpoints and correct billing math, not
-// an invented example).
+// console's single-endpoint form. Both live in lib/data.ts, built on real
+// endpoints with correct billing math, not an invented example.
 const TRY_WORKFLOW_TEMPLATES: Record<string, Workflow> = {
   tendril: TENDRIL_DEMO_WORKFLOW,
   prism: PRISM_DEMO_WORKFLOW,

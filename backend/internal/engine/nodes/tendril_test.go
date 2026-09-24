@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/models"
@@ -91,6 +93,86 @@ func TestTopupRefusesToCreditWithoutRealSettlement(t *testing.T) {
 	}
 	if store.tendrilCredit != 0 {
 		t.Errorf("tendril credit = %d, want 0 -- must not mint credit without a real settlement", store.tendrilCredit)
+	}
+}
+
+// A topup with a minimum balance must not touch Tendril at all when the
+// user already holds enough credit -- no platform lookup, no payment.
+func TestTopupSkipsWhenCreditAtOrAboveMinimum(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	store := &fakeTendrilStore{tendrilCredit: 2_000_000, agentMeshCredit: 10_000_000}
+	out, err := executeTendrilTopup(context.Background(),
+		models.WorkflowNode{TendrilAmount: "5", TendrilMinBalance: "2"},
+		TendrilConfig{Client: tendril.NewClient(srv.URL), Store: store, UserID: "user1"})
+	if err != nil {
+		t.Fatalf("skip path errored: %v", err)
+	}
+	m, _ := out.(map[string]any)
+	if m["skipped"] != true {
+		t.Errorf("output = %v, want skipped: true", out)
+	}
+	if calls != 0 {
+		t.Errorf("Tendril was called %d time(s), want 0 on the skip path", calls)
+	}
+	if store.tendrilCredit != 2_000_000 {
+		t.Errorf("tendril credit = %d, want unchanged 2000000", store.tendrilCredit)
+	}
+}
+
+// Below the minimum, the topup proceeds exactly as an unconditional one
+// would -- here that means reaching Tendril (which then refuses to settle).
+func TestTopupProceedsWhenCreditBelowMinimum(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	cases := []struct {
+		credit int64
+		min    string
+	}{
+		{500_000, "2"},
+		{0, "2"},
+		// Rounds UP to 1 micro, so it still tops up at $0 rather than
+		// rounding down to a 0 threshold that every balance satisfies.
+		{0, "0.0000001"},
+	}
+	for _, tc := range cases {
+		paths = nil
+		store := &fakeTendrilStore{tendrilCredit: tc.credit, agentMeshCredit: 10_000_000}
+		_, err := executeTendrilTopup(context.Background(),
+			models.WorkflowNode{TendrilAmount: "5", TendrilMinBalance: tc.min},
+			TendrilConfig{Client: tendril.NewClient(srv.URL), Store: store, UserID: "user1"})
+		if err == nil || !strings.Contains(err.Error(), "did not settle") {
+			t.Errorf("credit %d, min %s: err = %v, want the topup path's no-settlement error", tc.credit, tc.min, err)
+		}
+		if !slices.Contains(paths, "/topup") {
+			t.Errorf("credit %d, min %s: requests %v never reached /topup", tc.credit, tc.min, paths)
+		}
+	}
+}
+
+func TestParseMinBalanceUSD(t *testing.T) {
+	ok := map[string]float64{"": 0, "0": 0, "2": 2, " 1.5 ": 1.5}
+	for in, want := range ok {
+		got, err := parseMinBalanceUSD(in)
+		if err != nil || got != want {
+			t.Errorf("parseMinBalanceUSD(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"-1", "abc", "NaN", "Inf", "-Inf", "1e20"} {
+		if _, err := parseMinBalanceUSD(bad); err == nil {
+			t.Errorf("parseMinBalanceUSD(%q) should have errored", bad)
+		}
 	}
 }
 

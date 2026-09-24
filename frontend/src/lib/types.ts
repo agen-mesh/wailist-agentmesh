@@ -98,6 +98,9 @@ export interface WorkflowNode {
   tendrilHours?: string;
   // USD of AgentMesh credit to convert into Tendril credit, on a topup node.
   tendrilAmount?: string;
+  // On a topup node: skip (no charge) when Tendril credit is already at or
+  // above this many USD. Empty = always top up.
+  tendrilMinBalance?: string;
 }
 
 export interface WorkflowEdge {
