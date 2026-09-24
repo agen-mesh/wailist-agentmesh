@@ -448,16 +448,29 @@ func (s *Store) ListSchedulesNeedingWarning(ctx context.Context, now, before tim
 	return out, rows.Err()
 }
 
-// MarkScheduleWarned records that the upcoming-run heads-up has been sent for
-// this schedule's occurrence, identified by its schedule_next_run_at at the
-// time of warning rather than a boolean -- so a schedule that has since
-// advanced (fired, or been edited to a new time) is correctly treated as
-// unwarned again for whatever occurrence comes next.
-func (s *Store) MarkScheduleWarned(ctx context.Context, workflowID string, forOccurrence time.Time) error {
-	_, err := s.pool.Exec(ctx, `
-		UPDATE workflows SET schedule_warned_for = $2 WHERE id = $1
+// ClaimScheduleWarning records that the upcoming-run heads-up is being sent
+// for this schedule's occurrence, and reports whether this caller is the one
+// sending it. The occurrence is identified by its schedule_next_run_at rather
+// than a boolean, so a schedule that has since advanced (fired, or been edited
+// to a new time) is correctly treated as unwarned again for whatever
+// occurrence comes next.
+//
+// A conditional update, not a read followed by a write: every replica runs the
+// scheduler, and two ticks that both listed the same unwarned occurrence would
+// otherwise both mark it and both push. Only the update that finds the row
+// still on this occurrence and still unwarned changes it, so exactly one
+// caller gets true.
+func (s *Store) ClaimScheduleWarning(ctx context.Context, workflowID string, forOccurrence time.Time) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE workflows SET schedule_warned_for = $2
+		WHERE id = $1
+		  AND schedule_next_run_at = $2
+		  AND schedule_warned_for IS DISTINCT FROM $2
 	`, workflowID, forOccurrence)
-	return err
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // AND NOT is_system excludes a partner console's hidden row (Tendril,
@@ -1188,6 +1201,17 @@ func (s *Store) CreateCryptoCreditTransaction(ctx context.Context, userID, provi
 	return txn, err
 }
 
+// clearLowBalanceMarker goes in an UPDATE that adds $1 to a user's balance.
+// It clears the low-balance marker when the new balance is back at or above
+// the threshold. CheckAndMarkLowBalance also clears it, but it only runs when
+// a run finishes. Without this, a top-up that restored the balance left the
+// marker set, and the next drop below the threshold was never reported.
+// (In an UPDATE the right-hand side sees the row as it was, so the sum is the
+// new balance.)
+var clearLowBalanceMarker = fmt.Sprintf(`low_balance_notified_at = CASE
+		WHEN credit_balance_usd_micros + $1 >= %d THEN NULL
+		ELSE low_balance_notified_at END`, models.LowBalanceThresholdUSDMicros)
+
 // ErrCreditTransactionNotFound is returned when no credit_ledger row exists for the given
 // provider order ID — the caller supplied an order Razorpay never told us about (or that
 // our own CreateCreditTransaction failed to record). Callers should treat this as a
@@ -1242,7 +1266,9 @@ func (s *Store) CompleteCreditTransaction(ctx context.Context, provider, provide
 	}
 
 	if _, err := tx.Exec(ctx, `
-		UPDATE users SET credit_balance_usd_micros = credit_balance_usd_micros + $1 WHERE id = $2
+		UPDATE users SET credit_balance_usd_micros = credit_balance_usd_micros + $1,
+		`+clearLowBalanceMarker+`
+		WHERE id = $2
 	`, creditUSDMicros, userID); err != nil {
 		return 0, false, err
 	}
@@ -1561,7 +1587,8 @@ func (s *Store) RedeemCoupon(ctx context.Context, userID, code string) (newBalan
 	}
 
 	if err := tx.QueryRow(ctx, `
-		UPDATE users SET credit_balance_usd_micros = credit_balance_usd_micros + $1
+		UPDATE users SET credit_balance_usd_micros = credit_balance_usd_micros + $1,
+		`+clearLowBalanceMarker+`
 		WHERE id = $2
 		RETURNING credit_balance_usd_micros
 	`, amount, userID).Scan(&newBalance); err != nil {

@@ -7,10 +7,11 @@ import { ghostBtn } from "@/components/ui/buttons";
 import { RunSheet } from "@/components/runs/RunSheet";
 import { RunStatusPill } from "@/components/runs/RunStatusPill";
 import { useNow } from "@/hooks/useNow";
+import { usePolling } from "@/hooks/usePolling";
 import { runs as runsApi, RunsUnavailableError } from "@/lib/api";
 import type { RunPage, RunSummary } from "@/lib/types";
 import { groupRunsByDay } from "@/lib/runDays";
-import { mergeRuns } from "@/lib/runMerge";
+import { mergeRuns, withDetail } from "@/lib/runMerge";
 import {
   formatDuration,
   formatRunTime,
@@ -23,9 +24,10 @@ import {
 // the workflow list.
 
 const PAGE_SIZE = 20;
-// How often the list refreshes while a listed run is still going, matching
-// WorkflowSummary's own POLL_MS.
+// How often the list refreshes while a listed run is still going, and while
+// nothing listed is, matching WorkflowSummary's own values.
 const POLL_MS = 3_000;
+const IDLE_POLL_MS = 10_000;
 
 export function ActivityPage() {
   const [runList, setRunList] = useState<RunSummary[]>([]);
@@ -53,71 +55,151 @@ export function ActivityPage() {
     setLoaded(true);
   }, []);
 
-  const refresh = useCallback(
-    () => runsApi.recent({ limit: PAGE_SIZE }).then(applyFirstPage, applyError),
-    [applyFirstPage, applyError],
-  );
+  // Bumped by every load that starts the list over. A response from an
+  // earlier generation -- a slow first load, or an older page still in flight
+  // when a pull refreshed the list -- is dropped instead of overwriting the
+  // newer list and its cursor.
+  const generation = useRef(0);
+
+  // The generation alone does not order requests within one generation. A
+  // poll that starts after a pull shares the pull's generation, so if the
+  // poll answers first the slower pull would still pass the check and put
+  // its older page -- and only its page -- back over newer state. So every
+  // request for page one takes a ticket, and a response is dropped once a
+  // later ticket has already been applied.
+  const ticket = useRef(0);
+  const applied = useRef(0);
+  const stillNewest = useCallback((id: number, gen: number) => {
+    if (gen !== generation.current || id < applied.current) return false;
+    applied.current = id;
+    return true;
+  }, []);
+
+  const refresh = useCallback(() => {
+    const gen = ++generation.current;
+    const id = ++ticket.current;
+    return runsApi.recent({ limit: PAGE_SIZE }).then(
+      (page) => {
+        if (stillNewest(id, gen)) applyFirstPage(page);
+      },
+      (e: unknown) => {
+        if (stillNewest(id, gen)) applyError(e);
+      },
+    );
+  }, [applyFirstPage, applyError, stillNewest]);
 
   // The first load. State is only set once the response lands, and not at all
   // if the screen has gone by then.
   useEffect(() => {
     let cancelled = false;
+    const gen = ++generation.current;
+    const id = ++ticket.current;
     runsApi.recent({ limit: PAGE_SIZE }).then(
       (page) => {
-        if (!cancelled) applyFirstPage(page);
+        if (!cancelled && stillNewest(id, gen)) applyFirstPage(page);
       },
       (e: unknown) => {
-        if (!cancelled) applyError(e);
+        if (!cancelled && stillNewest(id, gen)) applyError(e);
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [applyFirstPage, applyError]);
+  }, [applyFirstPage, applyError, stillNewest]);
 
   const anyRunning = runList.some((r) => r.status === "running");
 
-  // Refresh while something is running and the screen is actually visible,
-  // the same rule WorkflowSummary uses. Without this a running run in the
-  // list stayed frozen until a manual pull-to-refresh.
+  // The newest list, for the poll below to read without restarting its timer.
+  const runListRef = useRef(runList);
+  useEffect(() => {
+    runListRef.current = runList;
+  });
+
+  // Keep refreshing while the screen is visible, and at once on coming back
+  // to it. Runs start in places this screen never hears about (the website,
+  // a schedule, a geofence), so an idle list is polled too, only more slowly
+  // than one with a run still going.
   //
   // Merged rather than replaced (mergeRuns, not applyFirstPage): a pull is a
   // deliberate "start over from the top" gesture, but a silent background
-  // poll must not truncate pages the user has already loaded with
+  // poll must not drop pages the user has already loaded with
   // "Show older runs".
-  useEffect(() => {
-    if (!anyRunning) return;
-    const timer = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      runsApi
-        .recent({ limit: PAGE_SIZE })
-        .then((page) => setRunList((prev) => mergeRuns(page.runs, prev)))
-        .catch(() => {});
-    }, POLL_MS);
-    return () => clearInterval(timer);
-  }, [anyRunning]);
+  //
+  // usePolling runs one poll at a time, so a slow request cannot land after
+  // a newer one and put a finished run back to running. A poll that a pull
+  // started over is dropped for the same reason.
+  //
+  // Before the first load has landed -- or on a server that gained run
+  // history while the screen was open -- there is nothing listed to merge
+  // into, so the poll's page is taken as the first load, and the slower first
+  // request is then dropped rather than replacing newer figures.
+  const poll = useCallback(async () => {
+    const gen = generation.current;
+    const id = ++ticket.current;
+    try {
+      const page = await runsApi.recent({ limit: PAGE_SIZE });
+      // A running row that twenty newer runs have pushed off page one would
+      // otherwise keep its old status and spend for good.
+      const onPage = new Set(page.runs.map((r) => r.id));
+      const stranded = runListRef.current.filter(
+        (r) => r.status === "running" && !onPage.has(r.id),
+      );
+      const updated = await Promise.all(
+        stranded.map((r) =>
+          runsApi.get(r.id).then(
+            (d) => withDetail(r, d.run),
+            () => r,
+          ),
+        ),
+      );
+      if (!stillNewest(id, gen)) return;
+      if (unavailable || !loaded) {
+        generation.current += 1;
+        applyFirstPage(page);
+      } else {
+        setRunList((prev) => mergeRuns([...page.runs, ...updated], prev));
+        // An accepted answer means the list is current again, so an error
+        // left by an earlier failure no longer describes anything.
+        setError(null);
+      }
+    } catch {
+      // The next tick tries again.
+    }
+  }, [unavailable, loaded, applyFirstPage, stillNewest]);
+  usePolling(poll, anyRunning ? POLL_MS : IDLE_POLL_MS);
 
   const now = useNow(anyRunning);
 
   const loadMore = async () => {
     if (!nextCursor || loadingMore) return;
     setLoadingMore(true);
+    const gen = generation.current;
     try {
       const page = await runsApi.recent({
         cursor: nextCursor,
         limit: PAGE_SIZE,
       });
+      // The list was started over while this page was loading; its cursor
+      // belongs to a list that is no longer on screen.
+      if (gen !== generation.current) return;
       setRunList((prev) => [
         ...prev,
         ...page.runs.filter((r) => !prev.some((p) => p.id === r.id)),
       ]);
       setNextCursor(page.nextCursor);
     } catch (e) {
+      if (gen !== generation.current) return;
       setError(e instanceof Error ? e.message : "Could not load activity.");
     } finally {
       setLoadingMore(false);
     }
   };
+
+  // The sheet follows the row, not the copy taken when it was tapped, so a
+  // refresh that brings new spend or a new status reaches the open sheet.
+  const selectedRun = selected
+    ? (runList.find((r) => r.id === selected.id) ?? selected)
+    : null;
 
   return (
     <div
@@ -232,9 +314,9 @@ export function ActivityPage() {
       </PullToRefresh>
 
       <style>{ACTIVITY_CSS}</style>
-      {selected && (
+      {selectedRun && (
         <RunSheet
-          run={selected}
+          run={selectedRun}
           onClose={() => setSelected(null)}
           returnFocusTo={openerRef}
         />

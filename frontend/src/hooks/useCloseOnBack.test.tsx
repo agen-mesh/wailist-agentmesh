@@ -98,4 +98,18 @@ describe("useCloseOnBack", () => {
     renderHook(() => useCloseOnBack(() => {}));
     expect(push).not.toHaveBeenCalled();
   });
+
+  // A control inside the sheet navigated; the sheet unmounts on the new page.
+  it("leaves history alone when the sheet goes away by navigating", () => {
+    vi.useFakeTimers();
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    const { unmount } = renderHook(() => useCloseOnBack(() => {}));
+
+    window.history.pushState({ router: true }, "", "/workflows/app?id=wf-1");
+    unmount();
+    vi.runAllTimers();
+
+    expect(back).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
 });

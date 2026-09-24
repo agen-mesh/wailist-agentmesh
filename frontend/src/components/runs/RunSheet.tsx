@@ -114,6 +114,29 @@ const STEP_STATUS: Record<RunLogRecord["status"], string> = {
   degraded: "Degraded",
 };
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// aria-modal promises that nothing behind the sheet can be reached, so Tab and
+// Shift+Tab wrap inside the panel instead of walking into the covered page.
+function keepFocusInside(e: KeyboardEvent, panel: HTMLElement | null) {
+  if (!panel) return;
+  const items = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)];
+  const first = items[0] ?? panel;
+  const last = items[items.length - 1] ?? panel;
+  const active = document.activeElement;
+  if (!panel.contains(active)) {
+    e.preventDefault();
+    first.focus();
+  } else if (e.shiftKey && (active === first || active === panel)) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
 export function RunSheet({
   run,
   onClose,
@@ -155,6 +178,7 @@ export function RunSheet({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeRef.current();
+      if (e.key === "Tab") keepFocusInside(e, panelRef.current);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -41,6 +42,7 @@ vi.mock("@/components/runs/RunSheet", () => ({
 }));
 
 import { WorkflowSummary } from "./WorkflowSummary";
+import { describeSchedule } from "@/lib/describeSchedule";
 
 function workflow(overrides: Partial<Workflow> = {}): Workflow {
   return {
@@ -119,6 +121,16 @@ describe("WorkflowSummary", () => {
     ).toBeTruthy();
   });
 
+  // The cron is for the scheduler. A person gets it in words, in their time.
+  it("says its schedule in words, not as a cron expression", async () => {
+    api.get.mockResolvedValue(workflow({ scheduleCron: "0 7 * * 1-5" }));
+    const { container } = render(<WorkflowSummary workflowId="wf-1" />);
+    const line = await screen.findByText(describeSchedule("0 7 * * 1-5"));
+    expect(line.textContent).toMatch(/^Every weekday at /);
+    expect(line.getAttribute("title")).toBe("0 7 * * 1-5");
+    expect(container.textContent).not.toContain("0 7 * * 1-5");
+  });
+
   it("explains a workflow that is not deployed", async () => {
     api.get.mockResolvedValue(workflow({ status: "draft" }));
     render(<WorkflowSummary workflowId="wf-1" />);
@@ -181,5 +193,50 @@ describe("WorkflowSummary", () => {
     expect(
       screen.queryByRole("button", { name: "Show older runs" }),
     ).toBeNull();
+  });
+
+  it("picks up a run started elsewhere without a pull", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      api.listForWorkflow
+        .mockResolvedValueOnce(page([FINISHED]))
+        .mockResolvedValue(
+          page([
+            {
+              ...FINISHED,
+              id: "r-2",
+              triggeredBy: "manual",
+              status: "running",
+              startedAt: new Date().toISOString(),
+              finishedAt: undefined,
+            },
+            FINISHED,
+          ]),
+        );
+      render(<WorkflowSummary workflowId="wf-1" />);
+      await screen.findByText("Succeeded");
+
+      await act(async () => {
+        vi.advanceTimersByTime(10_000);
+      });
+
+      expect(await screen.findByText("Running")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refreshes on coming back to the foreground", async () => {
+    api.listForWorkflow
+      .mockResolvedValueOnce(page([FINISHED]))
+      .mockResolvedValue(
+        page([{ ...FINISHED, id: "r-2", status: "failed" }, FINISHED]),
+      );
+    render(<WorkflowSummary workflowId="wf-1" />);
+    await screen.findByText("Succeeded");
+
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(await screen.findByText("Failed")).toBeTruthy();
   });
 });

@@ -9,6 +9,7 @@ import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
 import { RunSheet } from "@/components/runs/RunSheet";
 import { RunStatusPill } from "@/components/runs/RunStatusPill";
 import { useNow } from "@/hooks/useNow";
+import { usePolling } from "@/hooks/usePolling";
 import {
   runs as runsApi,
   workflows as workflowsApi,
@@ -24,14 +25,16 @@ import {
   triggerLabel,
 } from "@/lib/runFormat";
 import { workflowHref } from "@/lib/routes";
+import { describeSchedule } from "@/lib/describeSchedule";
 
 // A workflow as a phone needs it: is it running, what did its runs do and
 // cost, and Run or Stop. The graph itself is not shown here; it is edited on a
 // desktop, and a read-only canvas on a small screen answered none of these.
 
 const PAGE_SIZE = 20;
-// How often the list refreshes while a run is still going.
+// How often the list refreshes while a run is still going, and while none is.
 const POLL_MS = 3_000;
+const IDLE_POLL_MS = 10_000;
 
 const WORKFLOW_STATUS: Record<
   string,
@@ -93,13 +96,21 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
     );
   }, []);
 
-  const refreshRuns = useCallback(
-    () =>
-      runsApi
-        .listForWorkflow(workflowId, { limit: PAGE_SIZE })
-        .then(applyRunPage, applyRunsError),
-    [workflowId, applyRunPage, applyRunsError],
-  );
+  // Numbers each first-page request: the first load, a pull, a poll. Only
+  // the newest one started may land, so a slow first load cannot replace
+  // what a later poll already showed.
+  const runsSeq = useRef(0);
+  const refreshRuns = useCallback(() => {
+    const seq = ++runsSeq.current;
+    return runsApi.listForWorkflow(workflowId, { limit: PAGE_SIZE }).then(
+      (page) => {
+        if (seq === runsSeq.current) applyRunPage(page);
+      },
+      (e: unknown) => {
+        if (seq === runsSeq.current) applyRunsError(e);
+      },
+    );
+  }, [workflowId, applyRunPage, applyRunsError]);
   const loadWorkflow = useCallback(
     () => workflowsApi.get(workflowId).then(applyWorkflow, applyWorkflowError),
     [workflowId, applyWorkflow, applyWorkflowError],
@@ -117,9 +128,18 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
     workflowsApi
       .get(workflowId)
       .then(unlessGone(applyWorkflow), unlessGone(applyWorkflowError));
+    const seq = ++runsSeq.current;
+    const unlessSuperseded =
+      <T,>(apply: (value: T) => void) =>
+      (value: T) => {
+        if (seq === runsSeq.current) apply(value);
+      };
     runsApi
       .listForWorkflow(workflowId, { limit: PAGE_SIZE })
-      .then(unlessGone(applyRunPage), unlessGone(applyRunsError));
+      .then(
+        unlessGone(unlessSuperseded(applyRunPage)),
+        unlessGone(unlessSuperseded(applyRunsError)),
+      );
     return () => {
       cancelled = true;
     };
@@ -137,36 +157,37 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
   const anyRunning = shown.some((r) => r.status === "running");
   const newestRunning = shown[0]?.status === "running";
 
-  // Refresh while something is running and the screen is actually visible. A
-  // backgrounded app has nobody to show a status change to.
-  useEffect(() => {
-    if (!anyRunning) return;
-    const pendingId = pendingShown?.id ?? null;
-    const timer = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      void refreshRuns();
-      // A run the list has not picked up yet is asked about directly, so it
-      // still settles when the list is slow to include it.
-      if (pendingId) {
-        runsApi
-          .get(pendingId)
-          .then(({ run }) => {
-            if (run.status === "running") return;
-            setPending((p) =>
-              p && p.id === pendingId
-                ? {
-                    ...p,
-                    status: run.status as RunStatus,
-                    finishedAt: run.finishedAt,
-                  }
-                : p,
-            );
-          })
-          .catch(() => {});
-      }
-    }, POLL_MS);
-    return () => clearInterval(timer);
-  }, [anyRunning, pendingShown?.id, refreshRuns]);
+  // Keep refreshing while the screen is visible, and at once on coming back
+  // to it. A backgrounded app has nobody to show a status change to, but this
+  // workflow can be run from the website or by its trigger at any time, so an
+  // idle list is polled too, only more slowly than one with a run going.
+  const pendingId = pendingShown?.id ?? null;
+  // Returns its requests, so usePolling waits for them before the next poll.
+  const poll = useCallback(() => {
+    const requests: Promise<unknown>[] = [refreshRuns()];
+    // A run the list has not picked up yet is asked about directly, so it
+    // still settles when the list is slow to include it.
+    if (pendingId) {
+      const pendingRequest = runsApi
+        .get(pendingId)
+        .then(({ run }) => {
+          if (run.status === "running") return;
+          setPending((p) =>
+            p && p.id === pendingId
+              ? {
+                  ...p,
+                  status: run.status as RunStatus,
+                  finishedAt: run.finishedAt,
+                }
+              : p,
+          );
+        })
+        .catch(() => {});
+      requests.push(pendingRequest);
+    }
+    return Promise.all(requests);
+  }, [pendingId, refreshRuns]);
+  usePolling(poll, anyRunning ? POLL_MS : IDLE_POLL_MS);
 
   const now = useNow(anyRunning);
 
@@ -253,6 +274,12 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
     workflow !== null && (runsLoaded || runsUnavailable || runsError !== null);
   const hasZone = workflow?.geofenceLat !== undefined;
 
+  // The sheet follows the row, not the copy taken when it was tapped, so a
+  // refresh that brings new spend or a new status reaches the open sheet.
+  const selectedRun = selected
+    ? (shown.find((r) => r.id === selected.id) ?? selected)
+    : null;
+
   return (
     <div
       className="am-viewport"
@@ -306,8 +333,12 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
                   : workflow.scheduleCron
                     ? "Runs on a schedule · "
                     : "Runs when started"}
+                {/* In words and the reader's own time. The cron itself stays
+                    in the tooltip for whoever needs the exact expression. */}
                 {!chat && workflow.scheduleCron && (
-                  <code style={cron}>{workflow.scheduleCron}</code>
+                  <span style={schedule} title={workflow.scheduleCron}>
+                    {describeSchedule(workflow.scheduleCron)}
+                  </span>
                 )}
               </p>
 
@@ -470,9 +501,9 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
       </PullToRefresh>
 
       <style>{SUMMARY_CSS}</style>
-      {selected && (
+      {selectedRun && (
         <RunSheet
-          run={selected}
+          run={selectedRun}
           onClose={() => setSelected(null)}
           returnFocusTo={openerRef}
         />
@@ -525,8 +556,7 @@ const copy: React.CSSProperties = {
   margin: 0,
 };
 
-const cron: React.CSSProperties = {
-  font: "500 12px/1 var(--font-mono)",
+const schedule: React.CSSProperties = {
   color: "var(--fg)",
 };
 

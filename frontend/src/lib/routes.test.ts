@@ -59,3 +59,50 @@ describe("workflowHref in the native app", () => {
     );
   });
 });
+
+describe("safeNextPath", () => {
+  it("keeps a path inside the app", async () => {
+    const { safeNextPath } = await load(true);
+    expect(safeNextPath("/workflows/app?id=wf-1")).toBe(
+      "/workflows/app?id=wf-1",
+    );
+  });
+
+  it("refuses anything that could leave the app or loop to sign-in", async () => {
+    const { safeNextPath } = await load(true);
+    for (const raw of [
+      null,
+      undefined,
+      "",
+      "workflows",
+      "//evil.test",
+      "/\\evil.test",
+      "https://evil.test",
+      "/signin?error=x",
+      "/signup",
+    ]) {
+      expect(safeNextPath(raw)).toBeNull();
+    }
+  });
+
+  // URL parsing drops tabs and line breaks, so "/\n/evil.test" -- a decoded
+  // ?next=/%0A/evil.test -- reaches the router as //evil.test, another host.
+  it.each(["/\t/evil.test", "/\n/evil.test", "/\r/evil.test", "/\u0000x"])(
+    "refuses a control character hiding another host (%j)",
+    async (raw) => {
+      const { safeNextPath } = await load(true);
+      expect(safeNextPath(raw)).toBeNull();
+    },
+  );
+
+  it("judges the sign-in pages by where the path really goes", async () => {
+    const { safeNextPath } = await load(true);
+    expect(safeNextPath("/./signin")).toBeNull();
+    expect(safeNextPath("/workflows/../signup")).toBeNull();
+  });
+
+  it("keeps an encoded slash, which stays on this app", async () => {
+    const { safeNextPath } = await load(true);
+    expect(safeNextPath("/%2F/evil.test")).toBe("/%2F/evil.test");
+  });
+});
