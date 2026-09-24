@@ -5,21 +5,19 @@ import { isValidConnection } from "./portUtils";
 describe("TENDRIL_WORKFLOW", () => {
   const byId = new Map(TENDRIL_WORKFLOW.nodes.map((n) => [n.id, n]));
 
-  it("is trigger -> conditional topup -> run -> end on native tendril nodes", () => {
-    const order = ["tw1", "tw2", "tw3", "tw4"];
+  it("is trigger -> run -> end on a native tendril node", () => {
+    const order = ["tw1", "tw2", "tw3"];
     expect(TENDRIL_WORKFLOW.edges.map((e) => [e.from, e.to])).toEqual(
       order.slice(0, -1).map((id, i) => [id, order[i + 1]]),
     );
 
-    const topup = byId.get("tw2")!;
-    expect(topup.type).toBe("tendril");
-    expect(topup.tendrilAction).toBe("topup");
-    // Tendril's live minimum topup is $0.10 (GET /platform).
-    expect(parseFloat(topup.tendrilAmount!)).toBeGreaterThanOrEqual(0.1);
-    // Without a threshold the backend tops up on every run.
-    expect(parseFloat(topup.tendrilMinBalance!)).toBeGreaterThan(0);
+    // A run never draws Tendril credit, so a topup here would charge for
+    // credit the workflow can't spend.
+    expect(
+      TENDRIL_WORKFLOW.nodes.some((n) => n.tendrilAction === "topup"),
+    ).toBe(false);
 
-    const run = byId.get("tw3")!;
+    const run = byId.get("tw2")!;
     expect(run.type).toBe("tendril");
     expect(run.tendrilAction).toBe("run");
     const payload = run.customParams?.find((p) => p.name === "payload");

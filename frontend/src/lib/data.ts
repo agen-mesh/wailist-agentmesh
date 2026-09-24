@@ -708,7 +708,7 @@ function tendrilNode(
     endpoint: "https://tendrilregister.007575.xyz/x402/run",
     method: "POST",
     provider: "tendrilregister.007575.xyz",
-    price: "0.01",
+    price: "1.50",
     unit: "call",
     discoveredParams: [
       {
@@ -832,21 +832,18 @@ export const TENDRIL_DEMO_WORKFLOW: Workflow = {
 // TENDRIL_WORKFLOW is what the Workflows page's "Load Tendril workflow"
 // button creates. Unlike TENDRIL_DEMO_WORKFLOW (agents calling Tendril's
 // x402 endpoint as a tool402), this one is built from the native tendril
-// nodes the canvas palette offers -- the same topup/run actions the
-// Tendril console drives (backend/internal/engine/nodes/tendril.go):
+// node the canvas palette offers -- the same run action the Tendril console
+// drives (backend/internal/engine/nodes/tendril.go):
 //
-//   Manual Trigger -> Buy Tendril Credit -> Run a Job -> End
+//   Manual Trigger -> Run a Job -> End
 //
-// The topup is conditional (tendrilMinBalance): it only buys $1 of Tendril
-// credit while the user holds less than $0.50, and otherwise returns a
-// "skipped" result with nothing charged -- so re-running the workflow
-// doesn't keep converting AgentMesh credit. Run a Job has no rent step in
-// front of it, so Tendril picks an idle machine, runs the payload in a
-// throwaway sandbox, and returns its stdout.
-// Billing, from the live 402 challenges (GET /platform, POST /x402/run):
-//   topup, only when below $0.50  1.00 + 1.50 platform fee = 2.50
-//   run a job                     1.50 + 1.50 platform fee = 3.00
-//   -> $3.00 per run once credit is topped up, $5.50 on a run that tops up.
+// No Buy Tendril Credit step: a run is paid in AgentMesh credit through the
+// x402 relay and never draws the user's Tendril credit (only rent does), so
+// a topup here would charge for credit this workflow can't spend. With no
+// rent step either, Tendril picks an idle machine, runs the payload in a
+// throwaway sandbox, and returns its stdout -- unless the user already has
+// an open lease, which resolveLease then runs the job on instead.
+// Billing: $1.50 /x402/run quote + $1.50 platform fee = $3.00 per run.
 const TENDRIL_WORKFLOW_PAYLOAD = `import os, platform, sys
 
 primes = [n for n in range(2, 1000) if all(n % d for d in range(2, int(n ** 0.5) + 1))]
@@ -862,7 +859,7 @@ print(f"first 20 Fibonacci numbers: {fib}")
 
 export const TENDRIL_WORKFLOW: Workflow = {
   id: "wf-tendril",
-  name: "Tendril: Top Up & Run Python",
+  name: "Tendril: Run Python",
   nodes: [
     {
       id: "tw1",
@@ -876,20 +873,8 @@ export const TENDRIL_WORKFLOW: Workflow = {
     {
       id: "tw2",
       type: "tendril",
-      template: "tendril_topup",
-      x: 320,
-      y: 220,
-      name: "Buy Tendril Credit",
-      icon: "＄",
-      tendrilAction: "topup",
-      tendrilAmount: "1",
-      tendrilMinBalance: "0.5",
-    },
-    {
-      id: "tw3",
-      type: "tendril",
       template: "tendril_run",
-      x: 640,
+      x: 320,
       y: 220,
       name: "Run a Job",
       icon: "▶",
@@ -898,12 +883,11 @@ export const TENDRIL_WORKFLOW: Workflow = {
         { name: "payload", kind: "text", value: TENDRIL_WORKFLOW_PAYLOAD },
       ],
     },
-    { id: "tw4", type: "end", template: "done", x: 960, y: 240 },
+    { id: "tw3", type: "end", template: "done", x: 640, y: 240 },
   ],
   edges: [
     { id: "twe1", from: "tw1", to: "tw2", kind: "flow", toPort: "in" },
     { id: "twe2", from: "tw2", to: "tw3", kind: "flow", toPort: "in" },
-    { id: "twe3", from: "tw3", to: "tw4", kind: "flow", toPort: "in" },
   ],
 };
 

@@ -3203,9 +3203,11 @@ function TendrilInspector({
             Converts ${topupAmount.toFixed(2)} of your AgentMesh credits into
             Tendril credit
             {minBalance > 0
-              ? creditVal >= minBalance
-                ? ` — skipped right now, you already have $${creditVal.toFixed(2)} (≥ $${minBalance.toFixed(2)}).`
-                : ` — only while your Tendril credit is below $${minBalance.toFixed(2)}.`
+              ? `, only while your Tendril credit is below $${minBalance.toFixed(2)}${
+                  credit !== null
+                    ? ` (you have $${credit.toFixed(2)} as of opening this panel)`
+                    : ""
+                }.`
               : "."}
           </div>
         </Section>
