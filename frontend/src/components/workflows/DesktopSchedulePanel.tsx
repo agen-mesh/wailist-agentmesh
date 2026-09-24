@@ -1,33 +1,57 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { AlertCircle, CalendarClock, Info } from "lucide-react";
+import { workflows as workflowsApi } from "@/lib/api";
 import {
   cadenceToCron,
   cronToCadence,
-  describeCadence,
-  nextLocalRun,
-  ordinal,
   type Cadence,
   type CadenceValue,
 } from "@/lib/cronCadence";
+import {
+  describeCadence,
+  describeNextRun,
+  nextLocalRun,
+  observesDaylightSaving,
+  ordinal,
+  timeZoneLabel,
+} from "@/lib/scheduleText";
+import { cn } from "@/lib/utils";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
-// The desktop version of RowMenu's schedule view. Compact viewports and the
-// native shell keep the original SchedulePopover; this one has the room for
-// a day grid, a live preview of the next run and a proper footer, so it is a
-// separate tree rather than the same one restyled. Styles live in
-// app/desktop.css under the `.sp-` prefix.
+// The schedule editor in the desktop row menu (DesktopRowMenu), built from
+// shadcn/ui. Compact viewports and the native shell keep RowMenu's original
+// popover. Everything shown here is plain English in the user's timezone:
+// the UTC cron is only what gets sent to the server.
 
-const CADENCES: Cadence[] = ["daily", "weekly", "monthly"];
-// Monday-first, the way most calendars read; values are still 0 (Sun)-6 (Sat).
 const WEEK = [
-  { dow: 1, short: "Mon" },
-  { dow: 2, short: "Tue" },
-  { dow: 3, short: "Wed" },
-  { dow: 4, short: "Thu" },
-  { dow: 5, short: "Fri" },
-  { dow: 6, short: "Sat" },
-  { dow: 0, short: "Sun" },
+  { dow: 1, short: "Mon", long: "Monday" },
+  { dow: 2, short: "Tue", long: "Tuesday" },
+  { dow: 3, short: "Wed", long: "Wednesday" },
+  { dow: 4, short: "Thu", long: "Thursday" },
+  { dow: 5, short: "Fri", long: "Friday" },
+  { dow: 6, short: "Sat", long: "Saturday" },
+  { dow: 0, short: "Sun", long: "Sunday" },
 ];
-const TIME_PRESETS = ["06:00", "09:00", "12:00", "18:00"];
+const MONTH_DAYS = Array.from({ length: 28 }, (_, i) => i + 1);
+const TIME_PRESETS = [
+  { value: "06:00", label: "6 AM" },
+  { value: "09:00", label: "9 AM" },
+  { value: "12:00", label: "Noon" },
+  { value: "18:00", label: "6 PM" },
+];
+// shadcn's toggle marks "on" with the same grey as hover; the brand tint
+// makes the chosen day or time readable at a glance.
+const SELECTED =
+  "data-[state=on]:bg-primary/15 data-[state=on]:text-primary data-[state=on]:font-medium";
 
 const DEFAULTS: CadenceValue = {
   cadence: "daily",
@@ -36,194 +60,200 @@ const DEFAULTS: CadenceValue = {
   dayOfMonth: 1,
 };
 
-function localTimeZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "local time";
-  } catch {
-    return "local time";
-  }
-}
+type Stored = { cron?: string; nextRunAt?: string };
+type Load =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; stored: Stored };
 
-function formatRun(d: Date): string {
-  return d.toLocaleString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
+export function DesktopSchedulePanel({
+  workflowId,
+  workflowName,
+  onSave,
+  onRemove,
+  onClose,
+}: {
+  workflowId: string;
+  workflowName?: string;
+  onSave: (cron: string) => Promise<void>;
+  onRemove: () => Promise<void>;
+  onClose: () => void;
+}) {
+  // The list endpoint never includes a workflow's schedule, so it is read
+  // fresh every time the panel opens (the panel mounts per open). Never fall
+  // back to defaults when this fails: Save would then overwrite a real
+  // schedule we simply couldn't read.
+  const [load, setLoad] = useState<Load>({ status: "loading" });
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let live = true;
+    workflowsApi.get(workflowId).then(
+      (wf) => {
+        if (live) {
+          setLoad({
+            status: "ready",
+            stored: { cron: wf.scheduleCron, nextRunAt: wf.scheduleNextRunAt },
+          });
+        }
+      },
+      (e: unknown) => {
+        if (live) {
+          setLoad({
+            status: "error",
+            message: e instanceof Error ? e.message : "Please try again.",
+          });
+        }
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [workflowId, attempt]);
 
-function relative(d: Date, now: Date): string {
-  const mins = Math.round((d.getTime() - now.getTime()) / 60_000);
-  if (mins < 60) return `in ${Math.max(1, mins)} min`;
-  const hours = Math.round(mins / 60);
-  if (hours < 36) return `in ${hours} h`;
-  return `in ${Math.round(hours / 24)} days`;
-}
+  const active = load.status === "ready" && !!load.stored.cron;
 
-function Header({ onBack, title }: { onBack: () => void; title: string }) {
   return (
-    <div className="sp-head">
-      <button
-        type="button"
-        className="sp-back"
-        onClick={onBack}
-        aria-label="Back to menu"
-      >
-        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-          <path
-            d="M8.5 3 4.5 7l4 4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
-      <span className="sp-title">{title}</span>
+    <div className="flex flex-col">
+      <div className="flex items-start justify-between gap-3 px-4 pt-4 pb-3">
+        <div className="min-w-0">
+          <h2 className="text-sm leading-none font-semibold">Schedule</h2>
+          {workflowName && (
+            <p className="mt-1.5 truncate text-xs text-muted-foreground">
+              {workflowName}
+            </p>
+          )}
+        </div>
+        {active && (
+          <Badge variant="secondary" className="gap-1.5">
+            <span
+              className="size-1.5 rounded-full bg-primary"
+              aria-hidden="true"
+            />
+            Active
+          </Badge>
+        )}
+      </div>
+      <Separator />
+
+      {load.status === "loading" && (
+        <div className="grid gap-4 p-4" aria-busy="true">
+          <Skeleton className="h-9 w-full motion-reduce:animate-none" />
+          <Skeleton className="h-9 w-2/3 motion-reduce:animate-none" />
+          <Skeleton className="h-16 w-full motion-reduce:animate-none" />
+        </div>
+      )}
+
+      {load.status === "error" && (
+        <>
+          <div className="p-4">
+            <Alert variant="destructive">
+              <AlertCircle />
+              <AlertTitle>Couldn&apos;t load the schedule</AlertTitle>
+              <AlertDescription>{load.message}</AlertDescription>
+            </Alert>
+          </div>
+          <Separator />
+          <div className="flex justify-end gap-2 px-4 py-3">
+            <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+              Close
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                setLoad({ status: "loading" });
+                setAttempt((n) => n + 1);
+              }}
+            >
+              Try again
+            </Button>
+          </div>
+        </>
+      )}
+
+      {load.status === "ready" && (
+        <ScheduleForm
+          stored={load.stored}
+          onSave={onSave}
+          onRemove={onRemove}
+          onClose={onClose}
+        />
+      )}
     </div>
   );
 }
 
-export function DesktopSchedulePanel({
-  loading,
-  fetchError,
-  onRetry,
-  scheduleCron,
-  scheduleNextRunAt,
-  onBack,
-  onCancel,
-  onSave,
-  onRemove,
-}: {
-  loading: boolean;
-  fetchError: string | null;
-  onRetry: () => void;
-  scheduleCron?: string;
-  scheduleNextRunAt?: string;
-  onBack: () => void;
-  onCancel: () => void;
-  onSave: (cron: string) => Promise<void>;
-  onRemove: () => Promise<void>;
-}) {
-  if (loading) {
-    return (
-      <div className="sp">
-        <Header onBack={onBack} title="Schedule" />
-        <div className="sp-body">
-          <div className="sp-skeleton" />
-          <div className="sp-skeleton" style={{ width: "60%" }} />
-          <div className="sp-skeleton" style={{ height: 64 }} />
-        </div>
-      </div>
-    );
-  }
-  if (fetchError) {
-    // Never fall back to a form seeded with defaults here: Save would then
-    // overwrite a real schedule we simply failed to read (see RowMenu).
-    return (
-      <div className="sp">
-        <Header onBack={onBack} title="Schedule" />
-        <div className="sp-body">
-          <div className="sp-alert" role="alert">
-            Couldn&apos;t load the schedule: {fetchError}
-          </div>
-        </div>
-        <div className="sp-foot">
-          <span />
-          <div className="sp-foot-actions">
-            <button type="button" className="sp-btn" onClick={onCancel}>
-              Close
-            </button>
-            <button
-              type="button"
-              className="sp-btn sp-btn-primary"
-              onClick={onRetry}
-            >
-              Retry
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <ScheduleForm
-      scheduleCron={scheduleCron}
-      scheduleNextRunAt={scheduleNextRunAt}
-      onBack={onBack}
-      onCancel={onCancel}
-      onSave={onSave}
-      onRemove={onRemove}
-    />
-  );
-}
-
 function ScheduleForm({
-  scheduleCron,
-  scheduleNextRunAt,
-  onBack,
-  onCancel,
+  stored,
   onSave,
   onRemove,
+  onClose,
 }: {
-  scheduleCron?: string;
-  scheduleNextRunAt?: string;
-  onBack: () => void;
-  onCancel: () => void;
+  stored: Stored;
   onSave: (cron: string) => Promise<void>;
   onRemove: () => Promise<void>;
+  onClose: () => void;
 }) {
-  const initial = useMemo<CadenceValue>(
-    () =>
-      (scheduleCron ? cronToCadence(scheduleCron) : null) ?? { ...DEFAULTS },
-    [scheduleCron],
+  const ids = useId();
+  const storedValue = useMemo(
+    () => (stored.cron ? cronToCadence(stored.cron) : null),
+    [stored.cron],
   );
+  // A schedule this editor didn't write (set straight through the API, say)
+  // can't be shown as a cadence; say so rather than pretend it is the default.
+  const custom = !!stored.cron && !storedValue;
+  const initial = storedValue ?? DEFAULTS;
+
   const [cadence, setCadence] = useState<Cadence>(initial.cadence);
   const [time, setTime] = useState(initial.time);
   const [dayOfWeek, setDayOfWeek] = useState(initial.dayOfWeek ?? 1);
   const [dayOfMonth, setDayOfMonth] = useState(initial.dayOfMonth ?? 1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [removeConfirming, setRemoveConfirming] = useState(false);
+  const [removeArmed, setRemoveArmed] = useState(false);
 
   const value: CadenceValue = { cadence, time, dayOfWeek, dayOfMonth };
   const timeValid = /^\d{2}:\d{2}$/.test(time);
 
-  // Built on every render so an unschedulable monthly time is flagged while
-  // the user is still picking it, not only after they press Save.
+  // Built on every render, so a monthly time that can't repeat is flagged
+  // while it is being picked rather than after Save.
   let cron: string | null = null;
-  let cronError: string | null = null;
+  let unschedulable = false;
   if (timeValid) {
     try {
       cron = cadenceToCron(value);
-    } catch (e) {
-      cronError = e instanceof Error ? e.message : "invalid schedule";
+    } catch {
+      unschedulable = true;
     }
   }
-
-  const unchanged = !!scheduleCron && cron === scheduleCron;
+  const unchanged = !!stored.cron && cron === stored.cron;
   const now = new Date();
-  const next = timeValid && !cronError ? nextLocalRun(value, now) : null;
-  const tz = localTimeZone();
+  // The server's next run is the truth for the saved schedule -- unless it
+  // is already in the past (the scheduler hasn't caught up), where the
+  // preview's own answer is the better one to show.
+  const storedNext = stored.nextRunAt ? new Date(stored.nextRunAt) : null;
+  const nextRun =
+    unchanged && storedNext && storedNext > now
+      ? storedNext
+      : cron
+        ? nextLocalRun(value, now)
+        : null;
 
   const save = async () => {
-    if (!cron) return;
+    if (!cron || unchanged) return;
     setSaving(true);
     setError(null);
     try {
       await onSave(cron);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "could not save schedule");
+      setError(saveErrorText(e));
       setSaving(false);
     }
   };
 
   const remove = async () => {
-    if (!removeConfirming) {
-      setRemoveConfirming(true);
+    if (!removeArmed) {
+      setRemoveArmed(true);
       return;
     }
     setSaving(true);
@@ -231,202 +261,248 @@ function ScheduleForm({
     try {
       await onRemove();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "could not remove schedule");
+      setError(
+        e instanceof Error ? e.message : "Couldn't remove the schedule.",
+      );
       setSaving(false);
-      setRemoveConfirming(false);
+      setRemoveArmed(false);
     }
   };
 
+  const timeField = (
+    <div className="grid gap-2">
+      <Label htmlFor={`${ids}-time`}>Time</Label>
+      <div className="flex items-center gap-3">
+        <Input
+          id={`${ids}-time`}
+          type="time"
+          required
+          value={time}
+          onChange={(e) => setTime(e.target.value)}
+          className="w-32 tabular-nums [color-scheme:dark]"
+        />
+        <span className="min-w-0 text-xs leading-snug text-muted-foreground">
+          {timeZoneLabel(now)}
+        </span>
+      </div>
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        size="sm"
+        spacing={1}
+        aria-label="Common times"
+        value={TIME_PRESETS.some((p) => p.value === time) ? time : ""}
+        onValueChange={(v) => v && setTime(v)}
+        className="grid w-full grid-cols-4 gap-1.5"
+      >
+        {TIME_PRESETS.map((p) => (
+          <ToggleGroupItem
+            key={p.value}
+            value={p.value}
+            className={cn("h-7 w-full px-0 text-xs font-normal", SELECTED)}
+          >
+            {p.label}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+    </div>
+  );
+
   return (
     <form
-      className="sp"
       onSubmit={(e) => {
         e.preventDefault();
-        if (!unchanged) void save();
+        void save();
       }}
     >
-      <Header
-        onBack={onBack}
-        title={scheduleCron ? "Edit schedule" : "Schedule"}
-      />
-
-      {scheduleCron && (
-        <div className="sp-current">
-          <span className="sp-dot" aria-hidden="true" />
-          <span>
-            Active
-            {scheduleNextRunAt && (
-              <> &middot; next {formatRun(new Date(scheduleNextRunAt))}</>
-            )}
-          </span>
-        </div>
-      )}
-
-      <div className="sp-body">
-        <div className="sp-seg" role="radiogroup" aria-label="Repeat">
-          {CADENCES.map((c) => (
-            <button
-              key={c}
-              type="button"
-              role="radio"
-              aria-checked={cadence === c}
-              className="sp-seg-item"
-              data-active={cadence === c || undefined}
-              onClick={() => setCadence(c)}
-            >
-              {c}
-            </button>
-          ))}
-        </div>
-
-        {cadence === "weekly" && (
-          <div className="sp-field">
-            <span className="sp-label">Day</span>
-            <div className="sp-days" role="radiogroup" aria-label="Day of week">
-              {WEEK.map(({ dow, short }) => (
-                <button
-                  key={dow}
-                  type="button"
-                  role="radio"
-                  aria-checked={dayOfWeek === dow}
-                  className="sp-chip"
-                  data-active={dayOfWeek === dow || undefined}
-                  onClick={() => setDayOfWeek(dow)}
-                >
-                  {short}
-                </button>
-              ))}
-            </div>
-          </div>
+      <div className="grid gap-4 p-4">
+        {custom && (
+          <Alert>
+            <Info />
+            <AlertTitle>This workflow has a custom schedule</AlertTitle>
+            <AlertDescription>
+              It was set outside this editor, so it can&apos;t be shown here.
+              Saving replaces it.
+            </AlertDescription>
+          </Alert>
         )}
 
-        {cadence === "monthly" && (
-          <div className="sp-field">
-            <span className="sp-label">
-              Day of month
-              <span className="sp-label-hint">{ordinal(dayOfMonth)}</span>
-            </span>
-            <div
-              className="sp-month"
-              role="radiogroup"
-              aria-label="Day of month"
-            >
-              {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  role="radio"
-                  aria-checked={dayOfMonth === d}
-                  className="sp-cell"
-                  data-active={dayOfMonth === d || undefined}
-                  onClick={() => setDayOfMonth(d)}
-                >
-                  {d}
-                </button>
-              ))}
-            </div>
-            <span className="sp-help">
-              Days 29&ndash;31 aren&apos;t offered: not every month has them.
-            </span>
-          </div>
-        )}
+        <Tabs
+          value={cadence}
+          onValueChange={(v) => setCadence(v as Cadence)}
+          className="gap-4"
+        >
+          <TabsList className="w-full" aria-label="Repeat">
+            <TabsTrigger value="daily">Daily</TabsTrigger>
+            <TabsTrigger value="weekly">Weekly</TabsTrigger>
+            <TabsTrigger value="monthly">Monthly</TabsTrigger>
+          </TabsList>
 
-        <div className="sp-field">
-          <label className="sp-label" htmlFor="sp-time">
-            Time
-            <span className="sp-label-hint">{tz}</span>
-          </label>
-          <div className="sp-time-row">
-            <input
-              id="sp-time"
-              type="time"
-              className="sp-input"
-              value={time}
-              required
-              onChange={(e) => setTime(e.target.value)}
-            />
-            <div className="sp-presets">
-              {TIME_PRESETS.map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className="sp-preset"
-                  data-active={time === t || undefined}
-                  onClick={() => setTime(t)}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
+          <TabsContent value="daily" className="grid gap-4">
+            {timeField}
+          </TabsContent>
 
-        <div className="sp-preview" data-invalid={!!cronError || undefined}>
-          {cronError ? (
-            <span className="sp-preview-error">{cronError}</span>
-          ) : next ? (
-            <>
-              <span className="sp-preview-main">{describeCadence(value)}</span>
-              <span className="sp-preview-sub">
-                Next run {formatRun(next)} &middot; {relative(next, now)}
-              </span>
-              {cron && (
-                <span className="sp-preview-cron" title="Stored in UTC">
-                  <code>{cron}</code> UTC
+          <TabsContent value="weekly" className="grid gap-4">
+            <div className="grid gap-2">
+              <Label id={`${ids}-dow`}>Day</Label>
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                size="sm"
+                aria-labelledby={`${ids}-dow`}
+                value={String(dayOfWeek)}
+                onValueChange={(v) => v && setDayOfWeek(Number(v))}
+                className="w-full"
+              >
+                {WEEK.map((d) => (
+                  <ToggleGroupItem
+                    key={d.dow}
+                    value={String(d.dow)}
+                    aria-label={d.long}
+                    className={cn("flex-1 px-0 text-xs font-normal", SELECTED)}
+                  >
+                    {d.short}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </div>
+            {timeField}
+          </TabsContent>
+
+          <TabsContent value="monthly" className="grid gap-4">
+            <div className="grid gap-2">
+              <div className="flex items-baseline justify-between">
+                <Label id={`${ids}-dom`}>Day of the month</Label>
+                <span className="text-xs text-muted-foreground">
+                  the {ordinal(dayOfMonth)}
                 </span>
-              )}
-            </>
-          ) : (
-            <span className="sp-preview-sub">Pick a time.</span>
-          )}
-        </div>
+              </div>
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                size="sm"
+                spacing={1}
+                aria-labelledby={`${ids}-dom`}
+                value={String(dayOfMonth)}
+                onValueChange={(v) => v && setDayOfMonth(Number(v))}
+                className="grid w-full grid-cols-7 gap-1"
+              >
+                {MONTH_DAYS.map((d) => (
+                  <ToggleGroupItem
+                    key={d}
+                    value={String(d)}
+                    aria-label={`The ${ordinal(d)}`}
+                    className={cn(
+                      "h-7 w-full px-0 text-xs font-normal tabular-nums",
+                      SELECTED,
+                    )}
+                  >
+                    {d}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+              <p className="text-xs text-muted-foreground">
+                Days 29&ndash;31 aren&apos;t offered, since not every month has
+                them.
+              </p>
+            </div>
+            {timeField}
+          </TabsContent>
+        </Tabs>
 
-        <span className="sp-help">
-          Runs are stored in UTC, so a run can shift by an hour when daylight
-          saving starts or ends.
-        </span>
+        {unschedulable ? (
+          <Alert variant="destructive">
+            <AlertCircle />
+            <AlertTitle>This time can&apos;t repeat monthly</AlertTitle>
+            <AlertDescription>
+              On some months it would land on a different day. Try a different
+              time or day.
+            </AlertDescription>
+          </Alert>
+        ) : nextRun ? (
+          <Alert>
+            <CalendarClock />
+            <AlertTitle className="line-clamp-none text-balance">
+              {keepTimesTogether(describeCadence(value))}
+            </AlertTitle>
+            <AlertDescription className="text-pretty">
+              {keepTimesTogether(describeNextRun(nextRun, now))}
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <p className="text-xs text-muted-foreground">Pick a time.</p>
+        )}
+
+        {observesDaylightSaving(now) && (
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Runs can move by an hour when your clocks change for daylight
+            saving.
+          </p>
+        )}
 
         {error && (
-          <div className="sp-alert" role="alert">
-            {error}
-          </div>
+          <Alert variant="destructive">
+            <AlertCircle />
+            <AlertTitle>Something went wrong</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
       </div>
 
-      <div className="sp-foot">
-        {scheduleCron ? (
-          <button
+      <Separator />
+      <div className="flex items-center justify-between gap-2 px-4 py-3">
+        {stored.cron ? (
+          <Button
             type="button"
-            className="sp-btn sp-btn-danger"
-            data-armed={removeConfirming || undefined}
+            size="sm"
+            variant={removeArmed ? "destructive" : "ghost"}
+            className={removeArmed ? undefined : "text-destructive"}
             disabled={saving}
-            onClick={remove}
-            onBlur={() => setRemoveConfirming(false)}
+            onClick={() => void remove()}
+            onBlur={() => setRemoveArmed(false)}
           >
-            {removeConfirming ? "Confirm remove" : "Remove"}
-          </button>
+            {removeArmed ? "Confirm remove" : "Remove"}
+          </Button>
         ) : (
           <span />
         )}
-        <div className="sp-foot-actions">
-          <button
+        <div className="flex gap-2">
+          <Button
             type="button"
-            className="sp-btn"
+            variant="ghost"
+            size="sm"
             disabled={saving}
-            onClick={onCancel}
+            onClick={onClose}
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
-            className="sp-btn sp-btn-primary"
+            size="sm"
             disabled={saving || !cron || unchanged}
-            title={unchanged ? "No changes" : undefined}
+            title={unchanged ? "No changes to save" : undefined}
           >
-            {saving ? "Saving…" : scheduleCron ? "Update" : "Save schedule"}
-          </button>
+            {saving ? "Saving…" : stored.cron ? "Update" : "Save schedule"}
+          </Button>
         </div>
       </div>
     </form>
   );
+}
+
+// "9:00 AM" and "(in 4 days)" never break across two lines.
+function keepTimesTogether(s: string): string {
+  return s
+    .replace(/ (AM|PM)\b/g, "\u00a0$1")
+    .replace(/\([^)]*\)/g, (m) => m.replace(/ /g, "\u00a0"));
+}
+
+// The server only ever sees the cron the app built, so a rejection that names
+// it is our fault, not something the user can act on by reading it.
+function saveErrorText(e: unknown): string {
+  const message = e instanceof Error ? e.message : "";
+  if (!message || /cron/i.test(message)) {
+    return "The schedule couldn't be saved. Please try again.";
+  }
+  return message;
 }

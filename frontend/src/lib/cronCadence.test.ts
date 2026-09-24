@@ -15,12 +15,7 @@ import { describe, expect, it } from "vitest";
 // only a synchronous statement, in file order, actually runs first.
 process.env.TZ = "America/New_York";
 
-import {
-  cadenceToCron,
-  cronToCadence,
-  describeCadence,
-  nextLocalRun,
-} from "./cronCadence";
+import { cadenceToCron, cronToCadence } from "./cronCadence";
 
 // A fixed "now" anchor: Wednesday, Jan 14 2026, in whatever timezone the
 // test runner's Date resolves TZ to (America/New_York, set above).
@@ -149,49 +144,5 @@ describe("cronToCadence", () => {
     // schedule this UI could never have set (the picker only offers 1-28),
     // so it must be rejected, not silently reported as some other day.
     expect(cronToCadence("0 12 30 * *", NOW)).toBeNull();
-  });
-});
-
-describe("describeCadence", () => {
-  it("summarises each cadence in plain English", () => {
-    expect(describeCadence({ cadence: "daily", time: "09:00" })).toBe(
-      "Every day at 9:00 AM",
-    );
-    expect(
-      describeCadence({ cadence: "weekly", time: "13:30", dayOfWeek: 1 }),
-    ).toBe("Every Monday at 1:30 PM");
-    expect(
-      describeCadence({ cadence: "monthly", time: "00:05", dayOfMonth: 22 }),
-    ).toBe("The 22nd of every month at 12:05 AM");
-  });
-});
-
-describe("nextLocalRun", () => {
-  // NOW is Wednesday, Jan 14 2026, 12:00 local.
-  it("daily: today if the time is still ahead, else tomorrow", () => {
-    expect(nextLocalRun({ cadence: "daily", time: "15:00" }, NOW)).toEqual(
-      new Date(2026, 0, 14, 15, 0),
-    );
-    expect(nextLocalRun({ cadence: "daily", time: "09:00" }, NOW)).toEqual(
-      new Date(2026, 0, 15, 9, 0),
-    );
-  });
-
-  it("weekly: same weekday rolls a full week once the time has passed", () => {
-    expect(
-      nextLocalRun({ cadence: "weekly", time: "09:00", dayOfWeek: 3 }, NOW),
-    ).toEqual(new Date(2026, 0, 21, 9, 0));
-    expect(
-      nextLocalRun({ cadence: "weekly", time: "09:00", dayOfWeek: 1 }, NOW),
-    ).toEqual(new Date(2026, 0, 19, 9, 0));
-  });
-
-  it("monthly: rolls into next month once the day has passed", () => {
-    expect(
-      nextLocalRun({ cadence: "monthly", time: "09:00", dayOfMonth: 20 }, NOW),
-    ).toEqual(new Date(2026, 0, 20, 9, 0));
-    expect(
-      nextLocalRun({ cadence: "monthly", time: "09:00", dayOfMonth: 1 }, NOW),
-    ).toEqual(new Date(2026, 1, 1, 9, 0));
   });
 });
