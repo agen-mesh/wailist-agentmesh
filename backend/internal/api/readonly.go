@@ -147,7 +147,7 @@ func NewReadOnlyMiddleware() func(http.Handler) http.Handler {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !blocksWrite(r.Method, r.URL.Path) {
+			if !blocksWrite(r.Method, routedPath(r)) && !blocksWrite(r.Method, r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -161,6 +161,18 @@ func NewReadOnlyMiddleware() func(http.Handler) http.Handler {
 				"workflows are read-only here; edit them in the AgentMesh desktop app")
 		})
 	}
+}
+
+// routedPath is the path as chi routes it: the escaped form when the request
+// has one. Judging only the decoded r.URL.Path let an escaped separator through
+// -- PUT /workflows/x/variables/API%2FKEY routes to {key} = "API/KEY", while the
+// decoded path has an extra segment and matches no rule. The middleware checks
+// both forms, so neither can be used to slip past the other.
+func routedPath(r *http.Request) string {
+	if r.URL.RawPath != "" {
+		return r.URL.RawPath
+	}
+	return r.URL.Path
 }
 
 func isTruthy(v string) bool {

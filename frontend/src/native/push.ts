@@ -34,7 +34,9 @@ export const PUSH_DISCLOSURE = {
     "one triggered by arriving somewhere, or by a schedule, and whenever a " +
     "run fails.\n\n" +
     "Runs you start yourself do not notify, since you are already looking " +
-    "at them.",
+    "at them.\n\n" +
+    "You'll also hear about a geofence you cross, a scheduled run about to " +
+    "start, a credit balance running low, and a completed top-up.",
   grant: "Turn on notifications",
   decline: "Not now",
 } as const;
@@ -306,11 +308,18 @@ function registerForToken(): Promise<string | null> {
 let tapListener: PluginListenerHandle | null = null;
 
 /**
- * Routes a tapped notification to the run it is about.
+ * Routes a tapped notification to whatever it is about.
  *
- * The payload carries workflowId as well as runId because the app has no route
- * for a run on its own -- a run is shown inside its workflow's page, so a tap
- * carrying only a run id would have nowhere to go.
+ * `type` discriminates the five server-side scenarios
+ * (backend/internal/push/push.go): "run_finished" (the default when absent, for
+ * a payload from before this field existed), "geofence" and
+ * "schedule_upcoming" open the workflow they name, "low_balance" and
+ * "topup_completed" open billing.
+ *
+ * A workflow-bound payload carries workflowId as well as runId/direction
+ * because the app has no route for a run or a crossing on its own -- each is
+ * shown inside its workflow's page, so a tap carrying only a run id would
+ * have nowhere to go.
  *
  * Navigation goes through the mounted router (lib/nativeNav.ts), not a page
  * load: in the app a page load reopens the launch page and drops the workflow
@@ -326,6 +335,11 @@ export async function listenForTaps(): Promise<void> {
     "pushNotificationActionPerformed",
     (action) => {
       const data = (action.notification.data ?? {}) as Record<string, string>;
+      const type = data.type ?? "run_finished";
+      if (type === "low_balance" || type === "topup_completed") {
+        navigateInApp("/billing");
+        return;
+      }
       const workflowId = data.workflowId;
       if (!workflowId) return;
       // The native shell is a static export: every workflow shares one page

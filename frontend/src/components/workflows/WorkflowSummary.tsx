@@ -24,6 +24,7 @@ import {
   triggerLabel,
 } from "@/lib/runFormat";
 import { workflowHref } from "@/lib/routes";
+import { describeSchedule } from "@/lib/describeSchedule";
 
 // A workflow as a phone needs it: is it running, what did its runs do and
 // cost, and Run or Stop. The graph itself is not shown here; it is edited on a
@@ -253,6 +254,12 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
     workflow !== null && (runsLoaded || runsUnavailable || runsError !== null);
   const hasZone = workflow?.geofenceLat !== undefined;
 
+  // The sheet follows the row, not the copy taken when it was tapped, so a
+  // refresh that brings new spend or a new status reaches the open sheet.
+  const selectedRun = selected
+    ? (shown.find((r) => r.id === selected.id) ?? selected)
+    : null;
+
   return (
     <div
       className="am-viewport"
@@ -306,8 +313,12 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
                   : workflow.scheduleCron
                     ? "Runs on a schedule · "
                     : "Runs when started"}
+                {/* In words and the reader's own time. The cron itself stays
+                    in the tooltip for whoever needs the exact expression. */}
                 {!chat && workflow.scheduleCron && (
-                  <code style={cron}>{workflow.scheduleCron}</code>
+                  <span style={schedule} title={workflow.scheduleCron}>
+                    {describeSchedule(workflow.scheduleCron)}
+                  </span>
                 )}
               </p>
 
@@ -470,9 +481,9 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
       </PullToRefresh>
 
       <style>{SUMMARY_CSS}</style>
-      {selected && (
+      {selectedRun && (
         <RunSheet
-          run={selected}
+          run={selectedRun}
           onClose={() => setSelected(null)}
           returnFocusTo={openerRef}
         />
@@ -525,8 +536,7 @@ const copy: React.CSSProperties = {
   margin: 0,
 };
 
-const cron: React.CSSProperties = {
-  font: "500 12px/1 var(--font-mono)",
+const schedule: React.CSSProperties = {
   color: "var(--fg)",
 };
 

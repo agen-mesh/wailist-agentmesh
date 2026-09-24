@@ -10,6 +10,7 @@ import {
   type NavItem,
 } from "@/lib/nav";
 import { IconGrid } from "@/components/ui";
+import { watchKeyboard } from "@/native/keyboard";
 
 // The app's navigation on a phone.
 //
@@ -51,9 +52,9 @@ export function BottomNav() {
     return () => document.body.removeAttribute("data-bottomnav");
   }, [visible]);
 
-  // While a field that brings up the on-screen keyboard has focus, the bar
-  // steps aside (body[data-typing] in globals.css). The WebView shrinks to the
-  // space above the keyboard, and a fixed bar would sit over the field.
+  // While the on-screen keyboard is up for a text field, the bar steps aside
+  // (body[data-typing] in globals.css). The WebView shrinks to the space above
+  // the keyboard, and a fixed bar would sit over the field.
   useEffect(() => {
     if (!visible) return;
     let live = true;
@@ -66,17 +67,69 @@ export function BottomNav() {
       "tel",
       "url",
     ]);
+    // Focus alone does not mean the keyboard is up: Back on Android closes the
+    // keyboard and leaves the field focused, and the bar used to stay hidden
+    // with nothing on screen to hide it for.
+    //
+    // In the app, Android says when the keyboard opens and closes, and that
+    // is the answer -- a rotation that closes the keyboard is reported like
+    // any other close.
+    let keyboardOpen = false;
+    const stopWatching = watchKeyboard((open) => {
+      keyboardOpen = open;
+      sync();
+    });
+    // A browser says nothing, so there the keyboard is read from the
+    // viewport, which shrinks by the keyboard's height when it opens, measured
+    // against the tallest height seen at this width.
+    //
+    // Each width keeps its own tallest height, so rotating back into an
+    // orientation already seen has its baseline at once. One not yet seen
+    // with the keyboard shut, reached with the keyboard up, starts unknown --
+    // keyboard assumed up, since the first height there is already shrunk by
+    // it -- until the height jumps back (the keyboard closed) or focus leaves
+    // the field.
+    const KEYBOARD_MIN_PX = 150;
+    const height = () => window.visualViewport?.height ?? window.innerHeight;
+    const tallestAt = new Map<number, number>();
+    let width = window.innerWidth;
+    let tallest: number | null = height();
+    let last = height();
+    const measuredKeyboardUp = (textField: boolean) => {
+      const h = height();
+      if (window.innerWidth !== width) {
+        width = window.innerWidth;
+        const keyboardWasUp = document.body.hasAttribute("data-typing");
+        tallest =
+          tallestAt.get(width) ?? (keyboardWasUp && textField ? null : h);
+      }
+      if (tallest === null && (!textField || h - last > KEYBOARD_MIN_PX)) {
+        tallest = h;
+      }
+      if (tallest !== null) {
+        tallest = Math.max(tallest, h);
+        tallestAt.set(width, tallest);
+      }
+      last = h;
+      return tallest === null ? true : tallest - h > KEYBOARD_MIN_PX;
+    };
     const sync = () => {
       if (!live) return;
       const el = document.activeElement;
-      const typing =
+      const textField =
         (el instanceof HTMLInputElement &&
           textTypes.has(el.type) &&
           !el.readOnly) ||
         (el instanceof HTMLTextAreaElement && !el.readOnly) ||
         (el instanceof HTMLElement && el.isContentEditable);
-      if (typing) document.body.setAttribute("data-typing", "");
-      else document.body.removeAttribute("data-typing");
+      const keyboardUp = stopWatching
+        ? keyboardOpen
+        : measuredKeyboardUp(textField);
+      if (textField && keyboardUp) {
+        document.body.setAttribute("data-typing", "");
+      } else {
+        document.body.removeAttribute("data-typing");
+      }
     };
     // focusout fires before focus reaches the next element, so the new focus
     // is read on the next task.
@@ -85,10 +138,15 @@ export function BottomNav() {
     };
     document.addEventListener("focusin", sync);
     document.addEventListener("focusout", onFocusOut);
+    window.addEventListener("resize", sync);
+    window.visualViewport?.addEventListener("resize", sync);
     return () => {
       live = false;
+      stopWatching?.();
       document.removeEventListener("focusin", sync);
       document.removeEventListener("focusout", onFocusOut);
+      window.removeEventListener("resize", sync);
+      window.visualViewport?.removeEventListener("resize", sync);
       document.body.removeAttribute("data-typing");
     };
   }, [visible]);

@@ -1,11 +1,6 @@
 "use client";
 import { Fragment, useEffect, useId, useRef, useState } from "react";
-import {
-  type NavItem,
-  groupNavItems,
-  isNavItemActive,
-  isTabRoot,
-} from "@/lib/nav";
+import { type NavItem, groupNavItems, isNavItemActive } from "@/lib/nav";
 import { useScrollLock } from "@/hooks/useScrollLock";
 import { useCloseOnBack } from "@/hooks/useCloseOnBack";
 
@@ -154,11 +149,6 @@ export function AppNav({
     <div
       className={`appnav appnav--${variant}${open ? " appnav--open" : ""}`}
       data-open={open || undefined}
-      // Marks a route where the bottom bar carries the navigation on a
-      // handheld, so the hamburger can be hidden by CSS from the first frame.
-      // Rendered from the pathname, so the server HTML already carries it --
-      // body[data-bottomnav] cannot, because it is set after hydration.
-      data-tabroot={isTabRoot(pathname) || undefined}
     >
       <div className="appnav__shell">
         <div className="appnav__bar">

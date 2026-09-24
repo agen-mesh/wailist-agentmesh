@@ -346,3 +346,81 @@ describe("the opt-in flag follows the registration", () => {
     expect(unregisterCalls).toBe(0);
   });
 });
+
+describe("tap routing", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  // A minimal plugin double, distinct from fakePlugin above: routing needs
+  // only to capture the tap handler and fire it, none of enable/disable's
+  // registration bookkeeping.
+  async function tap(data: Record<string, string>) {
+    let tapHandler: ((action: unknown) => void) | null = null;
+    vi.doMock("@capacitor/push-notifications", () => ({
+      PushNotifications: {
+        addListener: async (event: string, cb: (arg: unknown) => void) => {
+          if (event === "pushNotificationActionPerformed") tapHandler = cb;
+          return { remove: async () => {} };
+        },
+      },
+    }));
+    const navigateInApp = vi.fn();
+    vi.doMock("@/lib/nativeNav", () => ({ navigateInApp }));
+    const { listenForTaps } = await import("./push");
+    await listenForTaps();
+    tapHandler!({ notification: { data } });
+    return navigateInApp;
+  }
+
+  it("opens the workflow when type is absent (today's run-finished shape)", async () => {
+    const navigateInApp = await tap({
+      workflowId: "wf-1",
+      runId: "r-1",
+      status: "success",
+    });
+    expect(navigateInApp).toHaveBeenCalledTimes(1);
+    expect(navigateInApp.mock.calls[0][0]).toContain("wf-1");
+  });
+
+  it("opens the workflow for run_finished explicitly", async () => {
+    const navigateInApp = await tap({
+      type: "run_finished",
+      workflowId: "wf-1",
+      runId: "r-1",
+    });
+    expect(navigateInApp.mock.calls[0][0]).toContain("wf-1");
+  });
+
+  it("opens the workflow for a geofence crossing", async () => {
+    const navigateInApp = await tap({
+      type: "geofence",
+      workflowId: "wf-2",
+      direction: "enter",
+    });
+    expect(navigateInApp.mock.calls[0][0]).toContain("wf-2");
+  });
+
+  it("opens the workflow for an upcoming schedule", async () => {
+    const navigateInApp = await tap({
+      type: "schedule_upcoming",
+      workflowId: "wf-3",
+    });
+    expect(navigateInApp.mock.calls[0][0]).toContain("wf-3");
+  });
+
+  it("opens billing for a low balance, not a workflow", async () => {
+    const navigateInApp = await tap({ type: "low_balance" });
+    expect(navigateInApp).toHaveBeenCalledWith("/billing");
+  });
+
+  it("opens billing for a completed top-up", async () => {
+    const navigateInApp = await tap({ type: "topup_completed" });
+    expect(navigateInApp).toHaveBeenCalledWith("/billing");
+  });
+
+  it("does nothing for a workflow-shaped tap missing a workflow id", async () => {
+    const navigateInApp = await tap({ type: "run_finished", runId: "r-1" });
+    expect(navigateInApp).not.toHaveBeenCalled();
+  });
+});

@@ -215,4 +215,32 @@ describe("RunSheet", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(document.activeElement).toBe(opener.current);
   });
+
+  // aria-modal: Tab must not walk into the page the sheet covers.
+  it("keeps Tab inside the sheet", () => {
+    state.detail = detail();
+    render(
+      <>
+        <button>Behind the sheet</button>
+        <RunSheet run={RUN} onClose={() => {}} />
+      </>,
+    );
+    const dialog = screen.getByRole("dialog");
+    const inside = [...dialog.querySelectorAll<HTMLElement>("button, a[href]")];
+    expect(inside.length).toBeGreaterThan(0);
+    const first = inside[0];
+    const last = inside[inside.length - 1];
+
+    last.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(first);
+
+    first.focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(last);
+
+    screen.getByRole("button", { name: "Behind the sheet" }).focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
 });
