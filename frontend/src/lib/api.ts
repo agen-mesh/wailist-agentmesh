@@ -699,6 +699,10 @@ export interface RunDetail {
   status: string;
   startedAt: string;
   finishedAt?: string;
+  // Everything debit_ledger has charged for this run so far; grows while the
+  // run is still "running". Optional because a server older than this field
+  // omits it, and RunSheet then falls back to the list row's figure.
+  spendUsdMicros?: number;
 }
 
 // Thrown when the backend has no run history routes yet. An older server
@@ -793,6 +797,8 @@ export const runs = {
         status: "success",
         startedAt: iso(8200),
         finishedAt: iso(0),
+        // Matches the $0.065/call x402 weather step below.
+        spendUsdMicros: 65_000,
       },
       deadLetters: [],
       logs: [

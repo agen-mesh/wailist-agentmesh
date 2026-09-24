@@ -347,11 +347,9 @@
 /* Not decoration, so it goes entirely rather than being shortened: someone who
    has asked for less motion is not asking for faster motion.
 
-   With no animation there is no animationend, so the class is never cleaned off
-   the wrapper. That is deliberate and harmless -- it paints nothing, and the
-   next navigation strips both classes before adding one. Worth writing down,
-   because "the class is still on the element" looks like a leak to anyone
-   reading the DOM rather than this comment. */
+   RouteTransition does not add the class at all in this case: with no
+   animation there would be no animationend to remove it, and it would keep the
+   frame clipped. This rule covers a preference that changes mid-animation. */
 @media (prefers-reduced-motion: reduce) {
   .route-enter-fwd,
   .route-enter-back {
@@ -425,27 +423,36 @@
 
 .ptr-indicator[data-spinning] {
   color: var(--accent);
-  animation: ptr-spin 0.7s linear infinite;
 }
 
-/* Animates `rotate`, NOT `transform`. The element's transform is set inline and
-   tracks the finger; a keyframe touching `transform` would fight it and snap the
-   indicator back to the top mid-pull. `rotate` is an independent transform
-   property, so the two compose instead of overwriting each other.
+/* The spin goes on the ring INSIDE the bubble, never on the bubble itself.
+   That one carries an inline `transform: translate(-50%, Npx)` that puts it
+   under the finger, and CSS applies `rotate` (and any `transform` keyframe)
+   around the element's own origin AFTER that translate -- so a spin there
+   swings the whole bubble around the top of the list on a ~25px radius. It
+   orbited instead of spinning, which is what it looked like on a phone.
+
+   The ring has no transform of its own, so it turns about its own centre and
+   the bubble stays exactly where the pull left it.
 
    linear, not var(--ease): a spinner is continuous motion, and an eased curve
    makes it visibly hesitate once per revolution. */
+.ptr-indicator__ring[data-spinning] {
+  transform-origin: 50% 50%;
+  animation: ptr-spin 0.8s linear infinite;
+}
+
 @keyframes ptr-spin {
   from {
-    rotate: 0deg;
+    transform: rotate(0deg);
   }
   to {
-    rotate: 360deg;
+    transform: rotate(360deg);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ptr-indicator[data-spinning] {
+  .ptr-indicator__ring[data-spinning] {
     animation: none;
   }
 }

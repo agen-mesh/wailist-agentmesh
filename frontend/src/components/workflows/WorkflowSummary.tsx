@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
 import { RunSheet } from "@/components/runs/RunSheet";
 import { RunStatusPill } from "@/components/runs/RunStatusPill";
+import { useNow } from "@/hooks/useNow";
 import {
   runs as runsApi,
   workflows as workflowsApi,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/api";
 import type { RunPage, RunStatus, RunSummary, Workflow } from "@/lib/types";
 import { groupRunsByDay } from "@/lib/runDays";
+import { mergeRuns } from "@/lib/runMerge";
 import {
   formatDuration,
   formatRunTime,
@@ -22,6 +24,7 @@ import {
   triggerLabel,
 } from "@/lib/runFormat";
 import { workflowHref } from "@/lib/routes";
+import { describeSchedule } from "@/lib/describeSchedule";
 
 // A workflow as a phone needs it: is it running, what did its runs do and
 // cost, and Run or Stop. The graph itself is not shown here; it is edited on a
@@ -30,20 +33,6 @@ import { workflowHref } from "@/lib/routes";
 const PAGE_SIZE = 20;
 // How often the list refreshes while a run is still going.
 const POLL_MS = 3_000;
-
-// Newest first, ties by id, as the backend orders them. Rows from `fresh`
-// replace rows with the same id in `old`, so a refresh updates a run that was
-// already on screen without dropping the older pages below it.
-function mergeRuns(fresh: RunSummary[], old: RunSummary[]): RunSummary[] {
-  const byId = new Map<string, RunSummary>();
-  for (const r of old) byId.set(r.id, r);
-  for (const r of fresh) byId.set(r.id, r);
-  return [...byId.values()].sort((a, b) =>
-    a.startedAt === b.startedAt
-      ? b.id.localeCompare(a.id)
-      : b.startedAt.localeCompare(a.startedAt),
-  );
-}
 
 const WORKFLOW_STATUS: Record<
   string,
@@ -180,6 +169,8 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
     return () => clearInterval(timer);
   }, [anyRunning, pendingShown?.id, refreshRuns]);
 
+  const now = useNow(anyRunning);
+
   const loadMore = async () => {
     if (!nextCursor || loadingMore) return;
     setLoadingMore(true);
@@ -263,6 +254,12 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
     workflow !== null && (runsLoaded || runsUnavailable || runsError !== null);
   const hasZone = workflow?.geofenceLat !== undefined;
 
+  // The sheet follows the row, not the copy taken when it was tapped, so a
+  // refresh that brings new spend or a new status reaches the open sheet.
+  const selectedRun = selected
+    ? (shown.find((r) => r.id === selected.id) ?? selected)
+    : null;
+
   return (
     <div
       className="am-viewport"
@@ -316,8 +313,12 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
                   : workflow.scheduleCron
                     ? "Runs on a schedule · "
                     : "Runs when started"}
+                {/* In words and the reader's own time. The cron itself stays
+                    in the tooltip for whoever needs the exact expression. */}
                 {!chat && workflow.scheduleCron && (
-                  <code style={cron}>{workflow.scheduleCron}</code>
+                  <span style={schedule} title={workflow.scheduleCron}>
+                    {describeSchedule(workflow.scheduleCron)}
+                  </span>
                 )}
               </p>
 
@@ -448,7 +449,11 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
                               <span style={rowFigures}>
                                 <span>{formatSpend(r.spendUsdMicros)}</span>
                                 <span style={{ color: "var(--fg-dim)" }}>
-                                  {formatDuration(r.startedAt, r.finishedAt)}
+                                  {formatDuration(
+                                    r.startedAt,
+                                    r.finishedAt,
+                                    now,
+                                  )}
                                 </span>
                               </span>
                             </button>
@@ -476,9 +481,9 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
       </PullToRefresh>
 
       <style>{SUMMARY_CSS}</style>
-      {selected && (
+      {selectedRun && (
         <RunSheet
-          run={selected}
+          run={selectedRun}
           onClose={() => setSelected(null)}
           returnFocusTo={openerRef}
         />
@@ -531,8 +536,7 @@ const copy: React.CSSProperties = {
   margin: 0,
 };
 
-const cron: React.CSSProperties = {
-  font: "500 12px/1 var(--font-mono)",
+const schedule: React.CSSProperties = {
   color: "var(--fg)",
 };
 

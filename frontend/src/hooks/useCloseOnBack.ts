@@ -58,10 +58,18 @@ export function useCloseOnBack(onClose: () => void, active = true): () => void {
       // next Back is spent on a sheet that is already gone.
       if (!pushed.current) return;
       popScheduled.current = true;
+      const href = window.location.href;
       window.setTimeout(() => {
         if (!popScheduled.current) return;
         popScheduled.current = false;
         pushed.current = false;
+        // Only while our entry is still the one showing. A sheet that went
+        // away because a control inside it navigated (AddToWorkflowDialog
+        // opening a workflow, Checkout's "Go to Usage") unmounts after the
+        // destination's entry is pushed, and Back from there would return
+        // the user to the sheet's page instead of leaving them where they went.
+        const current = window.history.state as Record<string, unknown> | null;
+        if (!current?.[KEY] || window.location.href !== href) return;
         window.history.back();
       }, 0);
     };

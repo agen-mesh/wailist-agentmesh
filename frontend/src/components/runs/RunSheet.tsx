@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "react";
 import { useScrollLock } from "@/hooks/useScrollLock";
 import { useCloseOnBack } from "@/hooks/useCloseOnBack";
+import { useNow } from "@/hooks/useNow";
 import { ghostBtn } from "@/components/ui/buttons";
 import { MarkdownContent } from "@/components/canvas/chat/MarkdownContent";
 import {
@@ -113,6 +114,29 @@ const STEP_STATUS: Record<RunLogRecord["status"], string> = {
   degraded: "Degraded",
 };
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// aria-modal promises that nothing behind the sheet can be reached, so Tab and
+// Shift+Tab wrap inside the panel instead of walking into the covered page.
+function keepFocusInside(e: KeyboardEvent, panel: HTMLElement | null) {
+  if (!panel) return;
+  const items = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)];
+  const first = items[0] ?? panel;
+  const last = items[items.length - 1] ?? panel;
+  const active = document.activeElement;
+  if (!panel.contains(active)) {
+    e.preventDefault();
+    first.focus();
+  } else if (e.shiftKey && (active === first || active === panel)) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
 export function RunSheet({
   run,
   onClose,
@@ -154,6 +178,7 @@ export function RunSheet({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeRef.current();
+      if (e.key === "Tab") keepFocusInside(e, panelRef.current);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -166,6 +191,11 @@ export function RunSheet({
   const startedAt = detail.run?.startedAt ?? run.startedAt;
   const finishedAt = detail.run ? detail.run.finishedAt : run.finishedAt;
   const running = status === "running";
+  // Prefer the polled detail's spend — it grows while the run is still
+  // going. The static `run` prop is only what was known when the sheet
+  // opened, the same fallback shape already used for startedAt above.
+  const spendUsdMicros = detail.run?.spendUsdMicros ?? run.spendUsdMicros;
+  const now = useNow(running);
   const steps = [...detail.logs].sort((a, b) => a.stepIndex - b.stepIndex);
   const result = resultText(steps);
   const payments = steps
@@ -207,11 +237,13 @@ export function RunSheet({
           <dl style={facts}>
             <div>
               <dt style={factLabel}>{running ? "Running for" : "Took"}</dt>
-              <dd style={factValue}>{formatDuration(startedAt, finishedAt)}</dd>
+              <dd style={factValue}>
+                {formatDuration(startedAt, finishedAt, now)}
+              </dd>
             </div>
             <div>
               <dt style={factLabel}>{running ? "Spent so far" : "Spent"}</dt>
-              <dd style={factValue}>{formatSpend(run.spendUsdMicros)}</dd>
+              <dd style={factValue}>{formatSpend(spendUsdMicros)}</dd>
             </div>
           </dl>
 

@@ -41,6 +41,7 @@ vi.mock("@/components/runs/RunSheet", () => ({
 }));
 
 import { WorkflowSummary } from "./WorkflowSummary";
+import { describeSchedule } from "@/lib/describeSchedule";
 
 function workflow(overrides: Partial<Workflow> = {}): Workflow {
   return {
@@ -117,6 +118,16 @@ describe("WorkflowSummary", () => {
     expect(
       screen.getByText(/run it from the AgentMesh desktop app/),
     ).toBeTruthy();
+  });
+
+  // The cron is for the scheduler. A person gets it in words, in their time.
+  it("says its schedule in words, not as a cron expression", async () => {
+    api.get.mockResolvedValue(workflow({ scheduleCron: "0 7 * * 1-5" }));
+    const { container } = render(<WorkflowSummary workflowId="wf-1" />);
+    const line = await screen.findByText(describeSchedule("0 7 * * 1-5"));
+    expect(line.textContent).toMatch(/^Every weekday at /);
+    expect(line.getAttribute("title")).toBe("0 7 * * 1-5");
+    expect(container.textContent).not.toContain("0 7 * * 1-5");
   });
 
   it("explains a workflow that is not deployed", async () => {

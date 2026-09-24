@@ -263,6 +263,9 @@ type Run struct {
 	StartedAt    time.Time  `json:"startedAt"`
 	FinishedAt   *time.Time `json:"finishedAt,omitempty"`
 	InputContext any        `json:"inputContext,omitempty"`
+	// Everything debit_ledger has charged this user for the run so far, in
+	// USD micros. A run still in progress can grow.
+	SpendUSDMicros int64 `json:"spendUsdMicros"`
 }
 
 // RunSummary is one row of a run history list (GET /workflows/{id}/runs and

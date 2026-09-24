@@ -51,3 +51,18 @@ export function takePendingRoute(): InAppRoute | null {
   pending = null;
   return route;
 }
+
+// Where a route may actually go, given whether there is a session.
+//
+// The shell has no middleware (the static export never runs Next's server), so
+// nothing else stops a notification tapped after sign-out from opening a
+// workflow screen whose fetch then fails and bounces to /workflows, losing the
+// target. A protected route goes through sign-in instead, and sign-in's `next`
+// brings the user back to it.
+export function gateRoute(route: InAppRoute, signedIn: boolean): InAppRoute {
+  if (signedIn || route.href.startsWith("/signin")) return route;
+  return {
+    href: `/signin?next=${encodeURIComponent(route.href)}`,
+    replace: true,
+  };
+}
