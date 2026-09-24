@@ -42,7 +42,11 @@ vi.mock("@/components/PullToRefresh", () => ({
 }));
 vi.mock("@/components/runs/RunSheet", () => ({
   RunSheet: ({ run }: { run: RunSummary }) => (
-    <div role="dialog" data-spend={run.spendUsdMicros}>
+    <div
+      role="dialog"
+      data-spend={run.spendUsdMicros}
+      data-status={run.status}
+    >
       sheet for {run.id}
     </div>
   ),
@@ -99,6 +103,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 describe("ActivityPage", () => {
@@ -276,6 +281,44 @@ describe("ActivityPage", () => {
       fireEvent.click(screen.getByRole("button", { name: "Pull to refresh" }));
     });
     expect(screen.getByRole("dialog").dataset.spend).toBe("90000");
+  });
+
+  it("polls spend while an open run is running, then switches to idle polling", async () => {
+    vi.useFakeTimers();
+    api.recent
+      .mockResolvedValueOnce(
+        page([run({ id: "r-1", status: "running", spendUsdMicros: 21_000 })]),
+      )
+      .mockResolvedValueOnce(
+        page([run({ id: "r-1", status: "running", spendUsdMicros: 90_000 })]),
+      )
+      .mockResolvedValueOnce(
+        page([run({ id: "r-1", status: "success", spendUsdMicros: 120_000 })]),
+      )
+      .mockResolvedValue(
+        page([run({ id: "r-1", status: "success", spendUsdMicros: 120_000 })]),
+      );
+
+    render(<ActivityPage />);
+    await act(async () => {});
+    fireEvent.click(screen.getByText("Morning digest").closest("button")!);
+    expect(screen.getByRole("dialog").dataset.spend).toBe("21000");
+
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    expect(screen.getByRole("dialog").dataset.spend).toBe("90000");
+
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    expect(screen.getByRole("dialog").dataset.spend).toBe("120000");
+    expect(screen.getByRole("dialog").dataset.status).toBe("success");
+
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    expect(api.recent).toHaveBeenCalledTimes(3);
+
+    await act(async () => vi.advanceTimersByTimeAsync(6_000));
+    expect(api.recent).toHaveBeenCalledTimes(3);
+
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(api.recent).toHaveBeenCalledTimes(4);
   });
 
   it("drops an older page that lands after a refresh", async () => {

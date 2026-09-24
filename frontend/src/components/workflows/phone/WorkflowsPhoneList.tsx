@@ -10,7 +10,7 @@ import {
   type Sort,
   type StatusFilter,
 } from "@/lib/workflowList";
-import { totalSpend } from "@/lib/workflowMeta";
+import { totalSpend, totalSpendKnown } from "@/lib/workflowMeta";
 import { WorkflowsPhoneHeader } from "./WorkflowsPhoneHeader";
 import { WorkflowFilterMenu } from "./WorkflowFilterMenu";
 import { WorkflowPhoneRow } from "./WorkflowPhoneRow";
@@ -60,6 +60,7 @@ export function WorkflowsPhoneList({
         shown={visible.length}
         spend={totalSpend(workflows)}
         known={!loading && !(workflows.length === 0 && error)}
+        spendKnown={totalSpendKnown(workflows)}
       />
       {error && (
         <p className="wfp-error" role="alert">

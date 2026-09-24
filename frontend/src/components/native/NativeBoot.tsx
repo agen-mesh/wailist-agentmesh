@@ -1,13 +1,14 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   IS_NATIVE,
   setAuthToken,
   markAuthReady,
   getAuthToken,
+  authReady,
 } from "@/lib/nativeAuth";
-import { BASE } from "@/lib/api";
+import { auth, BASE } from "@/lib/api";
 import {
   gateRoute,
   setInAppNavigator,
@@ -53,9 +54,6 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-// A mock build (no API configured) has no sessions to check.
-const hasSession = () => !BASE || getAuthToken() !== null;
-
 // Renders nothing. Mounted in the root layout because the session has to be
 // restored before any page makes its first authenticated call, not when some
 // particular screen happens to appear.
@@ -67,28 +65,54 @@ export function NativeBoot() {
   const router = useRouter();
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
+  const navigation = useRef(0);
   useEffect(() => {
     pathnameRef.current = pathname;
-  });
+    return () => {
+      navigation.current += 1;
+    };
+  }, [pathname]);
+
+  const go = useCallback(
+    async (route: InAppRoute) => {
+      const request = ++navigation.current;
+      let signedIn = !BASE;
+      if (BASE && !route.href.startsWith("/signin")) {
+        await authReady;
+        if (request !== navigation.current) return;
+        const token = getAuthToken();
+        if (token !== null) {
+          try {
+            await withTimeout(auth.me(), BOOT_TIMEOUT_MS);
+            signedIn = getAuthToken() === token;
+          } catch {
+            // An unconfirmed session keeps the destination behind sign-in.
+            signedIn = false;
+          }
+        }
+      }
+      // A newer tap, route change, or unmount supersedes an in-flight check.
+      if (request !== navigation.current) return;
+      const { href, replace } = gateRoute(route, signedIn);
+      if (replace) router.replace(href);
+      else router.push(href);
+    },
+    [router],
+  );
 
   // Registered before boot() runs below (effects run in order), because boot()
   // attaches the listeners that navigate.
   useEffect(() => {
     if (!IS_NATIVE) return;
-    const go = (route: InAppRoute) => {
-      const { href, replace } = gateRoute(route, hasSession());
-      if (replace) router.replace(href);
-      else router.push(href);
-    };
     setInAppNavigator((route) => {
       // The launch page is still choosing between /workflows and /signin. It
       // takes the held route in place of its default (app/page.tsx).
       if (pathnameRef.current === "/") return false;
-      go(route);
+      void go(route);
       return true;
     });
     return () => setInAppNavigator(null);
-  }, [router]);
+  }, [go]);
 
   // A route that arrived while the launch page was already redirecting is
   // still held once the redirect lands. Follow it then.
@@ -96,10 +120,8 @@ export function NativeBoot() {
     if (!IS_NATIVE || pathname === "/") return;
     const held = takePendingRoute();
     if (!held) return;
-    const { href, replace } = gateRoute(held, hasSession());
-    if (replace) router.replace(href);
-    else router.push(href);
-  }, [pathname, router]);
+    void go(held);
+  }, [pathname, go]);
 
   useEffect(() => {
     if (!IS_NATIVE) return;

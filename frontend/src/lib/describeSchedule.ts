@@ -132,11 +132,15 @@ export function describeSchedule(
             Date.UTC(year, mon, date - now.getUTCDay() + d + offset * 7, h, m),
           ),
       );
+    // One formatter for every sample: the year's worth below would otherwise
+    // build a few hundred of them.
+    const weekday = new Intl.DateTimeFormat("en-US", {
+      weekday: "short",
+      timeZone,
+    });
     const localDays = (instants: Date[]) =>
       [
-        ...new Set(
-          instants.map((i) => DAY_SHORT.indexOf(read(i, { weekday: "short" }))),
-        ),
+        ...new Set(instants.map((i) => DAY_SHORT.indexOf(weekday.format(i)))),
       ].sort((a, b) => a - b);
     const upcoming = [...week(0), ...week(1)]
       .filter((i) => i >= now)
@@ -146,7 +150,9 @@ export function describeSchedule(
     const nextWeek = week(0).some((i) => +i === +next) ? 0 : 1;
     // A time-zone offset change can move a run to another local weekday.
     // Check every occurrence for more than a year because some zones have
-    // short offset pauses that a seasonal sample would miss.
+    // short offset pauses that a seasonal sample would miss:
+    // Africa/Casablanca sits at UTC+1 but drops to UTC for Ramadan, a few
+    // weeks that come earlier each year.
     const named = localDays(week(nextWeek));
     const namedKey = named.join();
     for (let offset = nextWeek + 1; offset <= nextWeek + 53; offset++) {

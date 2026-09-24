@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 
 const state = vi.hoisted(() => ({
   native: false,
@@ -74,6 +80,7 @@ vi.mock("@/components/billing/PurchaseHistory", () => ({
 }));
 
 import BillingPage from "./page";
+import { workflows as workflowsApi } from "@/lib/api";
 
 afterEach(() => {
   cleanup();
@@ -88,6 +95,39 @@ afterEach(() => {
 // payment-provider project. So it pays on the website, in an in-app browser
 // tab, and re-reads the balance and history when that tab closes.
 describe("BillingPage in the Android app", () => {
+  // ListWorkflows now answers successfully with statsUnavailable when its
+  // aggregation fails, and every omitted spend sums to zero. Committing that
+  // put "$0.00" on the 30-day figure for a total nobody had computed.
+  it("leaves the 30-day spend unknown when the list could not total it", async () => {
+    state.native = true;
+    state.readOnly = true;
+    vi.mocked(workflowsApi.list).mockResolvedValueOnce([
+      { id: "wf-1", name: "A", nodes: [], edges: [], statsUnavailable: true },
+      { id: "wf-2", name: "B", nodes: [], edges: [], statsUnavailable: true },
+    ]);
+    render(<BillingPage />);
+    await act(async () => {});
+
+    const spent = screen.getByText("Spent · 30d").nextElementSibling;
+    expect(spent?.textContent).toBe("—");
+    expect(spent?.textContent).not.toContain("$0");
+  });
+
+  it("shows the 30-day spend when the list did total it", async () => {
+    state.native = true;
+    state.readOnly = true;
+    vi.mocked(workflowsApi.list).mockResolvedValueOnce([
+      { id: "wf-1", name: "A", nodes: [], edges: [], spend: "3.50" },
+      { id: "wf-2", name: "B", nodes: [], edges: [] },
+    ]);
+    render(<BillingPage />);
+    await act(async () => {});
+
+    expect(
+      screen.getByText("Spent · 30d").nextElementSibling?.textContent,
+    ).toContain("3.50");
+  });
+
   it("tops up on the website and re-reads credits when the tab closes", () => {
     state.native = true;
     state.readOnly = true;

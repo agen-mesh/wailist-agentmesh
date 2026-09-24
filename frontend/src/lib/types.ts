@@ -131,6 +131,11 @@ export interface Workflow {
   agents?: number;
   runs?: number;
   spend?: string;
+  // The backend could not aggregate runs/spend/lastRunAt for this list, so
+  // their absence means "not known", not "none". `runs` is omitted at zero
+  // and `spend` is omitted when nothing settled, so without this flag an
+  // outage is indistinguishable from a workflow that has simply never run.
+  statsUnavailable?: boolean;
   tags?: string[];
   scheduleCron?: string;
   scheduleNextRunAt?: string;

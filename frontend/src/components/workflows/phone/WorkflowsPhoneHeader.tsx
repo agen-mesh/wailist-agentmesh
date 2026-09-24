@@ -17,6 +17,7 @@ export function WorkflowsPhoneHeader({
   shown,
   spend,
   known = true,
+  spendKnown = true,
 }: {
   total: number;
   // How many survive the search and filter. Saying "1 of 6" keeps the count
@@ -27,6 +28,10 @@ export function WorkflowsPhoneHeader({
   // False until the list has loaded, and after it failed to. Zeros then would
   // read as an empty account rather than one that could not be read.
   known?: boolean;
+  // Separate from `known` because the two can disagree: the list itself
+  // arrives fine while the runs/spend aggregation behind it fails, and then
+  // the count is real but the total is not.
+  spendKnown?: boolean;
 }) {
   const router = useRouter();
   const { balanceUSD, balanceKnown } = useCredits();
@@ -37,9 +42,11 @@ export function WorkflowsPhoneHeader({
     ? `${shown} of ${total} workflows shown`
     : `${total} workflows`;
   const spent = formatDollars(spend);
-  const summary = known
-    ? `${spokenCount}, ${spent} spent in the last 30 days`
-    : "Workflows not loaded";
+  const summary = !known
+    ? "Workflows not loaded"
+    : spendKnown
+      ? `${spokenCount}, ${spent} spent in the last 30 days`
+      : `${spokenCount}, spend not loaded`;
   const balance = balanceKnown ? usd.format(balanceUSD) : "—";
   return (
     <header className="wfp-head">
@@ -48,8 +55,8 @@ export function WorkflowsPhoneHeader({
       </div>
       <div className="wfp-head__facts">
         <span className="wfp-head__summary" aria-label={summary}>
-          {known ? count : "—"} <span aria-hidden>·</span> {known ? spent : "—"}{" "}
-          spent
+          {known ? count : "—"} <span aria-hidden>·</span>{" "}
+          {known && spendKnown ? spent : "—"} spent
         </span>
         {/* Two dollar figures on one line: this one says which it is. It is
             also the way to top up: the balance is what adding credits

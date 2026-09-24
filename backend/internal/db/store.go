@@ -509,7 +509,15 @@ func (s *Store) ListWorkflows(ctx context.Context, userID string) ([]models.Work
 		// `debit_ledger`. A problem aggregating them must not turn "show me
 		// my workflows" into a 500 -- log it and return the list with those
 		// fields left at their zero values.
+		//
+		// Those zero values are not facts, though, and they are not
+		// distinguishable from real ones on the wire, so each row says so.
+		// Otherwise a client renders an aggregation outage as "0 runs, $0
+		// spent", which is a number the reader has no reason to doubt.
 		log.Printf("db: list workflows for user %s: stats aggregation failed: %v", userID, err)
+		for i := range wfs {
+			wfs[i].StatsUnavailable = true
+		}
 	}
 	return wfs, nil
 }

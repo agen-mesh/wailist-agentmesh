@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { nextResponseSeq } from "@/lib/responseOrder";
 import {
   runs,
   type DeadLetterRun,
@@ -13,6 +14,16 @@ export interface RunDetailState {
   deadLetters: DeadLetterRun[];
   error: string | null;
   loading: boolean;
+  /**
+   * Where the last successful response sits in the order answers landed, for
+   * a caller holding a second reading of the same run that needs to know
+   * which of the two is newer. Null before the first answer.
+   *
+   * A sequence rather than a timestamp: two sources answering in the same
+   * millisecond would otherwise tie, and the tie-break would decide which
+   * reading wins rather than the order they arrived in.
+   */
+  answeredSeq: number | null;
 }
 
 // Polling interval while the run is still going. Short enough that a step
@@ -26,6 +37,7 @@ const EMPTY: Omit<RunDetailState, "loading"> = {
   logs: [],
   deadLetters: [],
   error: null,
+  answeredSeq: null,
 };
 
 // One run's detail for the run sheet: fetched once, re-fetched every two
@@ -35,7 +47,16 @@ const EMPTY: Omit<RunDetailState, "loading"> = {
 // Deliberately not useRunTranscript. That hook opens a live stream and writes
 // the canvas's "last run" cache when a run finishes, which would replace the
 // canvas's own last run with whichever old run was tapped here.
-export function useRunDetail(runId: string | null): RunDetailState {
+/**
+ * @param live A run this hook has already read as finished, which something
+ * else -- the run list -- says is going again. Resume reuses the run id, so
+ * without this the hook sits on its last terminal answer with its polling
+ * stopped, and the screen keeps showing a run that has since restarted.
+ */
+export function useRunDetail(
+  runId: string | null,
+  live: boolean = false,
+): RunDetailState {
   // Keyed by the run it belongs to, so a new runId shows as loading without
   // resetting state synchronously inside the effect.
   const [state, setState] = useState<{ forId: string | null } & RunDetailState>(
@@ -63,6 +84,7 @@ export function useRunDetail(runId: string | null): RunDetailState {
           deadLetters: data.deadLetters ?? [],
           error: null,
           loading: false,
+          answeredSeq: nextResponseSeq(),
         });
         if (data.run.status === "running") timer = setTimeout(load, POLL_MS);
       } catch (e) {
@@ -91,7 +113,7 @@ export function useRunDetail(runId: string | null): RunDetailState {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [runId]);
+  }, [runId, live]);
 
   if (!runId) return { ...EMPTY, loading: false };
   if (state.forId !== runId) return { ...EMPTY, loading: true };
@@ -101,5 +123,6 @@ export function useRunDetail(runId: string | null): RunDetailState {
     deadLetters: state.deadLetters,
     error: state.error,
     loading: state.loading,
+    answeredSeq: state.answeredSeq,
   };
 }

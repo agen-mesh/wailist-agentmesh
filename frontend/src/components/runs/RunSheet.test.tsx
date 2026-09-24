@@ -78,6 +78,7 @@ function detail(overrides: Partial<RunDetailState> = {}): RunDetailState {
     deadLetters: [],
     error: null,
     loading: false,
+    answeredSeq: 1,
     ...overrides,
   };
 }

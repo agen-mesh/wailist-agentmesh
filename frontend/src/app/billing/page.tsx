@@ -7,7 +7,7 @@ import { CheckoutModal } from "@/components/checkout/CheckoutModal";
 import { useCredits } from "@/lib/credits/store";
 import { creditsForTopup, maxTopupINR, MAX_TOPUP_USD } from "@/lib/credits/fx";
 import { credits as creditsApi, workflows as workflowsApi } from "@/lib/api";
-import { totalSpend } from "@/lib/workflowMeta";
+import { totalSpend, totalSpendKnown } from "@/lib/workflowMeta";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import { usePaymentProviders } from "@/components/checkout/usePaymentProviders";
 import { BillingPhonePage } from "@/components/billing/phone/BillingPhonePage";
@@ -84,7 +84,10 @@ export default function BillingPage() {
     void workflowsApi
       .list()
       .then((wfs) => {
-        if (live) setSpent30dUSD(totalSpend(wfs));
+        // A list can arrive intact while the aggregation behind it failed,
+        // and every omitted spend then sums to zero. "$0.00" is a figure the
+        // reader has no reason to doubt, so it stays unknown instead.
+        if (live && totalSpendKnown(wfs)) setSpent30dUSD(totalSpend(wfs));
       })
       // A missing spend figure is cosmetic; the balance above it is not.
       .catch(() => {});

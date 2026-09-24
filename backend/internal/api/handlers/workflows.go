@@ -79,9 +79,12 @@ func (d *Deps) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The figures a workflow's own screen shows. Like the list, a failure
-	// here leaves them out rather than failing the whole response.
-	if err := d.Store.AttachWorkflowStats(r.Context(), userID, &wf); err != nil {
+	// here leaves them out rather than failing the whole response -- and
+	// says so, because the zero values it leaves behind are indistinguishable
+	// from a workflow that simply had no runs or spend in the window.
+	if err := d.loadWorkflowStats(r.Context(), userID, &wf); err != nil {
 		log.Printf("workflow %s stats: %v", wf.ID, err)
+		wf.StatsUnavailable = true
 	}
 	if n, err := d.Store.CountRuns(r.Context(), wf.ID); err != nil {
 		log.Printf("workflow %s run count: %v", wf.ID, err)

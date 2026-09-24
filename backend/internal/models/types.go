@@ -225,6 +225,13 @@ type Workflow struct {
 	// so a real zero is sent: nil means the count could not be taken, and the
 	// app shows a dash for that, not for a workflow that has never run.
 	TotalRuns *int `json:"totalRuns,omitempty"`
+	// StatsUnavailable says the Runs/Spend/LastRunAt aggregation did not
+	// run, so their zero values mean "not known" rather than "none".
+	// Without it the three are indistinguishable from a genuine zero on the
+	// wire -- Runs is `omitempty`, so a real count of 0 is omitted too --
+	// and a client has no way to avoid presenting a failed aggregation as
+	// factual "0 runs, $0 spent".
+	StatsUnavailable bool `json:"statsUnavailable,omitempty"`
 	// ScheduleCron is a standard 5-field cron expression (UTC). Empty/nil
 	// means the workflow has no schedule -- set via SetWorkflowSchedule,
 	// never written directly through UpdateWorkflow's graph save.

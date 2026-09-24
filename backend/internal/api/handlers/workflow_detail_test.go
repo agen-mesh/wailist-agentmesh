@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/agentmesh/backend/internal/api/handlers"
+	"github.com/agentmesh/backend/internal/models"
 )
 
 func newTestUser(t *testing.T, d *handlers.Deps) string {
@@ -89,6 +91,63 @@ func TestGetWorkflowSendsAZeroRunCount(t *testing.T) {
 	}
 	if got, ok := body["totalRuns"]; !ok || got != float64(0) {
 		t.Fatalf("totalRuns = %v (present %v), want 0", got, ok)
+	}
+}
+
+// The detail endpoint marks its 30-day figures unavailable when the
+// aggregation behind them fails, because the zero values it falls back to
+// are indistinguishable from a workflow that had no runs and no spend.
+//
+// This covers the success half of that contract: a healthy read must NOT set
+// the flag, or every workflow's figures would show as dashes. The failure
+// half is covered separately through the handler's stats-loader seam.
+func TestGetWorkflowLeavesStatsAvailableWhenTheyAggregate(t *testing.T) {
+	d := testDeps(t)
+	user := newTestUser(t, d)
+	id := scheduledWorkflow(t, d, user, "Aggregated", "", time.Time{}, false)
+	if _, err := d.Store.CreateRun(t.Context(), id, "manual", []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/workflows/"+id, nil)
+	req = req.WithContext(context.WithValue(req.Context(), handlers.CtxUserID, user))
+	req = withURLParam(req, "id", id)
+	w := httptest.NewRecorder()
+	d.GetWorkflow(w, req)
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := body["statsUnavailable"]; ok {
+		t.Fatalf("statsUnavailable = %v, want it omitted on a successful read", got)
+	}
+	if body["runs"] != float64(1) {
+		t.Fatalf("runs = %v, want 1", body["runs"])
+	}
+}
+
+func TestGetWorkflowMarksStatsUnavailableWhenAggregationFails(t *testing.T) {
+	d := testDeps(t)
+	user := newTestUser(t, d)
+	id := scheduledWorkflow(t, d, user, "Unavailable stats", "", time.Time{}, false)
+	d.WorkflowStatsLoader = func(context.Context, string, *models.Workflow) error {
+		return errors.New("stats database unavailable")
+	}
+	req := httptest.NewRequest(http.MethodGet, "/workflows/"+id, nil)
+	req = req.WithContext(context.WithValue(req.Context(), handlers.CtxUserID, user))
+	req = withURLParam(req, "id", id)
+	w := httptest.NewRecorder()
+	d.GetWorkflow(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		StatsUnavailable bool `json:"statsUnavailable"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.StatsUnavailable {
+		t.Fatal("statsUnavailable = false, want true after aggregation failure")
 	}
 }
 

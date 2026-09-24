@@ -379,6 +379,29 @@ describe("WorkflowSummary", () => {
     expect(screen.queryByText("Summarised from its steps.")).toBeNull();
   });
 
+  // GetWorkflow leaves the 30-day pair at zero when its aggregation fails,
+  // exactly as it does for a workflow that had no runs and no spend. Printed
+  // as "0" and "$0.00" that is a figure the reader has no reason to doubt.
+  it("shows dashes for the 30-day figures the server could not total", async () => {
+    api.get.mockResolvedValue(
+      workflow({
+        statsUnavailable: true,
+        totalRuns: 7,
+        runs: 0,
+        spend: undefined,
+      }),
+    );
+    render(<WorkflowSummary workflowId="wf-1" />);
+    await screen.findByText("Succeeded");
+    const fact = (label: string) =>
+      screen.getByText(label).nextElementSibling?.textContent;
+
+    expect(fact("Runs · 30 days")).toBe("—");
+    expect(fact("Spent · 30 days")).toBe("—");
+    // totalRuns has its own nullable field and was answered, so it stands.
+    expect(fact("Total runs")).toBe("7");
+  });
+
   it("shows its run figures", async () => {
     api.get.mockResolvedValue(
       workflow({ totalRuns: 1842, runs: 38, spend: "1.482" }),
@@ -416,5 +439,224 @@ describe("WorkflowSummary", () => {
     render(<WorkflowSummary workflowId="wf-1" />);
     const status = await screen.findByText("Deployed");
     expect(status.className).toBe("wfd-status");
+  });
+
+  // Tapping Run used to change a button and add a row; nothing said what the
+  // run was doing. The dock follows it node by node.
+  it("shows a run's progress at the bottom once it starts", async () => {
+    api.get.mockResolvedValue(
+      workflow({
+        nodes: [
+          { id: "t", type: "trigger", template: "manual", x: 0, y: 0 },
+          { id: "a", type: "agent", name: "Triage Agent", x: 0, y: 0 },
+          { id: "p", type: "provider", name: "Anthropic", x: 0, y: 0 },
+        ],
+        edges: [
+          { id: "e1", from: "t", to: "a", kind: "flow" },
+          { id: "e2", from: "p", to: "a", kind: "attach", toPort: "model" },
+        ],
+      }),
+    );
+    render(<WorkflowSummary workflowId="wf-1" />);
+    await screen.findByText("Succeeded");
+    expect(document.querySelector(".run-dock")).toBeNull();
+
+    // The run's detail answers with the trigger already done.
+    api.runGet.mockResolvedValue({
+      run: {
+        id: "r-2",
+        workflowId: "wf-1",
+        triggeredBy: "manual",
+        status: "running",
+        startedAt: new Date().toISOString(),
+      },
+      logs: [{ nodeId: "t", status: "success", durationMs: 20 }],
+      deadLetters: [],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    // Two milestones: the trigger and the agent. The provider hangs off the
+    // agent and is not a step.
+    expect(await screen.findByText("1/2")).toBeTruthy();
+    // The name is in the Agents section too, so this asks the dock itself.
+    const dock = document.querySelector(".run-dock")!;
+    expect(dock.textContent).toContain("Triage Agent");
+  });
+
+  // Two rapid activations, before React has committed `acting`, called
+  // workflows.run twice and billed for two runs.
+  it("starts one run however fast Run is pressed twice", async () => {
+    let start!: (v: { runId: string }) => void;
+    api.run.mockReturnValueOnce(
+      new Promise<{ runId: string }>((r) => (start = r)),
+    );
+    render(<WorkflowSummary workflowId="wf-1" />);
+    await screen.findByText("Succeeded");
+
+    const button = screen.getByRole("button", { name: "Run" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(api.run).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      start({ runId: "r-2" });
+    });
+    expect(api.run).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts one run however fast the dock's Run again is pressed", async () => {
+    api.listForWorkflow.mockResolvedValue(
+      page([
+        { ...FINISHED, id: "r-2", status: "failed", finishedAt: undefined },
+      ]),
+    );
+    api.runGet.mockResolvedValue({
+      run: {
+        id: "r-2",
+        workflowId: "wf-1",
+        triggeredBy: "manual",
+        status: "failed",
+        startedAt: new Date().toISOString(),
+      },
+      logs: [{ nodeId: "t", status: "failed" }],
+      deadLetters: [],
+    });
+    let start!: (v: { runId: string }) => void;
+    api.run
+      .mockResolvedValueOnce({ runId: "r-2" })
+      .mockReturnValueOnce(new Promise<{ runId: string }>((r) => (start = r)));
+    render(<WorkflowSummary workflowId="wf-1" />);
+    await screen.findByRole("button", { name: "Run" });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    const again = await screen.findByRole("button", { name: "Run again" });
+    fireEvent.click(again);
+    fireEvent.click(again);
+    expect(api.run).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      start({ runId: "r-3" });
+    });
+    expect(api.run).toHaveBeenCalledTimes(2);
+  });
+
+  const runDetail = (status: string) => ({
+    run: {
+      id: "r-2",
+      workflowId: "wf-1",
+      triggeredBy: "manual",
+      status,
+      startedAt: new Date().toISOString(),
+    },
+    logs: [{ nodeId: "t", status: status === "failed" ? "failed" : "running" }],
+    deadLetters: [],
+  });
+
+  // useRunDetail stops polling a terminal run, so a Resume under the same id
+  // left the dock on "failed" for good while the list moved back to running.
+  // The list saying "running" now restarts that polling.
+  it("follows the list back to running after a resume", async () => {
+    api.runGet.mockResolvedValue(runDetail("failed"));
+    render(<WorkflowSummary workflowId="wf-1" />);
+    await screen.findByText("Succeeded");
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    await screen.findByRole("button", { name: "Run again" });
+    const readsBefore = api.runGet.mock.calls.length;
+
+    // The list picks the same run up again, resumed -- and so, now, does the
+    // run's own detail, which is what a real Resume writes.
+    api.listForWorkflow.mockResolvedValue(
+      page([
+        { ...FINISHED, id: "r-2", status: "running", finishedAt: undefined },
+      ]),
+    );
+    api.runGet.mockResolvedValue(runDetail("running"));
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Run again" })).toBeNull(),
+    );
+    // It did not merely defer to the list: it went and asked again.
+    expect(api.runGet.mock.calls.length).toBeGreaterThan(readsBefore);
+    expect(
+      document.querySelector(".run-dock")!.getAttribute("data-state"),
+    ).toBe("running");
+  });
+
+  // The mirror image of that case. The list says running, the detail then
+  // reads terminal, and the next list poll fails. useRunDetail stops after a
+  // terminal answer, so a dock that always took the list row sat on a stale
+  // "running" for good, with no Details and no Dismiss.
+  it("follows a terminal detail once the list stops answering", async () => {
+    vi.useFakeTimers();
+    try {
+      await terminalDetailOutlastsTheList();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  async function terminalDetailOutlastsTheList() {
+    api.runGet.mockResolvedValue(runDetail("running"));
+    render(<WorkflowSummary workflowId="wf-1" />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    await act(async () => {});
+
+    // The server's own row now carries the run, still going.
+    api.listForWorkflow.mockResolvedValue(
+      page([
+        { ...FINISHED, id: "r-2", status: "running", finishedAt: undefined },
+      ]),
+    );
+    document.dispatchEvent(new Event("visibilitychange"));
+    await act(async () => {});
+    expect(
+      document.querySelector(".run-dock")!.getAttribute("data-state"),
+    ).toBe("running");
+
+    // The run then ends, and the list goes quiet, so the detail's own poll
+    // is the last thing to answer about this run.
+    api.runGet.mockResolvedValue(runDetail("failed"));
+    api.listForWorkflow.mockRejectedValue(new Error("offline"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    expect(
+      document.querySelector(".run-dock")!.getAttribute("data-state"),
+    ).toBe("failed");
+    expect(screen.getByRole("button", { name: "Run again" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
+  }
+
+  // Date.now() has millisecond resolution, so two answers landing back to
+  // back read the same value -- 10,000 ties in 10,000 pairs, measured. While
+  // freshness was two wall-clock stamps compared with `>`, a tie always went
+  // to the list, and a terminal detail that answered second in the same
+  // millisecond stayed suppressed once list polling failed.
+  it("prefers the answer that landed second even on one clock tick", async () => {
+    vi.useFakeTimers();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
+    try {
+      await terminalDetailOutlastsTheList();
+    } finally {
+      clock.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  // A GET /runs/{id} that keeps failing left a dock assuming "running", with
+  // no headline it could stand behind and no way to dismiss it.
+  it("offers a way out when the run's detail cannot be read", async () => {
+    api.listForWorkflow.mockResolvedValue(page([]));
+    api.runGet.mockRejectedValue(new Error("offline"));
+    render(<WorkflowSummary workflowId="wf-1" />);
+    await screen.findByRole("button", { name: "Run" });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    expect(await screen.findByText("Cannot read this run")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(document.querySelector(".run-dock")).toBeNull());
   });
 });

@@ -151,4 +151,26 @@ describe("WorkflowsPhoneList", () => {
     expect(summary.textContent).not.toMatch(/0 total|\$0/);
     expect(screen.queryByLabelText(/0 workflows/)).toBeNull();
   });
+
+  // The list itself can arrive while the aggregation behind it fails: the
+  // backend returns the workflows and leaves runs and spend at their zero
+  // values. The count is then real and the total is not, so they are said
+  // separately rather than both being suppressed or both being printed.
+  it("shows the count but not a total when the spend aggregation failed", () => {
+    render(
+      <WorkflowsPhoneList
+        workflows={[
+          wf({ id: "a", name: "First", statsUnavailable: true }),
+          wf({ id: "b", name: "Second", statsUnavailable: true }),
+        ]}
+        loading={false}
+        error={null}
+        onRetry={vi.fn()}
+      />,
+    );
+    const summary = screen.getByLabelText("2 workflows, spend not loaded");
+    expect(summary.textContent).toContain("2 total");
+    expect(summary.textContent).not.toMatch(/\$0/);
+    expect(summary.textContent).toMatch(/—\s*spent/);
+  });
 });

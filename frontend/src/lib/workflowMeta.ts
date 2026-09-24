@@ -20,6 +20,25 @@ export function totalSpend(list: Workflow[]): number {
   return list.reduce((sum, wf) => sum + spendDollars(wf.spend), 0);
 }
 
+/** The dash this screen shows wherever a figure is not known. */
+export const UNKNOWN = "—";
+
+/**
+ * Whether a workflow's run and spend figures mean anything.
+ *
+ * False when the backend's aggregation failed: `runs` and `spend` are then
+ * absent for the same reason they are absent on a workflow that never ran,
+ * and summing or printing them states an outage as fact.
+ */
+export function statsKnown(wf: Workflow): boolean {
+  return wf.statsUnavailable !== true;
+}
+
+/** True only when every row's figures are real, so a total can be summed. */
+export function totalSpendKnown(list: Workflow[]): boolean {
+  return list.every(statsKnown);
+}
+
 // Dollars through the same formatter every run's spend uses, so $0.890 and
 // $4.22 read alike wherever they appear.
 export function formatDollars(dollars: number): string {
@@ -38,7 +57,11 @@ function statusWord(status: Workflow["status"]): string {
   return status === "active" ? "deployed" : (status ?? "draft");
 }
 
-function state(wf: Workflow, now: number): { text: string; tone: Tone } {
+function state(
+  wf: Workflow,
+  now: number,
+  timeZone?: string,
+): { text: string; tone: Tone } {
   switch (wf.status) {
     case "paused":
       return { text: "paused", tone: "warm" };
@@ -60,7 +83,7 @@ function state(wf: Workflow, now: number): { text: string; tone: Tone } {
     // time reached this screen: it still runs every weekday, whether or not
     // the list knows when. Saying the schedule is both truer and more useful.
     if (wf.scheduleCron) {
-      const words = describeSchedule(wf.scheduleCron);
+      const words = describeSchedule(wf.scheduleCron, new Date(now), timeZone);
       // Sentence case on its own line elsewhere, lower case in this line of
       // figures ("$1.48 · every weekday at 7:00 AM").
       return {
@@ -77,15 +100,27 @@ function state(wf: Workflow, now: number): { text: string; tone: Tone } {
   };
 }
 
-export function workflowMeta(wf: Workflow, now: number): WorkflowMeta {
+/**
+ * The figures a workflow row shows, as of `now`. `timeZone` is the zone a
+ * schedule is described in, the reader's own when left out; it is passed
+ * explicitly where a caller needs the answer not to depend on where the
+ * machine happens to be.
+ */
+export function workflowMeta(
+  wf: Workflow,
+  now: number,
+  timeZone?: string,
+): WorkflowMeta {
   // The count is no longer shown -- it named no period, so it read as neither
   // a rate nor a total. It is still read here because `draft` is "never ran",
   // not "status is draft": a draft with runs behind it says "not deployed".
   const runs = wf.runs ?? 0;
   return {
-    draft: wf.status === "draft" && runs === 0,
-    spent: formatDollars(spendDollars(wf.spend)),
-    state: state(wf, now),
+    // "Never run" is a claim about history, and an unavailable aggregation
+    // is not evidence for it.
+    draft: statsKnown(wf) && wf.status === "draft" && runs === 0,
+    spent: statsKnown(wf) ? formatDollars(spendDollars(wf.spend)) : UNKNOWN,
+    state: state(wf, now, timeZone),
     statusWord: statusWord(wf.status),
   };
 }
