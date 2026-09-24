@@ -77,3 +77,29 @@ func TestTrailingSlashNeverReachesTheAuthedGroup(t *testing.T) {
 		})
 	}
 }
+
+// Read-only mode judges the path the way chi routes it. An escaped separator in
+// a variable key used to reach the handler because the middleware looked only
+// at the decoded path, which has one segment more and matched no rule.
+func TestReadOnlyBlocksEscapedVariableKeys(t *testing.T) {
+	t.Setenv("WEB_READONLY_MODE", "1")
+	const secret = "test-secret"
+	r := api.NewRouter(&handlers.Deps{JWTSecret: secret})
+	token := api.TestMakeToken(secret, "user-1")
+	for _, method := range []string{http.MethodPut, http.MethodDelete} {
+		for _, path := range []string{
+			"/workflows/wf_1/variables/API_KEY",
+			"/workflows/wf_1/variables/API%2FKEY",
+		} {
+			t.Run(method+" "+path, func(t *testing.T) {
+				req := httptest.NewRequest(method, path, nil)
+				req.Header.Set("Authorization", "Bearer "+token)
+				w := httptest.NewRecorder()
+				r.ServeHTTP(w, req)
+				if w.Code != http.StatusForbidden {
+					t.Fatalf("%s %s = %d, want %d", method, path, w.Code, http.StatusForbidden)
+				}
+			})
+		}
+	}
+}

@@ -16,6 +16,9 @@ vi.mock("@/lib/credits/store", () => ({
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/components/Topbar", () => ({ Topbar: () => null }));
+vi.mock("@/components/runs/UpcomingRuns", () => ({
+  UpcomingRuns: () => null,
+}));
 vi.mock("@/components/PullToRefresh", () => ({
   PullToRefresh: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
@@ -51,7 +54,7 @@ describe("WorkflowsPage", () => {
     expect(
       await screen.findByRole("link", { name: /Customer Support Triage/ }),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add credits" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /add credits/ })).toBeTruthy();
     expect(screen.queryByText(/Rows|Grid/)).toBeNull();
     expect(screen.queryByText(/your workspace/i)).toBeNull();
     expect(

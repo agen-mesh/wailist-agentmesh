@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { IconFilter } from "@/components/ui";
 import { useCloseOnBack } from "@/hooks/useCloseOnBack";
 import {
@@ -42,6 +42,11 @@ function directionHint(sort: NonNullable<Sort>): string {
 // The filter and sort dropdown on the phone Workflows list. A dropdown rather
 // than a sheet: it stays open while options are tapped, so several can be
 // tried in a row, and it gets out of the way the moment the list scrolls.
+//
+// A disclosure of ordinary toggle buttons, not an ARIA menu. role="menu"
+// promises arrow-key navigation and managed focus; plain buttons are reached
+// with Tab like everything else on the page, and aria-pressed says which
+// options are on.
 export function WorkflowFilterMenu({
   status,
   onStatusChange,
@@ -56,6 +61,9 @@ export function WorkflowFilterMenu({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
+  const showId = useId();
+  const sortId = useId();
 
   // Android Back closes the menu instead of leaving the screen.
   useCloseOnBack(() => setOpen(false), open);
@@ -103,65 +111,72 @@ export function WorkflowFilterMenu({
         type="button"
         className="wfp-filter__trigger"
         aria-label={changed ? "Filter and sort, changed" : "Filter and sort"}
-        aria-haspopup="menu"
         aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
         onClick={() => setOpen((o) => !o)}
       >
         <IconFilter size={16} />
         {changed && <span className="wfp-filter__badge" aria-hidden />}
       </button>
       {open && (
-        <div className="wfp-menu" role="menu" aria-label="Filter and sort">
-          <div className="wfp-menu__group" role="presentation">
+        <div
+          id={panelId}
+          className="wfp-menu"
+          role="group"
+          aria-label="Filter and sort options"
+        >
+          <div className="wfp-menu__group" id={showId}>
             Show
           </div>
-          {SHOW.map((o) => (
-            <button
-              key={o.value}
-              type="button"
-              role="menuitemradio"
-              aria-checked={status === o.value}
-              className="wfp-menu__item"
-              onClick={() => onStatusChange(o.value)}
-            >
-              {o.label}
-              {status === o.value && (
-                <span className="wfp-menu__check" aria-hidden>
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <path
-                      d="M3.5 8.5 L6.5 11.5 L12.5 4.5"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-              )}
-            </button>
-          ))}
-          <div className="wfp-menu__divider" role="separator" />
-          <div className="wfp-menu__group" role="presentation">
-            Sort by
-          </div>
-          {SORTS.map((o) => {
-            const active = isOptionActive(sort, o.value);
-            const hint = active && sort ? directionHint(sort) : null;
-            return (
+          <div role="group" aria-labelledby={showId}>
+            {SHOW.map((o) => (
               <button
                 key={o.value}
                 type="button"
-                role="menuitemradio"
-                aria-checked={active}
-                aria-label={hint ? `${o.label}, ${hint}` : o.label}
+                aria-pressed={status === o.value}
                 className="wfp-menu__item"
-                onClick={() => onSortChange(nextSort(sort, o.value))}
+                onClick={() => onStatusChange(o.value)}
               >
                 {o.label}
-                {hint && <span className="wfp-menu__hint">{hint}</span>}
+                {status === o.value && (
+                  <span className="wfp-menu__check" aria-hidden>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M3.5 8.5 L6.5 11.5 L12.5 4.5"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                )}
               </button>
-            );
-          })}
+            ))}
+          </div>
+          <div className="wfp-menu__divider" aria-hidden />
+          <div className="wfp-menu__group" id={sortId}>
+            Sort by
+          </div>
+          <div role="group" aria-labelledby={sortId}>
+            {SORTS.map((o) => {
+              const active = isOptionActive(sort, o.value);
+              const hint = active && sort ? directionHint(sort) : null;
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  aria-pressed={active}
+                  aria-label={hint ? `${o.label}, ${hint}` : o.label}
+                  className="wfp-menu__item"
+                  onClick={() => onSortChange(nextSort(sort, o.value))}
+                >
+                  {o.label}
+                  {hint && <span className="wfp-menu__hint">{hint}</span>}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

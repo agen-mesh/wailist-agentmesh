@@ -777,12 +777,14 @@ body {
    and the target-size rule exempts a link inside a sentence. The avatar and
    the Usage "+" are also left alone -- they keep their drawn size and take
    the tap through an invisible 44px square instead (see responsive.css), so
-   forcing a height here would only make the visible box bigger.
+   forcing a height here would only make the visible box bigger. So is the
+   Workflows header's balance, which is a line of text that happens to be
+   tappable; its own ::after gives it the 44px.
 
    hover: none alongside pointer: coarse, so a touchscreen LAPTOP -- which has
    a mouse as well -- keeps the compact layout it is drawn for. */
 @media (pointer: coarse) and (hover: none) {
-  button:not(.credit-topup):not(.profile-menu__trigger),
+  button:not(.credit-topup):not(.profile-menu__trigger):not(.wfp-head__balance),
   [role="button"],
   select,
   input:not(
@@ -1252,22 +1254,10 @@ body[data-bottomnav] .appnav__trigger {
   display: none;
 }
 
-/* The attribute above is set after hydration, so at a tab root on a phone the
-   hamburger paints for one frame before the bar takes over from it. The top
-   bar marks a tab root in its own markup (AppNav's data-tabroot, rendered from
-   the pathname, so the server HTML carries it), and these are the same two
-   device signals the handheld check reads -- which together keep the button
-   out of that first frame. A touchscreen laptop still hovers, so it keeps its
-   hamburger and never shows the bar. */
-@media (pointer: coarse) and (hover: none) {
-  .appnav[data-tabroot] .appnav__trigger {
-    display: none;
-  }
-}
-
-/* While a text field has focus the on-screen keyboard is up, and the fixed
-   bar would ride up above it, over the field being typed in. BottomNav sets
-   the attribute. */
+/* While the on-screen keyboard is up for a text field, the fixed bar would
+   ride up above it, over the field being typed in. BottomNav sets the
+   attribute only while the keyboard is actually showing, not merely while a
+   field has focus: closing the keyboard with Back keeps the focus. */
 body[data-typing] .bottomnav {
   display: none;
 }
@@ -1854,52 +1844,70 @@ body[data-typing] .bottomnav {
    The Workflows screen on a phone: flat, one line per fact, separated by
    hairlines rather than boxed. Every control keeps the 44px touch floor;
    "thin" comes from dropping chrome, not from shrinking targets. */
-.wfp-strip {
+.wfp-head {
+  padding-bottom: 2px;
+}
+.wfp-head__top {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 44px;
+  gap: 12px;
 }
-.wfp-strip__label {
-  font-size: 12px;
-  color: var(--fg-muted);
+.wfp-head__top .wfp-title {
+  flex: 1;
+  min-width: 0;
 }
-.wfp-strip__amount {
+.wfp-head__facts {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--fg);
+  font-size: 12px;
+  line-height: 18px;
 }
-.wfp-strip__add {
-  margin-left: auto;
-  width: 32px;
-  height: 44px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r-1);
-  background: transparent;
+.wfp-head__summary {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The balance doubles as the way to top up. It stays plain text -- no box,
+   no fill -- and only the chevron says it can be tapped. The ::after takes the
+   tap through a 44px-tall area without making the line any taller. */
+.wfp-head__balance {
+  position: relative;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
   color: var(--fg);
+  white-space: nowrap;
   cursor: pointer;
   touch-action: manipulation;
-  transition:
-    transform 0.12s var(--ease),
-    border-color 0.15s var(--ease);
+  -webkit-tap-highlight-color: transparent;
 }
-.wfp-strip__add:active {
-  transform: scale(0.96);
-  background: var(--bg-elev-1);
+.wfp-head__balance::after {
+  content: "";
+  position: absolute;
+  inset: -13px -8px;
 }
-.wfp-strip__add:focus-visible {
+.wfp-head__balance:active {
+  opacity: 0.6;
+}
+.wfp-head__balance:focus-visible {
   outline: 2px solid var(--accent-line);
-  outline-offset: 2px;
+  outline-offset: 3px;
+  border-radius: var(--r-1);
 }
-@media (hover: hover) {
-  .wfp-strip__add:hover {
-    border-color: var(--accent-line);
-  }
+.wfp-head__balance-label {
+  color: var(--fg-muted);
+}
+.wfp-head__balance-chevron {
+  margin-left: 6px;
+  color: var(--fg-muted);
 }
 
 /* Search at four fifths, the filter at the last fifth. */
@@ -1926,8 +1934,8 @@ body[data-typing] .bottomnav {
   width: 100%;
   height: 44px;
   padding: 0 12px 0 34px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-1);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-2);
   background: var(--bg-elev-1);
   color: var(--fg);
   font-family: var(--font-sans);
@@ -1952,8 +1960,8 @@ body[data-typing] .bottomnav {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border);
-  border-radius: var(--r-1);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-2);
   background: var(--bg-elev-1);
   color: var(--fg-muted);
   cursor: pointer;
@@ -2032,7 +2040,7 @@ body[data-typing] .bottomnav {
   cursor: pointer;
   touch-action: manipulation;
 }
-.wfp-menu__item[aria-checked="true"] {
+.wfp-menu__item[aria-pressed="true"] {
   color: var(--fg);
 }
 .wfp-menu__item:active {
@@ -2058,48 +2066,76 @@ body[data-typing] .bottomnav {
   .wfp-menu {
     animation: none;
   }
-  .wfp-filter__trigger,
-  .wfp-strip__add {
+  .wfp-filter__trigger {
     transition: none;
   }
 }
 
-/* One workflow per row: name and status, then Spent, Runs and Upcoming run.
-   The row bleeds to the page edge so its pressed state spans the screen. */
+/* One workflow per card: its name, then a line of figures ending in the one
+   thing worth knowing about its state. A rail down the left edge carries that
+   state as colour -- which is why the card also names it in its aria-label. */
 .wfp-list {
   list-style: none;
-  margin: 0 calc(-1 * var(--wfp-gutter, 16px));
+  display: grid;
+  /* minmax(0, …) so the column can be narrower than a card's content. An
+     auto column grows to the longest unbroken name, which at large system
+     text pushed every card past the screen edge instead of letting the name
+     end in an ellipsis. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin: 0;
   padding: 0;
 }
-.wfp-row {
+.wfp-card {
+  position: relative;
   display: block;
-  padding: 9px var(--wfp-gutter, 16px);
-  border-bottom: 1px solid var(--border-soft);
+  padding: 12px 14px 12px 16px;
+  border-radius: var(--r-2);
+  background: var(--bg-elev-1);
+  overflow: hidden;
   color: inherit;
   text-decoration: none;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s var(--ease);
 }
-.wfp-row:active {
-  background: var(--bg-elev-1);
+.wfp-card:active {
+  background: var(--bg-elev-2);
 }
-.wfp-row:focus-visible {
+.wfp-card:focus-visible {
   outline: 2px solid var(--accent-line);
   outline-offset: -2px;
 }
 @media (hover: hover) {
-  .wfp-row:hover {
-    background: var(--bg-elev-1);
+  .wfp-card:hover {
+    background: var(--bg-elev-2);
   }
 }
-.wfp-row__top {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+@media (prefers-reduced-motion: reduce) {
+  .wfp-card {
+    transition: none;
+  }
 }
-.wfp-row__name {
-  flex: 1;
-  min-width: 0;
+
+/* Full height, flush to the left edge: the screen's largest piece of colour. */
+.wfp-card__rail {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--border-strong);
+}
+.wfp-card[data-status="deployed"] .wfp-card__rail {
+  background: var(--accent);
+}
+.wfp-card[data-status="paused"] .wfp-card__rail {
+  background: var(--warm);
+}
+.wfp-card[data-status="error"] .wfp-card__rail {
+  background: var(--danger);
+}
+
+.wfp-card__name {
+  display: block;
   font-size: 15px;
   line-height: 20px;
   font-weight: 500;
@@ -2109,40 +2145,34 @@ body[data-typing] .bottomnav {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.wfp-row__status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  font-size: 12px;
+/* Nothing has run, so the whole card recedes behind the ones that have. */
+.wfp-card[data-status="draft"] .wfp-card__name {
   color: var(--fg-muted);
 }
-.wfp-row__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-.wfp-row__facts {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin: 4px 0 0;
-}
-.wfp-row__facts dt {
-  font-size: 11px;
-  line-height: 14px;
-  color: var(--fg-dim);
-}
-.wfp-row__facts dd {
-  margin: 0;
+.wfp-card__meta {
+  margin: 3px 0 0;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 17px;
-  color: var(--fg);
+  color: var(--fg-muted);
+}
+/* The last part of the line is the only one that carries colour, and it is
+   keyed to the state rather than the status: a deployed workflow with nothing
+   queued has nothing to shout about.
+   These lines are --fg-muted rather than --fg-dim: on --bg-elev-1 the dim grey
+   measures 2.84:1, under the 4.5 a 12px line needs. */
+.wfp-card__state {
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+.wfp-card__state[data-tone="accent"] {
+  color: var(--accent);
+}
+.wfp-card__state[data-tone="warm"] {
+  color: var(--warm);
+}
+.wfp-card__state[data-tone="danger"] {
+  color: var(--danger);
 }
 
 /* The phone Workflows screen around those pieces. */
@@ -2188,11 +2218,182 @@ body[data-typing] .bottomnav {
 }
 .wfp-skeleton {
   display: grid;
+  align-content: center;
   gap: 6px;
-  padding: 9px 0;
-  border-bottom: 1px solid var(--border-soft);
+  height: 66px;
+  padding: 0 16px;
+  border-radius: var(--r-2);
+  background: var(--bg-elev-1);
 }
 .wfp-menu__check {
   display: inline-flex;
   color: var(--accent);
+}
+
+/* ── Upcoming runs ───────────────────────────────────────────────────────
+   What the scheduler will start next. Shared by Activity, a workflow's own
+   screen and the desktop Workflows page, so it keeps to the phone list's
+   rules: hairlines, small sentence-case labels, tabular times. */
+.upc__title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.upc__day {
+  padding: 8px 0 2px;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.upc__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.upc__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  border-bottom: 1px solid var(--border-soft);
+  color: inherit;
+  text-decoration: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+a.upc__row:active {
+  background: var(--bg-elev-1);
+}
+a.upc__row:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: -2px;
+}
+@media (hover: hover) {
+  a.upc__row:hover {
+    background: var(--bg-elev-1);
+  }
+}
+.upc__time {
+  flex-shrink: 0;
+  min-width: 64px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--fg);
+}
+.upc__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upc__until {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.upc__empty {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+.upc__retry {
+  min-height: 44px;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* ── A workflow's own screen on the phone ─────────────────────────────── */
+.wfd-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.wfd-status__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.wfd-desc {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg);
+  text-wrap: pretty;
+}
+.wfd-note {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.wfd-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin: 16px 0 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+.wfd-stats dt {
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--fg-dim);
+}
+.wfd-stats dd {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  color: var(--fg);
+}
+.wfd-agents {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.wfd-agent {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.wfd-agent__name {
+  min-width: 0;
+  font-size: 14px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The model is stored text and can be one long unbroken id, so it may shrink
+   and wraps anywhere rather than pushing the row past the screen edge. Capped
+   so the agent's name keeps room beside it. */
+.wfd-agent__meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 60%;
+  overflow-wrap: anywhere;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-muted);
 }

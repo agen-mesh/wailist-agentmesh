@@ -48,7 +48,7 @@ func (s *Store) Close() {
 // sites, and one was missed. A future column now only needs to be added
 // here and in scanWorkflowRow's Scan call, once, for every caller to pick
 // it up automatically.
-const workflowColumns = `id, user_id, name, status, graph, deployed_at, run_endpoint, created_at, updated_at, schedule_cron, schedule_next_run_at, geofence_lat, geofence_lng, geofence_radius_m, geofence_inside, geofence_last_fix_at, is_system`
+const workflowColumns = `id, user_id, name, status, graph, deployed_at, run_endpoint, created_at, updated_at, schedule_cron, schedule_next_run_at, geofence_lat, geofence_lng, geofence_radius_m, geofence_inside, geofence_last_fix_at, is_system, description`
 
 // rowScanner is satisfied by both pgx.Row (QueryRow) and *pgx.Rows
 // (Query's per-row iteration) -- scanWorkflowRow works with either, so a
@@ -63,18 +63,22 @@ type rowScanner interface {
 func scanWorkflowRow(row rowScanner) (models.Workflow, error) {
 	var w models.Workflow
 	var graphJSON []byte
-	var runEndpoint *string
+	var runEndpoint, description *string
 	if err := row.Scan(
 		&w.ID, &w.UserID, &w.Name, &w.Status, &graphJSON,
 		&w.DeployedAt, &runEndpoint, &w.CreatedAt, &w.UpdatedAt,
 		&w.ScheduleCron, &w.ScheduleNextRunAt,
 		&w.GeofenceLat, &w.GeofenceLng, &w.GeofenceRadiusM,
 		&w.GeofenceInside, &w.GeofenceLastFixAt, &w.IsSystem,
+		&description,
 	); err != nil {
 		return models.Workflow{}, err
 	}
 	if runEndpoint != nil {
 		w.RunEndpoint = *runEndpoint
+	}
+	if description != nil {
+		w.Description = *description
 	}
 	unmarshalGraph(graphJSON, &w)
 	return w, nil
@@ -448,16 +452,29 @@ func (s *Store) ListSchedulesNeedingWarning(ctx context.Context, now, before tim
 	return out, rows.Err()
 }
 
-// MarkScheduleWarned records that the upcoming-run heads-up has been sent for
-// this schedule's occurrence, identified by its schedule_next_run_at at the
-// time of warning rather than a boolean -- so a schedule that has since
-// advanced (fired, or been edited to a new time) is correctly treated as
-// unwarned again for whatever occurrence comes next.
-func (s *Store) MarkScheduleWarned(ctx context.Context, workflowID string, forOccurrence time.Time) error {
-	_, err := s.pool.Exec(ctx, `
-		UPDATE workflows SET schedule_warned_for = $2 WHERE id = $1
+// ClaimScheduleWarning records that the upcoming-run heads-up is being sent
+// for this schedule's occurrence, and reports whether this caller is the one
+// sending it. The occurrence is identified by its schedule_next_run_at rather
+// than a boolean, so a schedule that has since advanced (fired, or been edited
+// to a new time) is correctly treated as unwarned again for whatever
+// occurrence comes next.
+//
+// A conditional update, not a read followed by a write: every replica runs the
+// scheduler, and two ticks that both listed the same unwarned occurrence would
+// otherwise both mark it and both push. Only the update that finds the row
+// still on this occurrence and still unwarned changes it, so exactly one
+// caller gets true.
+func (s *Store) ClaimScheduleWarning(ctx context.Context, workflowID string, forOccurrence time.Time) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE workflows SET schedule_warned_for = $2
+		WHERE id = $1
+		  AND schedule_next_run_at = $2
+		  AND schedule_warned_for IS DISTINCT FROM $2
 	`, workflowID, forOccurrence)
-	return err
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // AND NOT is_system excludes a partner console's hidden row (Tendril,
@@ -492,7 +509,15 @@ func (s *Store) ListWorkflows(ctx context.Context, userID string) ([]models.Work
 		// `debit_ledger`. A problem aggregating them must not turn "show me
 		// my workflows" into a 500 -- log it and return the list with those
 		// fields left at their zero values.
+		//
+		// Those zero values are not facts, though, and they are not
+		// distinguishable from real ones on the wire, so each row says so.
+		// Otherwise a client renders an aggregation outage as "0 runs, $0
+		// spent", which is a number the reader has no reason to doubt.
 		log.Printf("db: list workflows for user %s: stats aggregation failed: %v", userID, err)
+		for i := range wfs {
+			wfs[i].StatsUnavailable = true
+		}
 	}
 	return wfs, nil
 }
@@ -585,13 +610,58 @@ func (s *Store) attachWorkflowStats(ctx context.Context, userID string, wfs []mo
 }
 
 func (s *Store) UpdateWorkflow(ctx context.Context, id, name string, graph models.WorkflowGraph) (models.Workflow, error) {
+	return s.UpdateWorkflowAndDescription(ctx, id, name, graph, nil)
+}
+
+// UpdateWorkflowAndDescription saves the name, the graph and, when
+// description is non-nil, the description, in one statement. A save that
+// changes both either takes effect whole or not at all; two statements could
+// commit the graph and then fail on the description, answering 500 for a save
+// that half happened. A nil description leaves the stored one alone, and an
+// empty one clears it.
+func (s *Store) UpdateWorkflowAndDescription(ctx context.Context, id, name string, graph models.WorkflowGraph, description *string) (models.Workflow, error) {
 	graphJSON, _ := json.Marshal(graph)
+	var value *string
+	if description != nil && *description != "" {
+		value = description
+	}
 	row := s.pool.QueryRow(ctx, `
-		UPDATE workflows SET name=$2, graph=$3::jsonb, updated_at=NOW()
+		UPDATE workflows SET name=$2, graph=$3::jsonb, updated_at=NOW(),
+			description = CASE WHEN $4::boolean THEN $5::text ELSE description END
 		WHERE id=$1
 		RETURNING `+workflowColumns+`
-	`, id, name, string(graphJSON))
+	`, id, name, string(graphJSON), description != nil, value)
 	return scanWorkflowRow(row)
+}
+
+// SetWorkflowDescription writes a workflow's description, or clears it when
+// description is empty. Kept apart from UpdateWorkflow so saving the graph
+// from the editor, which never sends a description, cannot wipe one.
+func (s *Store) SetWorkflowDescription(ctx context.Context, id, description string) error {
+	var value *string
+	if description != "" {
+		value = &description
+	}
+	_, err := s.pool.Exec(ctx, `UPDATE workflows SET description=$2 WHERE id=$1`, id, value)
+	return err
+}
+
+// CountRuns counts every run a workflow has had, however old.
+func (s *Store) CountRuns(ctx context.Context, workflowID string) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM runs WHERE workflow_id = $1`, workflowID).Scan(&n)
+	return n, err
+}
+
+// AttachWorkflowStats fills one workflow's 30-day Runs, Spend and LastRunAt
+// the same way the list does, for the detail endpoint.
+func (s *Store) AttachWorkflowStats(ctx context.Context, userID string, wf *models.Workflow) error {
+	wfs := []models.Workflow{*wf}
+	if err := s.attachWorkflowStats(ctx, userID, wfs); err != nil {
+		return err
+	}
+	*wf = wfs[0]
+	return nil
 }
 
 func (s *Store) DeleteWorkflow(ctx context.Context, id string) error {
@@ -1194,6 +1264,17 @@ func (s *Store) CreateCryptoCreditTransaction(ctx context.Context, userID, provi
 	return txn, err
 }
 
+// clearLowBalanceMarker goes in an UPDATE that adds $1 to a user's balance.
+// It clears the low-balance marker when the new balance is back at or above
+// the threshold. CheckAndMarkLowBalance also clears it, but it only runs when
+// a run finishes. Without this, a top-up that restored the balance left the
+// marker set, and the next drop below the threshold was never reported.
+// (In an UPDATE the right-hand side sees the row as it was, so the sum is the
+// new balance.)
+var clearLowBalanceMarker = fmt.Sprintf(`low_balance_notified_at = CASE
+		WHEN credit_balance_usd_micros + $1 >= %d THEN NULL
+		ELSE low_balance_notified_at END`, models.LowBalanceThresholdUSDMicros)
+
 // ErrCreditTransactionNotFound is returned when no credit_ledger row exists for the given
 // provider order ID — the caller supplied an order Razorpay never told us about (or that
 // our own CreateCreditTransaction failed to record). Callers should treat this as a
@@ -1248,7 +1329,9 @@ func (s *Store) CompleteCreditTransaction(ctx context.Context, provider, provide
 	}
 
 	if _, err := tx.Exec(ctx, `
-		UPDATE users SET credit_balance_usd_micros = credit_balance_usd_micros + $1 WHERE id = $2
+		UPDATE users SET credit_balance_usd_micros = credit_balance_usd_micros + $1,
+		`+clearLowBalanceMarker+`
+		WHERE id = $2
 	`, creditUSDMicros, userID); err != nil {
 		return 0, false, err
 	}
@@ -1567,7 +1650,8 @@ func (s *Store) RedeemCoupon(ctx context.Context, userID, code string) (newBalan
 	}
 
 	if err := tx.QueryRow(ctx, `
-		UPDATE users SET credit_balance_usd_micros = credit_balance_usd_micros + $1
+		UPDATE users SET credit_balance_usd_micros = credit_balance_usd_micros + $1,
+		`+clearLowBalanceMarker+`
 		WHERE id = $2
 		RETURNING credit_balance_usd_micros
 	`, amount, userID).Scan(&newBalance); err != nil {

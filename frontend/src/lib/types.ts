@@ -115,16 +115,27 @@ export interface Workflow {
   edges: WorkflowEdge[];
   // "deployed" is what the backend actually stores (models.WorkflowStatusDeployed);
   // it was missing here, so deployment state had to be inferred indirectly.
-  status?: "active" | "paused" | "draft" | "deployed";
+  // "error" is stored too (models.WorkflowStatusError) and was missing as well.
+  // "paused" and the legacy "active" only ever come from mock data.
+  status?: "active" | "paused" | "draft" | "deployed" | "error";
   updated?: string;
   updatedAt?: string;
   createdAt?: string;
   // The newest run within the same 30 days `runs` counts. Absent when
   // nothing ran in that window.
   lastRunAt?: string;
+  // What the workflow does, in a sentence or two. Absent until written.
+  description?: string;
+  // Every run the workflow has had. Only GET /workflows/{id} sends it.
+  totalRuns?: number;
   agents?: number;
   runs?: number;
   spend?: string;
+  // The backend could not aggregate runs/spend/lastRunAt for this list, so
+  // their absence means "not known", not "none". `runs` is omitted at zero
+  // and `spend` is omitted when nothing settled, so without this flag an
+  // outage is indistinguishable from a workflow that has simply never run.
+  statsUnavailable?: boolean;
   tags?: string[];
   scheduleCron?: string;
   scheduleNextRunAt?: string;
@@ -165,6 +176,14 @@ export interface RunSummary {
 export interface RunPage {
   runs: RunSummary[];
   nextCursor: string | null;
+}
+
+// One run the scheduler will start (GET /schedules/upcoming).
+export interface UpcomingRun {
+  workflowId: string;
+  workflowName: string;
+  at: string;
+  cron: string;
 }
 
 export interface NodeTypeMeta {

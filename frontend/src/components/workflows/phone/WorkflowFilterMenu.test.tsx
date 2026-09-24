@@ -27,8 +27,9 @@ function Harness() {
 
 const state = () => screen.getByTestId("state").textContent;
 const trigger = () => screen.getByRole("button", { name: /Filter and sort/ });
-const menu = () => screen.queryByRole("menu");
-const item = (name: RegExp) => screen.getByRole("menuitemradio", { name });
+const menu = () =>
+  screen.queryByRole("group", { name: "Filter and sort options" });
+const item = (name: RegExp) => screen.getByRole("button", { name });
 
 afterEach(cleanup);
 
@@ -39,7 +40,13 @@ describe("WorkflowFilterMenu", () => {
     fireEvent.click(trigger());
     expect(menu()).toBeTruthy();
     expect(trigger().getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getAllByRole("menuitemradio")).toHaveLength(9);
+    expect(trigger().getAttribute("aria-controls")).toBe(menu()!.id);
+    expect(
+      screen.getByRole("group", { name: "Show" }).querySelectorAll("button"),
+    ).toHaveLength(4);
+    expect(
+      screen.getByRole("group", { name: "Sort by" }).querySelectorAll("button"),
+    ).toHaveLength(5);
   });
 
   it("applies a choice and stays open for the next one", () => {
@@ -49,7 +56,7 @@ describe("WorkflowFilterMenu", () => {
     fireEvent.click(item(/^Alphabetical/));
     expect(state()).toBe("deployed|alpha:asc");
     expect(menu()).toBeTruthy();
-    expect(item(/^Deployed/).getAttribute("aria-checked")).toBe("true");
+    expect(item(/^Deployed/).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("flips Highest cost to Lowest cost on a second tap", () => {
@@ -60,7 +67,7 @@ describe("WorkflowFilterMenu", () => {
     expect(item(/^Highest cost, high → low/)).toBeTruthy();
     fireEvent.click(item(/^Highest cost/));
     expect(state()).toBe("all|cost:asc");
-    expect(item(/^Lowest cost/).getAttribute("aria-checked")).toBe("true");
+    expect(item(/^Lowest cost/).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("closes the moment the page scrolls", () => {
@@ -110,5 +117,17 @@ describe("WorkflowFilterMenu", () => {
     expect(trigger().getAttribute("aria-label")).toBe(
       "Filter and sort, changed",
     );
+  });
+
+  // Plain buttons, not a menu: nothing promises arrow-key handling that
+  // isn't there, and Tab reaches every option in order.
+  it("uses toggle buttons rather than ARIA menu roles", () => {
+    render(<Harness />);
+    expect(trigger().hasAttribute("aria-haspopup")).toBe(false);
+    fireEvent.click(trigger());
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.queryAllByRole("menuitemradio")).toHaveLength(0);
+    expect(item(/^All$/).getAttribute("aria-pressed")).toBe("true");
+    expect(item(/^Paused/).getAttribute("aria-pressed")).toBe("false");
   });
 });

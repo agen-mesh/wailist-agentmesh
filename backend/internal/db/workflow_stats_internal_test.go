@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,5 +56,95 @@ func TestListWorkflowsAttachesRunsSpendAndLastRun(t *testing.T) {
 	i := wfs[byID[idle]]
 	if i.Runs != 0 || i.Spend != "" || i.LastRunAt != nil {
 		t.Errorf("idle = runs %d spend %q lastRunAt %v, want 0, empty, nil", i.Runs, i.Spend, i.LastRunAt)
+	}
+}
+
+func TestSetWorkflowDescriptionAndCountRuns(t *testing.T) {
+	s := runsListStore(t)
+	ctx := context.Background()
+	user := runsListUser(t, s)
+	wf := runsListWorkflow(t, s, user, "Described")
+
+	description := func() string {
+		t.Helper()
+		got, err := s.GetWorkflow(ctx, wf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.Description
+	}
+	if got := description(); got != "" {
+		t.Fatalf("new workflow description = %q, want empty", got)
+	}
+	if err := s.SetWorkflowDescription(ctx, wf, "Sorts support email."); err != nil {
+		t.Fatal(err)
+	}
+	if got := description(); got != "Sorts support email." {
+		t.Fatalf("description = %q after set", got)
+	}
+	// A graph save through UpdateWorkflow must not touch it.
+	if _, err := s.UpdateWorkflow(ctx, wf, "Described", models.WorkflowGraph{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := description(); got != "Sorts support email." {
+		t.Fatalf("description = %q after a graph save", got)
+	}
+	if err := s.SetWorkflowDescription(ctx, wf, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := description(); got != "" {
+		t.Fatalf("description = %q after clearing", got)
+	}
+
+	now := time.Now().UTC()
+	runAt(t, s, wf, now.Add(-time.Hour))
+	// Older than the list's 30-day window, but still a run.
+	runAt(t, s, wf, now.Add(-90*24*time.Hour))
+	if n, err := s.CountRuns(ctx, wf); err != nil || n != 2 {
+		t.Fatalf("CountRuns = %d, %v; want 2", n, err)
+	}
+}
+
+// The graph and the description are one save. A description the database
+// refuses must leave the name and graph as they were, not half-saved.
+func TestUpdateWorkflowAndDescriptionIsOneSave(t *testing.T) {
+	s := runsListStore(t)
+	ctx := context.Background()
+	user := runsListUser(t, s)
+	wf := runsListWorkflow(t, s, user, "Before")
+
+	desc := "Sorts support email."
+	got, err := s.UpdateWorkflowAndDescription(ctx, wf, "After", models.WorkflowGraph{}, &desc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "After" || got.Description != desc {
+		t.Fatalf("saved name=%q description=%q", got.Name, got.Description)
+	}
+
+	// Past the 2000-character CHECK, so the statement fails as a whole.
+	tooLong := strings.Repeat("x", 2001)
+	if _, err := s.UpdateWorkflowAndDescription(ctx, wf, "Half saved", models.WorkflowGraph{}, &tooLong); err == nil {
+		t.Fatal("an over-long description saved")
+	}
+	after, err := s.GetWorkflow(ctx, wf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Name != "After" || after.Description != desc {
+		t.Fatalf("after a failed save: name=%q description=%q, want both unchanged", after.Name, after.Description)
+	}
+
+	// nil leaves the description alone; empty clears it.
+	if _, err := s.UpdateWorkflowAndDescription(ctx, wf, "After", models.WorkflowGraph{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	empty := ""
+	cleared, err := s.UpdateWorkflowAndDescription(ctx, wf, "After", models.WorkflowGraph{}, &empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.Description != "" {
+		t.Fatalf("description = %q after clearing", cleared.Description)
 	}
 }

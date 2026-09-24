@@ -13,6 +13,9 @@ function harness(opts: {
   token: string | null;
   optedIn: boolean;
   restore?: () => Promise<void>;
+  // What the stored token is by the time a clear runs. Defaults to `token`;
+  // set it to model a sign-in that has already replaced it.
+  storedAtClear?: string | null;
 }) {
   const calls = {
     enable: 0,
@@ -22,8 +25,10 @@ function harness(opts: {
     back: 0,
     flushes: 0,
     oauth: 0,
+    tokenClears: [] as (string | null)[],
   };
   const prefs = { optedIn: opts.optedIn };
+  let stored: string | null = opts.token;
   const navigate = vi.fn();
   const persistNativeSession = vi
     .fn<(token: string) => Promise<void>>()
@@ -45,9 +50,15 @@ function harness(opts: {
   }));
 
   vi.doMock("./auth", () => ({
-    loadToken: async () => opts.token,
+    loadToken: async () => stored,
     saveToken: async () => {},
-    clearToken: async () => {},
+    clearTokenIf: async (expected: string | null) => {
+      if (opts.storedAtClear !== undefined) stored = opts.storedAtClear;
+      if (stored !== expected) return false;
+      calls.tokenClears.push(expected);
+      stored = null;
+      return true;
+    },
   }));
   vi.doMock("./geofence", () => ({
     flush: async () => {
@@ -246,6 +257,44 @@ describe("boot", () => {
       replace: true,
     });
   });
+
+  // Password sign-in follows ?next=; social sign-in must too, or a
+  // notification tapped while signed out loses its workflow.
+  it("goes where sign-in was headed, and keeps it on a failed attempt", async () => {
+    const h = harness({ token: null, optedIn: false });
+    const { boot } = await import("./index");
+    await boot();
+
+    await h.deliverOAuth({
+      ok: true,
+      token: "tok_oauth",
+      next: "/workflows/app?id=wf-1",
+    });
+    expect(h.navigate).toHaveBeenLastCalledWith("/workflows/app?id=wf-1", {
+      replace: true,
+    });
+
+    await h.deliverOAuth({
+      ok: false,
+      reason: "cancelled",
+      next: "/workflows/app?id=wf-1",
+    });
+    expect(h.navigate).toHaveBeenLastCalledWith(
+      "/signin?error=cancelled&next=%2Fworkflows%2Fapp%3Fid%3Dwf-1",
+      { replace: true },
+    );
+  });
+
+  it("ignores a next target that leaves the app", async () => {
+    const h = harness({ token: null, optedIn: false });
+    const { boot } = await import("./index");
+    await boot();
+
+    await h.deliverOAuth({ ok: true, token: "tok_oauth", next: "//evil.test" });
+    expect(h.navigate).toHaveBeenLastCalledWith("/workflows", {
+      replace: true,
+    });
+  });
 });
 
 describe("onSignedOut", () => {
@@ -266,6 +315,21 @@ describe("onSignedOut", () => {
     // provider, and the cost of the flag surviving is the next person being
     // registered without being asked.
     expect(calls.clears).toBe(1);
+    expect(calls.tokenClears).toEqual(["tok_session"]);
+  });
+
+  // Unregistering awaits the network. A sign-in that lands meanwhile has
+  // saved a different token, and the sign-out must not take it with it.
+  it("leaves a session signed in while it was still cleaning up", async () => {
+    const { calls } = harness({
+      token: "tok_session",
+      optedIn: true,
+      storedAtClear: "tok_next",
+    });
+    const { shell } = await import("./index");
+
+    await shell.onSignedOut();
+    expect(calls.tokenClears).toEqual([]);
   });
 
   it("signs the next person in without inheriting the last one's opt-in", async () => {
@@ -283,5 +347,41 @@ describe("onSignedOut", () => {
     await boot();
     await settle();
     expect(calls.enable).toBe(0);
+  });
+});
+
+// The server refused a token. Unlike a sign-out, nothing authenticated can be
+// done with it any more, so it is removed before the slow notification work,
+// and only if a sign-in has not already replaced it.
+describe("onSessionRejected", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("clears the refused token and what the device held for it", async () => {
+    const { calls, prefs } = harness({ token: "tok_dead", optedIn: true });
+    const { shell } = await import("./index");
+
+    await shell.onSessionRejected("tok_dead");
+    expect(calls.tokenClears).toEqual(["tok_dead"]);
+    expect(calls.disable).toBe(1);
+    expect(prefs.optedIn).toBe(false);
+    expect(calls.clears).toBe(1);
+  });
+
+  it("touches nothing once a sign-in has replaced the refused token", async () => {
+    const { calls, prefs } = harness({
+      token: "tok_dead",
+      optedIn: true,
+      storedAtClear: "tok_fresh",
+    });
+    const { shell } = await import("./index");
+
+    await shell.onSessionRejected("tok_dead");
+    expect(calls.tokenClears).toEqual([]);
+    expect(calls.disable).toBe(0);
+    expect(calls.clears).toBe(0);
+    expect(prefs.optedIn).toBe(true);
   });
 });

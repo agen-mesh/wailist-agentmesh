@@ -8,20 +8,36 @@ import { useEffect, useRef } from "react";
 //
 // The latest `poll` is always the one called, so a caller can pass an inline
 // function without restarting the timer on every render.
-export function usePolling(poll: () => void, intervalMs: number): void {
+//
+// One poll at a time. A `poll` that returns a promise is not called again
+// until that promise settles, however many ticks or foreground events arrive
+// meanwhile. Two overlapping requests could otherwise resolve out of order,
+// and the older answer, landing last, would overwrite the newer one -- a run
+// shown finished would flip back to running.
+export function usePolling(
+  poll: () => void | Promise<unknown>,
+  intervalMs: number,
+): void {
   const pollRef = useRef(poll);
+  const inFlight = useRef(false);
   useEffect(() => {
     pollRef.current = poll;
   }, [poll]);
 
   useEffect(() => {
-    const visible = () => document.visibilityState === "visible";
-    const timer = setInterval(() => {
-      if (visible()) pollRef.current();
-    }, intervalMs);
-    const onVisibility = () => {
-      if (visible()) pollRef.current();
+    const tick = () => {
+      if (document.visibilityState !== "visible" || inFlight.current) return;
+      const result = pollRef.current();
+      if (!result) return;
+      inFlight.current = true;
+      void result
+        .catch(() => {})
+        .then(() => {
+          inFlight.current = false;
+        });
     };
+    const timer = setInterval(tick, intervalMs);
+    const onVisibility = tick;
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
       clearInterval(timer);

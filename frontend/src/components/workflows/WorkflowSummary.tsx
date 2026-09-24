@@ -1,13 +1,13 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Pill } from "@/components/ui";
 import { Topbar } from "@/components/Topbar";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
 import { RunSheet } from "@/components/runs/RunSheet";
 import { RunStatusPill } from "@/components/runs/RunStatusPill";
+import { UpcomingRuns } from "@/components/runs/UpcomingRuns";
 import { useNow } from "@/hooks/useNow";
 import { usePolling } from "@/hooks/usePolling";
 import {
@@ -22,9 +22,13 @@ import {
   formatDuration,
   formatRunTime,
   formatSpend,
+  formatUntil,
   triggerLabel,
 } from "@/lib/runFormat";
 import { workflowHref } from "@/lib/routes";
+import { describeWorkflow, workflowAgents } from "@/lib/describeWorkflow";
+import { describeSchedule } from "@/lib/describeSchedule";
+import { statsKnown, UNKNOWN } from "@/lib/workflowMeta";
 
 // A workflow as a phone needs it: is it running, what did its runs do and
 // cost, and Run or Stop. The graph itself is not shown here; it is edited on a
@@ -44,6 +48,100 @@ const WORKFLOW_STATUS: Record<
   error: { tone: "danger", label: "Error" },
   draft: { tone: "default", label: "Draft" },
 };
+
+// Status colour by tone, the same dot the phone Workflows list uses.
+const TONE_COLOR: Record<string, string> = {
+  ok: "var(--accent)",
+  warm: "var(--warm)",
+  danger: "var(--danger)",
+  default: "var(--fg-dim)",
+};
+
+const count = new Intl.NumberFormat();
+
+// What the workflow is and what it has done: its description (or, until one
+// is written, a summary read off its graph), its run figures, its agents
+// and its next scheduled runs.
+function WorkflowDetails({ workflow }: { workflow: Workflow }) {
+  const agents = workflowAgents(workflow);
+  const spent = Number.parseFloat(workflow.spend ?? "");
+  // The 30-day pair comes from the same aggregation the list uses, and it
+  // can fail on its own while the workflow itself reads fine. Both are then
+  // zero for want of an answer, not because nothing ran. `totalRuns` has its
+  // own nullable field and already says so by itself.
+  const figuresKnown = statsKnown(workflow);
+  return (
+    <>
+      <section aria-label="About this workflow" style={{ marginTop: 24 }}>
+        <p className="wfd-desc">
+          {workflow.description || describeWorkflow(workflow)}
+        </p>
+        {!workflow.description && (
+          <p className="wfd-note">Summarised from its steps.</p>
+        )}
+        <dl className="wfd-stats">
+          <div>
+            <dt>Total runs</dt>
+            <dd>
+              {workflow.totalRuns !== undefined
+                ? count.format(workflow.totalRuns)
+                : "—"}
+            </dd>
+          </div>
+          <div>
+            <dt>Runs · 30 days</dt>
+            <dd>{figuresKnown ? count.format(workflow.runs ?? 0) : UNKNOWN}</dd>
+          </div>
+          <div>
+            <dt>Spent · 30 days</dt>
+            <dd>
+              {figuresKnown
+                ? formatSpend(
+                    Number.isFinite(spent) ? Math.round(spent * 1e6) : 0,
+                  )
+                : UNKNOWN}
+            </dd>
+          </div>
+          <div>
+            <dt>Next run</dt>
+            <dd>{formatUntil(workflow.scheduleNextRunAt)}</dd>
+          </div>
+        </dl>
+      </section>
+
+      {agents.length > 0 && (
+        <section aria-labelledby="wf-summary-agents" style={{ marginTop: 24 }}>
+          <h2 id="wf-summary-agents" style={sectionLabel}>
+            Agents
+          </h2>
+          <ul className="wfd-agents">
+            {agents.map((a) => (
+              <li key={a.id} className="wfd-agent">
+                <span className="wfd-agent__name">{a.name}</span>
+                <span className="wfd-agent__meta">
+                  {[
+                    a.model ?? "No model attached",
+                    a.tools
+                      ? `${a.tools} ${a.tools === 1 ? "tool" : "tools"}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {workflow.scheduleCron && (
+        <div style={{ marginTop: 24 }}>
+          <UpcomingRuns workflowId={workflow.id} limit={3} hideWhenEmpty />
+        </div>
+      )}
+    </>
+  );
+}
 
 function isChatWorkflow(wf: Workflow): boolean {
   return wf.nodes.some((n) => n.type === "trigger" && n.template === "chat");
@@ -95,16 +193,60 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
     );
   }, []);
 
-  const refreshRuns = useCallback(
-    () =>
-      runsApi
-        .listForWorkflow(workflowId, { limit: PAGE_SIZE })
-        .then(applyRunPage, applyRunsError),
-    [workflowId, applyRunPage, applyRunsError],
+  // Numbers each first-page request: the first load, a pull, a poll. Only
+  // the newest one started may land, so a slow first load cannot replace
+  // what a later poll already showed.
+  const runsSeq = useRef(0);
+  const refreshRuns = useCallback(() => {
+    const seq = ++runsSeq.current;
+    return runsApi.listForWorkflow(workflowId, { limit: PAGE_SIZE }).then(
+      (page) => {
+        if (seq === runsSeq.current) applyRunPage(page);
+      },
+      (e: unknown) => {
+        if (seq === runsSeq.current) applyRunsError(e);
+      },
+    );
+  }, [workflowId, applyRunPage, applyRunsError]);
+  // The workflow is read from three places -- the first load, a pull, and a
+  // change in run activity -- and they can overlap. Numbered the same way, so
+  // a slow read (say, the one a run starting triggered) cannot land after a
+  // newer one and put back figures from before the run finished.
+  //
+  // "Newer" means newer and successful. A read that fails changes nothing on
+  // screen, so it must not stop an older one from landing: the quiet re-read
+  // after a run starts can fail while the first load is still in flight, and
+  // when that outranked the first load the screen stayed on its skeleton.
+  const workflowSeq = useRef(0);
+  const shownWorkflowSeq = useRef(0);
+  const landWorkflow = useCallback(
+    (seq: number, wf: Workflow) => {
+      if (seq <= shownWorkflowSeq.current) return;
+      shownWorkflowSeq.current = seq;
+      applyWorkflow(wf);
+    },
+    [applyWorkflow],
+  );
+  // An error is shown only while nothing newer has succeeded.
+  const landWorkflowError = useCallback(
+    (seq: number, e: unknown, onError?: (e: unknown) => void) => {
+      if (seq > shownWorkflowSeq.current) onError?.(e);
+    },
+    [],
+  );
+  const readWorkflow = useCallback(
+    (onError?: (e: unknown) => void) => {
+      const seq = ++workflowSeq.current;
+      return workflowsApi.get(workflowId).then(
+        (wf) => landWorkflow(seq, wf),
+        (e: unknown) => landWorkflowError(seq, e, onError),
+      );
+    },
+    [workflowId, landWorkflow, landWorkflowError],
   );
   const loadWorkflow = useCallback(
-    () => workflowsApi.get(workflowId).then(applyWorkflow, applyWorkflowError),
-    [workflowId, applyWorkflow, applyWorkflowError],
+    () => readWorkflow(applyWorkflowError),
+    [readWorkflow, applyWorkflowError],
   );
 
   // The first load. State is only set once a response lands, and not at all
@@ -116,18 +258,34 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
       (value: T) => {
         if (!cancelled) apply(value);
       };
-    workflowsApi
-      .get(workflowId)
-      .then(unlessGone(applyWorkflow), unlessGone(applyWorkflowError));
+    // Reads still in flight for a previous workflow must never land here.
+    shownWorkflowSeq.current = workflowSeq.current;
+    const wfSeq = ++workflowSeq.current;
+    workflowsApi.get(workflowId).then(
+      unlessGone((wf: Workflow) => landWorkflow(wfSeq, wf)),
+      unlessGone((e: unknown) =>
+        landWorkflowError(wfSeq, e, applyWorkflowError),
+      ),
+    );
+    const seq = ++runsSeq.current;
+    const unlessSuperseded =
+      <T,>(apply: (value: T) => void) =>
+      (value: T) => {
+        if (seq === runsSeq.current) apply(value);
+      };
     runsApi
       .listForWorkflow(workflowId, { limit: PAGE_SIZE })
-      .then(unlessGone(applyRunPage), unlessGone(applyRunsError));
+      .then(
+        unlessGone(unlessSuperseded(applyRunPage)),
+        unlessGone(unlessSuperseded(applyRunsError)),
+      );
     return () => {
       cancelled = true;
     };
   }, [
     workflowId,
-    applyWorkflow,
+    landWorkflow,
+    landWorkflowError,
     applyWorkflowError,
     applyRunPage,
     applyRunsError,
@@ -144,12 +302,13 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
   // workflow can be run from the website or by its trigger at any time, so an
   // idle list is polled too, only more slowly than one with a run going.
   const pendingId = pendingShown?.id ?? null;
+  // Returns its requests, so usePolling waits for them before the next poll.
   const poll = useCallback(() => {
-    void refreshRuns();
+    const requests: Promise<unknown>[] = [refreshRuns()];
     // A run the list has not picked up yet is asked about directly, so it
     // still settles when the list is slow to include it.
     if (pendingId) {
-      runsApi
+      const pendingRequest = runsApi
         .get(pendingId)
         .then(({ run }) => {
           if (run.status === "running") return;
@@ -164,9 +323,29 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
           );
         })
         .catch(() => {});
+      requests.push(pendingRequest);
     }
+    return Promise.all(requests);
   }, [pendingId, refreshRuns]);
   usePolling(poll, anyRunning ? POLL_MS : IDLE_POLL_MS);
+
+  // Total runs, the 30-day figures and the next scheduled run come with the
+  // workflow, which is otherwise read once. So it is read again whenever the
+  // runs move: a new run appears (started here, elsewhere or by the
+  // schedule, which also advances the next run) or a running one finishes.
+  // Quietly -- a failed refresh keeps the figures already shown.
+  const runActivity = [
+    shown[0]?.id ?? "",
+    ...shown.filter((r) => r.status === "running").map((r) => r.id),
+  ].join("|");
+  const seenActivity = useRef<string | null>(null);
+  useEffect(() => {
+    if (!runsLoaded) return;
+    const previous = seenActivity.current;
+    seenActivity.current = runActivity;
+    if (previous === null || previous === runActivity) return;
+    void readWorkflow();
+  }, [runActivity, runsLoaded, readWorkflow]);
 
   const now = useNow(anyRunning);
 
@@ -253,6 +432,12 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
     workflow !== null && (runsLoaded || runsUnavailable || runsError !== null);
   const hasZone = workflow?.geofenceLat !== undefined;
 
+  // The sheet follows the row, not the copy taken when it was tapped, so a
+  // refresh that brings new spend or a new status reaches the open sheet.
+  const selectedRun = selected
+    ? (shown.find((r) => r.id === selected.id) ?? selected)
+    : null;
+
   return (
     <div
       className="am-viewport"
@@ -295,9 +480,14 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
             <header style={{ marginTop: 20 }}>
               <div style={titleRow}>
                 <h1 style={title}>{workflow.name}</h1>
-                <Pill tone={status.tone} dot mono>
+                <span className="wfd-status">
+                  <span
+                    className="wfd-status__dot"
+                    style={{ background: TONE_COLOR[status.tone] }}
+                    aria-hidden
+                  />
                   {status.label}
-                </Pill>
+                </span>
               </div>
 
               <p style={{ ...copy, marginTop: 6 }}>
@@ -306,8 +496,12 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
                   : workflow.scheduleCron
                     ? "Runs on a schedule · "
                     : "Runs when started"}
+                {/* In words and the reader's own time. The cron itself stays
+                    in the tooltip for whoever needs the exact expression. */}
                 {!chat && workflow.scheduleCron && (
-                  <code style={cron}>{workflow.scheduleCron}</code>
+                  <span style={schedule} title={workflow.scheduleCron}>
+                    {describeSchedule(workflow.scheduleCron)}
+                  </span>
                 )}
               </p>
 
@@ -376,6 +570,8 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
               </div>
             </header>
           )}
+
+          {ready && workflow && <WorkflowDetails workflow={workflow} />}
 
           {ready && (
             <section
@@ -470,9 +666,9 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
       </PullToRefresh>
 
       <style>{SUMMARY_CSS}</style>
-      {selected && (
+      {selectedRun && (
         <RunSheet
-          run={selected}
+          run={selectedRun}
           onClose={() => setSelected(null)}
           returnFocusTo={openerRef}
         />
@@ -525,8 +721,7 @@ const copy: React.CSSProperties = {
   margin: 0,
 };
 
-const cron: React.CSSProperties = {
-  font: "500 12px/1 var(--font-mono)",
+const schedule: React.CSSProperties = {
   color: "var(--fg)",
 };
 
@@ -545,12 +740,11 @@ const fullWidth: React.CSSProperties = {
   justifyContent: "center",
 };
 
+// Sentence case, like the Upcoming heading beside it on this screen.
 const sectionLabel: React.CSSProperties = {
-  margin: "0 0 12px",
-  font: "500 11px/1 var(--font-mono)",
-  letterSpacing: "0.08em",
-  textTransform: "uppercase",
-  color: "var(--fg-dim)",
+  margin: "0 0 8px",
+  font: "600 13px/1.3 var(--font-sans)",
+  color: "var(--fg)",
 };
 
 const dayLabel: React.CSSProperties = {

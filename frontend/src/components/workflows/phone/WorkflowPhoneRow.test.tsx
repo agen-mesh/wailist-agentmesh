@@ -27,46 +27,86 @@ function renderRow(overrides: Partial<Workflow> = {}) {
   return screen.getByRole("link");
 }
 
-const fact = (row: HTMLElement, label: string) =>
-  within(row).getByText(label).nextElementSibling?.textContent;
-
 afterEach(cleanup);
 
 describe("WorkflowPhoneRow", () => {
-  it("is one link to the workflow, with nothing else to tap", () => {
-    const row = renderRow();
-    expect(row.getAttribute("href")).toContain("wf-triage");
-    expect(within(row).queryAllByRole("button")).toHaveLength(0);
+  it("is one card linking to the workflow, with nothing else to tap", () => {
+    const card = renderRow();
+    expect(card.getAttribute("href")).toContain("wf-triage");
+    expect(within(card).queryAllByRole("button")).toHaveLength(0);
     expect(screen.getAllByRole("link")).toHaveLength(1);
   });
 
-  it("shows the name, status, Spent, Runs and Upcoming run", () => {
-    const row = renderRow();
-    expect(within(row).getByText("Customer Support Triage")).toBeTruthy();
-    expect(within(row).getByText("Deployed")).toBeTruthy();
-    expect(fact(row, "Spent")).toBe("$4.22");
-    expect(fact(row, "Runs")).toBe((1842).toLocaleString());
-    expect(fact(row, "Upcoming run")).toBe("in 12 min");
+  it("puts the figures on one line ending in the workflow's state", () => {
+    const card = renderRow();
+    expect(within(card).getByText("Customer Support Triage")).toBeTruthy();
+    expect(card.textContent).toContain("$4.22");
+    expect(card.textContent).toContain("next in 12 min");
+    // A count with no period behind it read as neither a rate nor a total;
+    // the website's Usage page answers that question properly.
+    expect(card.textContent).not.toContain("1,842");
+    // The three-column Spent / Runs / Upcoming run grid is gone.
+    expect(within(card).queryByText("Spent")).toBeNull();
+    expect(within(card).queryByText("Upcoming run")).toBeNull();
+  });
+
+  it("carries the status on the card so the rail can be coloured", () => {
+    expect(renderRow().dataset.status).toBe("deployed");
+    cleanup();
+    expect(renderRow({ status: "paused" }).dataset.status).toBe("paused");
+    cleanup();
+    expect(renderRow({ status: "error" }).dataset.status).toBe("error");
+    cleanup();
+    // The legacy "active" is the same state, and must colour the same rail.
+    expect(renderRow({ status: "active" }).dataset.status).toBe("deployed");
+  });
+
+  // A deployed workflow with nothing queued has nothing to shout about, so
+  // the colour follows what the line says rather than the status.
+  it("colours the state by what it says, not by the status", () => {
+    const tone = (card: HTMLElement) =>
+      card.querySelector(".wfp-card__state")?.getAttribute("data-tone");
+    expect(tone(renderRow())).toBe("accent");
+    cleanup();
+    expect(tone(renderRow({ scheduleNextRunAt: undefined }))).toBe("dim");
+    cleanup();
+    expect(tone(renderRow({ status: "paused" }))).toBe("warm");
+    cleanup();
+    expect(tone(renderRow({ status: "error" }))).toBe("danger");
+  });
+
+  it("names the status in words, because the rail is only colour", () => {
+    expect(renderRow().getAttribute("aria-label")).toBe(
+      "Customer Support Triage, deployed. $4.22 spent, next in 12 min.",
+    );
   });
 
   it("leaves out the logo, tags, updated time and Open or Zone", () => {
-    const row = renderRow();
-    expect(row.querySelector("svg")).toBeNull();
+    const card = renderRow();
+    expect(card.querySelector("svg")).toBeNull();
     // The tags are "support" and "production"; the title also says Support.
-    expect(within(row).queryByText(/production|^#?support$/i)).toBeNull();
-    expect(within(row).queryByText(/Open|Zone|Updated|ago/)).toBeNull();
+    expect(within(card).queryByText(/production|^#?support$/i)).toBeNull();
+    expect(within(card).queryByText(/Open|Zone|Updated|ago/)).toBeNull();
   });
 
-  it("reads a workflow that never ran and has no schedule plainly", () => {
-    const row = renderRow({
+  it("says a workflow that never ran is a draft, and shows no figures", () => {
+    const card = renderRow({
       status: "draft",
       runs: undefined,
       spend: undefined,
       scheduleNextRunAt: undefined,
     });
-    expect(within(row).getByText("Draft")).toBeTruthy();
-    expect(fact(row, "Spent")).toBe("$0");
-    expect(fact(row, "Runs")).toBe("0");
-    expect(fact(row, "Upcoming run")).toBe("—");
+    expect(card.dataset.status).toBe("draft");
+    expect(card.textContent).toContain("draft");
+    expect(card.textContent).toContain("never run");
+    expect(card.textContent).not.toContain("$");
+    expect(card.getAttribute("aria-label")).toBe(
+      "Customer Support Triage, draft. Never run.",
+    );
+  });
+
+  it("says nothing is queued for a deployed workflow with no schedule", () => {
+    const card = renderRow({ scheduleNextRunAt: undefined });
+    expect(card.textContent).toContain("no run queued");
   });
 });

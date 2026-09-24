@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { damp, PULL_THRESHOLD_PX } from "./PullToRefresh";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { damp, PULL_THRESHOLD_PX, pullProgress } from "./PullToRefresh";
 
 // The resistance curve, tested without a touchscreen.
 //
@@ -42,5 +44,54 @@ describe("damp", () => {
     // a long pull hauls the indicator down the whole screen.
     expect(damp(400)).toBeLessThan(damp(200) * 2);
     expect(damp(400)).toBeLessThan(400);
+  });
+});
+
+// The ring fills with the pull. Nothing turns until the refresh starts: an
+// arrow that rotated as you dragged was read as the indicator spinning oddly.
+describe("pullProgress", () => {
+  it("is empty at rest and full once the pull will fire", () => {
+    expect(pullProgress(0)).toBe(0);
+    expect(pullProgress(PULL_THRESHOLD_PX)).toBe(1);
+  });
+
+  it("fills in step with the pull, never past full", () => {
+    expect(pullProgress(PULL_THRESHOLD_PX / 2)).toBe(0.5);
+    expect(pullProgress(PULL_THRESHOLD_PX * 3)).toBe(1);
+    expect(pullProgress(-20)).toBe(0);
+    let previous = -1;
+    for (let offset = 0; offset <= PULL_THRESHOLD_PX; offset += 4) {
+      expect(pullProgress(offset)).toBeGreaterThanOrEqual(previous);
+      previous = pullProgress(offset);
+    }
+  });
+});
+
+// The spin must never sit on .ptr-indicator. That element is positioned with an
+// inline transform, and CSS applies rotation around its origin after that
+// translate, so the bubble orbited the top of the list instead of spinning. It
+// is asserted against the stylesheet because jsdom does not apply it.
+describe("the spin is on the ring, not the bubble", () => {
+  // Resolved from the project root: vitest does not give this file a
+  // file:// import.meta.url.
+  const css = readFileSync(
+    resolve(process.cwd(), "src/app/responsive.css"),
+    "utf8",
+  );
+  const block = (selector: string) => {
+    const at = css.indexOf(selector + " {");
+    expect(at, `${selector} missing`).toBeGreaterThan(-1);
+    return css.slice(at, css.indexOf("}", at));
+  };
+
+  it("animates the ring", () => {
+    expect(block(".ptr-indicator__ring[data-spinning]")).toContain(
+      "animation: ptr-spin",
+    );
+  });
+
+  it("never animates the positioned bubble", () => {
+    expect(block(".ptr-indicator[data-spinning]")).not.toContain("animation");
+    expect(block(".ptr-indicator")).not.toContain("animation");
   });
 });
