@@ -149,6 +149,10 @@ type WorkflowNode struct {
 	// TendrilAmount is USD of AgentMesh credit to convert into Tendril
 	// credit, on a topup node.
 	TendrilAmount string `json:"tendrilAmount,omitempty"`
+	// TendrilMinBalance, on a topup node, makes the topup conditional: when
+	// the user's Tendril credit is already at or above this many USD, the
+	// node skips without paying anything. Empty means always top up.
+	TendrilMinBalance string `json:"tendrilMinBalance,omitempty"`
 	// TendrilLeaseToken is a bearer the TARGET needs, carried to the relay
 	// out of band. Never persisted on a saved workflow — it is only ever set
 	// on the synthesized nodes payTendril builds at call time.

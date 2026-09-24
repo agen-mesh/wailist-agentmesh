@@ -80,9 +80,10 @@ func Curated() []Resource {
 			Network:     AlgorandMainnet,
 			Asset:       "31566704",
 			PayTo:       "ZIK7QQE7ZX446TW3PN7PQ5UDZNTY7JI5RYNTIU3LPEYBOSTVWI6PTNSWKI",
-			// Flat gate fee only. Execution time is billed separately from a
-			// Tendril-side credit balance keyed to the paying wallet address.
-			AmountMicros: 10000,
+			// Per-job price from the live 402 quote. Execution time is billed
+			// separately from a Tendril-side credit balance keyed to the
+			// paying wallet address.
+			AmountMicros: 1_500_000,
 			Supported:    true,
 			Console:      "tendril",
 			Params: []Param{{

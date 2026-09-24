@@ -422,6 +422,10 @@ func nodeConfigHash(n models.WorkflowNode) string {
 		StateOp          string
 		StateKey         string
 		StateValue       string
+
+		// omitempty keeps every existing node's hash unchanged, so a Resume
+		// of a run from before this field existed doesn't re-execute it.
+		TendrilMinBal string `json:",omitempty"`
 	}{
 		Type: n.Type, Template: n.Template, SystemPrompt: n.SystemPrompt,
 		Wallet: n.Wallet, Balance: n.Balance, Model: n.Model, KeyMode: n.KeyMode,
@@ -432,7 +436,7 @@ func nodeConfigHash(n models.WorkflowNode) string {
 		DiscoveredParams: n.DiscoveredParams, ParamDefaults: n.ParamDefaults,
 		CustomParams: n.CustomParams, BodyMode: n.BodyMode, BodyTemplate: n.BodyTemplate,
 		Config: n.Config, TendrilAction: n.TendrilAction, TendrilNodeID: n.TendrilNodeID,
-		TendrilHours: n.TendrilHours, TendrilAmount: n.TendrilAmount,
+		TendrilHours: n.TendrilHours, TendrilAmount: n.TendrilAmount, TendrilMinBal: n.TendrilMinBalance,
 		StateOp: n.StateOp, StateKey: n.StateKey, StateValue: n.StateValue,
 	}
 	b, err := json.Marshal(relevant)

@@ -14,7 +14,7 @@ import { Topbar } from "@/components/Topbar";
 import { Workflow } from "@/lib/types";
 import { workflows as workflowsApi } from "@/lib/api";
 import { useCredits } from "@/lib/credits/store";
-import { DEMO_WORKFLOW } from "@/lib/data";
+import { TENDRIL_WORKFLOW } from "@/lib/data";
 import { loadTemplateWorkflow } from "@/lib/templateWorkflow";
 import { can } from "@/lib/readonly";
 import { ImportModal } from "./ImportModal";
@@ -37,14 +37,14 @@ export function WorkflowsPage() {
   const [wfList, setWfList] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [creatingDemo, setCreatingDemo] = useState(false);
+  const [creatingTendril, setCreatingTendril] = useState(false);
   // Tagged by source so the banner always shows the most recent failure --
   // two separate error strings with a fixed `a || b` precedence would let
   // a stale error from one action permanently mask a newer one from the
   // other. A success only clears the error if it's the one that owns it,
   // so it never wipes an unrelated action's still-relevant error.
   const [pageError, setPageError] = useState<{
-    source: "demo" | "delete" | "schedule";
+    source: "tendril" | "delete" | "schedule";
     message: string;
   } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -90,28 +90,28 @@ export function WorkflowsPage() {
     }
   }, [creating, router]);
 
-  // Loads DEMO_WORKFLOW (lib/data.ts) into a brand-new workflow row every
-  // click -- a demo is just a starting point the user immediately edits, so
-  // there's no "the one shared demo" identity to preserve and a fresh copy
-  // each time is correct. loadTemplateWorkflow (lib/templateWorkflow.ts)
+  // Loads TENDRIL_WORKFLOW (lib/data.ts) into a brand-new workflow row every
+  // click -- a template is just a starting point the user immediately edits,
+  // so there's no "the one shared copy" identity to preserve and a fresh
+  // copy each time is correct. loadTemplateWorkflow (lib/templateWorkflow.ts)
   // owns the create()-then-update()-then-rollback-on-failure sequence,
   // shared with each partner ConsoleCard's "try a workflow" icon.
-  const handleLoadDemoWorkflow = useCallback(async () => {
-    if (creatingDemo) return;
-    setCreatingDemo(true);
-    setPageError((prev) => (prev?.source === "demo" ? null : prev));
+  const handleLoadTendrilWorkflow = useCallback(async () => {
+    if (creatingTendril) return;
+    setCreatingTendril(true);
+    setPageError((prev) => (prev?.source === "tendril" ? null : prev));
     try {
-      const id = await loadTemplateWorkflow(DEMO_WORKFLOW);
+      const id = await loadTemplateWorkflow(TENDRIL_WORKFLOW);
       router.push(`/workflows/${id}`);
     } catch (e) {
       setPageError({
-        source: "demo",
+        source: "tendril",
         message:
-          e instanceof Error ? e.message : "could not load demo workflow",
+          e instanceof Error ? e.message : "could not load Tendril workflow",
       });
-      setCreatingDemo(false);
+      setCreatingTendril(false);
     }
-  }, [creatingDemo, router]);
+  }, [creatingTendril, router]);
 
   // Deletion is permanent, so the row only calls this after its own in-menu
   // confirm step. The backend refuses (409) for workflows with Tendril lease
@@ -225,19 +225,19 @@ export function WorkflowsPage() {
               )}
               {can("workflow.create", readOnly) && (
                 <button
-                  onClick={handleLoadDemoWorkflow}
-                  disabled={creatingDemo}
+                  onClick={handleLoadTendrilWorkflow}
+                  disabled={creatingTendril}
                   style={{
                     ...ghostBtn,
-                    opacity: creatingDemo ? 0.6 : 1,
+                    opacity: creatingTendril ? 0.6 : 1,
                     position: "relative",
                   }}
-                  title="Two Gemini 2.5 Flash agents + an HTTP tool + a Telegram step (no-ops until you add your own bot token/chat ID) + up to 3 real CANIX402 x402 calls (Algorand mainnet) -- only 1 of those 3 is guaranteed, the other 2 fire only if the agent's LLM chooses to call them (and can fire more than once). $2.07 guaranteed floor, ~$5.09 typical, no fixed ceiling."
+                  title="A native Tendril node runs a Python script on a Tendril machine and returns its output. $3.00 per run ($1.50 job + $1.50 platform fee)."
                 >
-                  {creatingDemo ? "Loading…" : "Load demo workflow"}
+                  {creatingTendril ? "Loading…" : "Load Tendril workflow"}
                   <span style={{ marginLeft: 6 }}>
                     <Pill tone="accent" mono>
-                      $2.07+/run
+                      $3.00/run
                     </Pill>
                   </span>
                 </button>

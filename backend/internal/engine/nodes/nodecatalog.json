@@ -2366,6 +2366,12 @@
               "where": "field",
               "label": "Amount (USD)",
               "placeholder": "10"
+            },
+            {
+              "key": "tendrilMinBalance",
+              "where": "field",
+              "label": "Only if credit below (USD)",
+              "hint": "blank tops up on every run"
             }
           ]
         },
