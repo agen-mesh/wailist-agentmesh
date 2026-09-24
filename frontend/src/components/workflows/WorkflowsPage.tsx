@@ -107,7 +107,7 @@ export function WorkflowsPage() {
       setPageError({
         source: "tendril",
         message:
-          e instanceof Error ? e.message : "could not load Tendril workflow",
+          e instanceof Error ? e.message : "could not load demo workflow",
       });
       setCreatingTendril(false);
     }
@@ -234,7 +234,7 @@ export function WorkflowsPage() {
                   }}
                   title="Rents a real Tendril machine for up to 15 minutes, probes its hardware, runs a multi-core benchmark on it, has a Gemini analyst write up the results, then releases the machine and refunds unused time. Tops up $2 of Tendril credit only when yours is below $1.50. $7.54 per run (rent gate $1.51, two jobs at $3.00 each, analyst $0.03) plus a few cents of metered machine time; $3.50 more on a run that tops up."
                 >
-                  {creatingTendril ? "Loading…" : "Load Tendril workflow"}
+                  {creatingTendril ? "Loading…" : "Run demo workflow"}
                   <span style={{ marginLeft: 6 }}>
                     <Pill tone="accent" mono>
                       $7.54+/run

@@ -829,7 +829,7 @@ export const TENDRIL_DEMO_WORKFLOW: Workflow = {
   ],
 };
 
-// TENDRIL_WORKFLOW is what the Workflows page's "Load Tendril workflow"
+// TENDRIL_WORKFLOW is what the Workflows page's "Run demo workflow"
 // button creates. Unlike TENDRIL_DEMO_WORKFLOW (agents calling Tendril's
 // x402 endpoint as a tool402), it drives the full lifecycle with the native
 // tendril nodes the canvas palette offers, the same actions the Tendril
@@ -975,7 +975,7 @@ if __name__ == "__main__":
 
 export const TENDRIL_WORKFLOW: Workflow = {
   id: "wf-tendril",
-  name: "Tendril: Rent, Benchmark & Release",
+  name: "Demo: Rent, Benchmark & Release",
   nodes: [
     {
       id: "tw1",
