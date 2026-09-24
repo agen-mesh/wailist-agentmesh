@@ -232,7 +232,7 @@ export function WorkflowsPage() {
                     opacity: creatingTendril ? 0.6 : 1,
                     position: "relative",
                   }}
-                  title="Rents a real Tendril machine for up to 15 minutes, probes its hardware, runs a multi-core benchmark on it, has a Gemini analyst write up the results, then releases the machine and refunds unused time. Tops up $2 of Tendril credit only when yours is below $1.50. $7.54 per run (rent gate $1.51, two jobs at $3.00 each, analyst $0.03) plus a few cents of metered machine time; $3.50 more on a run that tops up."
+                  title="Rents a real Tendril machine for up to 15 minutes, probes its hardware, runs a multi-core benchmark on it, has a Gemini analyst write up the results, then releases the machine and refunds unused time. Tops up Tendril credit only when yours is short of the rent (at least $2 plus a $1.50 fee). If any step fails the machine is still released. $7.54 per run (rent gate $1.51, two jobs at $3.00 each, analyst $0.03) plus a few cents of metered machine time."
                 >
                   {creatingTendril ? "Loading…" : "Run demo workflow"}
                   <span style={{ marginLeft: 6 }}>

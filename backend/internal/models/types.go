@@ -153,6 +153,12 @@ type WorkflowNode struct {
 	// the user's Tendril credit is already at or above this many USD, the
 	// node skips without paying anything. Empty means always top up.
 	TendrilMinBalance string `json:"tendrilMinBalance,omitempty"`
+	// TendrilCoverHours, on a topup node, sizes the topup to the next rent:
+	// it buys whatever the user's Tendril credit is short of renting the
+	// cheapest online machine for this many hours (never less than
+	// TendrilAmount), and skips when nothing is short. Overrides
+	// TendrilMinBalance.
+	TendrilCoverHours string `json:"tendrilCoverHours,omitempty"`
 	// TendrilLeaseToken is a bearer the TARGET needs, carried to the relay
 	// out of band. Never persisted on a saved workflow — it is only ever set
 	// on the synthesized nodes payTendril builds at call time.

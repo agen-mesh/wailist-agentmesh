@@ -111,6 +111,16 @@ func parseMinBalanceUSD(raw string) (float64, error) {
 	return v, nil
 }
 
+// parseCoverHours reads a topup node's optional "cover this many hours of
+// rent" setting. Empty means off, reported as 0; otherwise it follows the
+// rent node's own hour bounds.
+func parseCoverHours(raw string) (float64, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 0, nil
+	}
+	return parseHours(raw)
+}
+
 // TendrilStore is the slice of *db.Store this package needs, as an interface
 // so tests can drive the executor without a database.
 type TendrilStore interface {
@@ -184,7 +194,37 @@ func executeTendrilTopup(ctx context.Context, node models.WorkflowNode, cfg Tend
 	if err != nil {
 		return nil, err
 	}
-	if minBalanceUSD > 0 {
+	coverHours, err := parseCoverHours(node.TendrilCoverHours)
+	if err != nil {
+		return nil, err
+	}
+	if coverHours > 0 {
+		// Sized to the rent that follows: machines[0] is the machine
+		// executeTendrilRent picks when no node id is set, and need is the
+		// exact reservation it will make.
+		machines, err := cfg.Client.OnlineNodes(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("tendril: market: %w", err)
+		}
+		if len(machines) == 0 {
+			return nil, fmt.Errorf("tendril: no machines are online right now")
+		}
+		need := RequiredCreditAtomic(machines[0].RateUSDMicrosPerHour(), coverHours)
+		if balance >= need {
+			return map[string]any{
+				"skipped":              true,
+				"toppedUp":             formatUSDCAmount(0),
+				"tendrilCreditBalance": formatUSDCAmount(balance),
+				"neededForRent":        formatUSDCAmount(need),
+				"machine":              machines[0].ID,
+				"note":                 fmt.Sprintf("Tendril credit already covers %v hour(s) on the cheapest online machine, so no topup was bought and nothing was charged.", coverHours),
+			}, nil
+		}
+		// Whole cents, rounded up so the purchase never lands a micro short.
+		if short := (need - balance + 9_999) / 10_000 * 10_000; short > atomic {
+			atomic = short
+		}
+	} else if minBalanceUSD > 0 {
 		// Rounded up, so a tiny positive threshold still means "top up at
 		// $0" rather than rounding to 0 and skipping forever.
 		minAtomic := int64(math.Ceil(minBalanceUSD * 1e6))
@@ -205,7 +245,12 @@ func executeTendrilTopup(ctx context.Context, node models.WorkflowNode, cfg Tend
 		return nil, fmt.Errorf("tendril: platform: %w", err)
 	}
 	if platform.MinTopUpAtomic > 0 && atomic < platform.MinTopUpAtomic {
-		return nil, fmt.Errorf("tendril: minimum topup is %s", formatUSDCAmount(platform.MinTopUpAtomic))
+		if coverHours <= 0 {
+			return nil, fmt.Errorf("tendril: minimum topup is %s", formatUSDCAmount(platform.MinTopUpAtomic))
+		}
+		// A computed shortfall can fall under Tendril's floor; buying the
+		// floor still covers it.
+		atomic = platform.MinTopUpAtomic
 	}
 	if platform.MaxTopUpAtomic > 0 && atomic > platform.MaxTopUpAtomic {
 		return nil, fmt.Errorf("tendril: maximum topup is %s", formatUSDCAmount(platform.MaxTopUpAtomic))

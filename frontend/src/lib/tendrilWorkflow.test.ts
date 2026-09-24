@@ -16,17 +16,15 @@ describe("TENDRIL_WORKFLOW", () => {
     ]);
   });
 
-  it("keeps enough Tendril credit for the rent it reserves", () => {
+  it("tops up exactly for the rent it reserves", () => {
     const topup = byId.get("tw2")!;
     const rent = byId.get("tw3")!;
-    const minBalance = parseFloat(topup.tendrilMinBalance!);
+    // Sizing the topup to the rent is what lets any machine price work.
+    expect(topup.tendrilCoverHours).toBe(rent.tendrilHours);
     // Tendril's live minimum topup is $0.10 (GET /platform).
     expect(parseFloat(topup.tendrilAmount!)).toBeGreaterThanOrEqual(0.1);
-    // Without a threshold the backend tops up on every run.
-    expect(minBalance).toBeGreaterThan(0);
-    // The threshold must cover the reservation at the priciest rate the
-    // template is sized for ($6/hr), or rent refuses for lack of credit.
-    expect(minBalance).toBeGreaterThanOrEqual(6 * parseFloat(rent.tendrilHours!));
+    // Rent must pick the same cheapest machine the topup priced.
+    expect(rent.tendrilNodeId).toBeUndefined();
   });
 
   it("gives each job a self-contained Python payload", () => {

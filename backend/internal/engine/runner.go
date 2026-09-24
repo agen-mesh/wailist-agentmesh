@@ -426,6 +426,7 @@ func nodeConfigHash(n models.WorkflowNode) string {
 		// omitempty keeps every existing node's hash unchanged, so a Resume
 		// of a run from before this field existed doesn't re-execute it.
 		TendrilMinBal string `json:",omitempty"`
+		TendrilCover  string `json:",omitempty"`
 	}{
 		Type: n.Type, Template: n.Template, SystemPrompt: n.SystemPrompt,
 		Wallet: n.Wallet, Balance: n.Balance, Model: n.Model, KeyMode: n.KeyMode,
@@ -437,7 +438,7 @@ func nodeConfigHash(n models.WorkflowNode) string {
 		CustomParams: n.CustomParams, BodyMode: n.BodyMode, BodyTemplate: n.BodyTemplate,
 		Config: n.Config, TendrilAction: n.TendrilAction, TendrilNodeID: n.TendrilNodeID,
 		TendrilHours: n.TendrilHours, TendrilAmount: n.TendrilAmount, TendrilMinBal: n.TendrilMinBalance,
-		StateOp: n.StateOp, StateKey: n.StateKey, StateValue: n.StateValue,
+		TendrilCover: n.TendrilCoverHours, StateOp: n.StateOp, StateKey: n.StateKey, StateValue: n.StateValue,
 	}
 	b, err := json.Marshal(relevant)
 	if err != nil {
@@ -1064,6 +1065,8 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run, ge
 		r.runBilling.Delete(run.ID)
 	}()
 
+	defer r.releaseRunLeases(ctx, wf, run)
+
 	go alert.Notify(context.Background(), alert.ChannelWorkflows, fmt.Sprintf("workflow %q run %s started", wf.Name, run.ID))
 
 	r.execute(ctx, wf, run, nil)
@@ -1157,6 +1160,13 @@ func (r *Runner) Resume(ctx context.Context, wf models.Workflow, run models.Run,
 	// MarkRunRunning claim before this goroutine was ever spawned -- that
 	// claim is Resume's actual admission gate (see StartResume's doc
 	// comment for why it has to happen there and not here).
+
+	if err := reopenReleasedRentsWith(ctx, wf, run.ID, states, r.store); err != nil {
+		log.Printf("resume: checking run %s's Tendril leases failed: %v", run.ID, err)
+		r.finishRun(wf, run, models.RunStatusFailed)
+		return
+	}
+	defer r.releaseRunLeases(ctx, wf, run)
 
 	go alert.Notify(context.Background(), alert.ChannelWorkflows, fmt.Sprintf("workflow %q run %s resumed", wf.Name, run.ID))
 

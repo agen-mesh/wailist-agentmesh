@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -157,6 +158,122 @@ func TestTopupProceedsWhenCreditBelowMinimum(t *testing.T) {
 		}
 		if !slices.Contains(paths, "/topup") {
 			t.Errorf("credit %d, min %s: requests %v never reached /topup", tc.credit, tc.min, paths)
+		}
+	}
+}
+
+// coverMarket serves a Tendril registry whose cheapest online machine costs
+// rate dollars an hour, and records the amount of any /topup attempt.
+func coverMarket(t *testing.T, rate float64, minTopUp int64) (*httptest.Server, *[]string, *string) {
+	t.Helper()
+	var paths []string
+	var amount string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/explorer":
+			fmt.Fprintf(w, `{"nodes":[
+				{"id":"offline","status":"offline","pricePerHourUsd":0.01},
+				{"id":"pricey","status":"online","pricePerHourUsd":%v},
+				{"id":"cheap","status":"online","pricePerHourUsd":%v}]}`, rate*10, rate)
+		case "/platform":
+			fmt.Fprintf(w, `{"minTopUpAtomic":%d,"maxTopUpAtomic":1000000000}`, minTopUp)
+		case "/topup":
+			amount = r.URL.Query().Get("amount")
+			w.Write([]byte(`{}`))
+		default:
+			w.Write([]byte(`{}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &paths, &amount
+}
+
+// Covering a rent skips without paying when credit already reserves the
+// cheapest machine for the requested hours.
+func TestTopupCoverSkipsWhenRentIsCovered(t *testing.T) {
+	srv, paths, _ := coverMarket(t, 8, 100_000)
+	// $8/hr for 0.25h needs $2.00; the user holds exactly that.
+	store := &fakeTendrilStore{tendrilCredit: 2_000_000, agentMeshCredit: 10_000_000}
+	out, err := executeTendrilTopup(context.Background(),
+		models.WorkflowNode{TendrilAmount: "2", TendrilCoverHours: "0.25", TendrilMinBalance: "50"},
+		TendrilConfig{Client: tendril.NewClient(srv.URL), Store: store, UserID: "user1"})
+	if err != nil {
+		t.Fatalf("skip path errored: %v", err)
+	}
+	m, _ := out.(map[string]any)
+	if m["skipped"] != true || m["machine"] != "cheap" {
+		t.Errorf("output = %v, want skipped on machine cheap", out)
+	}
+	if slices.Contains(*paths, "/topup") || slices.Contains(*paths, "/platform") {
+		t.Errorf("requests %v, want only the market read on the skip path", *paths)
+	}
+}
+
+// When credit is short, the topup buys the shortfall, never less than the
+// node's amount and never less than Tendril's own minimum.
+func TestTopupCoverBuysTheShortfall(t *testing.T) {
+	cases := []struct {
+		name     string
+		rate     float64
+		credit   int64
+		amount   string
+		minTopUp int64
+		want     string
+	}{
+		// $40/hr x 0.25h = $10.00 needed, $1.00 held: short $9.00 > $2.
+		{"shortfall above amount", 40, 1_000_000, "2", 100_000, "9000000"},
+		// $6/hr x 0.25h = $1.50 needed, $1.00 held: short $0.50 < $2.
+		{"amount above shortfall", 6, 1_000_000, "2", 100_000, "2000000"},
+		// Short $0.001, rounded up to a cent, then lifted to Tendril's $0.10.
+		{"tendril minimum", 6, 1_499_000, "0.01", 100_000, "100000"},
+		// $1.23/hr x 0.25h = 307500 micros; 7500 held: short 300000 exactly.
+		{"whole cents", 1.23, 7_500, "0.01", 10_000, "300000"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, _, amount := coverMarket(t, tc.rate, tc.minTopUp)
+			store := &fakeTendrilStore{tendrilCredit: tc.credit, agentMeshCredit: 100_000_000}
+			_, err := executeTendrilTopup(context.Background(),
+				models.WorkflowNode{TendrilAmount: tc.amount, TendrilCoverHours: "0.25"},
+				TendrilConfig{Client: tendril.NewClient(srv.URL), Store: store, UserID: "user1"})
+			if err == nil || !strings.Contains(err.Error(), "did not settle") {
+				t.Fatalf("err = %v, want the topup path's no-settlement error", err)
+			}
+			if *amount != tc.want {
+				t.Errorf("topup amount = %q, want %q", *amount, tc.want)
+			}
+		})
+	}
+}
+
+func TestTopupCoverFailsBeforePayingWithNoMachines(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/topup" {
+			t.Errorf("reached /topup with no machine online")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"nodes":[]}`))
+	}))
+	defer srv.Close()
+	_, err := executeTendrilTopup(context.Background(),
+		models.WorkflowNode{TendrilAmount: "2", TendrilCoverHours: "0.25"},
+		TendrilConfig{Client: tendril.NewClient(srv.URL), Store: &fakeTendrilStore{agentMeshCredit: 10_000_000}, UserID: "user1"})
+	if err == nil || !strings.Contains(err.Error(), "no machines are online") {
+		t.Errorf("err = %v, want no machines online", err)
+	}
+}
+
+func TestParseCoverHours(t *testing.T) {
+	for in, want := range map[string]float64{"": 0, " ": 0, "0.25": 0.25, "24": 24} {
+		if got, err := parseCoverHours(in); err != nil || got != want {
+			t.Errorf("parseCoverHours(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"0", "-1", "abc", "25"} {
+		if _, err := parseCoverHours(bad); err == nil {
+			t.Errorf("parseCoverHours(%q) should have errored", bad)
 		}
 	}
 }

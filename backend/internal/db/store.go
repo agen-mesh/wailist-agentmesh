@@ -2083,6 +2083,28 @@ func (s *Store) LatestActiveLeaseForRun(ctx context.Context, runID string) (mode
 		 ORDER BY started_at DESC LIMIT 1`, runID))
 }
 
+// ListActiveTendrilLeasesForRun returns every lease a run opened that is
+// still active, for the runner's end-of-run cleanup and Resume.
+func (s *Store) ListActiveTendrilLeasesForRun(ctx context.Context, runID string) ([]models.TendrilLease, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+tendrilLeaseCols+` FROM tendril_leases
+		 WHERE run_id = $1 AND status = 'active'
+		 ORDER BY started_at`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []models.TendrilLease
+	for rows.Next() {
+		l, err := scanTendrilLease(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
 // LatestActiveLeaseForUser is the fallback resolveLease reaches for once a
 // Run/Release step is split into its own standalone one-node workflow: its
 // own run_id never matches the Rent step's (that was a different run

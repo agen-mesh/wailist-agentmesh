@@ -459,6 +459,7 @@ export function buildNodeCatalog(): NodeCatalog {
             ? [
                 { key: "tendrilAmount", where: "field" as const, label: "Amount (USD)", placeholder: "10" },
                 { key: "tendrilMinBalance", where: "field" as const, label: "Only if credit below (USD)", hint: "blank tops up on every run" },
+                { key: "tendrilCoverHours", where: "field" as const, label: "Cover rent of (hours)", hint: "buys only the shortfall for the next rent, at least Amount; overrides Only if credit below" },
               ]
             : t.action === "rent"
               ? [{ key: "tendrilHours", where: "field" as const, label: "Hours", placeholder: "1" }]

@@ -2372,6 +2372,12 @@
               "where": "field",
               "label": "Only if credit below (USD)",
               "hint": "blank tops up on every run"
+            },
+            {
+              "key": "tendrilCoverHours",
+              "where": "field",
+              "label": "Cover rent of (hours)",
+              "hint": "buys only the shortfall for the next rent, at least Amount; overrides Only if credit below"
             }
           ]
         },

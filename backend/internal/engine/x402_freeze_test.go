@@ -39,6 +39,15 @@ import (
 // payment amounts/addresses/signing logic (the thing this test actually
 // guards) is unchanged. Digests below reflect the merged state.
 //
+// Updated 2026-09-25: executeTendrilTopup gained TendrilCoverHours. When set,
+// it reads the market (a free GET), skips with nothing paid if the user's
+// Tendril credit already covers renting the cheapest online machine for
+// that many hours, and otherwise raises the purchase to the shortfall
+// (rounded up to a cent, lifted to Tendril's minimum topup) before the
+// unchanged affordability check and payTendril call. Only the amount can
+// grow, and still inside Tendril's live max; addresses and signing are
+// untouched.
+//
 // Updated 2026-09-24: tendril.go's executeTendrilTopup gained an optional
 // TendrilMinBalance threshold -- when the user's Tendril credit is already
 // at or above it, the topup returns a "skipped" result BEFORE any platform
@@ -144,7 +153,7 @@ var frozenX402Files = map[string]string{
 	"nodes/tool402.go":             "4bbf33a779b3f9bc4002c90d56fd01cfefa11de71ce7de02181ce88d50fed16c",
 	"nodes/runfund.go":             "792e2a3c96465545119cebfcb744d487b79b27e5df7b9842ec643a98dce7b782",
 	"nodes/walletpay.go":           "98bb3f7d0cb167f8a50d050e04720738c63c68b9fd570758fa5b9604338a4e37",
-	"nodes/tendril.go":             "7bc000621a7d6d8e4157157ba26c2ccf61292211884fb272fff79d6f129f3cdf",
+	"nodes/tendril.go":             "68dcf1aa6e8e8d558124b018cf520bb734de60f8bf6b23f7907a9055d41be28f",
 	"nodes/billing.go":             "d6bc9e5931816840d99678f9015f7b186ae3069d54e28605aa618c367bf5beb9",
 	"nodes/tier.go":                "5718a3538e042c9d7f90b37f38b47d893644d6093f560d103ea9036c90ddc90b",
 	"../api/handlers/x402relay.go": "eacd56896816a213dd5658aa536c704db22362a5d787113cbf269d7fe7c1d858",

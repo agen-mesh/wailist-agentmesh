@@ -839,19 +839,21 @@ export const TENDRIL_DEMO_WORKFLOW: Workflow = {
 //   Benchmark -> Benchmark Analyst (Gemini) -> Release -> End
 //
 // Rent reserves 0.25h of the user's Tendril credit for the cheapest online
-// machine, which is what makes the topup meaningful here: it only buys $2
-// while the balance is below $1.50, and $1.50 covers 0.25h at up to $6/hr.
+// machine. The topup covers exactly that (tendrilCoverHours): it reads the
+// same market, skips when the credit is already enough, and otherwise buys
+// the shortfall, at least $2 so small top-ups don't each pay the $1.50 fee.
 // Both jobs resolve the lease rent opened in this same run, so they execute
 // on that machine rather than a throwaway sandbox. The analyst reads the
 // benchmark's output (the agent's input is its predecessor's output) before
-// Release stops the meter and refunds unused reserved time. If a step fails
-// before Release, the lease reaper closes it once the 0.25h runs out.
+// Release stops the meter and refunds unused reserved time. If any step
+// fails, the runner releases the lease when the run ends, because this
+// workflow has a Release step (engine/tendril_runleases.go).
 // Billing, in AgentMesh credit:
 //   rent gate fee          0.01 + 1.50 platform fee = 1.51
 //   two run jobs     2 x (1.50 + 1.50 platform fee) = 6.00
 //   analyst, economy-tier platform key               = 0.03
-//   -> $7.54 per run, plus metered machine seconds from Tendril credit and
-//      $3.50 ($2 + $1.50 fee) on a run that tops up.
+//   -> $7.54 per run, plus metered machine seconds from Tendril credit and,
+//      on a run that tops up, the purchase (usually $2) + $1.50 fee.
 const TENDRIL_PROBE_PAYLOAD = `import os, platform, shutil, sys, time
 
 
@@ -996,7 +998,7 @@ export const TENDRIL_WORKFLOW: Workflow = {
       icon: "＄",
       tendrilAction: "topup",
       tendrilAmount: "2",
-      tendrilMinBalance: "1.5",
+      tendrilCoverHours: "0.25",
     },
     {
       id: "tw3",
