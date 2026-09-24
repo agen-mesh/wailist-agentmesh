@@ -31,3 +31,47 @@ export function workflowHref(
   const search = params.toString();
   return search ? `${path}?${search}` : path;
 }
+
+/**
+ * A `next` target that is safe to navigate to after sign-in, or null.
+ *
+ * Only a path on this app: it must start with "/" but not "//", which a
+ * browser reads as another host, and must not contain a backslash, which
+ * browsers normalize to "/" so "/\evil.com" would pass as a path and land off
+ * site. Nor may it contain a control character: URL parsing silently drops
+ * tabs and line breaks, so "/\n/evil.test" also becomes "//evil.test".
+ *
+ * Those checks are on the text; the last word goes to the parser that will
+ * follow it. The target is resolved the way the router resolves it and must
+ * stay on the same origin, so a spelling nobody listed here still cannot
+ * leave. A sign-in page is refused too, judged by where the path resolves, so
+ * a failed sign-in cannot loop back to itself. Shared by password sign-in and
+ * the app's social sign-in.
+ */
+const RESOLVE_BASE = "https://app.invalid";
+
+export function safeNextPath(raw: string | null | undefined): string | null {
+  if (
+    !raw ||
+    !raw.startsWith("/") ||
+    raw.startsWith("//") ||
+    raw.includes("\\") ||
+    /[\u0000-\u001f\u007f]/.test(raw)
+  ) {
+    return null;
+  }
+  let resolved: URL;
+  try {
+    resolved = new URL(raw, RESOLVE_BASE);
+  } catch {
+    return null;
+  }
+  if (
+    resolved.origin !== RESOLVE_BASE ||
+    resolved.pathname.startsWith("/signin") ||
+    resolved.pathname.startsWith("/signup")
+  ) {
+    return null;
+  }
+  return raw;
+}

@@ -265,6 +265,29 @@ type Run struct {
 	InputContext any        `json:"inputContext,omitempty"`
 }
 
+// RunSummary is one row of a run history list (GET /workflows/{id}/runs and
+// GET /runs). It is what a list needs to show and nothing more: the run's
+// input context stays out, since a list has no use for it and it can hold
+// whatever a caller posted to start the run.
+type RunSummary struct {
+	ID           string     `json:"id"`
+	WorkflowID   string     `json:"workflowId"`
+	WorkflowName string     `json:"workflowName"`
+	TriggeredBy  string     `json:"triggeredBy"`
+	Status       RunStatus  `json:"status"`
+	StartedAt    time.Time  `json:"startedAt"`
+	FinishedAt   *time.Time `json:"finishedAt,omitempty"`
+	// Everything debit_ledger has charged this user for the run so far, in
+	// USD micros. A run still in progress can grow.
+	SpendUSDMicros int64 `json:"spendUsdMicros"`
+}
+
+// RunPage is one page of run history. NextCursor is nil on the last page.
+type RunPage struct {
+	Runs       []RunSummary `json:"runs"`
+	NextCursor *string      `json:"nextCursor"`
+}
+
 // DeviceToken is one device registered to receive push notifications.
 //
 // Token is unique across every user, not per user: it identifies an app

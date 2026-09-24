@@ -95,6 +95,9 @@ func NewRouter(d *handlers.Deps) http.Handler {
 
 		r.Post("/workflows/{id}/run", d.TriggerRun)
 		r.Post("/workflows/{id}/stop", d.StopWorkflow)
+		// Run history, newest first, a page at a time (#205).
+		r.Get("/workflows/{id}/runs", d.ListWorkflowRuns)
+		r.Get("/runs", d.ListRecentRuns)
 		r.Get("/runs/{runId}", d.GetRun)
 		r.Get("/runs/{runId}/stream", d.StreamRun)
 		r.Post("/runs/{runId}/resume", d.ResumeRun)

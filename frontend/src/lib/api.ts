@@ -10,8 +10,15 @@ import {
   EndpointUsage,
   Settlement,
   CostEstimate,
+  RunPage,
 } from "./types";
 import { WORKFLOWS, SAMPLE_WORKFLOW, buildUsage } from "./data";
+import {
+  fixtureRunDetail,
+  fixtureRunPage,
+  recordStartedRun,
+} from "./runFixtures";
+import { fixtureWorkflow } from "./workflowFixtures";
 import { assertWritable } from "./readonly";
 import { IS_NATIVE, authHeaders } from "./nativeAuth";
 import type { PaymentMethod } from "@/components/checkout/types";
@@ -260,7 +267,9 @@ export const workflows = {
     await delay(150);
     if (id === "new")
       return { id: "wf-new", name: "Untitled workflow", nodes: [], edges: [] };
-    return JSON.parse(JSON.stringify(SAMPLE_WORKFLOW));
+    // Each workflow in the mock list opens its own graph; anything else (the
+    // canvas's sample) still gets the weather workflow.
+    return fixtureWorkflow(id) ?? JSON.parse(JSON.stringify(SAMPLE_WORKFLOW));
   },
 
   // GET /workflows/:id/estimate -- static low/high cost band for one run.
@@ -380,7 +389,9 @@ export const workflows = {
       return data;
     }
     await delay(200);
-    return { runId: `r-${Math.floor(1800 + Math.random() * 200)}` };
+    const runId = `r-${Math.floor(1800 + Math.random() * 100)}`;
+    recordStartedRun(runId, id);
+    return { runId };
   },
 
   // TODO: POST /workflows/:id/build
@@ -665,7 +676,7 @@ export interface RunLogRecord {
   stepIndex: number;
   nodeId: string;
   nodeType: string;
-  status: "pending" | "running" | "success" | "failed";
+  status: "pending" | "running" | "success" | "failed" | "degraded";
   output?: unknown;
   durationMs?: number;
   ts: string;
@@ -678,6 +689,59 @@ export interface DeadLetterRun {
   error: string;
   attemptCount: number;
   createdAt: string;
+}
+
+// The run as GET /runs/{runId} returns it (models.Run, without its input).
+export interface RunDetail {
+  id: string;
+  workflowId: string;
+  triggeredBy: string;
+  status: string;
+  startedAt: string;
+  finishedAt?: string;
+}
+
+// Thrown when the backend has no run history routes yet. An older server
+// answers them with chi's plain-text "404 page not found"; a workflow that is
+// missing or someone else's is a JSON 404 with an "error" field instead, and
+// stays an ordinary error.
+export class RunsUnavailableError extends Error {
+  constructor() {
+    super("Run history isn't available on this server yet.");
+    this.name = "RunsUnavailableError";
+  }
+}
+
+export interface RunHistoryOptions {
+  cursor?: string | null;
+  limit?: number;
+}
+
+function runHistoryQuery(options: RunHistoryOptions): string {
+  const q = new URLSearchParams();
+  if (options.limit) q.set("limit", String(options.limit));
+  if (options.cursor) q.set("cursor", options.cursor);
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
+async function readRunPage(res: Response, fallback: string): Promise<RunPage> {
+  const text = await res.text();
+  let data: unknown = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+  if (res.ok) return data as RunPage;
+  const error =
+    data !== null &&
+    typeof data === "object" &&
+    typeof (data as { error?: unknown }).error === "string"
+      ? (data as { error: string }).error
+      : null;
+  if (res.status === 404 && error === null) throw new RunsUnavailableError();
+  throw new Error(error ?? fallback);
 }
 
 export const runs = {
@@ -693,7 +757,7 @@ export const runs = {
   get: async (
     runId: string,
   ): Promise<{
-    run: { status: string };
+    run: RunDetail;
     logs: RunLogRecord[];
     deadLetters: DeadLetterRun[];
   }> => {
@@ -706,8 +770,12 @@ export const runs = {
       return data;
     }
     await delay(150);
-    // Mock mode returns a realistic finished run rather than an empty one, so
-    // the console and the chat panel can be exercised with no backend
+    // A run from the mock history, or one started in this session, comes back
+    // as itself: its own status, steps, result and payments.
+    const fixture = fixtureRunDetail(runId);
+    if (fixture) return fixture;
+    // Anything else returns a realistic finished run rather than an empty one,
+    // so the console and the chat panel can be exercised with no backend
     // attached: an agent answer to render as prose, and a paid tool402 step
     // so the activity strip has a real tool count and settled amount. Mirrors
     // SAMPLE_WORKFLOW's node ids and its $0.065/call x402 weather endpoint.
@@ -718,7 +786,14 @@ export const runs = {
     const mockTxId =
       "7F2AC9D1E4B8A6350C1D9E2F4A7B8C3D5E6F1A2B3C4D5E6F7A8B9C0D1E2F3A4B";
     return {
-      run: { status: "success" },
+      run: {
+        id: runId,
+        workflowId: SAMPLE_WORKFLOW.id,
+        triggeredBy: "manual",
+        status: "success",
+        startedAt: iso(8200),
+        finishedAt: iso(0),
+      },
       deadLetters: [],
       logs: [
         {
@@ -763,6 +838,34 @@ export const runs = {
         },
       ],
     };
+  },
+
+  // One workflow's runs, newest first (GET /workflows/{id}/runs).
+  listForWorkflow: async (
+    workflowId: string,
+    options: RunHistoryOptions = {},
+  ): Promise<RunPage> => {
+    if (BASE) {
+      const res = await apiFetch(
+        `${BASE}/workflows/${encodeURIComponent(workflowId)}/runs${runHistoryQuery(options)}`,
+        { credentials: "include" },
+      );
+      return readRunPage(res, "failed to load runs");
+    }
+    await delay(200);
+    return fixtureRunPage({ workflowId, ...options });
+  },
+
+  // The user's newest runs across their own workflows (GET /runs).
+  recent: async (options: RunHistoryOptions = {}): Promise<RunPage> => {
+    if (BASE) {
+      const res = await apiFetch(`${BASE}/runs${runHistoryQuery(options)}`, {
+        credentials: "include",
+      });
+      return readRunPage(res, "failed to load recent runs");
+    }
+    await delay(200);
+    return fixtureRunPage(options);
   },
 
   resume: async (runId: string): Promise<{ runId: string }> => {

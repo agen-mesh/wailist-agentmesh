@@ -80,6 +80,10 @@ const WRITE_RULES: ReadonlyArray<{ method: string; pattern: RegExp }> = [
   { method: "POST", pattern: /^\/workflows\/[^/]+\/build$/ },
   { method: "PUT", pattern: /^\/workflows\/[^/]+\/schedule$/ },
   { method: "DELETE", pattern: /^\/workflows\/[^/]+\/schedule$/ },
+  // Variables are values a workflow's nodes read, so writing one is authoring.
+  // Listing them stays open.
+  { method: "PUT", pattern: /^\/workflows\/[^/]+\/variables\/[^/]+$/ },
+  { method: "DELETE", pattern: /^\/workflows\/[^/]+\/variables\/[^/]+$/ },
   // PUT/DELETE .../geofence used to sit here. They were removed with the
   // capability above: leaving them would have made the guard contradict the
   // policy, so a viewer would see the control, press it, and get an exception
@@ -90,6 +94,8 @@ const WRITE_RULES: ReadonlyArray<{ method: string; pattern: RegExp }> = [
   // operating rather than authoring, so neither is listed -- exactly the line
   // /tendril/console/exists and /tendril/run already sit on.
   { method: "GET", pattern: /^\/prism\/console$/ },
+  // And the HelixBox console, which the backend list already carries.
+  { method: "GET", pattern: /^\/helixbox\/console$/ },
 ];
 
 // `path` is the API path as written at the call site (leading slash, no

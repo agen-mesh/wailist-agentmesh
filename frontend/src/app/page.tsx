@@ -5,7 +5,7 @@ import { LandingPage } from "@/components/landing/LandingPage";
 import { OfflineScreen } from "@/components/native/OfflineScreen";
 import { useAuth } from "@/hooks/useAuth";
 import { IS_NATIVE } from "@/lib/nativeAuth";
-import { takePendingRoute } from "@/lib/nativeNav";
+import { gateRoute, takePendingRoute } from "@/lib/nativeNav";
 
 // `/` is two different things depending on who is asking.
 //
@@ -41,13 +41,12 @@ export default function Home() {
     // A notification tapped or a sign-in result delivered during launch is
     // held until now (lib/nativeNav.ts), and wins over the default. A route
     // that needs a session is only followed when there is one.
-    const held = takePendingRoute()?.href;
-    const target =
-      held && (signedIn || held.startsWith("/signin"))
-        ? held
-        : signedIn
-          ? "/workflows"
-          : "/signin";
+    const held = takePendingRoute();
+    const target = held
+      ? gateRoute(held, signedIn).href
+      : signedIn
+        ? "/workflows"
+        : "/signin";
     // replace, not push: the marketing page must not sit in the back stack, or
     // Android's back gesture from /signin returns to it.
     router.replace(target);

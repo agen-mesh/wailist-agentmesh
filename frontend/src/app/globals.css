@@ -1252,9 +1252,10 @@ body[data-bottomnav] .appnav__trigger {
   display: none;
 }
 
-/* While a text field has focus the on-screen keyboard is up, and the fixed
-   bar would ride up above it, over the field being typed in. BottomNav sets
-   the attribute. */
+/* While the on-screen keyboard is up for a text field, the fixed bar would
+   ride up above it, over the field being typed in. BottomNav sets the
+   attribute only while the keyboard is actually showing, not merely while a
+   field has focus: closing the keyboard with Back keeps the focus. */
 body[data-typing] .bottomnav {
   display: none;
 }
