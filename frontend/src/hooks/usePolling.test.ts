@@ -78,4 +78,35 @@ describe("usePolling", () => {
     setVisibility("visible");
     expect(poll).not.toHaveBeenCalled();
   });
+
+  // Overlapping requests can resolve out of order, and the older one would
+  // land last.
+  it("waits for a pending poll before starting another", async () => {
+    let settle!: () => void;
+    const poll = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    renderHook(() => usePolling(poll, 1_000));
+
+    vi.advanceTimersByTime(1_000);
+    expect(poll).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(5_000);
+    setVisibility("visible");
+    expect(poll).toHaveBeenCalledTimes(1);
+
+    settle();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(poll).toHaveBeenCalledTimes(2);
+  });
+
+  it("carries on after a poll that fails", async () => {
+    const poll = vi.fn(() => Promise.reject(new Error("offline")));
+    renderHook(() => usePolling(poll, 1_000));
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(poll).toHaveBeenCalledTimes(3);
+  });
 });

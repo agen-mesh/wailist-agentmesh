@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/agentmesh/backend/internal/db"
+	"github.com/agentmesh/backend/internal/models"
 )
 
 func TestCreditTransactionLifecycle(t *testing.T) {
@@ -519,4 +520,37 @@ func mustWorkflowAndRun(t *testing.T, store *db.Store, userID string) (workflowI
 		t.Fatal(err)
 	}
 	return wf.ID, run.ID
+}
+
+// A top-up that lifts the balance back over the threshold clears the
+// low-balance marker, so the next drop below it is reported again. Only a
+// finished run used to clear it.
+func TestTopUpClearsTheLowBalanceMarker(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	email := fmt.Sprintf("low-balance-topup-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// $0: below the threshold, so the first check marks it.
+	if notify, _, err := store.CheckAndMarkLowBalance(ctx, user.ID, models.LowBalanceThresholdUSDMicros); err != nil || !notify {
+		t.Fatalf("first low-balance check = %v, %v; want true, nil", notify, err)
+	}
+
+	orderID := fmt.Sprintf("order_low_balance_%d", time.Now().UnixNano())
+	// 500 INR at 0.012 is $6, back over the $5 threshold.
+	if _, err := store.CreateCreditTransaction(ctx, user.ID, orderID, 50000, 0.012); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CompleteCreditTransaction(ctx, "cashfree", orderID, "pay_low_balance"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Judged against a higher bar, $6 is low again: with the marker cleared,
+	// that crossing notifies.
+	if notify, _, err := store.CheckAndMarkLowBalance(ctx, user.ID, 10_000_000); err != nil || !notify {
+		t.Fatalf("check after top-up = %v, %v; want true, nil (marker cleared)", notify, err)
+	}
 }

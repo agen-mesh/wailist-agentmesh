@@ -147,7 +147,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 
 // warnUpcomingSchedules sends a heads-up push for any schedule whose next
 // occurrence is coming up within scheduleWarnAhead and has not already been
-// warned about. Marks the occurrence warned before delivering, matching
+// warned about. Claims the occurrence before delivering, matching
 // CheckAndMarkLowBalance's shape: what matters for exactly-once is the
 // state written, not whether the fire-and-forget push actually lands.
 func (s *Scheduler) warnUpcomingSchedules(ctx context.Context) {
@@ -161,9 +161,13 @@ func (s *Scheduler) warnUpcomingSchedules(ctx context.Context) {
 		if wf.ScheduleNextRunAt == nil {
 			continue // defensive; the query already requires this non-nil
 		}
-		if err := s.store.MarkScheduleWarned(ctx, wf.ID, *wf.ScheduleNextRunAt); err != nil {
-			log.Printf("scheduler: mark schedule warned failed for workflow %s: %v", wf.ID, err)
+		claimed, err := s.store.ClaimScheduleWarning(ctx, wf.ID, *wf.ScheduleNextRunAt)
+		if err != nil {
+			log.Printf("scheduler: claim schedule warning failed for workflow %s: %v", wf.ID, err)
 			continue
+		}
+		if !claimed {
+			continue // another replica is sending this one
 		}
 		go push.NotifyScheduleUpcoming(context.Background(), s.store, wf.UserID, wf.ID, wf.Name)
 	}

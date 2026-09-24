@@ -1281,12 +1281,30 @@ export const PRISM_DEMO_WORKFLOW: Workflow = {
   ],
 };
 
+// Sample times are relative to when the app loaded, so the list's "Upcoming
+// run" and the sort by recency read sensibly whenever the mock app is opened.
+// Last-run times match the newest sample run of each workflow in
+// runFixtures.ts; next runs are the real next firing of each cron in UTC.
+const MOCK_LOADED_AT = Date.now();
+const HOUR_MS = 3_600_000;
+const hoursAgo = (h: number) =>
+  new Date(MOCK_LOADED_AT - h * HOUR_MS).toISOString();
+function nextUtcHour(every: number, offset = 0): string {
+  const d = new Date(MOCK_LOADED_AT);
+  d.setUTCMinutes(0, 0, 0);
+  do d.setUTCHours(d.getUTCHours() + 1);
+  while ((d.getUTCHours() - offset + 24) % every !== 0);
+  return d.toISOString();
+}
+
 export const WORKFLOWS: Workflow[] = [
   {
     id: "wf-triage",
     name: "Customer Support Triage",
     status: "deployed",
     updated: "2m ago",
+    createdAt: hoursAgo(24 * 40),
+    lastRunAt: hoursAgo(0.02),
     agents: 2,
     runs: 1842,
     spend: "4.218",
@@ -1299,6 +1317,10 @@ export const WORKFLOWS: Workflow[] = [
     name: "Daily Market Brief",
     status: "deployed",
     updated: "1h ago",
+    createdAt: hoursAgo(24 * 21),
+    lastRunAt: hoursAgo(2.5),
+    scheduleCron: "0 9 * * *",
+    scheduleNextRunAt: nextUtcHour(24, 9),
     agents: 1,
     runs: 38,
     spend: "1.482",
@@ -1311,6 +1333,8 @@ export const WORKFLOWS: Workflow[] = [
     name: "Invoice Reconciliation",
     status: "paused",
     updated: "yesterday",
+    createdAt: hoursAgo(24 * 60),
+    lastRunAt: hoursAgo(30),
     agents: 1,
     runs: 217,
     spend: "0.890",
@@ -1323,6 +1347,7 @@ export const WORKFLOWS: Workflow[] = [
     name: "Lead Enrichment v2",
     status: "draft",
     updated: "3d ago",
+    createdAt: hoursAgo(24 * 3),
     agents: 1,
     runs: 0,
     spend: "0.000",
@@ -1335,6 +1360,10 @@ export const WORKFLOWS: Workflow[] = [
     name: "On-chain Compliance Watch",
     status: "deployed",
     updated: "5h ago",
+    createdAt: hoursAgo(24 * 12),
+    lastRunAt: hoursAgo(5),
+    scheduleCron: "0 */6 * * *",
+    scheduleNextRunAt: nextUtcHour(6),
     agents: 1,
     runs: 642,
     spend: "2.118",
@@ -1347,6 +1376,7 @@ export const WORKFLOWS: Workflow[] = [
     name: "Content Pipeline",
     status: "draft",
     updated: "1w ago",
+    createdAt: hoursAgo(24 * 7),
     agents: 2,
     runs: 0,
     spend: "0.000",

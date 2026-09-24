@@ -16,6 +16,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 vi.mock("@/lib/nativeAuth", () => ({
   IS_NATIVE: false,
   authReady: Promise.resolve(),
+  getAuthToken: () => null,
   setAuthToken: vi.fn(),
 }));
 

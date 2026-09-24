@@ -214,6 +214,16 @@ type Workflow struct {
 	Updated     string         `json:"updated,omitempty"`
 	CreatedAt   time.Time      `json:"createdAt"`
 	UpdatedAt   time.Time      `json:"updatedAt"`
+	// LastRunAt is when the newest run inside the same window as Runs
+	// started. Nil when nothing ran in that window.
+	LastRunAt *time.Time `json:"lastRunAt,omitempty"`
+	// StatsUnavailable says the Runs/Spend/LastRunAt aggregation did not
+	// run, so their zero values mean "not known" rather than "none".
+	// Without it the three are indistinguishable from a genuine zero on the
+	// wire -- Runs is `omitempty`, so a real count of 0 is omitted too --
+	// and a client has no way to avoid presenting a failed aggregation as
+	// factual "0 runs, $0 spent".
+	StatsUnavailable bool `json:"statsUnavailable,omitempty"`
 	// ScheduleCron is a standard 5-field cron expression (UTC). Empty/nil
 	// means the workflow has no schedule -- set via SetWorkflowSchedule,
 	// never written directly through UpdateWorkflow's graph save.

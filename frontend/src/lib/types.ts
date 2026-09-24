@@ -115,12 +115,23 @@ export interface Workflow {
   edges: WorkflowEdge[];
   // "deployed" is what the backend actually stores (models.WorkflowStatusDeployed);
   // it was missing here, so deployment state had to be inferred indirectly.
-  status?: "active" | "paused" | "draft" | "deployed";
+  // "error" is stored too (models.WorkflowStatusError) and was missing as well.
+  // "paused" and the legacy "active" only ever come from mock data.
+  status?: "active" | "paused" | "draft" | "deployed" | "error";
   updated?: string;
   updatedAt?: string;
+  createdAt?: string;
+  // The newest run within the same 30 days `runs` counts. Absent when
+  // nothing ran in that window.
+  lastRunAt?: string;
   agents?: number;
   runs?: number;
   spend?: string;
+  // The backend could not aggregate runs/spend/lastRunAt for this list, so
+  // their absence means "not known", not "none". `runs` is omitted at zero
+  // and `spend` is omitted when nothing settled, so without this flag an
+  // outage is indistinguishable from a workflow that has simply never run.
+  statsUnavailable?: boolean;
   tags?: string[];
   scheduleCron?: string;
   scheduleNextRunAt?: string;

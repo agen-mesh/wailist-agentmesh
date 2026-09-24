@@ -220,8 +220,6 @@ func (d *Deps) RedeemCoupon(w http.ResponseWriter, r *http.Request) {
 // reports payment completion. It fetches the order status from Cashfree's API
 // (server-to-server, so it cannot be spoofed) and credits the user if PAID.
 func (d *Deps) VerifyCashfreePayment(w http.ResponseWriter, r *http.Request) {
-	userID, _ := r.Context().Value(CtxUserID).(string)
-
 	var body struct {
 		OrderID string `json:"order_id"`
 	}
@@ -253,7 +251,10 @@ func (d *Deps) VerifyCashfreePayment(w http.ResponseWriter, r *http.Request) {
 	}
 	if applied {
 		go alert.Notify(context.Background(), alert.ChannelCredits, fmt.Sprintf("credited $%.2f (order %s, via cashfree)", float64(creditedMicros)/1e6, body.OrderID))
-		go push.NotifyTopUpCompleted(context.Background(), d.Store, userID, creditedMicros)
+		// To whoever the ledger credited, not whoever is signed in here: the
+		// two differ when the account was switched before the checkout
+		// callback landed, and the owner is the one who was paid.
+		go d.notifyTopUpOwner("cashfree", body.OrderID, creditedMicros)
 	}
 
 	respond.JSON(w, http.StatusOK, map[string]any{
@@ -467,10 +468,11 @@ func (d *Deps) NOWPaymentsWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// notifyTopUpOwner pushes a top-up confirmation for a webhook-completed
-// order. A webhook carries no session, so the owner comes from the ledger row
-// rather than the request. Call it with `go`, like alert.Notify: a push must
-// never delay the payment provider's acknowledgement.
+// notifyTopUpOwner pushes a top-up confirmation to the user a completed
+// order credited. The owner always comes from the ledger row, never from the
+// request: a webhook carries no session, and the client verify path's session
+// can belong to a different account than the one that paid. Call it with `go`,
+// like alert.Notify: a push must never delay the response.
 func (d *Deps) notifyTopUpOwner(provider, orderID string, creditedMicros int64) {
 	ctx := context.Background()
 	ownerID, err := d.Store.GetCreditTransactionUserID(ctx, provider, orderID)

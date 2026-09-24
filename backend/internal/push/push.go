@@ -154,7 +154,7 @@ func LowBalance(balanceUSDMicros int64) Notification {
 	dollars := float64(balanceUSDMicros) / 1e6
 	return Notification{
 		Title: "Credit balance low",
-		Body:  fmt.Sprintf("Your balance is $%.2f — top up to keep runs going.", dollars),
+		Body:  fmt.Sprintf("Your balance is $%.2f. Top up to keep runs going.", dollars),
 		Data:  map[string]string{"type": "low_balance"},
 	}
 }

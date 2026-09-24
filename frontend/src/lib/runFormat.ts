@@ -46,6 +46,29 @@ export function formatDuration(
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+// How far off a scheduled run is: "in 4 min", "in 3 h", "in 2 days",
+// "in 3 wks". A time already reached reads "now": the scheduler checks once a
+// minute, so a due run can sit a few seconds past its time before it starts.
+export function formatUntil(
+  at: string | undefined | null,
+  now: number = Date.now(),
+): string {
+  if (!at) return "—";
+  const due = Date.parse(at);
+  if (Number.isNaN(due)) return "—";
+  const ms = due - now;
+  if (ms <= 0) return "now";
+  // Rounded up, so a run 20 seconds away is "in 1 min", never "in 0 min";
+  // anything that rounds up to the hour reads as the hour.
+  const minutes = Math.ceil(ms / 60_000);
+  if (minutes < 60) return `in ${minutes} min`;
+  const hours = Math.max(1, Math.floor(ms / 3_600_000));
+  if (hours < 24) return `in ${hours} h`;
+  const days = Math.floor(ms / 86_400_000);
+  if (days < 14) return `in ${days} ${days === 1 ? "day" : "days"}`;
+  return `in ${Math.floor(days / 7)} wks`;
+}
+
 // The time of day a run started, in the device's locale ("14:05", "2:05 PM").
 export function formatRunTime(startedAt: string, locale?: string): string {
   const d = new Date(startedAt);

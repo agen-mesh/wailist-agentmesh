@@ -5,6 +5,7 @@ import { Logo, IconArrow, Tag } from "@/components/ui";
 import { SessionPersistError, useAuth } from "@/hooks/useAuth";
 import { auth } from "@/lib/api";
 import { IS_NATIVE } from "@/lib/nativeAuth";
+import { safeNextPath } from "@/lib/routes";
 import { authBtn } from "@/components/ui/buttons";
 
 const OAUTH_ERRORS: Record<string, string> = {
@@ -57,14 +58,7 @@ const DEFAULT_DEST = "/workflows";
 // http(s) URLs, so "/\evil.com" resolves exactly like "//evil.com" and would
 // otherwise slip past the checks above.
 function safeNext(raw: string | null): string {
-  if (
-    !raw ||
-    !raw.startsWith("/") ||
-    raw.startsWith("//") ||
-    raw.includes("\\")
-  )
-    return DEFAULT_DEST;
-  return raw;
+  return safeNextPath(raw) ?? DEFAULT_DEST;
 }
 
 function nextPath(): string {
@@ -121,7 +115,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
     // deep link that boot()'s listener handles, so nothing resumes here.
     if (IS_NATIVE) {
       void import("@/native/oauth")
-        .then(({ start }) => start(provider))
+        .then(({ start }) => start(provider, nextPath()))
         .catch((err) =>
           setError(
             err instanceof Error ? err.message : "Could not open sign in.",

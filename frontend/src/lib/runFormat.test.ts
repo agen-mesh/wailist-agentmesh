@@ -1,5 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { formatDuration, formatSpend, triggerLabel } from "./runFormat";
+import {
+  formatDuration,
+  formatSpend,
+  formatUntil,
+  triggerLabel,
+} from "./runFormat";
+
+describe("formatUntil", () => {
+  const now = Date.parse("2026-09-19T10:00:00.000Z");
+  const at = (ms: number) => new Date(now + ms).toISOString();
+
+  it("counts minutes up to the hour, rounding up", () => {
+    expect(formatUntil(at(20_000), now)).toBe("in 1 min");
+    expect(formatUntil(at(4 * 60_000), now)).toBe("in 4 min");
+    expect(formatUntil(at(59 * 60_000), now)).toBe("in 59 min");
+    // Just past 59 minutes rounds up to the hour, not down to "in 0 h".
+    expect(formatUntil(at(59 * 60_000 + 1), now)).toBe("in 1 h");
+  });
+
+  it("switches to hours, days and weeks", () => {
+    expect(formatUntil(at(3.5 * 3_600_000), now)).toBe("in 3 h");
+    expect(formatUntil(at(26 * 3_600_000), now)).toBe("in 1 day");
+    expect(formatUntil(at(9 * 86_400_000), now)).toBe("in 9 days");
+    expect(formatUntil(at(22 * 86_400_000), now)).toBe("in 3 wks");
+  });
+
+  it("reads a reached time as now, and nothing as a dash", () => {
+    expect(formatUntil(at(-30_000), now)).toBe("now");
+    expect(formatUntil(undefined, now)).toBe("—");
+    expect(formatUntil("soon", now)).toBe("—");
+  });
+});
 
 describe("triggerLabel", () => {
   it("names each trigger the backend writes", () => {
