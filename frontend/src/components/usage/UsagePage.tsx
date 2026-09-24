@@ -17,35 +17,33 @@ import {
 import { AreaChart } from "./AreaChart";
 import { Donut, DonutSegment } from "./Donut";
 import { useIsHandheld } from "@/hooks/useIsHandheld";
+import { useReadOnly } from "@/hooks/useReadOnly";
+import { UsagePhonePage } from "./phone/UsagePhonePage";
+import {
+  ALGO_USD,
+  CAT_COLOR,
+  CAT_LABEL,
+  TYPE_PILL,
+  compactUsd,
+  relTime,
+  usd,
+} from "./format";
 
 const RANGES: UsageRange[] = ["24h", "7d", "30d"];
 
-// x402 = accent, LLM = info, action = the orange already used in LogDrawer.
-const CAT_COLOR: Record<UsageCategory, string> = {
-  x402: "var(--accent)",
-  llm: "var(--info)",
-  action: "#FB923C",
-};
-// Endpoint type pill keeps the x402 magenta used elsewhere (tx links / tool402).
-const TYPE_PILL: Record<UsageCategory, string> = {
-  x402: "#E879F9",
-  llm: "#6EA8FF", // hex (matches --info) so the `${c}55`/`${c}1A` alpha suffixes stay valid
-  action: "#FB923C",
-};
-const CAT_LABEL: Record<UsageCategory, string> = {
-  x402: "x402",
-  llm: "LLM",
-  action: "Actions",
-};
-
 export function UsagePage() {
   const router = useRouter();
+  const readOnly = useReadOnly();
 
   const [range, setRange] = useState<UsageRange>("30d");
   const [data, setData] = useState<UsagePayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
+  // Callers waiting for a reload to land -- pull to refresh keeps spinning
+  // until its promise settles. Released when the newest batch finishes; a
+  // batch a newer one replaced keeps them waiting for that one instead.
+  const reloadWaiters = useRef<Array<() => void>>([]);
   const [scopedWf, setScopedWf] = useState<string | null>(null);
 
   // ?workflow=<id> deep-link filter (read without useSearchParams to avoid a
@@ -62,26 +60,35 @@ export function UsagePage() {
   // already starts as loading. Sync setState in effects cascades renders.
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
+    const requests = [
       usageApi.summary(range),
       usageApi.timeseries(range),
       usageApi.byWorkflow(range),
       usageApi.byEndpoint(range),
       usageApi.settlements(18),
-    ])
+    ] as const;
+    Promise.all(requests)
       .then(([summary, timeseries, byWorkflow, byEndpoint, settlements]) => {
         if (cancelled) return;
         setData({ summary, timeseries, byWorkflow, byEndpoint, settlements });
       })
-      .catch((e) => {
+      .catch(async (e) => {
         if (cancelled) return;
         // Surface the failure but keep the last good payload -- a transient error
         // on a range switch shouldn't blank a page that was already working.
         console.error("usage load failed", e);
         setLoadError(e instanceof Error ? e : new Error(String(e)));
+        // Promise.all gives up at the first failure with the rest still out.
+        // The reload is not over until they have answered too, so a pull keeps
+        // spinning until then rather than stopping on a half-finished load.
+        await Promise.allSettled(requests);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (cancelled) return;
+        setLoading(false);
+        const waiters = reloadWaiters.current;
+        reloadWaiters.current = [];
+        for (const done of waiters) done();
       });
     return () => {
       cancelled = true;
@@ -96,12 +103,16 @@ export function UsagePage() {
 
   // Retry must bust the mock-mode cache, otherwise the refetch resolves from
   // the memoized payload and the figures visibly never change.
-  const retry = () => {
-    usageApi.invalidate();
-    setLoading(true);
-    setLoadError(null);
-    setReloadNonce((n) => n + 1);
-  };
+  // Resolves once the reload it starts has landed (or failed), so pull to
+  // refresh spins for as long as the requests do.
+  const retry = () =>
+    new Promise<void>((resolve) => {
+      reloadWaiters.current.push(resolve);
+      usageApi.invalidate();
+      setLoading(true);
+      setLoadError(null);
+      setReloadNonce((n) => n + 1);
+    });
 
   // Clearing the scope must also drop ?workflow= from the URL, otherwise a
   // refresh or back-navigation silently reapplies the filter the user just cleared.
@@ -112,6 +123,34 @@ export function UsagePage() {
     url.searchParams.delete("workflow");
     window.history.replaceState(null, "", url.pathname + url.search + url.hash);
   };
+
+  // A phone gets its own screen: the desktop page is two wide tables that
+  // only scroll sideways there. Every hook above has already run, so this
+  // return is safe, and the desktop JSX below is untouched.
+  if (readOnly) {
+    return (
+      <div
+        className="am-viewport"
+        style={{
+          height: "100dvh",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          background: "var(--bg)",
+        }}
+      >
+        <Topbar />
+        <UsagePhonePage
+          range={range}
+          onRange={changeRange}
+          data={data}
+          loading={loading}
+          error={loadError}
+          onRetry={retry}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1440,25 +1479,6 @@ function Empty({ text }: { text: string }) {
 }
 
 // ── formatting helpers ──────────────────────────────────────────────────────
-// Spend figures arrive from /usage/* already denominated in USD — they come
-// from debit_ledger.amount_usd_micros, the same units credits are sold and
-// billed in. The multiplier is retained (as 1) rather than deleted so the call
-// sites stay honest about doing no conversion; applying the old 0.17 ALGO rate
-// to USD figures would under-report every number on this page by ~6x.
-const ALGO_USD = 1;
-function usd(algoAmount: number, dp = 2) {
-  return (algoAmount * ALGO_USD).toLocaleString("en", {
-    minimumFractionDigits: dp,
-    maximumFractionDigits: dp,
-  });
-}
-// Compact USD for the credit balance -- keeps large figures small (100K, 50, 2.3M).
-function compactUsd(algoAmount: number) {
-  return Intl.NumberFormat("en", {
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(algoAmount * ALGO_USD);
-}
 // Per-unit prices are often sub-cent ($0.00034/quote), so unlike usd() this
 // keeps up to 5 fraction digits instead of rounding everything to 2.
 function usdPrice(algoAmount: number) {
@@ -1471,15 +1491,6 @@ function trim(n: number) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 4,
   });
-}
-function relTime(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
 }
 
 const hcell: React.CSSProperties = {

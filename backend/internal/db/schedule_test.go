@@ -568,8 +568,8 @@ func TestListSchedulesNeedingWarning(t *testing.T) {
 	}
 
 	// Warned for this exact occurrence: does not appear again.
-	if err := store.MarkScheduleWarned(ctx, wf.ID, soon); err != nil {
-		t.Fatal(err)
+	if claimed, err := store.ClaimScheduleWarning(ctx, wf.ID, soon); err != nil || !claimed {
+		t.Fatalf("first claim = %v, %v; want true, nil", claimed, err)
 	}
 	due, err = store.ListSchedulesNeedingWarning(ctx, now, window)
 	if err != nil {
@@ -618,5 +618,56 @@ func TestListSchedulesNeedingWarning(t *testing.T) {
 	}
 	if len(due) != 0 {
 		t.Fatalf("got %d schedules, want 0 (already due, belongs to ClaimDueSchedules)", len(due))
+	}
+}
+
+// Every replica runs the scheduler, so two ticks can list the same unwarned
+// occurrence. Only one of them may claim it and send the push.
+func TestClaimScheduleWarningIsExactlyOnce(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	email := fmt.Sprintf("schedule-claim-test-%d@example.com", time.Now().UnixNano())
+	user, err := store.CreateUser(ctx, email, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wf, err := store.CreateWorkflow(ctx, "Schedule Claim Test WF", user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetWorkflowDeployed(ctx, wf.ID, "https://example.com/run", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	soon := time.Now().Add(3 * time.Minute).Truncate(time.Microsecond)
+	if err := store.SetWorkflowSchedule(ctx, wf.ID, "0 9 * * *", soon); err != nil {
+		t.Fatal(err)
+	}
+
+	results := make(chan bool, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			claimed, err := store.ClaimScheduleWarning(ctx, wf.ID, soon)
+			if err != nil {
+				t.Error(err)
+			}
+			results <- claimed
+		}()
+	}
+	wins := 0
+	for i := 0; i < 2; i++ {
+		if <-results {
+			wins++
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("%d replicas claimed the warning, want exactly 1", wins)
+	}
+
+	// A claim for an occurrence the schedule has already moved past changes
+	// nothing.
+	stale := soon.Add(-time.Hour)
+	if claimed, err := store.ClaimScheduleWarning(ctx, wf.ID, stale); err != nil || claimed {
+		t.Fatalf("stale claim = %v, %v; want false, nil", claimed, err)
 	}
 }

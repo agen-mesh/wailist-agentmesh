@@ -26,6 +26,10 @@ const api = vi.hoisted(() => {
 
 vi.mock("@/lib/api", () => ({
   RunsUnavailableError: api.RunsUnavailableError,
+  // A scheduled workflow also shows its upcoming runs, which have their own
+  // tests; here they only need to answer.
+  UpcomingUnavailableError: class extends Error {},
+  schedules: { upcoming: vi.fn(async () => []) },
   workflows: { get: api.get, run: api.run, stop: api.stop },
   runs: { listForWorkflow: api.listForWorkflow, get: api.runGet },
 }));
@@ -42,6 +46,7 @@ vi.mock("@/components/runs/RunSheet", () => ({
 }));
 
 import { WorkflowSummary } from "./WorkflowSummary";
+import { describeSchedule } from "@/lib/describeSchedule";
 
 function workflow(overrides: Partial<Workflow> = {}): Workflow {
   return {
@@ -78,6 +83,19 @@ beforeEach(() => {
   api.run.mockResolvedValue({ runId: "r-2" });
   api.stop.mockResolvedValue(undefined);
   api.runGet.mockReset();
+  // A poll asks runs.get about a run the list has not picked up yet, so it
+  // needs a promise back. Still running: the pending row stays as it is.
+  api.runGet.mockResolvedValue({
+    run: {
+      id: "r-2",
+      workflowId: "wf-1",
+      triggeredBy: "manual",
+      status: "running",
+      startedAt: new Date().toISOString(),
+    },
+    logs: [],
+    deadLetters: [],
+  });
 });
 
 afterEach(() => {
@@ -118,6 +136,16 @@ describe("WorkflowSummary", () => {
     expect(
       screen.getByText(/run it from the AgentMesh desktop app/),
     ).toBeTruthy();
+  });
+
+  // The cron is for the scheduler. A person gets it in words, in their time.
+  it("says its schedule in words, not as a cron expression", async () => {
+    api.get.mockResolvedValue(workflow({ scheduleCron: "0 7 * * 1-5" }));
+    const { container } = render(<WorkflowSummary workflowId="wf-1" />);
+    const line = await screen.findByText(describeSchedule("0 7 * * 1-5"));
+    expect(line.textContent).toMatch(/^Every weekday at /);
+    expect(line.getAttribute("title")).toBe("0 7 * * 1-5");
+    expect(container.textContent).not.toContain("0 7 * * 1-5");
   });
 
   it("explains a workflow that is not deployed", async () => {
@@ -229,6 +257,113 @@ describe("WorkflowSummary", () => {
     expect(await screen.findByText("Failed")).toBeTruthy();
   });
 
+  // The figures come with the workflow, which used to be read once, so they
+  // stayed at their pre-run values while the run list moved on.
+  // Every read of the workflow is numbered. The read triggered when a run
+  // starts can be slow and land after the one triggered when it finishes; it
+  // must not put the older figures back.
+  it("keeps the newest figures when an older workflow read lands last", async () => {
+    let settleStart!: (wf: Workflow) => void;
+    api.get
+      .mockResolvedValueOnce(workflow({ totalRuns: 1 }))
+      .mockReturnValueOnce(
+        new Promise<Workflow>((r) => {
+          settleStart = r;
+        }),
+      )
+      .mockResolvedValue(workflow({ totalRuns: 3 }));
+    render(<WorkflowSummary workflowId="wf-1" />);
+    await screen.findByText("Succeeded");
+    const fact = (label: string) =>
+      screen.queryByText(label)?.nextElementSibling?.textContent;
+
+    const started = {
+      ...FINISHED,
+      id: "r-2",
+      status: "running" as const,
+      startedAt: new Date().toISOString(),
+      finishedAt: undefined,
+    };
+    api.listForWorkflow.mockResolvedValue(page([started, FINISHED]));
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+
+    api.listForWorkflow.mockResolvedValue(
+      page([{ ...started, status: "success" }, FINISHED]),
+    );
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await waitFor(() => expect(fact("Total runs")).toBe("3"));
+
+    await act(async () => {
+      settleStart(workflow({ totalRuns: 2 }));
+    });
+    expect(fact("Total runs")).toBe("3");
+  });
+
+  // The quiet re-read a run starting triggers has no error handler: failing
+  // keeps what is shown. It used to count as "newer" all the same, so a first
+  // load still in flight was thrown away when it landed after that failure,
+  // and the screen stayed on its skeleton. Only a read that has succeeded
+  // outranks an older one.
+  it("still shows the first load when a newer quiet read fails first", async () => {
+    let settleFirst!: (wf: Workflow) => void;
+    api.get
+      .mockReturnValueOnce(
+        new Promise<Workflow>((r) => {
+          settleFirst = r;
+        }),
+      )
+      .mockRejectedValueOnce(new Error("offline"));
+    render(<WorkflowSummary workflowId="wf-1" />);
+    await waitFor(() => expect(api.listForWorkflow).toHaveBeenCalledTimes(1));
+
+    const started = {
+      ...FINISHED,
+      id: "r-2",
+      status: "running" as const,
+      startedAt: new Date().toISOString(),
+      finishedAt: undefined,
+    };
+    api.listForWorkflow.mockResolvedValue(page([started, FINISHED]));
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await act(async () => {});
+
+    await act(async () => {
+      settleFirst(workflow({ totalRuns: 1 }));
+    });
+    const fact = (label: string) =>
+      screen.queryByText(label)?.nextElementSibling?.textContent;
+    await waitFor(() => expect(fact("Total runs")).toBe("1"));
+  });
+
+  it("re-reads its figures when a run starts and when it finishes", async () => {
+    render(<WorkflowSummary workflowId="wf-1" />);
+    await screen.findByText("Succeeded");
+    expect(api.get).toHaveBeenCalledTimes(1);
+
+    api.get.mockResolvedValue(workflow({ totalRuns: 2 }));
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    await screen.findByText("Running");
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+
+    api.get.mockResolvedValue(workflow({ totalRuns: 2, runs: 2 }));
+    api.listForWorkflow.mockResolvedValue(
+      page([{ ...FINISHED, id: "r-2" }, FINISHED]),
+    );
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(3));
+    const fact = (label: string) =>
+      screen.getByText(label).nextElementSibling?.textContent;
+    await waitFor(() => expect(fact("Total runs")).toBe("2"));
+  });
+
   it("describes itself from its graph until a description is written", async () => {
     render(<WorkflowSummary workflowId="wf-1" />);
     expect(await screen.findByText(/^Runs when started\./)).toBeTruthy();
@@ -242,6 +377,29 @@ describe("WorkflowSummary", () => {
     render(<WorkflowSummary workflowId="wf-1" />);
     expect(await screen.findByText("Sorts support email.")).toBeTruthy();
     expect(screen.queryByText("Summarised from its steps.")).toBeNull();
+  });
+
+  // GetWorkflow leaves the 30-day pair at zero when its aggregation fails,
+  // exactly as it does for a workflow that had no runs and no spend. Printed
+  // as "0" and "$0.00" that is a figure the reader has no reason to doubt.
+  it("shows dashes for the 30-day figures the server could not total", async () => {
+    api.get.mockResolvedValue(
+      workflow({
+        statsUnavailable: true,
+        totalRuns: 7,
+        runs: 0,
+        spend: undefined,
+      }),
+    );
+    render(<WorkflowSummary workflowId="wf-1" />);
+    await screen.findByText("Succeeded");
+    const fact = (label: string) =>
+      screen.getByText(label).nextElementSibling?.textContent;
+
+    expect(fact("Runs · 30 days")).toBe("—");
+    expect(fact("Spent · 30 days")).toBe("—");
+    // totalRuns has its own nullable field and was answered, so it stands.
+    expect(fact("Total runs")).toBe("7");
   });
 
   it("shows its run figures", async () => {

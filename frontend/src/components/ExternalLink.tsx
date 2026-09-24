@@ -9,15 +9,21 @@ import { openExternal } from "@/lib/openExternal";
 export function ExternalLink({
   href,
   style,
+  className,
+  "aria-label": ariaLabel,
   children,
 }: {
   href?: string;
   style?: React.CSSProperties;
+  className?: string;
+  "aria-label"?: string;
   children: React.ReactNode;
 }) {
   return (
     <a
       href={href}
+      className={className}
+      aria-label={ariaLabel}
       target="_blank"
       rel="noopener noreferrer"
       style={style}

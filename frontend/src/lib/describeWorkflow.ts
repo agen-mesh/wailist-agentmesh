@@ -10,7 +10,9 @@ export interface WorkflowAgent {
   tools: number;
 }
 
-const TOOL_TYPES = new Set(["tool", "tool402", "action", "google", "tendril"]);
+// Nodes that are not steps of the flow: the trigger starts it, and a provider
+// only ever serves an agent as its model.
+const NOT_STEPS = new Set(["trigger", "provider"]);
 
 function nodeName(n: WorkflowNode): string {
   return n.name || n.label || n.template || n.type;
@@ -60,7 +62,11 @@ const plural = (n: number, one: string, many: string) =>
 // workflow actually does.
 export function describeWorkflow(wf: Workflow): string {
   const agents = workflowAgents(wf);
-  const tools = wf.nodes.filter((n) => TOOL_TYPES.has(n.type)).length;
+  // The tools the agents can call -- the same attach-edge counts the Agents
+  // list shows, so the sentence and the list cannot disagree. A flow step
+  // after an agent (an action, a Google call) is not one of its tools.
+  const tools = agents.reduce((n, a) => n + a.tools, 0);
+  const steps = wf.nodes.filter((n) => !NOT_STEPS.has(n.type)).length;
   const parts = [triggerSentence(wf)];
   if (agents.length > 0) {
     const models = [
@@ -70,8 +76,8 @@ export function describeWorkflow(wf: Workflow): string {
       `${plural(agents.length, "agent", "agents")}${models.length ? ` (${models.join(", ")})` : ""}` +
         (tools ? ` using ${plural(tools, "tool", "tools")}.` : "."),
     );
-  } else if (tools) {
-    parts.push(`${plural(tools, "step", "steps")}, no agents.`);
+  } else if (steps) {
+    parts.push(`${plural(steps, "step", "steps")}, no agents.`);
   } else {
     parts.push("Nothing has been added to it yet.");
   }

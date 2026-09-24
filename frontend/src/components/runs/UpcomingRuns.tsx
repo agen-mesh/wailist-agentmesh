@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { usePolling } from "@/hooks/usePolling";
 import { useNow } from "@/hooks/useNow";
@@ -34,7 +34,8 @@ function dayLabel(at: string, now: number): string {
 //
 // A server without the upcoming-runs route renders nothing, and so does an
 // empty list when `hideWhenEmpty` is set: a section that only ever says
-// "nothing" is noise on a screen that has other things to show.
+// "nothing" is noise on a screen that has other things to show. A failed load
+// is neither, so it is said out loud with a retry.
 export function UpcomingRuns({
   limit = 5,
   workflowId,
@@ -48,32 +49,67 @@ export function UpcomingRuns({
 }) {
   const [items, setItems] = useState<UpcomingRun[] | null>(null);
   const [unavailable, setUnavailable] = useState(false);
+  // The last load failed for a reason other than a missing route.
+  const [failed, setFailed] = useState(false);
   const headingId = useId();
+  // Numbers each load, so only the newest one started may land. Mount, the
+  // refresh timer and coming back to the foreground can overlap, and an older
+  // list arriving last would put back a schedule that has since changed.
+  const seq = useRef(0);
 
   const load = useCallback(() => {
-    // For one workflow, ask for enough of its occurrences to fill `limit`.
-    const request = workflowId ? { limit: 50, per: limit } : { limit, per: 3 };
-    schedules
+    const mine = ++seq.current;
+    // For one workflow, ask for that schedule alone, enough occurrences to
+    // fill `limit`. Filtering everyone's soonest 50 instead lost it whenever
+    // enough other schedules came first.
+    const request = workflowId
+      ? { limit, per: limit, workflowId }
+      : { limit, per: 3 };
+    return schedules
       .upcoming(request)
       .then((list) => {
-        const mine = workflowId
+        if (mine !== seq.current) return;
+        // Still filtered here: a server older than the workflowId parameter
+        // ignores it and answers for every schedule.
+        const shown = workflowId
           ? list.filter((u) => u.workflowId === workflowId)
           : list;
-        setItems(mine.slice(0, limit));
+        setItems(shown.slice(0, limit));
         setUnavailable(false);
+        setFailed(false);
       })
       .catch((e: unknown) => {
+        if (mine !== seq.current) return;
         if (e instanceof UpcomingUnavailableError) setUnavailable(true);
-        // Any other failure keeps whatever was showing.
-        else setItems((prev) => prev ?? []);
+        // Any other failure keeps whatever was showing, and says so only
+        // when nothing was: an empty list would read as "no schedules".
+        else setFailed(true);
       });
   }, [limit, workflowId]);
 
-  useEffect(load, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
   usePolling(load, REFRESH_MS);
   const now = useNow(!!items?.length, CLOCK_MS);
 
-  if (unavailable || items === null) return null;
+  if (unavailable) return null;
+  if (items === null) {
+    if (!failed) return null;
+    return (
+      <section className="upc" aria-labelledby={headingId}>
+        <h2 id={headingId} className="upc__title">
+          {title}
+        </h2>
+        <p className="upc__empty" role="alert">
+          Couldn&rsquo;t load upcoming runs.{" "}
+          <button type="button" className="upc__retry" onClick={load}>
+            Retry
+          </button>
+        </p>
+      </section>
+    );
+  }
   if (items.length === 0 && hideWhenEmpty) return null;
 
   const groups: { label: string; items: UpcomingRun[] }[] = [];

@@ -1,96 +1,69 @@
 import { describe, expect, it } from "vitest";
 import {
-  BONUS_RATE,
-  BONUS_THRESHOLD_INR,
-  bonusRate,
-  bonusUSD,
   creditsForTopup,
+  FALLBACK_USD_PER_INR,
   GST_RATE,
   gstBreakdown,
-  inrToCreditsUSD,
-  USD_PER_INR,
+  maxTopupINR,
+  MAX_TOPUP_USD,
 } from "./fx";
 
-describe("inrToCreditsUSD", () => {
-  it("converts INR to USD at the fixed mock rate", () => {
-    expect(inrToCreditsUSD(83)).toBeCloseTo(1, 10);
-    expect(inrToCreditsUSD(830)).toBeCloseTo(10, 10);
-    expect(inrToCreditsUSD(0)).toBe(0);
-  });
-
-  it("is a straight linear scale of USD_PER_INR", () => {
-    expect(inrToCreditsUSD(1000)).toBeCloseTo(1000 * USD_PER_INR, 10);
-  });
-});
-
-describe("bonusRate", () => {
-  it("is 0 just below the threshold", () => {
-    expect(bonusRate(BONUS_THRESHOLD_INR - 1)).toBe(0);
-    expect(bonusRate(999)).toBe(0);
-  });
-
-  it("applies at exactly the threshold", () => {
-    expect(bonusRate(BONUS_THRESHOLD_INR)).toBe(BONUS_RATE);
-    expect(bonusRate(1000)).toBe(0.05);
-  });
-
-  it("applies above the threshold", () => {
-    expect(bonusRate(5000)).toBe(BONUS_RATE);
-  });
-
-  it("is 0 for 0", () => {
-    expect(bonusRate(0)).toBe(0);
-  });
-});
-
-describe("bonusUSD", () => {
-  it("is 0 below the threshold", () => {
-    expect(bonusUSD(999)).toBe(0);
-  });
-
-  it("is base credits times the bonus rate at/above the threshold", () => {
-    const amount = 1000;
-    expect(bonusUSD(amount)).toBeCloseTo(
-      inrToCreditsUSD(amount) * BONUS_RATE,
-      10,
-    );
-  });
-});
+// The rate the backend reported live on 2026-09-20. Used here so the numbers
+// in this file are the ones a real payer would have seen.
+const LIVE = 0.010423;
 
 describe("creditsForTopup", () => {
-  it("equals base credits with no bonus below the threshold", () => {
-    const amount = 500;
-    expect(creditsForTopup(amount)).toBeCloseTo(inrToCreditsUSD(amount), 10);
+  it("is the plain conversion at the rate it is given", () => {
+    expect(creditsForTopup(5000, LIVE)).toBeCloseTo(52.115, 6);
+    expect(creditsForTopup(1000, LIVE)).toBeCloseTo(10.423, 6);
+    expect(creditsForTopup(0, LIVE)).toBe(0);
   });
 
-  it("equals base + bonus at/above the threshold", () => {
-    const amount = 2000;
-    expect(creditsForTopup(amount)).toBeCloseTo(
-      inrToCreditsUSD(amount) + bonusUSD(amount),
-      10,
+  // The regression this file exists for. The old arithmetic was
+  // amountINR / 83 * 1.05, which quoted $63.25 for ₹5,000 while the ledger
+  // credited about $52.12 -- a figure shown directly above a Pay button.
+  it("no longer adds the 5% bonus the backend never paid", () => {
+    expect(creditsForTopup(5000, LIVE)).not.toBeCloseTo(63.25, 2);
+    // A bonus would make the result non-linear across the old ₹1000 threshold.
+    const belowPerRupee = creditsForTopup(999, LIVE) / 999;
+    const abovePerRupee = creditsForTopup(1000, LIVE) / 1000;
+    expect(abovePerRupee).toBeCloseTo(belowPerRupee, 12);
+  });
+
+  it("stays linear at every amount, so there is no threshold anywhere", () => {
+    for (const inr of [1, 500, 999, 1000, 1001, 20000, 500000]) {
+      expect(creditsForTopup(inr, LIVE)).toBeCloseTo(inr * LIVE, 9);
+    }
+  });
+});
+
+describe("maxTopupINR", () => {
+  it("derives the rupee ceiling from the rate it is given", () => {
+    expect(maxTopupINR(LIVE)).toBe(Math.floor(MAX_TOPUP_USD / LIVE));
+    // Converting the ceiling back must never exceed the USD cap.
+    expect(creditsForTopup(maxTopupINR(LIVE), LIVE)).toBeLessThanOrEqual(
+      MAX_TOPUP_USD,
+    );
+  });
+
+  it("falls back only when there is no usable rate", () => {
+    expect(maxTopupINR(0)).toBe(
+      Math.floor(MAX_TOPUP_USD / FALLBACK_USD_PER_INR),
+    );
+    expect(maxTopupINR(-1)).toBe(
+      Math.floor(MAX_TOPUP_USD / FALLBACK_USD_PER_INR),
     );
   });
 });
 
 describe("gstBreakdown", () => {
-  it("splits a tax-inclusive total into base + GST that reconstruct the total", () => {
-    for (const total of [0, 1, 118, 1000, 999999.99]) {
-      const { base, gst } = gstBreakdown(total);
-      expect(base + gst).toBeCloseTo(total, 6);
-    }
+  it("splits a tax-inclusive total into base and GST", () => {
+    const { base, gst } = gstBreakdown(5000);
+    expect(base + gst).toBeCloseTo(5000, 9);
+    expect(gst).toBeCloseTo(5000 - 5000 / (1 + GST_RATE), 9);
   });
 
-  it("computes GST at the stated rate of the base, not the total", () => {
-    const total = 118;
-    const { base, gst } = gstBreakdown(total);
-    expect(gst).toBeCloseTo(base * GST_RATE, 6);
-    // For an inclusive total with GST_RATE = 0.18, base should be total / 1.18.
-    expect(base).toBeCloseTo(total / 1.18, 6);
-  });
-
-  it("returns 0/0 for a 0 total", () => {
-    const { base, gst } = gstBreakdown(0);
-    expect(base).toBe(0);
-    expect(gst).toBe(0);
+  it("is zero for zero", () => {
+    expect(gstBreakdown(0)).toEqual({ base: 0, gst: 0 });
   });
 });

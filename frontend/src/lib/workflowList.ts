@@ -63,6 +63,9 @@ function sortValue(wf: Workflow, key: SortKey): string | number | null {
       return wf.createdAt ? Date.parse(wf.createdAt) || null : null;
     case "cost":
       // The list sends spend as a dollar string and leaves it out at zero.
+      // An unavailable aggregation has no value at all, so it sorts with the
+      // other blanks rather than joining the cheapest workflows at $0.
+      if (wf.statsUnavailable) return null;
       return Number.parseFloat(wf.spend ?? "0") || 0;
   }
 }

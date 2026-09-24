@@ -27,6 +27,8 @@ import {
 } from "@/lib/runFormat";
 import { workflowHref } from "@/lib/routes";
 import { describeWorkflow, workflowAgents } from "@/lib/describeWorkflow";
+import { describeSchedule } from "@/lib/describeSchedule";
+import { statsKnown, UNKNOWN } from "@/lib/workflowMeta";
 
 // A workflow as a phone needs it: is it running, what did its runs do and
 // cost, and Run or Stop. The graph itself is not shown here; it is edited on a
@@ -63,6 +65,11 @@ const count = new Intl.NumberFormat();
 function WorkflowDetails({ workflow }: { workflow: Workflow }) {
   const agents = workflowAgents(workflow);
   const spent = Number.parseFloat(workflow.spend ?? "");
+  // The 30-day pair comes from the same aggregation the list uses, and it
+  // can fail on its own while the workflow itself reads fine. Both are then
+  // zero for want of an answer, not because nothing ran. `totalRuns` has its
+  // own nullable field and already says so by itself.
+  const figuresKnown = statsKnown(workflow);
   return (
     <>
       <section aria-label="About this workflow" style={{ marginTop: 24 }}>
@@ -83,14 +90,16 @@ function WorkflowDetails({ workflow }: { workflow: Workflow }) {
           </div>
           <div>
             <dt>Runs · 30 days</dt>
-            <dd>{count.format(workflow.runs ?? 0)}</dd>
+            <dd>{figuresKnown ? count.format(workflow.runs ?? 0) : UNKNOWN}</dd>
           </div>
           <div>
             <dt>Spent · 30 days</dt>
             <dd>
-              {formatSpend(
-                Number.isFinite(spent) ? Math.round(spent * 1e6) : 0,
-              )}
+              {figuresKnown
+                ? formatSpend(
+                    Number.isFinite(spent) ? Math.round(spent * 1e6) : 0,
+                  )
+                : UNKNOWN}
             </dd>
           </div>
           <div>
@@ -184,16 +193,60 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
     );
   }, []);
 
-  const refreshRuns = useCallback(
-    () =>
-      runsApi
-        .listForWorkflow(workflowId, { limit: PAGE_SIZE })
-        .then(applyRunPage, applyRunsError),
-    [workflowId, applyRunPage, applyRunsError],
+  // Numbers each first-page request: the first load, a pull, a poll. Only
+  // the newest one started may land, so a slow first load cannot replace
+  // what a later poll already showed.
+  const runsSeq = useRef(0);
+  const refreshRuns = useCallback(() => {
+    const seq = ++runsSeq.current;
+    return runsApi.listForWorkflow(workflowId, { limit: PAGE_SIZE }).then(
+      (page) => {
+        if (seq === runsSeq.current) applyRunPage(page);
+      },
+      (e: unknown) => {
+        if (seq === runsSeq.current) applyRunsError(e);
+      },
+    );
+  }, [workflowId, applyRunPage, applyRunsError]);
+  // The workflow is read from three places -- the first load, a pull, and a
+  // change in run activity -- and they can overlap. Numbered the same way, so
+  // a slow read (say, the one a run starting triggered) cannot land after a
+  // newer one and put back figures from before the run finished.
+  //
+  // "Newer" means newer and successful. A read that fails changes nothing on
+  // screen, so it must not stop an older one from landing: the quiet re-read
+  // after a run starts can fail while the first load is still in flight, and
+  // when that outranked the first load the screen stayed on its skeleton.
+  const workflowSeq = useRef(0);
+  const shownWorkflowSeq = useRef(0);
+  const landWorkflow = useCallback(
+    (seq: number, wf: Workflow) => {
+      if (seq <= shownWorkflowSeq.current) return;
+      shownWorkflowSeq.current = seq;
+      applyWorkflow(wf);
+    },
+    [applyWorkflow],
+  );
+  // An error is shown only while nothing newer has succeeded.
+  const landWorkflowError = useCallback(
+    (seq: number, e: unknown, onError?: (e: unknown) => void) => {
+      if (seq > shownWorkflowSeq.current) onError?.(e);
+    },
+    [],
+  );
+  const readWorkflow = useCallback(
+    (onError?: (e: unknown) => void) => {
+      const seq = ++workflowSeq.current;
+      return workflowsApi.get(workflowId).then(
+        (wf) => landWorkflow(seq, wf),
+        (e: unknown) => landWorkflowError(seq, e, onError),
+      );
+    },
+    [workflowId, landWorkflow, landWorkflowError],
   );
   const loadWorkflow = useCallback(
-    () => workflowsApi.get(workflowId).then(applyWorkflow, applyWorkflowError),
-    [workflowId, applyWorkflow, applyWorkflowError],
+    () => readWorkflow(applyWorkflowError),
+    [readWorkflow, applyWorkflowError],
   );
 
   // The first load. State is only set once a response lands, and not at all
@@ -205,18 +258,34 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
       (value: T) => {
         if (!cancelled) apply(value);
       };
-    workflowsApi
-      .get(workflowId)
-      .then(unlessGone(applyWorkflow), unlessGone(applyWorkflowError));
+    // Reads still in flight for a previous workflow must never land here.
+    shownWorkflowSeq.current = workflowSeq.current;
+    const wfSeq = ++workflowSeq.current;
+    workflowsApi.get(workflowId).then(
+      unlessGone((wf: Workflow) => landWorkflow(wfSeq, wf)),
+      unlessGone((e: unknown) =>
+        landWorkflowError(wfSeq, e, applyWorkflowError),
+      ),
+    );
+    const seq = ++runsSeq.current;
+    const unlessSuperseded =
+      <T,>(apply: (value: T) => void) =>
+      (value: T) => {
+        if (seq === runsSeq.current) apply(value);
+      };
     runsApi
       .listForWorkflow(workflowId, { limit: PAGE_SIZE })
-      .then(unlessGone(applyRunPage), unlessGone(applyRunsError));
+      .then(
+        unlessGone(unlessSuperseded(applyRunPage)),
+        unlessGone(unlessSuperseded(applyRunsError)),
+      );
     return () => {
       cancelled = true;
     };
   }, [
     workflowId,
-    applyWorkflow,
+    landWorkflow,
+    landWorkflowError,
     applyWorkflowError,
     applyRunPage,
     applyRunsError,
@@ -233,12 +302,13 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
   // workflow can be run from the website or by its trigger at any time, so an
   // idle list is polled too, only more slowly than one with a run going.
   const pendingId = pendingShown?.id ?? null;
+  // Returns its requests, so usePolling waits for them before the next poll.
   const poll = useCallback(() => {
-    void refreshRuns();
+    const requests: Promise<unknown>[] = [refreshRuns()];
     // A run the list has not picked up yet is asked about directly, so it
     // still settles when the list is slow to include it.
     if (pendingId) {
-      runsApi
+      const pendingRequest = runsApi
         .get(pendingId)
         .then(({ run }) => {
           if (run.status === "running") return;
@@ -253,9 +323,29 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
           );
         })
         .catch(() => {});
+      requests.push(pendingRequest);
     }
+    return Promise.all(requests);
   }, [pendingId, refreshRuns]);
   usePolling(poll, anyRunning ? POLL_MS : IDLE_POLL_MS);
+
+  // Total runs, the 30-day figures and the next scheduled run come with the
+  // workflow, which is otherwise read once. So it is read again whenever the
+  // runs move: a new run appears (started here, elsewhere or by the
+  // schedule, which also advances the next run) or a running one finishes.
+  // Quietly -- a failed refresh keeps the figures already shown.
+  const runActivity = [
+    shown[0]?.id ?? "",
+    ...shown.filter((r) => r.status === "running").map((r) => r.id),
+  ].join("|");
+  const seenActivity = useRef<string | null>(null);
+  useEffect(() => {
+    if (!runsLoaded) return;
+    const previous = seenActivity.current;
+    seenActivity.current = runActivity;
+    if (previous === null || previous === runActivity) return;
+    void readWorkflow();
+  }, [runActivity, runsLoaded, readWorkflow]);
 
   const now = useNow(anyRunning);
 
@@ -342,6 +432,12 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
     workflow !== null && (runsLoaded || runsUnavailable || runsError !== null);
   const hasZone = workflow?.geofenceLat !== undefined;
 
+  // The sheet follows the row, not the copy taken when it was tapped, so a
+  // refresh that brings new spend or a new status reaches the open sheet.
+  const selectedRun = selected
+    ? (shown.find((r) => r.id === selected.id) ?? selected)
+    : null;
+
   return (
     <div
       className="am-viewport"
@@ -400,8 +496,12 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
                   : workflow.scheduleCron
                     ? "Runs on a schedule · "
                     : "Runs when started"}
+                {/* In words and the reader's own time. The cron itself stays
+                    in the tooltip for whoever needs the exact expression. */}
                 {!chat && workflow.scheduleCron && (
-                  <code style={cron}>{workflow.scheduleCron}</code>
+                  <span style={schedule} title={workflow.scheduleCron}>
+                    {describeSchedule(workflow.scheduleCron)}
+                  </span>
                 )}
               </p>
 
@@ -566,9 +666,9 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
       </PullToRefresh>
 
       <style>{SUMMARY_CSS}</style>
-      {selected && (
+      {selectedRun && (
         <RunSheet
-          run={selected}
+          run={selectedRun}
           onClose={() => setSelected(null)}
           returnFocusTo={openerRef}
         />
@@ -621,8 +721,7 @@ const copy: React.CSSProperties = {
   margin: 0,
 };
 
-const cron: React.CSSProperties = {
-  font: "500 12px/1 var(--font-mono)",
+const schedule: React.CSSProperties = {
   color: "var(--fg)",
 };
 

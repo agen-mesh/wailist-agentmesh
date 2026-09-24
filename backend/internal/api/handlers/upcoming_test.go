@@ -91,3 +91,52 @@ func TestListUpcomingRunsRejectsABadLimit(t *testing.T) {
 		}
 	}
 }
+
+// After an outage the stored next run is in the past. The scheduler fires it
+// once and then jumps past every missed tick, so only that one overdue row may
+// be listed before the list moves on to the future.
+func TestListUpcomingRunsSkipsTicksMissedDuringAnOutage(t *testing.T) {
+	d := testDeps(t)
+	user := newTestUser(t, d)
+	overdue := time.Now().UTC().Truncate(time.Hour).Add(-48 * time.Hour)
+	scheduledWorkflow(t, d, user, "Hourly", "0 * * * *", overdue, false)
+
+	_, page := getUpcoming(t, d, user, "?per=3")
+	if len(page.Upcoming) != 3 {
+		t.Fatalf("got %d upcoming, want 3", len(page.Upcoming))
+	}
+	if !page.Upcoming[0].At.Equal(overdue) {
+		t.Errorf("first = %v, want the overdue stored run %v", page.Upcoming[0].At, overdue)
+	}
+	now := time.Now()
+	for _, u := range page.Upcoming[1:] {
+		if !u.At.After(now) {
+			t.Errorf("listed %v, which is in the past and will never fire", u.At)
+		}
+	}
+	if gap := page.Upcoming[2].At.Sub(page.Upcoming[1].At); gap != time.Hour {
+		t.Errorf("later runs are %v apart, want 1h", gap)
+	}
+}
+
+// A workflow's own screen asks for its runs alone. Filtering the global top
+// 50 instead lost them once enough other schedules came sooner.
+func TestListUpcomingRunsForOneWorkflow(t *testing.T) {
+	d := testDeps(t)
+	user := newTestUser(t, d)
+	soon := time.Now().UTC().Truncate(time.Hour).Add(time.Hour)
+	for i := 0; i < 20; i++ {
+		scheduledWorkflow(t, d, user, fmt.Sprintf("Busy %d", i), "0 * * * *", soon, false)
+	}
+	later := scheduledWorkflow(t, d, user, "Daily", "0 9 * * *", soon.Add(24*time.Hour), false)
+
+	_, page := getUpcoming(t, d, user, "?limit=50&per=3&workflowId="+later)
+	if len(page.Upcoming) != 3 {
+		t.Fatalf("got %d upcoming for the workflow, want 3", len(page.Upcoming))
+	}
+	for _, u := range page.Upcoming {
+		if u.WorkflowID != later {
+			t.Fatalf("listed %q, want only %q", u.WorkflowID, later)
+		}
+	}
+}

@@ -79,14 +79,17 @@ func (d *Deps) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The figures a workflow's own screen shows. Like the list, a failure
-	// here leaves them out rather than failing the whole response.
-	if err := d.Store.AttachWorkflowStats(r.Context(), userID, &wf); err != nil {
+	// here leaves them out rather than failing the whole response -- and
+	// says so, because the zero values it leaves behind are indistinguishable
+	// from a workflow that simply had no runs or spend in the window.
+	if err := d.loadWorkflowStats(r.Context(), userID, &wf); err != nil {
 		log.Printf("workflow %s stats: %v", wf.ID, err)
+		wf.StatsUnavailable = true
 	}
 	if n, err := d.Store.CountRuns(r.Context(), wf.ID); err != nil {
 		log.Printf("workflow %s run count: %v", wf.ID, err)
 	} else {
-		wf.TotalRuns = n
+		wf.TotalRuns = &n
 	}
 	decrypted := decryptNodes(wf.Nodes, d.EncryptionKey)
 	wf.Nodes = unmaskWebhookSecrets(maskNodes(wf.Nodes), decrypted)
@@ -151,17 +154,14 @@ func (d *Deps) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	encryptedNodes := encryptNodes(body.Nodes, d.EncryptionKey, existing.Nodes)
 	encryptedNodes = ensureWebhookSecrets(encryptedNodes, d.EncryptionKey)
 	graph := models.WorkflowGraph{Nodes: encryptedNodes, Edges: body.Edges}
-	wf, err := d.Store.UpdateWorkflow(r.Context(), id, body.Name, graph)
+	var newDescription *string
+	if body.Description != nil {
+		newDescription = &description
+	}
+	wf, err := d.Store.UpdateWorkflowAndDescription(r.Context(), id, body.Name, graph, newDescription)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-	if body.Description != nil {
-		if err := d.Store.SetWorkflowDescription(r.Context(), id, description); err != nil {
-			respond.Error(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		wf.Description = description
 	}
 	decrypted := decryptNodes(wf.Nodes, d.EncryptionKey)
 	wf.Nodes = unmaskWebhookSecrets(maskNodes(wf.Nodes), decrypted)

@@ -10,7 +10,7 @@ import {
   type Sort,
   type StatusFilter,
 } from "@/lib/workflowList";
-import { totalSpend } from "@/lib/workflowMeta";
+import { totalSpend, totalSpendKnown } from "@/lib/workflowMeta";
 import { WorkflowsPhoneHeader } from "./WorkflowsPhoneHeader";
 import { WorkflowFilterMenu } from "./WorkflowFilterMenu";
 import { WorkflowPhoneRow } from "./WorkflowPhoneRow";
@@ -26,10 +26,13 @@ export function WorkflowsPhoneList({
   workflows,
   loading,
   error,
+  onRetry,
 }: {
   workflows: Workflow[];
   loading: boolean;
   error: string | null;
+  // Loads the list again, for the failure state below.
+  onRetry?: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
@@ -56,6 +59,8 @@ export function WorkflowsPhoneList({
         total={workflows.length}
         shown={visible.length}
         spend={totalSpend(workflows)}
+        known={!loading && !(workflows.length === 0 && error)}
+        spendKnown={totalSpendKnown(workflows)}
       />
       {error && (
         <p className="wfp-error" role="alert">
@@ -105,6 +110,23 @@ export function WorkflowsPhoneList({
             <WorkflowPhoneRow key={wf.id} workflow={wf} now={now} />
           ))}
         </ul>
+      ) : workflows.length === 0 && error ? (
+        // The list never loaded, so nothing is known about the account. "No
+        // workflows yet" here would present that as an empty one.
+        <div className="wfp-empty">
+          Couldn&rsquo;t load your workflows.
+          {onRetry && (
+            <div>
+              <button
+                type="button"
+                className="wfp-empty__clear"
+                onClick={onRetry}
+              >
+                Try again
+              </button>
+            </div>
+          )}
+        </div>
       ) : workflows.length === 0 ? (
         <p className="wfp-empty">
           No workflows yet. Create one in AgentMesh on a computer.

@@ -5,24 +5,21 @@ import { Topbar } from "@/components/Topbar";
 import { PurchaseHistory } from "@/components/billing/PurchaseHistory";
 import { CheckoutModal } from "@/components/checkout/CheckoutModal";
 import { useCredits } from "@/lib/credits/store";
-import {
-  bonusRate,
-  creditsForTopup,
-  maxTopupINR,
-  MAX_TOPUP_USD,
-} from "@/lib/credits/fx";
-import { credits as creditsApi } from "@/lib/api";
+import { creditsForTopup, maxTopupINR, MAX_TOPUP_USD } from "@/lib/credits/fx";
+import { credits as creditsApi, workflows as workflowsApi } from "@/lib/api";
+import { totalSpend, totalSpendKnown } from "@/lib/workflowMeta";
+import { useReadOnly } from "@/hooks/useReadOnly";
+import { usePaymentProviders } from "@/components/checkout/usePaymentProviders";
+import { BillingPhonePage } from "@/components/billing/phone/BillingPhonePage";
 import { IS_NATIVE } from "@/lib/nativeAuth";
 import { openExternal, WEB_BILLING_URL } from "@/lib/openExternal";
 
 const PRESETS_INR = [1000, 5000, 10000, 20000];
-const MAX_INR = maxTopupINR();
 const LOW_BALANCE_USD = 5;
 
 const HOW_IT_WORKS = [
   "Credits are spent as your agents call paid tools, x402 endpoints, and LLM providers.",
   "Testnet usage is always free. You only pay for mainnet calls.",
-  "Top-ups of ₹1000 or more earn 5% bonus credits.",
   "Every purchase generates a printable receipt for your records.",
 ];
 
@@ -43,14 +40,6 @@ const BILLING_CSS = `
 @media (max-width: 520px) { .bill-page { padding: 24px 16px 64px; } }
 /* The amount field, Repeat and the coupon row are 36–42px for a mouse. */
 @media (pointer: coarse) { .bill-touch { min-height: 44px; } }
-/* The "+5%" badge sits in the card's corner. A card under about 130px wide
-   has no room for it beside "₹20000" (phones narrower than about 345px, and
-   four cards in the 901–1000px two-column layout), so the badge moves under
-   the price there. The query measures the content box, inside the card's
-   12px padding. */
-.bill-preset { container-type: inline-size; }
-.bill-preset-badge { position: absolute; top: 8px; right: 8px; }
-@container (max-width: 104px) { .bill-preset-badge { position: static; margin-top: 2px; } }
 @media (prefers-reduced-motion: reduce) {
   .bill-reveal, .bill-preset, .bill-cta { animation: none; transition: none; }
 }
@@ -65,67 +54,14 @@ const panelStyle: React.CSSProperties = {
 
 const fmtUSD = (n: number) => `$${n.toFixed(2)}`;
 
-// The top-up panel in the Android app. Card and UPI checkout cannot load
-// there, because the app's content security policy blocks the payment
-// provider's script, and a crypto invoice would leave the app. So the
-// payment happens on the website, in an in-app browser tab.
-function WebTopUpPanel({ onOpen }: { onOpen: () => void }) {
-  return (
-    <div
-      className="bill-reveal"
-      style={{ ...panelStyle, animationDelay: "0.1s" }}
-    >
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 600,
-          color: "var(--fg-muted)",
-          marginBottom: 8,
-        }}
-      >
-        Top up
-      </div>
-      <p
-        style={{
-          margin: "0 0 14px",
-          fontSize: 13,
-          lineHeight: 1.5,
-          color: "var(--fg-muted)",
-        }}
-      >
-        Payments open agent-mesh.app in a browser tab. Pay by card, UPI or
-        crypto there, signing in with this account if asked. Your balance here
-        updates when you close the tab; crypto shows once it confirms.
-      </p>
-      <button
-        type="button"
-        className="bill-cta"
-        onClick={onOpen}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 8,
-          width: "100%",
-          height: 46,
-          borderRadius: "var(--r-2)",
-          border: "1px solid var(--accent-line)",
-          background:
-            "linear-gradient(180deg, var(--accent), var(--accent-strong))",
-          color: "var(--accent-fg)",
-          fontSize: 14,
-          fontWeight: 600,
-          cursor: "pointer",
-          boxShadow: "0 8px 24px var(--accent-glow)",
-          fontFamily: "var(--font-sans)",
-        }}
-      >
-        Add credits on the website
-        <IconArrow size={13} />
-      </button>
-    </div>
-  );
-}
+// The phone screen and the desktop page share the same full-height shell.
+const viewportStyle: React.CSSProperties = {
+  height: "100dvh",
+  display: "flex",
+  flexDirection: "column",
+  overflow: "hidden",
+  background: "var(--bg)",
+};
 
 export default function BillingPage() {
   const {
@@ -134,9 +70,49 @@ export default function BillingPage() {
     lastPurchase,
     refreshBalance,
     refreshPurchases,
+    purchases,
+    purchasesKnown,
+    purchasesFailed,
   } = useCredits();
+  // The same 30-day figure the Workflows header shows, from the same
+  // helper, so the two screens cannot quote different numbers.
+  // null until the list answers, and after it fails: zero would read as a
+  // verified account that spent nothing.
+  const [spent30dUSD, setSpent30dUSD] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    void workflowsApi
+      .list()
+      .then((wfs) => {
+        // A list can arrive intact while the aggregation behind it failed,
+        // and every omitted spend then sums to zero. "$0.00" is a figure the
+        // reader has no reason to doubt, so it stays unknown instead.
+        if (live && totalSpendKnown(wfs)) setSpent30dUSD(totalSpend(wfs));
+      })
+      // A missing spend figure is cosmetic; the balance above it is not.
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  const readOnly = useReadOnly();
+  // The rate the server will actually charge at. Quoting from
+  // lib/credits/fx.ts's old constant promised about 21% more credit than
+  // the ledger granted, because it also added a bonus nothing paid.
+  const { usdPerINR } = usePaymentProviders();
+  const MAX_INR = maxTopupINR(usdPerINR);
   const [amountINR, setAmountINR] = useState<number>(PRESETS_INR[1]);
   const [customINR, setCustomINR] = useState("");
+  // The phone shows this field as the amount itself rather than as a "custom"
+  // override, so while it is untouched it displays the chosen preset. Empty
+  // would render as the placeholder, in --fg-dim, making the figure about to
+  // be charged read as a suggestion.
+  //
+  // Tracked with a flag instead of seeding customINR, because seeding it would
+  // also pre-fill the desktop's Custom amount box and unselect its presets,
+  // and instead of `customINR || amountINR`, which repopulates itself on the
+  // keystroke that empties it and cannot be cleared.
+  const [amountTouched, setAmountTouched] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
 
   // Read the authoritative balance (users.credit_balance_usd_micros) every time
@@ -146,6 +122,13 @@ export default function BillingPage() {
   useEffect(() => {
     void refreshBalance();
   }, [refreshBalance]);
+
+  // History too, from here rather than from PurchaseHistory alone: the phone
+  // screen only mounts that component once the history is known, so on a
+  // fresh session nothing would ever have asked for it.
+  useEffect(() => {
+    void refreshPurchases();
+  }, [refreshPurchases]);
 
   // A crypto top-up sends the browser to NOWPayments and back. This closes out
   // that round trip. Nothing is credited here -- the IPN webhook is the only
@@ -195,11 +178,18 @@ export default function BillingPage() {
 
   const openCheckoutFor = (inr: number) => {
     setCustomINR(String(inr));
+    // The phone field shows customINR only once it counts as touched. Without
+    // this, after Buy again the field kept showing the old preset while the
+    // selected segment and the Pay button used the purchase's amount.
+    setAmountTouched(true);
     setCheckoutOpen(true);
   };
 
-  // Android app only: pay on the website, then re-read the balance and the
-  // history when the tab closes, whether or not a payment went through.
+  // The Android app does not take payment itself: in-app checkout needs its
+  // own payment-provider project, so the app pays on the website instead, in
+  // an in-app browser tab. The balance and history are re-read when the tab
+  // closes, whether or not a payment went through. Phone browsers and desktop
+  // keep the checkout on this page.
   const topUpOnWeb = () => {
     void openExternal(WEB_BILLING_URL, {
       onClose: () => {
@@ -240,23 +230,82 @@ export default function BillingPage() {
   const overMax = effectiveINR > MAX_INR;
   const checkoutAmountINR = effectiveINR >= 1 && !overMax ? effectiveINR : 0;
   const canCheckout = checkoutAmountINR > 0;
-  const credits = creditsForTopup(checkoutAmountINR);
+  const credits =
+    usdPerINR > 0 ? creditsForTopup(checkoutAmountINR, usdPerINR) : null;
   // Only call a balance "low" once we've actually read it — before the first
   // fetch lands, balanceUSD is 0 because nothing is known, not because the
   // account is empty.
   const isLow = balanceKnown && balanceUSD < LOW_BALANCE_USD;
 
+  // A phone gets its own screen rather than the two-column page squeezed:
+  // the balance leads, topping up is directly under it, and the rest is flat
+  // sections. Every hook above has already run, so this return is safe; the
+  // desktop JSX below is untouched.
+  if (readOnly) {
+    return (
+      <div className="am-viewport" style={viewportStyle}>
+        <style>{BILLING_CSS}</style>
+        <Topbar />
+        <div style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>
+          <BillingPhonePage
+            balanceUSD={balanceUSD}
+            spent30dUSD={spent30dUSD}
+            usdPerINR={usdPerINR}
+            purchases={purchases}
+            purchasesKnown={purchasesKnown}
+            purchasesFailed={purchasesFailed}
+            balanceKnown={balanceKnown}
+            isLow={isLow}
+            returnState={returnState}
+            presets={PRESETS_INR}
+            amountINR={amountINR}
+            onPreset={(inr) => {
+              setAmountINR(inr);
+              setCustomINR("");
+              setAmountTouched(false);
+            }}
+            // Untouched, the field shows the preset as a real value.
+            customINR={amountTouched ? customINR : String(amountINR)}
+            // The same guard the desktop field uses. It matters more here now
+            // that this field is always populated: pasting "5,000" would
+            // otherwise parse to 5 and offer to charge ₹5.
+            onCustomChange={(next) => {
+              if (next !== "" && !/^\d*\.?\d*$/.test(next)) return;
+              setAmountTouched(true);
+              setCustomINR(next);
+            }}
+            effectiveINR={effectiveINR}
+            overMax={overMax}
+            maxINR={MAX_INR}
+            canCheckout={canCheckout}
+            onCheckout={() => setCheckoutOpen(true)}
+            couponCode={couponCode}
+            onCouponChange={(v) => {
+              setCouponCode(v);
+              if (couponState !== "idle") setCouponState("idle");
+            }}
+            couponState={couponState}
+            couponMessage={couponMessage}
+            onApplyCoupon={applyCoupon}
+            native={IS_NATIVE}
+            onTopUpOnWeb={topUpOnWeb}
+            onBuyAgain={IS_NATIVE ? topUpOnWeb : openCheckoutFor}
+            howItWorks={HOW_IT_WORKS}
+          />
+        </div>
+        {checkoutOpen && (
+          <CheckoutModal
+            open
+            amountINR={checkoutAmountINR}
+            onClose={() => setCheckoutOpen(false)}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div
-      className="am-viewport"
-      style={{
-        height: "100dvh",
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-        background: "var(--bg)",
-      }}
-    >
+    <div className="am-viewport" style={viewportStyle}>
       <style>{BILLING_CSS}</style>
 
       <Topbar />
@@ -420,251 +469,232 @@ export default function BillingPage() {
               </div>
 
               {/* Top-up panel */}
-              {IS_NATIVE ? (
-                <WebTopUpPanel onOpen={topUpOnWeb} />
-              ) : (
+              <div
+                className="bill-reveal"
+                style={{ ...panelStyle, animationDelay: "0.1s" }}
+              >
                 <div
-                  className="bill-reveal"
-                  style={{ ...panelStyle, animationDelay: "0.1s" }}
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--fg-muted)",
+                    marginBottom: 12,
+                  }}
                 >
-                  <div
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: "var(--fg-muted)",
-                      marginBottom: 12,
-                    }}
-                  >
-                    Choose an amount
-                  </div>
+                  Choose an amount
+                </div>
 
-                  {/* Preset cards */}
-                  <div
-                    className="am-grid-4"
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "var(--wf-kpi-cols)",
-                      gap: 8,
-                    }}
-                  >
-                    {PRESETS_INR.map((inr) => {
-                      const selected = !customINR && amountINR === inr;
-                      const hasBonus = bonusRate(inr) > 0;
-                      return (
-                        <button
-                          key={inr}
-                          type="button"
-                          className="bill-preset"
-                          onClick={() => {
-                            setAmountINR(inr);
-                            setCustomINR("");
-                          }}
-                          style={{
-                            position: "relative",
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "flex-start",
-                            gap: 3,
-                            padding: "12px 12px 11px",
-                            borderRadius: "var(--r-2)",
-                            border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
-                            background: selected
-                              ? "var(--accent-soft)"
-                              : "var(--bg)",
-                            cursor: "pointer",
-                            boxShadow: selected
-                              ? "0 0 0 3px var(--accent-soft)"
-                              : "none",
-                            fontFamily: "var(--font-sans)",
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontSize: 16,
-                              fontWeight: 700,
-                              color: "var(--fg)",
-                              letterSpacing: "-0.01em",
-                            }}
-                          >
-                            ₹{inr}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: 11,
-                              color: "var(--fg-dim)",
-                              fontFamily: "var(--font-mono)",
-                              fontVariantNumeric: "tabular-nums",
-                            }}
-                          >
-                            ≈ {fmtUSD(creditsForTopup(inr))}
-                          </span>
-                          {hasBonus && (
-                            <span
-                              className="bill-preset-badge"
-                              style={{
-                                fontSize: 11,
-                                fontWeight: 700,
-                                color: "var(--accent)",
-                                background: "var(--accent-soft)",
-                                border: "1px solid var(--accent-line)",
-                                borderRadius: 999,
-                                padding: "1px 5px",
-                              }}
-                            >
-                              +5%
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Custom amount */}
-                  <div style={{ marginTop: 14 }}>
-                    <div
-                      className="bill-touch"
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        height: 42,
-                        padding: "0 12px",
-                        borderRadius: "var(--r-2)",
-                        border: `1px solid ${customINR ? "var(--accent-line)" : "var(--border)"}`,
-                        background: "var(--bg)",
-                      }}
-                    >
-                      <span style={{ color: "var(--fg-muted)", fontSize: 15 }}>
-                        ₹
-                      </span>
-                      <input
-                        // Deliberately type="text", not type="number": a number
-                        // input carries spinner arrows (and scroll-wheel/arrow-key
-                        // stepping) that let the amount change without anyone
-                        // typing it. The value is still numeric — non-numeric
-                        // characters are rejected on input below.
-                        type="text"
-                        inputMode="decimal"
-                        placeholder="Custom amount"
-                        value={customINR}
-                        onChange={(e) => {
-                          const next = e.target.value;
-                          // Digits with at most one decimal point; empty clears
-                          // back to the selected preset.
-                          if (next === "" || /^\d*\.?\d*$/.test(next)) {
-                            setCustomINR(next);
-                          }
+                {/* Preset cards */}
+                <div
+                  className="am-grid-4"
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "var(--wf-kpi-cols)",
+                    gap: 8,
+                  }}
+                >
+                  {PRESETS_INR.map((inr) => {
+                    const selected = !customINR && amountINR === inr;
+                    return (
+                      <button
+                        key={inr}
+                        type="button"
+                        className="bill-preset"
+                        onClick={() => {
+                          setAmountINR(inr);
+                          setCustomINR("");
                         }}
                         style={{
-                          flex: 1,
-                          // A flex item's min-width defaults to `auto`, which for
-                          // an input is its intrinsic size -- so `flex: 1` could
-                          // grow it but never shrink it below that floor. The
-                          // "≈ $x credits" hint beside it is nowrap and cannot
-                          // shrink either, so on a 375px screen the row overflowed
-                          // its own border by ~69px and the hint was cut off.
-                          // This is the property that exists to say "yes, you may
-                          // shrink".
-                          minWidth: 0,
-                          height: "100%",
-                          background: "transparent",
-                          border: "none",
-                          outline: "none",
-                          color: "var(--fg)",
-                          fontSize: 14,
+                          position: "relative",
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "flex-start",
+                          gap: 3,
+                          padding: "12px 12px 11px",
+                          borderRadius: "var(--r-2)",
+                          border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+                          background: selected
+                            ? "var(--accent-soft)"
+                            : "var(--bg)",
+                          cursor: "pointer",
+                          boxShadow: selected
+                            ? "0 0 0 3px var(--accent-soft)"
+                            : "none",
                           fontFamily: "var(--font-sans)",
                         }}
-                      />
-                      {canCheckout && (
+                      >
                         <span
                           style={{
-                            fontSize: 12,
-                            color: "var(--fg-muted)",
-                            fontFamily: "var(--font-mono)",
-                            fontVariantNumeric: "tabular-nums",
-                            whiteSpace: "nowrap",
+                            fontSize: 16,
+                            fontWeight: 700,
+                            color: "var(--fg)",
+                            letterSpacing: "-0.01em",
                           }}
                         >
-                          ≈ {fmtUSD(credits)}
-                          <span className="bill-custom-unit"> credits</span>
+                          ₹{inr}
                         </span>
-                      )}
-                    </div>
-                    <p
-                      style={{
-                        margin: "8px 2px 0",
-                        fontSize: 11,
-                        color: overMax ? "var(--danger)" : "var(--fg-dim)",
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: "var(--fg-dim)",
+                            fontFamily: "var(--font-mono)",
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {usdPerINR > 0
+                            ? `≈ ${fmtUSD(creditsForTopup(inr, usdPerINR))}`
+                            : "≈ —"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Custom amount */}
+                <div style={{ marginTop: 14 }}>
+                  <div
+                    className="bill-touch"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      height: 42,
+                      padding: "0 12px",
+                      borderRadius: "var(--r-2)",
+                      border: `1px solid ${customINR ? "var(--accent-line)" : "var(--border)"}`,
+                      background: "var(--bg)",
+                    }}
+                  >
+                    <span style={{ color: "var(--fg-muted)", fontSize: 15 }}>
+                      ₹
+                    </span>
+                    <input
+                      // Deliberately type="text", not type="number": a number
+                      // input carries spinner arrows (and scroll-wheel/arrow-key
+                      // stepping) that let the amount change without anyone
+                      // typing it. The value is still numeric — non-numeric
+                      // characters are rejected on input below.
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="Custom amount"
+                      value={customINR}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        // Digits with at most one decimal point; empty clears
+                        // back to the selected preset.
+                        if (next === "" || /^\d*\.?\d*$/.test(next)) {
+                          setCustomINR(next);
+                        }
                       }}
-                    >
-                      {overMax
-                        ? `Maximum top-up is $${MAX_TOPUP_USD} (about ₹${MAX_INR.toLocaleString("en-IN")}).`
-                        : "Get 5% bonus credits on top-ups of ₹1000 or more."}
-                    </p>
+                      style={{
+                        flex: 1,
+                        // A flex item's min-width defaults to `auto`, which for
+                        // an input is its intrinsic size -- so `flex: 1` could
+                        // grow it but never shrink it below that floor. The
+                        // "≈ $x credits" hint beside it is nowrap and cannot
+                        // shrink either, so on a 375px screen the row overflowed
+                        // its own border by ~69px and the hint was cut off.
+                        // This is the property that exists to say "yes, you may
+                        // shrink".
+                        minWidth: 0,
+                        height: "100%",
+                        background: "transparent",
+                        border: "none",
+                        outline: "none",
+                        color: "var(--fg)",
+                        fontSize: 14,
+                        fontFamily: "var(--font-sans)",
+                      }}
+                    />
+                    {canCheckout && (
+                      <span
+                        style={{
+                          fontSize: 12,
+                          color: "var(--fg-muted)",
+                          fontFamily: "var(--font-mono)",
+                          fontVariantNumeric: "tabular-nums",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {credits === null ? "≈ —" : `≈ ${fmtUSD(credits)}`}
+                        <span className="bill-custom-unit"> credits</span>
+                      </span>
+                    )}
                   </div>
+                  <p
+                    style={{
+                      margin: "8px 2px 0",
+                      fontSize: 11,
+                      color: overMax ? "var(--danger)" : "var(--fg-dim)",
+                    }}
+                  >
+                    {overMax
+                      ? `Maximum top-up is $${MAX_TOPUP_USD} (about ₹${MAX_INR.toLocaleString("en-IN")}).`
+                      : "Credits are added as soon as the payment clears."}
+                  </p>
+                </div>
 
-                  {lastPurchase?.amountINR !== undefined && (
-                    <button
-                      type="button"
-                      className="bill-touch"
-                      onClick={() => openCheckoutFor(lastPurchase.amountINR!)}
-                      style={{
-                        width: "100%",
-                        height: 36,
-                        marginTop: 14,
-                        borderRadius: "var(--r-2)",
-                        border: "1px solid var(--accent-line)",
-                        background: "var(--accent-soft)",
-                        color: "var(--accent)",
-                        fontSize: 12.5,
-                        fontWeight: 500,
-                        cursor: "pointer",
-                      }}
-                    >
-                      ↻ Repeat last top-up · ₹{lastPurchase.amountINR}
-                    </button>
-                  )}
-
-                  {/* Primary CTA */}
+                {lastPurchase?.amountINR !== undefined && (
                   <button
                     type="button"
-                    className="bill-cta"
-                    onClick={() => setCheckoutOpen(true)}
-                    disabled={!canCheckout}
+                    className="bill-touch"
+                    onClick={() => openCheckoutFor(lastPurchase.amountINR!)}
                     style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
                       width: "100%",
-                      height: 46,
+                      height: 36,
                       marginTop: 14,
                       borderRadius: "var(--r-2)",
                       border: "1px solid var(--accent-line)",
-                      background: canCheckout
-                        ? "linear-gradient(180deg, var(--accent), var(--accent-strong))"
-                        : "var(--bg-elev-2)",
-                      color: canCheckout ? "var(--accent-fg)" : "var(--fg-dim)",
-                      fontSize: 14,
-                      fontWeight: 600,
-                      cursor: canCheckout ? "pointer" : "default",
-                      boxShadow: canCheckout
-                        ? "0 8px 24px var(--accent-glow)"
-                        : "none",
-                      fontFamily: "var(--font-sans)",
+                      background: "var(--accent-soft)",
+                      color: "var(--accent)",
+                      fontSize: 12.5,
+                      fontWeight: 500,
+                      cursor: "pointer",
                     }}
                   >
-                    {canCheckout ? (
-                      <>
-                        Continue to checkout · ₹{checkoutAmountINR.toFixed(2)}
-                        <IconArrow size={13} />
-                      </>
-                    ) : (
-                      "Enter an amount of ₹1 or more"
-                    )}
+                    ↻ Repeat last top-up · ₹{lastPurchase.amountINR}
                   </button>
-                </div>
-              )}
+                )}
+
+                {/* Primary CTA */}
+                <button
+                  type="button"
+                  className="bill-cta"
+                  onClick={() => setCheckoutOpen(true)}
+                  disabled={!canCheckout}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    width: "100%",
+                    height: 46,
+                    marginTop: 14,
+                    borderRadius: "var(--r-2)",
+                    border: "1px solid var(--accent-line)",
+                    background: canCheckout
+                      ? "linear-gradient(180deg, var(--accent), var(--accent-strong))"
+                      : "var(--bg-elev-2)",
+                    color: canCheckout ? "var(--accent-fg)" : "var(--fg-dim)",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    cursor: canCheckout ? "pointer" : "default",
+                    boxShadow: canCheckout
+                      ? "0 8px 24px var(--accent-glow)"
+                      : "none",
+                    fontFamily: "var(--font-sans)",
+                  }}
+                >
+                  {canCheckout ? (
+                    <>
+                      Continue to checkout · ₹{checkoutAmountINR.toFixed(2)}
+                      <IconArrow size={13} />
+                    </>
+                  ) : (
+                    "Enter an amount of ₹1 or more"
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* SIDEBAR column */}
@@ -812,10 +842,11 @@ export default function BillingPage() {
               </div>
 
               {/* Billing history */}
-              <div className="bill-reveal" style={{ animationDelay: "0.2s" }}>
-                <PurchaseHistory
-                  onBuyAgain={IS_NATIVE ? topUpOnWeb : openCheckoutFor}
-                />
+              <div
+                className="bill-reveal"
+                style={{ animationDelay: "0.2s", marginTop: 32 }}
+              >
+                <PurchaseHistory onBuyAgain={openCheckoutFor} />
               </div>
             </div>
           </div>

@@ -777,12 +777,14 @@ body {
    and the target-size rule exempts a link inside a sentence. The avatar and
    the Usage "+" are also left alone -- they keep their drawn size and take
    the tap through an invisible 44px square instead (see responsive.css), so
-   forcing a height here would only make the visible box bigger.
+   forcing a height here would only make the visible box bigger. So is the
+   Workflows header's balance, which is a line of text that happens to be
+   tappable; its own ::after gives it the 44px.
 
    hover: none alongside pointer: coarse, so a touchscreen LAPTOP -- which has
    a mouse as well -- keeps the compact layout it is drawn for. */
 @media (pointer: coarse) and (hover: none) {
-  button:not(.credit-topup):not(.profile-menu__trigger),
+  button:not(.credit-topup):not(.profile-menu__trigger):not(.wfp-head__balance),
   [role="button"],
   select,
   input:not(
@@ -1252,22 +1254,10 @@ body[data-bottomnav] .appnav__trigger {
   display: none;
 }
 
-/* The attribute above is set after hydration, so at a tab root on a phone the
-   hamburger paints for one frame before the bar takes over from it. The top
-   bar marks a tab root in its own markup (AppNav's data-tabroot, rendered from
-   the pathname, so the server HTML carries it), and these are the same two
-   device signals the handheld check reads -- which together keep the button
-   out of that first frame. A touchscreen laptop still hovers, so it keeps its
-   hamburger and never shows the bar. */
-@media (pointer: coarse) and (hover: none) {
-  .appnav[data-tabroot] .appnav__trigger {
-    display: none;
-  }
-}
-
-/* While a text field has focus the on-screen keyboard is up, and the fixed
-   bar would ride up above it, over the field being typed in. BottomNav sets
-   the attribute. */
+/* While the on-screen keyboard is up for a text field, the fixed bar would
+   ride up above it, over the field being typed in. BottomNav sets the
+   attribute only while the keyboard is actually showing, not merely while a
+   field has focus: closing the keyboard with Back keeps the focus. */
 body[data-typing] .bottomnav {
   display: none;
 }
@@ -1866,44 +1856,6 @@ body[data-typing] .bottomnav {
   flex: 1;
   min-width: 0;
 }
-/* A plain accent glyph rather than a boxed button: the cards below carry the
-   screen's structure, and a second outlined box competes with them. */
-.wfp-head__add {
-  flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  margin-right: -10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: var(--r-2);
-  background: transparent;
-  color: var(--accent);
-  cursor: pointer;
-  touch-action: manipulation;
-  transition:
-    transform 0.12s var(--ease),
-    background 0.15s var(--ease);
-}
-.wfp-head__add:active {
-  transform: scale(0.92);
-  background: var(--accent-soft);
-}
-.wfp-head__add:focus-visible {
-  outline: 2px solid var(--accent-line);
-  outline-offset: -2px;
-}
-@media (hover: hover) {
-  .wfp-head__add:hover {
-    background: var(--accent-soft);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .wfp-head__add {
-    transition: none;
-  }
-}
 .wfp-head__facts {
   display: flex;
   align-items: baseline;
@@ -1921,12 +1873,40 @@ body[data-typing] .bottomnav {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The balance doubles as the way to top up. It stays plain text -- no box,
+   no fill -- and only the chevron says it can be tapped. The ::after takes the
+   tap through a 44px-tall area without making the line any taller. */
 .wfp-head__balance {
+  position: relative;
   flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
   color: var(--fg);
   white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.wfp-head__balance::after {
+  content: "";
+  position: absolute;
+  inset: -13px -8px;
+}
+.wfp-head__balance:active {
+  opacity: 0.6;
+}
+.wfp-head__balance:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 3px;
+  border-radius: var(--r-1);
 }
 .wfp-head__balance-label {
+  color: var(--fg-muted);
+}
+.wfp-head__balance-chevron {
+  margin-left: 6px;
   color: var(--fg-muted);
 }
 
@@ -2060,7 +2040,7 @@ body[data-typing] .bottomnav {
   cursor: pointer;
   touch-action: manipulation;
 }
-.wfp-menu__item[aria-checked="true"] {
+.wfp-menu__item[aria-pressed="true"] {
   color: var(--fg);
 }
 .wfp-menu__item:active {
@@ -2097,6 +2077,11 @@ body[data-typing] .bottomnav {
 .wfp-list {
   list-style: none;
   display: grid;
+  /* minmax(0, …) so the column can be narrower than a card's content. An
+     auto column grows to the longest unbroken name, which at large system
+     text pushed every card past the screen edge instead of letting the name
+     end in an ellipsis. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   margin: 0;
   padding: 0;
@@ -2245,6 +2230,518 @@ body[data-typing] .bottomnav {
   color: var(--accent);
 }
 
+/* ── Credits on a phone ───────────────────────────────────────────────────
+   Balance and 30-day spend side by side, then one segmented control for the
+   amount, then the single filled button. Everything below that is a row you
+   can open, so the page stays one screen tall whatever the history holds. */
+.bilp-page {
+  padding: 14px 16px 48px;
+}
+.bilp-title {
+  margin: 0;
+  font-size: 24px;
+  line-height: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.bilp-sub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--fg-muted);
+}
+
+/* Two equal columns with the rule as a border on the second.
+   A `1fr auto 1fr` grid with a ::before for the rule looked tidier and was
+   wrong: the pseudo-element is the first grid item, so auto-placement pushed
+   BOTH stats into the third column and stacked them. Nothing overflowed, so
+   only measuring the boxes caught it. */
+.bilp-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: 16px;
+  margin-top: 18px;
+}
+.bilp-stat + .bilp-stat {
+  padding-left: 16px;
+  border-left: 1px solid var(--border-soft);
+}
+.bilp-stat {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.bilp-stat__label {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.bilp-stat__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bilp-stat__value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 24px;
+  line-height: 30px;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+
+.bilp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: 11px;
+  color: var(--accent);
+}
+.bilp-pill__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+/* The one place on this screen a warm colour is earned. */
+.bilp-stats[data-state="low"] .bilp-pill {
+  background: var(--warm-soft);
+  color: var(--warm);
+}
+.bilp-stats[data-state="unknown"] .bilp-pill {
+  background: var(--bg-elev-2);
+  color: var(--fg-muted);
+}
+
+.bilp-section {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-soft);
+}
+.bilp-eyebrow {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.bilp-heading {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.bilp-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--fg-muted);
+}
+.bilp-note[data-tone="error"] {
+  color: var(--danger);
+}
+.bilp-note[data-tone="ok"] {
+  color: var(--accent);
+}
+.bilp-note[data-tone="pending"] {
+  color: var(--warm);
+}
+
+/* One container, four segments, the chosen one lifted rather than filled. */
+.bilp-seg {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--r-2);
+  background: var(--bg-elev-1);
+}
+.bilp-seg__item {
+  min-height: 40px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.bilp-seg__item[aria-checked="true"] {
+  background: var(--bg-elev-3);
+  border-color: var(--border);
+  color: var(--fg);
+}
+.bilp-seg__item:focus-visible,
+.bilp-amount__input:focus-visible,
+.bilp-link:focus-visible,
+.bilp-row:focus-visible,
+.bilp-pay:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 2px;
+}
+
+/* Underlined, not boxed: the segments above already carry the weight. */
+.bilp-amount {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.bilp-amount:focus-within {
+  border-bottom-color: var(--accent);
+}
+.bilp-amount__prefix {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--fg-muted);
+}
+.bilp-amount__input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  /* 16px keeps mobile browsers from zooming on focus. */
+  font-size: 16px;
+}
+.bilp-amount__input::placeholder {
+  color: var(--fg-dim);
+}
+/* The rupee figure only. This class is shared with the coupon field, which
+   must stay a 16px text input -- scope anything typographic to the modifier
+   or the coupon's "Code" placeholder grows with it.
+
+   `height`, not `min-height`: the app-wide touch floor is !important on
+   inputs too, so a min-height here would be overridden back to 44. */
+.bilp-amount__input--figure {
+  height: 52px;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+}
+.bilp-amount--figure .bilp-amount__prefix {
+  font-size: 18px;
+}
+.bilp-amount__usd {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+/* The one filled control on the screen. 44px, not more: the app-wide touch
+   floor under @media (pointer: coarse) is written with !important, so on a
+   touch screen it overrides any taller value here rather than acting as a
+   floor. Asking for 48 and measuring 44 would only mislead the next reader.
+
+   The gradient, hairline and halo are the website checkout CTA's, copied
+   rather than reinvented so the two payment buttons read as one control --
+   see `.bill-cta` in app/billing/page.tsx. box-sizing is border-box globally,
+   so the 1px border costs no height. */
+.bilp-pay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 18px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-2);
+  background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+  box-shadow: 0 8px 24px var(--accent-glow);
+  color: var(--accent-fg);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    transform 0.12s var(--ease),
+    box-shadow 0.2s var(--ease);
+}
+/* Gated on a real pointer: a tap leaves :hover set on a touch screen, so the
+   button would stay lifted after it was pressed. */
+@media (hover: hover) {
+  .bilp-pay:not(:disabled):hover {
+    box-shadow: 0 12px 34px var(--accent-glow);
+  }
+}
+.bilp-pay:active {
+  transform: scale(0.99);
+}
+.bilp-pay:disabled {
+  background: var(--bg-elev-2);
+  border-color: var(--border);
+  box-shadow: none;
+  color: var(--fg-dim);
+  cursor: default;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bilp-pay {
+    transition: none;
+  }
+}
+
+/* A whole-width row that opens something. Keeps the page one screen tall. */
+.bilp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.bilp-row__action {
+  color: var(--accent);
+}
+/* Points right while closed, down while open -- IconArrow already points
+   right, so the closed state needs no rotation at all. */
+.bilp-row__chevron {
+  display: inline-flex;
+  color: var(--fg-muted);
+  transition: transform 0.15s var(--ease);
+}
+.bilp-row__chevron[data-open="true"] {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bilp-row__chevron {
+    transition: none;
+  }
+}
+
+.bilp-link {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.bilp-link:disabled {
+  color: var(--fg-dim);
+  cursor: default;
+}
+.bilp-link--block {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  text-align: left;
+}
+
+.bilp-facts {
+  margin: 10px 0 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--fg-muted);
+}
+
+/* Credits is not a tab root, so it carries its own way back. */
+.bilp-back {
+  margin-bottom: 14px;
+}
+
+/* ── Usage on a phone ─────────────────────────────────────────────────────
+   Built on the Credits blocks above (.bilp-stats, -section, -seg, -heading,
+   -note), so the two money screens read as one family. What is new here is
+   the row: the desktop page's 984px endpoints table and 720px settlements
+   table become lists with the one figure that matters on the right. */
+.usgp-page[data-loading="true"]
+  > :not(.bilp-title):not(.bilp-sub):not(.usgp-seg) {
+  opacity: 0.6;
+  transition: opacity 0.15s var(--ease);
+}
+/* Three ranges, not the four amounts .bilp-seg was written for. */
+.usgp-seg {
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 18px;
+}
+.usgp-delta {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+/* More spend is not good news on a spend screen, so it gets the warm colour. */
+.usgp-delta[data-up="true"] {
+  color: var(--warm);
+}
+.usgp-legend {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.usgp-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.usgp-legend i,
+.usgp-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.usgp-chart {
+  --us-chart-h: 150px;
+}
+.usgp-cats {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  align-items: center;
+  gap: 16px;
+}
+.usgp-donut {
+  width: 120px;
+}
+.usgp-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.usgp-list > li + li {
+  border-top: 1px solid var(--border-soft);
+}
+.usgp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 0;
+  color: var(--fg);
+  text-decoration: none;
+}
+.usgp-row__main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.usgp-row__main--inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.usgp-row__name {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usgp-row__sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.usgp-row__fig {
+  flex-shrink: 0;
+  display: grid;
+  justify-items: end;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  color: var(--fg);
+}
+.usgp-row__fig small {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.usgp-pill {
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16px;
+}
+/* Credits left, above the range: a balance is not a range figure. */
+.usgp-credit {
+  margin-top: 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+.usgp-credit__label {
+  font-size: 14px;
+  color: var(--fg-muted);
+}
+.usgp-credit__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+  color: var(--fg);
+}
+.usgp-credit__chevron {
+  font-family: var(--font-sans);
+  color: var(--fg-muted);
+}
+.usgp-credit[data-state="low"] .bilp-pill {
+  background: var(--warm-soft);
+  color: var(--warm);
+}
+
+/* A transaction hash, cut short and underlined as on the website's
+   settlements table. The colour is the x402 magenta, set inline from
+   TYPE_PILL so the two cannot drift. */
+.usgp-hash {
+  font-family: var(--font-mono);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.usgp-empty {
+  margin-top: 24px;
+}
+.usgp-foot {
+  margin-top: 20px;
+}
+.usgp-skeleton {
+  display: grid;
+  gap: 16px;
+  margin-top: 20px;
+}
+
 /* ── Upcoming runs ───────────────────────────────────────────────────────
    What the scheduler will start next. Shared by Activity, a workflow's own
    screen and the desktop Workflows page, so it keeps to the phone list's
@@ -2318,6 +2815,17 @@ a.upc__row:focus-visible {
   font-size: 13px;
   color: var(--fg-muted);
 }
+.upc__retry {
+  min-height: 44px;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
 
 /* ── A workflow's own screen on the phone ─────────────────────────────── */
 .wfd-status {
@@ -2388,8 +2896,15 @@ a.upc__row:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The model is stored text and can be one long unbroken id, so it may shrink
+   and wraps anywhere rather than pushing the row past the screen edge. Capped
+   so the agent's name keeps room beside it. */
 .wfd-agent__meta {
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 60%;
+  overflow-wrap: anywhere;
+  text-align: right;
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--fg-muted);

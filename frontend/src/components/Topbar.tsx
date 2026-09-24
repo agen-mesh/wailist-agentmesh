@@ -1,10 +1,11 @@
 "use client";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Logo, Hairline, ghostBtnSm } from "@/components/ui";
 import { useAuth } from "@/hooks/useAuth";
 import { AppNav } from "@/components/nav/AppNav";
 import { APP_NAV_ITEMS, type NavItem } from "@/lib/nav";
+import { useIsHandheld } from "@/hooks/useIsHandheld";
 import { IS_NATIVE } from "@/lib/nativeAuth";
 import { NotificationsSheet } from "@/components/notifications/NotificationsSheet";
 
@@ -82,6 +83,16 @@ export function Topbar() {
     };
   }, [menuOpen]);
 
+  // The sheet on a phone and the inline links on a desktop come from the same
+  // manifest, so a route marked desktopOnly is dropped here rather than in
+  // lib/nav.ts, which stays a plain list.
+  const handheld = useIsHandheld();
+  const navItems = useMemo(
+    () =>
+      handheld ? APP_NAV_ITEMS.filter((i) => !i.desktopOnly) : APP_NAV_ITEMS,
+    [handheld],
+  );
+
   const handleSignOut = async () => {
     await signOut();
     // replace, not push: Back from the signed-out screen would otherwise
@@ -92,7 +103,7 @@ export function Topbar() {
   return (
     <>
       <AppNav
-        items={APP_NAV_ITEMS}
+        items={navItems}
         pathname={pathname}
         onSelect={(item: NavItem) => {
           if (item.href) router.push(item.href);

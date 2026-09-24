@@ -82,4 +82,36 @@ describe("describeWorkflow", () => {
       "Runs when its webhook is called. 1 step, no agents.",
     );
   });
+
+  // The sentence and the Agents list below it must agree: only tools attached
+  // to an agent count as its tools, and a flow step after it is not one.
+  it("counts only the tools attached to agents, as the Agents list does", () => {
+    const graph = wf({
+      ...GRAPH,
+      nodes: [
+        ...GRAPH.nodes!.filter((n) => n.id !== "w"),
+        { id: "x", type: "action", x: 0, y: 0 },
+      ],
+      edges: [
+        ...GRAPH.edges!.filter((e) => e.from !== "w"),
+        { id: "e5", from: "a", to: "x", kind: "flow" },
+      ],
+    });
+    expect(describeWorkflow(graph)).toBe(
+      "Runs when started. 1 agent (gemini-2.5-flash) using 1 tool.",
+    );
+    expect(workflowAgents(graph)[0].tools).toBe(1);
+  });
+
+  it("counts every step of a flow with no agents, state included", () => {
+    const flow = wf({
+      nodes: [
+        { id: "t", type: "trigger", template: "manual", x: 0, y: 0 },
+        { id: "s", type: "state", x: 0, y: 0 },
+      ],
+    });
+    expect(describeWorkflow(flow)).toBe(
+      "Runs when started. 1 step, no agents.",
+    );
+  });
 });

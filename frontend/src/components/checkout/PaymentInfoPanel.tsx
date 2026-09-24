@@ -2,12 +2,12 @@
 import { useState } from "react";
 import { Pill } from "@/components/ui";
 import type { PaymentMethod } from "./types";
+import type { PaymentProvider } from "./paymentProviders";
 import {
   USD_PROVIDERS,
   MIN_CRYPTO_AMOUNT_USD_CENTS,
   MAX_CRYPTO_AMOUNT_USD_CENTS,
 } from "./paymentProviders";
-import { usePaymentProviders } from "./usePaymentProviders";
 import { payments } from "@/lib/api";
 import { useCashfreeCheckout } from "./useCashfreeCheckout";
 
@@ -60,12 +60,21 @@ export function PaymentInfoPanel({
   amountINR,
   payable,
   onPaid,
+  providers,
+  usdPerINR,
+  providersLoading,
 }: {
   method: PaymentMethod;
   onMethodChange: (method: PaymentMethod) => void;
   amountINR: number;
   payable: boolean;
   onPaid: (creditsUSDOverride?: number) => void;
+  // Supplied by CheckoutModal, which fetches them once for the whole
+  // dialog. Mounting a second copy of usePaymentProviders here meant two
+  // requests for one rate, and two chances to disagree about it.
+  providers: PaymentProvider[];
+  usdPerINR: number;
+  providersLoading: boolean;
 }) {
   const [status, setStatus] = useState<PayStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -106,11 +115,6 @@ export function PaymentInfoPanel({
     onDismiss: () => setStatus("idle"),
   });
 
-  const {
-    providers,
-    usdPerINR,
-    loading: providersLoading,
-  } = usePaymentProviders();
   const selected = providers.find((p) => p.id === method);
 
   // NOWPayments charges in dollars while this panel is denominated in rupees,

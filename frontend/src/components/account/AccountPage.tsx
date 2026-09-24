@@ -76,14 +76,7 @@ export function AccountPage() {
                 </span>
               </Link>
             </li>
-            <li>
-              <Link href="/usage" className="account-row" style={row}>
-                <span>Usage</span>
-                <span style={rowValue}>
-                  <Chevron />
-                </span>
-              </Link>
-            </li>
+            {/* No Usage row: Usage is a tab of its own on the bottom bar. */}
             {/* Native only, as in the top bar's menu: a browser has no push
                 token to register. */}
             {IS_NATIVE && (

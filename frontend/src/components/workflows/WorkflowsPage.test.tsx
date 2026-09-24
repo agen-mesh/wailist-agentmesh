@@ -54,7 +54,7 @@ describe("WorkflowsPage", () => {
     expect(
       await screen.findByRole("link", { name: /Customer Support Triage/ }),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add credits" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /add credits/ })).toBeTruthy();
     expect(screen.queryByText(/Rows|Grid/)).toBeNull();
     expect(screen.queryByText(/your workspace/i)).toBeNull();
     expect(

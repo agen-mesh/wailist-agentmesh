@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { migrateToken, type TokenStore } from "./auth";
 
 // A TokenStore backed by a variable, plus counters, so each test can assert
@@ -294,5 +294,87 @@ describe("a migration that fails after saveToken has landed", () => {
 
     vi.doUnmock("./secureStore");
     vi.doUnmock("@capacitor/preferences");
+  });
+});
+
+// A sign-out or rejected-session cleanup can still be running when the next
+// sign-in saves its token. The cleanup must only ever remove the token it was
+// cleaning up, never the one saved after it.
+describe("clearTokenIf", () => {
+  function storesWith(initial: string | null) {
+    vi.resetModules();
+    const disk = { value: initial };
+    let releaseRemove: () => void = () => {};
+    const removeGate = { held: false };
+    vi.doMock("./secureStore", () => ({
+      SecureStore: {
+        get: async () => ({ value: disk.value }),
+        set: async ({ value }: { value: string }) => {
+          disk.value = value;
+        },
+        remove: async () => {
+          if (removeGate.held) {
+            await new Promise<void>((r) => {
+              releaseRemove = r;
+            });
+          }
+          disk.value = null;
+        },
+      },
+    }));
+    vi.doMock("@capacitor/preferences", () => ({
+      Preferences: {
+        get: async () => ({ value: null }),
+        set: async () => {},
+        remove: async () => {},
+      },
+    }));
+    return {
+      disk,
+      holdRemove: () => {
+        removeGate.held = true;
+      },
+      release: () => releaseRemove(),
+    };
+  }
+
+  afterEach(() => {
+    vi.doUnmock("./secureStore");
+    vi.doUnmock("@capacitor/preferences");
+  });
+
+  it("clears the token it was given", async () => {
+    const { disk } = storesWith("tok_old");
+    const { clearTokenIf, loadToken } = await import("./auth");
+
+    expect(await clearTokenIf("tok_old")).toBe(true);
+    expect(disk.value).toBeNull();
+    expect(await loadToken()).toBeNull();
+  });
+
+  it("leaves a token saved after the one it was given", async () => {
+    const { disk } = storesWith("tok_old");
+    const { clearTokenIf, saveToken, loadToken } = await import("./auth");
+
+    await saveToken("tok_new");
+    expect(await clearTokenIf("tok_old")).toBe(false);
+    expect(disk.value).toBe("tok_new");
+    expect(await loadToken()).toBe("tok_new");
+  });
+
+  it("does not let a clear already under way delete a sign-in saved during it", async () => {
+    const { disk, holdRemove, release } = storesWith("tok_old");
+    const { clearTokenIf, saveToken, loadToken } = await import("./auth");
+
+    holdRemove();
+    const clearing = clearTokenIf("tok_old");
+    // The sign-in lands while the delete is still in flight.
+    const saving = saveToken("tok_new");
+    await new Promise((r) => setTimeout(r, 0));
+    release();
+    await Promise.all([clearing, saving]);
+
+    expect(disk.value).toBe("tok_new");
+    expect(await loadToken()).toBe("tok_new");
   });
 });

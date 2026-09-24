@@ -240,6 +240,7 @@ export function WorkflowsPage() {
             workflows={wfList}
             loading={loading}
             error={pageError?.message ?? null}
+            onRetry={() => void reload({ keepOnError: true })}
           />
         </PullToRefresh>
       </div>

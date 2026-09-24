@@ -4,6 +4,7 @@ import {
   formatDollars,
   spendDollars,
   totalSpend,
+  totalSpendKnown,
   workflowAriaLabel,
   workflowMeta,
 } from "./workflowMeta";
@@ -24,13 +25,12 @@ function wf(over: Partial<Workflow> = {}): Workflow {
   };
 }
 
-// The line reads "$1.48 · 38 runs · next in 2 h", and its last part is the
-// only one that changes colour.
+// The line reads "$1.48 · next in 2 h", and its last part is the only one
+// that changes colour.
 describe("workflowMeta", () => {
   it("ends a scheduled workflow with the time until its next run", () => {
     const m = workflowMeta(wf({ scheduleNextRunAt: at(2 * 3_600_000) }), NOW);
     expect(m.spent).toBe("$1.48");
-    expect(m.runs).toBe("38 runs");
     expect(m.state).toEqual({ text: "next in 2 h", tone: "accent" });
     expect(m.draft).toBe(false);
   });
@@ -43,7 +43,6 @@ describe("workflowMeta", () => {
   it("says nothing is queued when a deployed workflow has no schedule", () => {
     const m = workflowMeta(wf({ runs: 1842, spend: "4.218" }), NOW);
     expect(m.spent).toBe("$4.22");
-    expect(m.runs).toBe("1,842 runs");
     expect(m.state).toEqual({ text: "no run queued", tone: "dim" });
   });
 
@@ -76,10 +75,25 @@ describe("workflowMeta", () => {
     expect(m.state).toEqual({ text: "not deployed", tone: "dim" });
   });
 
-  it("counts a single run in the singular", () => {
-    expect(workflowMeta(wf({ runs: 1 }), NOW).runs).toBe("1 run");
-    expect(workflowMeta(wf({ runs: 0 }), NOW).runs).toBe("0 runs");
-    expect(workflowMeta(wf({ runs: undefined }), NOW).runs).toBe("0 runs");
+  // The count named no period, so it read as neither a rate nor a total, and
+  // the website's Usage page answers that question properly.
+  it("carries no run count", () => {
+    expect(workflowMeta(wf({ runs: 1842 }), NOW)).not.toHaveProperty("runs");
+  });
+
+  // `draft` means "never ran", not "status is draft", so it still reads the
+  // count even though nothing prints it. Removing the read would relabel a
+  // draft that has runs behind it.
+  it("still reads the count to tell a never-run draft from a stopped one", () => {
+    expect(workflowMeta(wf({ status: "draft", runs: 0 }), NOW).draft).toBe(
+      true,
+    );
+    expect(
+      workflowMeta(wf({ status: "draft", runs: undefined }), NOW).draft,
+    ).toBe(true);
+    expect(workflowMeta(wf({ status: "draft", runs: 1 }), NOW).draft).toBe(
+      false,
+    );
   });
 
   it("treats a missing or unreadable spend as zero", () => {
@@ -123,7 +137,7 @@ describe("workflowAriaLabel", () => {
       spend: "4.218",
     });
     expect(workflowAriaLabel(w, workflowMeta(w, NOW))).toBe(
-      "Customer Support Triage, deployed. $4.22 spent, 1,842 runs, no run queued.",
+      "Customer Support Triage, deployed. $4.22 spent, no run queued.",
     );
   });
 
@@ -135,7 +149,7 @@ describe("workflowAriaLabel", () => {
       spend: "0.89",
     });
     expect(workflowAriaLabel(w, workflowMeta(w, NOW))).toBe(
-      "Invoice Reconciliation, paused. $0.890 spent, 217 runs.",
+      "Invoice Reconciliation, paused. $0.890 spent.",
     );
   });
 
@@ -149,5 +163,96 @@ describe("workflowAriaLabel", () => {
     expect(workflowAriaLabel(w, workflowMeta(w, NOW))).toBe(
       "Content Pipeline, draft. Never run.",
     );
+  });
+
+  // A scheduled workflow whose next time has not reached the list said "no
+  // run queued", which reads as "nothing will happen" about a workflow that
+  // runs every weekday.
+  //
+  // The zone is given explicitly. Which weekdays 07:00 UTC falls on is a
+  // property of where the reader is -- in Anchorage or Honolulu it is the
+  // evening before, so the same cron is Sunday to Thursday -- and this test
+  // is about the sentence being the schedule rather than "no run queued",
+  // not about the conversion, which describeSchedule's own tests cover.
+  it("says the schedule when no next run time is known", () => {
+    const meta = workflowMeta(
+      {
+        id: "wf-1",
+        name: "Daily Market Brief",
+        status: "deployed",
+        nodes: [],
+        edges: [],
+        scheduleCron: "0 7 * * 1-5",
+      },
+      NOW,
+      "America/New_York",
+    );
+    expect(meta.state.text).toMatch(/^every weekday at /);
+    expect(meta.state.text).not.toContain("0 7 * * 1-5");
+  });
+
+  // ListWorkflows returns the base list when attachWorkflowStats fails, and
+  // `runs` is omitted at zero, so an outage looks exactly like a workflow
+  // that never ran. Printed as figures it reads as fact: "$0 spent".
+  describe("when the run and spend aggregation failed", () => {
+    const failed = (extra: Partial<Workflow> = {}) =>
+      wf({
+        statsUnavailable: true,
+        runs: undefined,
+        spend: undefined,
+        ...extra,
+      });
+
+    it("shows a dash for spend rather than $0", () => {
+      expect(workflowMeta(failed(), NOW).spent).toBe("—");
+    });
+
+    it("does not call a draft never run", () => {
+      const m = workflowMeta(failed({ status: "draft" }), NOW);
+      expect(m.draft).toBe(false);
+      expect(workflowAriaLabel(failed({ status: "draft" }), m)).not.toContain(
+        "Never run",
+      );
+    });
+
+    it("keeps saying $0 when the figures really are zero", () => {
+      expect(workflowMeta(wf({ spend: undefined }), NOW).spent).toBe("$0");
+    });
+
+    it("reports whether a total can be summed at all", () => {
+      expect(totalSpendKnown([wf({ spend: "1.00" })])).toBe(true);
+      expect(totalSpendKnown([wf({ spend: "1.00" }), failed()])).toBe(false);
+    });
+  });
+
+  it("still says no run queued when there is no schedule at all", () => {
+    const meta = workflowMeta(
+      {
+        id: "wf-2",
+        name: "Manual only",
+        status: "deployed",
+        nodes: [],
+        edges: [],
+      },
+      Date.now(),
+    );
+    expect(meta.state.text).toBe("no run queued");
+  });
+
+  // A known next run is the more useful thing, so it still wins.
+  it("prefers the next run time when the list knows it", () => {
+    const meta = workflowMeta(
+      {
+        id: "wf-3",
+        name: "Daily Market Brief",
+        status: "deployed",
+        nodes: [],
+        edges: [],
+        scheduleCron: "0 7 * * 1-5",
+        scheduleNextRunAt: new Date(Date.now() + 3 * 3_600_000).toISOString(),
+      },
+      Date.now(),
+    );
+    expect(meta.state.text).toMatch(/^next in /);
   });
 });

@@ -41,8 +41,10 @@ describe("WorkflowPhoneRow", () => {
     const card = renderRow();
     expect(within(card).getByText("Customer Support Triage")).toBeTruthy();
     expect(card.textContent).toContain("$4.22");
-    expect(card.textContent).toContain("1,842 runs");
     expect(card.textContent).toContain("next in 12 min");
+    // A count with no period behind it read as neither a rate nor a total;
+    // the website's Usage page answers that question properly.
+    expect(card.textContent).not.toContain("1,842");
     // The three-column Spent / Runs / Upcoming run grid is gone.
     expect(within(card).queryByText("Spent")).toBeNull();
     expect(within(card).queryByText("Upcoming run")).toBeNull();
@@ -75,7 +77,7 @@ describe("WorkflowPhoneRow", () => {
 
   it("names the status in words, because the rail is only colour", () => {
     expect(renderRow().getAttribute("aria-label")).toBe(
-      "Customer Support Triage, deployed. $4.22 spent, 1,842 runs, next in 12 min.",
+      "Customer Support Triage, deployed. $4.22 spent, next in 12 min.",
     );
   });
 

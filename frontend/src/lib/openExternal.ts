@@ -1,7 +1,8 @@
 import { IS_NATIVE } from "@/lib/nativeAuth";
 
-// Where the app sends someone to add credits. Card, UPI and crypto checkout
-// cannot run inside the Android app, so top-ups happen on the website.
+// Where the app sends someone to add credits. The Android app does not take
+// payment itself -- checkout in the app needs its own payment-provider project
+// -- so top-ups happen on the website, in an in-app browser tab.
 export const WEB_BILLING_URL = "https://www.agent-mesh.app/billing";
 
 // Opens a page that belongs outside the app: a block explorer, or the

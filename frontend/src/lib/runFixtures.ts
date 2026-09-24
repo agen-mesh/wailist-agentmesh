@@ -770,12 +770,13 @@ const SAMPLE_CRON_PERIOD_MS: Record<string, number> = {
 // GET /schedules/upcoming: deployed sample workflows with a schedule, up to
 // `per` occurrences each, cut to `limit`.
 export function fixtureUpcoming(
-  options: { limit?: number; per?: number } = {},
+  options: { limit?: number; per?: number; workflowId?: string } = {},
 ): UpcomingRun[] {
   const limit = options.limit ?? 20;
   const per = options.per ?? 3;
   const out: UpcomingRun[] = [];
   for (const wf of WORKFLOWS) {
+    if (options.workflowId && wf.id !== options.workflowId) continue;
     if (wf.status !== "deployed" || !wf.scheduleCron || !wf.scheduleNextRunAt)
       continue;
     const period = SAMPLE_CRON_PERIOD_MS[wf.scheduleCron] ?? 24 * HOUR_MS;

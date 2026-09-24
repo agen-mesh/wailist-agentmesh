@@ -38,11 +38,23 @@ const STATUS_PILLS: Record<
 // Billing history from credit_ledger via GET /credits/purchases. Newest first.
 export function PurchaseHistory({
   onBuyAgain,
+  limit,
+  heading = "Billing history",
 }: {
   onBuyAgain: (amountINR: number) => void;
+  /** Show only the newest few. Undefined shows everything fetched. */
+  limit?: number;
+  /** null lets the placing screen supply its own heading instead. */
+  heading?: string | null;
 }) {
-  const { purchases, purchasesKnown, purchasesFailed, refreshPurchases } =
-    useCredits();
+  const {
+    purchases: allPurchases,
+    purchasesKnown,
+    purchasesFailed,
+    refreshPurchases,
+  } = useCredits();
+  const purchases =
+    limit === undefined ? allPurchases : allPurchases.slice(0, limit);
   // A repeat failure leaves purchasesFailed already true, so the store's state
   // does not change and the UI would be pixel-identical to before the click.
   // Tracking the attempt locally is what makes the retry observable.
@@ -62,17 +74,23 @@ export function PurchaseHistory({
 
   return (
     <>
-      <div style={{ marginTop: 32 }}>
-        <h2
-          style={{
-            fontSize: 15,
-            fontWeight: 600,
-            color: "var(--fg)",
-            marginBottom: 12,
-          }}
-        >
-          Billing history
-        </h2>
+      {/* No outer spacing of its own: an inline margin here cannot be
+          overridden by the page that places it, and the phone screen wants
+          this section to start where every other one does. The desktop page
+          supplies its own gap at the call site. */}
+      <div>
+        {heading !== null && (
+          <h2
+            style={{
+              fontSize: 15,
+              fontWeight: 600,
+              color: "var(--fg)",
+              marginBottom: 12,
+            }}
+          >
+            {heading}
+          </h2>
+        )}
 
         {purchasesFailed && purchases.length === 0 ? (
           <p style={{ fontSize: 13, color: "var(--fg-dim)", margin: 0 }}>

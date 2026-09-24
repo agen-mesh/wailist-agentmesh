@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,5 +102,49 @@ func TestSetWorkflowDescriptionAndCountRuns(t *testing.T) {
 	runAt(t, s, wf, now.Add(-90*24*time.Hour))
 	if n, err := s.CountRuns(ctx, wf); err != nil || n != 2 {
 		t.Fatalf("CountRuns = %d, %v; want 2", n, err)
+	}
+}
+
+// The graph and the description are one save. A description the database
+// refuses must leave the name and graph as they were, not half-saved.
+func TestUpdateWorkflowAndDescriptionIsOneSave(t *testing.T) {
+	s := runsListStore(t)
+	ctx := context.Background()
+	user := runsListUser(t, s)
+	wf := runsListWorkflow(t, s, user, "Before")
+
+	desc := "Sorts support email."
+	got, err := s.UpdateWorkflowAndDescription(ctx, wf, "After", models.WorkflowGraph{}, &desc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "After" || got.Description != desc {
+		t.Fatalf("saved name=%q description=%q", got.Name, got.Description)
+	}
+
+	// Past the 2000-character CHECK, so the statement fails as a whole.
+	tooLong := strings.Repeat("x", 2001)
+	if _, err := s.UpdateWorkflowAndDescription(ctx, wf, "Half saved", models.WorkflowGraph{}, &tooLong); err == nil {
+		t.Fatal("an over-long description saved")
+	}
+	after, err := s.GetWorkflow(ctx, wf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Name != "After" || after.Description != desc {
+		t.Fatalf("after a failed save: name=%q description=%q, want both unchanged", after.Name, after.Description)
+	}
+
+	// nil leaves the description alone; empty clears it.
+	if _, err := s.UpdateWorkflowAndDescription(ctx, wf, "After", models.WorkflowGraph{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	empty := ""
+	cleared, err := s.UpdateWorkflowAndDescription(ctx, wf, "After", models.WorkflowGraph{}, &empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.Description != "" {
+		t.Fatalf("description = %q after clearing", cleared.Description)
 	}
 }
