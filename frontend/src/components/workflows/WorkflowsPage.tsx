@@ -232,12 +232,12 @@ export function WorkflowsPage() {
                     opacity: creatingTendril ? 0.6 : 1,
                     position: "relative",
                   }}
-                  title="A native Tendril node runs a Python script on a Tendril machine and returns its output. $3.00 per run ($1.50 job + $1.50 platform fee)."
+                  title="Rents a real Tendril machine for up to 15 minutes, probes its hardware, runs a multi-core benchmark on it, has a Gemini analyst write up the results, then releases the machine and refunds unused time. Tops up $2 of Tendril credit only when yours is below $1.50. $7.54 per run (rent gate $1.51, two jobs at $3.00 each, analyst $0.03) plus a few cents of metered machine time; $3.50 more on a run that tops up."
                 >
                   {creatingTendril ? "Loading…" : "Load Tendril workflow"}
                   <span style={{ marginLeft: 6 }}>
                     <Pill tone="accent" mono>
-                      $3.00/run
+                      $7.54+/run
                     </Pill>
                   </span>
                 </button>

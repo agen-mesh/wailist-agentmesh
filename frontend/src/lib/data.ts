@@ -831,35 +831,151 @@ export const TENDRIL_DEMO_WORKFLOW: Workflow = {
 
 // TENDRIL_WORKFLOW is what the Workflows page's "Load Tendril workflow"
 // button creates. Unlike TENDRIL_DEMO_WORKFLOW (agents calling Tendril's
-// x402 endpoint as a tool402), this one is built from the native tendril
-// node the canvas palette offers -- the same run action the Tendril console
-// drives (backend/internal/engine/nodes/tendril.go):
+// x402 endpoint as a tool402), it drives the full lifecycle with the native
+// tendril nodes the canvas palette offers, the same actions the Tendril
+// console runs (backend/internal/engine/nodes/tendril.go):
 //
-//   Manual Trigger -> Run a Job -> End
+//   Manual Trigger -> Buy Tendril Credit -> Rent a Machine -> Probe ->
+//   Benchmark -> Benchmark Analyst (Gemini) -> Release -> End
 //
-// No Buy Tendril Credit step: a run is paid in AgentMesh credit through the
-// x402 relay and never draws the user's Tendril credit (only rent does), so
-// a topup here would charge for credit this workflow can't spend. With no
-// rent step either, Tendril picks an idle machine, runs the payload in a
-// throwaway sandbox, and returns its stdout -- unless the user already has
-// an open lease, which resolveLease then runs the job on instead.
-// Billing: $1.50 /x402/run quote + $1.50 platform fee = $3.00 per run.
-const TENDRIL_WORKFLOW_PAYLOAD = `import os, platform, sys
+// Rent reserves 0.25h of the user's Tendril credit for the cheapest online
+// machine, which is what makes the topup meaningful here: it only buys $2
+// while the balance is below $1.50, and $1.50 covers 0.25h at up to $6/hr.
+// Both jobs resolve the lease rent opened in this same run, so they execute
+// on that machine rather than a throwaway sandbox. The analyst reads the
+// benchmark's output (the agent's input is its predecessor's output) before
+// Release stops the meter and refunds unused reserved time. If a step fails
+// before Release, the lease reaper closes it once the 0.25h runs out.
+// Billing, in AgentMesh credit:
+//   rent gate fee          0.01 + 1.50 platform fee = 1.51
+//   two run jobs     2 x (1.50 + 1.50 platform fee) = 6.00
+//   analyst, economy-tier platform key               = 0.03
+//   -> $7.54 per run, plus metered machine seconds from Tendril credit and
+//      $3.50 ($2 + $1.50 fee) on a run that tops up.
+const TENDRIL_PROBE_PAYLOAD = `import os, platform, shutil, sys, time
 
-primes = [n for n in range(2, 1000) if all(n % d for d in range(2, int(n ** 0.5) + 1))]
-fib = [0, 1]
-while len(fib) < 20:
-    fib.append(fib[-1] + fib[-2])
 
-print("Hello from a Tendril machine!")
-print(f"python {sys.version.split()[0]} on {platform.system()} {platform.machine()}, {os.cpu_count()} CPU(s)")
-print(f"{len(primes)} primes below 1000, largest is {primes[-1]}")
-print(f"first 20 Fibonacci numbers: {fib}")
+def read(path):
+    try:
+        with open(path) as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+cpuinfo = read("/proc/cpuinfo").splitlines()
+cpu_model = next((l.split(":", 1)[1].strip() for l in cpuinfo if l.startswith("model name")), platform.processor() or "unknown")
+mem_kb = next((int(l.split()[1]) for l in read("/proc/meminfo").splitlines() if l.startswith("MemTotal")), 0)
+disk = shutil.disk_usage("/")
+load = os.getloadavg() if hasattr(os, "getloadavg") else (0.0, 0.0, 0.0)
+uptime_raw = read("/proc/uptime").split()
+uptime_h = float(uptime_raw[0]) / 3600 if uptime_raw else 0.0
+
+print("== Tendril machine probe ==")
+print(f"os        {platform.system()} {platform.release()} ({platform.machine()})")
+print(f"python    {sys.version.split()[0]}")
+usable = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()
+print(f"cpu       {usable} usable of {os.cpu_count()} x {cpu_model}")
+print(f"memory    {mem_kb / 1048576:.1f} GiB")
+print(f"disk /    {disk.free / 1e9:.1f} GB free of {disk.total / 1e9:.1f} GB")
+print(f"load avg  {load[0]:.2f} {load[1]:.2f} {load[2]:.2f}")
+print(f"uptime    {uptime_h:.1f} h")
+
+t = time.perf_counter()
+sum(i * i for i in range(3_000_000))
+print(f"warm-up   3M-step loop in {time.perf_counter() - t:.3f}s")
+`;
+
+const TENDRIL_BENCHMARK_PAYLOAD = `import hashlib, math, multiprocessing, os, platform, random, sys, time
+from concurrent.futures import ProcessPoolExecutor
+
+CORES = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+LIMIT = 100_000_000
+PRIMES_BELOW_LIMIT = 5_761_455
+POINTS = 16_000_000
+
+
+def base_primes(n):
+    sieve = bytearray([1]) * (n + 1)
+    sieve[0:2] = bytearray(2)
+    for i in range(2, int(n ** 0.5) + 1):
+        if sieve[i]:
+            sieve[i * i :: i] = bytearray(len(range(i * i, n + 1, i)))
+    return [i for i, v in enumerate(sieve) if v]
+
+
+def count_segment(bounds):
+    lo, hi = bounds
+    seg = bytearray([1]) * (hi - lo)
+    for p in base_primes(int(hi ** 0.5) + 1):
+        start = max(p * p, (lo + p - 1) // p * p)
+        seg[start - lo :: p] = bytearray(len(range(start, hi, p)))
+    for i in range(lo, min(2, hi)):
+        seg[i - lo] = 0
+    return sum(seg)
+
+
+def monte_carlo(job):
+    seed, n = job
+    rng = random.Random(seed)
+    hits = 0
+    for _ in range(n):
+        x, y = rng.random(), rng.random()
+        if x * x + y * y <= 1.0:
+            hits += 1
+    return hits
+
+
+def parallel(fn, jobs):
+    # fork, so workers never re-import this script: it may arrive on stdin.
+    methods = multiprocessing.get_all_start_methods()
+    ctx = multiprocessing.get_context("fork") if "fork" in methods else None
+    try:
+        with ProcessPoolExecutor(max_workers=CORES, mp_context=ctx) as pool:
+            return list(pool.map(fn, jobs)), CORES
+    except Exception:
+        return [fn(j) for j in jobs], 1
+
+
+if __name__ == "__main__":
+    start = time.perf_counter()
+    print("== Tendril benchmark ==")
+    print(f"machine   {CORES} cores, {platform.system()} {platform.machine()}, python {sys.version.split()[0]}")
+
+    step = -(-LIMIT // (CORES * 4))
+    segments = [(lo, min(lo + step, LIMIT)) for lo in range(0, LIMIT, step)]
+    t = time.perf_counter()
+    counts, workers = parallel(count_segment, segments)
+    t_primes = time.perf_counter() - t
+    total = sum(counts)
+    status = "verified" if total == PRIMES_BELOW_LIMIT else "MISMATCH"
+    print(f"primes    {total:,} below {LIMIT:,} in {t_primes:.2f}s on {workers} workers ({status})")
+
+    jobs = [(seed, POINTS // (CORES * 4)) for seed in range(CORES * 4)]
+    t = time.perf_counter()
+    monte_carlo(jobs[0])
+    serial_estimate = (time.perf_counter() - t) * len(jobs)
+    t = time.perf_counter()
+    hits, workers = parallel(monte_carlo, jobs)
+    t_mc = time.perf_counter() - t
+    n = sum(j[1] for j in jobs)
+    pi = 4 * sum(hits) / n
+    print(f"pi        {pi:.6f} from {n:,} random points in {t_mc:.2f}s (off by {abs(pi - math.pi):.6f})")
+    print(f"          ~{serial_estimate:.2f}s on one core, {serial_estimate / t_mc:.1f}x speedup on {workers} workers")
+
+    block = os.urandom(1 << 20)
+    h = hashlib.sha256()
+    t = time.perf_counter()
+    for _ in range(256):
+        h.update(block)
+    t_hash = time.perf_counter() - t
+    print(f"sha256    256 MiB in {t_hash:.2f}s ({256 / t_hash:.0f} MiB/s on one core)")
+    print(f"total     {time.perf_counter() - start:.2f}s of compute")
 `;
 
 export const TENDRIL_WORKFLOW: Workflow = {
   id: "wf-tendril",
-  name: "Tendril: Run Python",
+  name: "Tendril: Rent, Benchmark & Release",
   nodes: [
     {
       id: "tw1",
@@ -873,21 +989,93 @@ export const TENDRIL_WORKFLOW: Workflow = {
     {
       id: "tw2",
       type: "tendril",
-      template: "tendril_run",
-      x: 320,
+      template: "tendril_topup",
+      x: 300,
       y: 220,
-      name: "Run a Job",
+      name: "Buy Tendril Credit",
+      icon: "＄",
+      tendrilAction: "topup",
+      tendrilAmount: "2",
+      tendrilMinBalance: "1.5",
+    },
+    {
+      id: "tw3",
+      type: "tendril",
+      template: "tendril_rent",
+      x: 560,
+      y: 220,
+      name: "Rent a Machine",
+      icon: "▣",
+      tendrilAction: "rent",
+      tendrilHours: "0.25",
+    },
+    {
+      id: "tw4",
+      type: "tendril",
+      template: "tendril_run",
+      x: 820,
+      y: 220,
+      name: "Probe the Machine",
       icon: "▶",
       tendrilAction: "run",
       customParams: [
-        { name: "payload", kind: "text", value: TENDRIL_WORKFLOW_PAYLOAD },
+        { name: "payload", kind: "text", value: TENDRIL_PROBE_PAYLOAD },
       ],
     },
-    { id: "tw3", type: "end", template: "done", x: 640, y: 240 },
+    {
+      id: "tw5",
+      type: "tendril",
+      template: "tendril_run",
+      x: 1080,
+      y: 220,
+      name: "Run the Benchmark",
+      icon: "▶",
+      tendrilAction: "run",
+      customParams: [
+        { name: "payload", kind: "text", value: TENDRIL_BENCHMARK_PAYLOAD },
+      ],
+    },
+    {
+      id: "tw6",
+      type: "agent",
+      template: "agent",
+      x: 1340,
+      y: 220,
+      name: "Benchmark Analyst",
+      systemPrompt:
+        "You receive the output of a benchmark that just ran on a machine rented from Tendril, a marketplace for metered compute. Write a short plain-text report of at most 150 words: one line on the machine, the headline numbers (prime count and time, parallel speedup, hashing throughput), what kinds of jobs this machine suits, and one caveat. Mention it if the prime count says MISMATCH or the speedup is below 1.5x. No markdown.",
+    },
+    {
+      id: "tw7",
+      type: "provider",
+      template: "gemini",
+      x: 1300,
+      y: 460,
+      name: "Gemini 2.5 Flash",
+      model: "gemini-2.5-flash",
+      keyMode: "platform",
+    },
+    {
+      id: "tw8",
+      type: "tendril",
+      template: "tendril_release",
+      x: 1600,
+      y: 220,
+      name: "Release",
+      icon: "■",
+      tendrilAction: "release",
+    },
+    { id: "tw9", type: "end", template: "done", x: 1860, y: 240 },
   ],
   edges: [
     { id: "twe1", from: "tw1", to: "tw2", kind: "flow", toPort: "in" },
     { id: "twe2", from: "tw2", to: "tw3", kind: "flow", toPort: "in" },
+    { id: "twe3", from: "tw3", to: "tw4", kind: "flow", toPort: "in" },
+    { id: "twe4", from: "tw4", to: "tw5", kind: "flow", toPort: "in" },
+    { id: "twe5", from: "tw5", to: "tw6", kind: "flow", toPort: "in" },
+    { id: "twe6", from: "tw7", to: "tw6", kind: "attach", toPort: "model" },
+    { id: "twe7", from: "tw6", to: "tw8", kind: "flow", toPort: "in" },
+    { id: "twe8", from: "tw8", to: "tw9", kind: "flow", toPort: "in" },
   ],
 };
 
