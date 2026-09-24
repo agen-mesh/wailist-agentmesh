@@ -1,5 +1,12 @@
 "use client";
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import {
+  useState,
+  useMemo,
+  useEffect,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
   Pill,
@@ -21,6 +28,9 @@ import { ImportModal } from "./ImportModal";
 import { ShareModal } from "./ShareModal";
 import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
 import { useReadOnly } from "@/hooks/useReadOnly";
+import { useIsCompact } from "@/hooks/useIsCompact";
+import { IS_NATIVE } from "@/lib/nativeAuth";
+import { DesktopSchedulePanel } from "./DesktopSchedulePanel";
 import {
   cadenceToCron,
   cronToCadence,
@@ -610,11 +620,20 @@ function RowMenu({
   // The rows list scrolls horizontally (overflow-x: auto), which clips absolutely
   // positioned children in both axes — so the menu is position:fixed, anchored to
   // the button's viewport rect, and closes on scroll/resize rather than drifting.
-  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(
-    null,
-  );
+  const [anchor, setAnchor] = useState<{
+    top: number;
+    right: number;
+    // Top edge of the ⋯ button, so a panel too tall for the space below it
+    // can open upwards instead.
+    buttonTop: number;
+  } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Desktop gets the roomier schedule panel; compact viewports and the native
+  // shell keep the original popover untouched.
+  const compact = useIsCompact();
+  const desktop = !compact && !IS_NATIVE;
   // Guards the schedule fetch below against a stale response landing after
   // the popover was closed/reopened (or this row was deleted) before it
   // resolved -- resetSchedule bumps this so a resolved-but-stale request's
@@ -681,6 +700,28 @@ function RowMenu({
     resetSchedule();
   }, [resetSchedule]);
 
+  // Desktop only: the schedule panel is much taller than the menu, so on a
+  // row near the bottom of the window it would run off-screen. Watch its
+  // size (it grows as the user switches cadence, which re-renders only the
+  // panel, not this menu) and move it above the button when it doesn't fit.
+  // Written to the DOM directly, not through state, so it never re-renders.
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!desktop || !open || !anchor || !panel) return;
+    const place = () => {
+      const margin = 8;
+      const h = panel.offsetHeight;
+      panel.style.top =
+        anchor.top + h > window.innerHeight - margin
+          ? `${Math.max(margin, anchor.buttonTop - 6 - h)}px`
+          : `${anchor.top}px`;
+    };
+    place();
+    const ro = new ResizeObserver(place);
+    ro.observe(panel);
+    return () => ro.disconnect();
+  }, [desktop, open, anchor]);
+
   // Close on any click outside, so an open menu can't be left hanging over a
   // row the user has moved on from.
   useEffect(() => {
@@ -731,6 +772,7 @@ function RowMenu({
             setAnchor({
               top: rect.bottom + 6,
               right: window.innerWidth - rect.right,
+              buttonTop: rect.top,
             });
           }
           setConfirming(false);
@@ -743,6 +785,7 @@ function RowMenu({
       </button>
       {open && anchor && (
         <div
+          ref={panelRef}
           role="menu"
           style={{
             position: "fixed",
@@ -888,7 +931,26 @@ function RowMenu({
               )}
             </>
           )}
-          {view === "schedule" && scheduleLoading && (
+          {view === "schedule" && desktop && (
+            <DesktopSchedulePanel
+              loading={scheduleLoading}
+              fetchError={scheduleFetchError}
+              onRetry={fetchSchedule}
+              scheduleCron={freshSchedule?.cron}
+              scheduleNextRunAt={freshSchedule?.nextRunAt}
+              onBack={() => setView("menu")}
+              onCancel={close}
+              onSave={async (cron) => {
+                await onSetSchedule(cron);
+                close();
+              }}
+              onRemove={async () => {
+                await onClearSchedule();
+                close();
+              }}
+            />
+          )}
+          {view === "schedule" && !desktop && scheduleLoading && (
             <div style={{ padding: 10, width: 220 }}>
               <button
                 onClick={() => setView("menu")}
@@ -909,65 +971,71 @@ function RowMenu({
               </div>
             </div>
           )}
-          {view === "schedule" && !scheduleLoading && scheduleFetchError && (
-            // The row's own scheduleCron/scheduleNextRunAt props come from
-            // workflowsApi.list(), which the backend never populates --
-            // falling back to them on a fetch error would always show "no
-            // schedule" for a workflow that actually has one, and Save
-            // would then silently overwrite the real schedule with the
-            // popover's defaults. Surface the error and let the user retry
-            // instead of rendering a form seeded with data we know is wrong.
-            <div style={{ padding: 10, width: 220 }}>
-              <button
-                onClick={() => setView("menu")}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--fg-muted)",
-                  cursor: "pointer",
-                  fontSize: 11,
-                  padding: 0,
-                  marginBottom: 8,
-                }}
-              >
-                ← back
-              </button>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "var(--danger)",
-                  marginBottom: 8,
-                }}
-              >
-                Couldn&apos;t load the schedule: {scheduleFetchError}
+          {view === "schedule" &&
+            !desktop &&
+            !scheduleLoading &&
+            scheduleFetchError && (
+              // The row's own scheduleCron/scheduleNextRunAt props come from
+              // workflowsApi.list(), which the backend never populates --
+              // falling back to them on a fetch error would always show "no
+              // schedule" for a workflow that actually has one, and Save
+              // would then silently overwrite the real schedule with the
+              // popover's defaults. Surface the error and let the user retry
+              // instead of rendering a form seeded with data we know is wrong.
+              <div style={{ padding: 10, width: 220 }}>
+                <button
+                  onClick={() => setView("menu")}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--fg-muted)",
+                    cursor: "pointer",
+                    fontSize: 11,
+                    padding: 0,
+                    marginBottom: 8,
+                  }}
+                >
+                  ← back
+                </button>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: "var(--danger)",
+                    marginBottom: 8,
+                  }}
+                >
+                  Couldn&apos;t load the schedule: {scheduleFetchError}
+                </div>
+                <button
+                  onClick={fetchSchedule}
+                  style={{
+                    ...ghostBtnSm,
+                    width: "100%",
+                    justifyContent: "center",
+                  }}
+                >
+                  Retry
+                </button>
               </div>
-              <button
-                onClick={fetchSchedule}
-                style={{
-                  ...ghostBtnSm,
-                  width: "100%",
-                  justifyContent: "center",
+            )}
+          {view === "schedule" &&
+            !desktop &&
+            !scheduleLoading &&
+            !scheduleFetchError && (
+              <SchedulePopover
+                scheduleCron={freshSchedule?.cron}
+                scheduleNextRunAt={freshSchedule?.nextRunAt}
+                onBack={() => setView("menu")}
+                onSave={async (cron) => {
+                  await onSetSchedule(cron);
+                  close();
                 }}
-              >
-                Retry
-              </button>
-            </div>
-          )}
-          {view === "schedule" && !scheduleLoading && !scheduleFetchError && (
-            <SchedulePopover
-              scheduleCron={freshSchedule?.cron}
-              scheduleNextRunAt={freshSchedule?.nextRunAt}
-              onBack={() => setView("menu")}
-              onSave={async (cron) => {
-                await onSetSchedule(cron);
-                close();
-              }}
-              onRemove={async () => {
-                await onClearSchedule();
-                close();
-              }}
-            />
-          )}
+                onRemove={async () => {
+                  await onClearSchedule();
+                  close();
+                }}
+              />
+            )}
         </div>
       )}
     </div>

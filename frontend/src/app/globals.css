@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./responsive.css";
+@import "./desktop.css";
 
 /* ── Design tokens ────────────────────────────────────────────────────── */
 :root {
