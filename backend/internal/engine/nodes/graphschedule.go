@@ -160,10 +160,14 @@ func (s *builderSchedule) set(args map[string]any, now time.Time) (string, error
 
 	expr := cadenceCron(cadence, hour, minute, dow, dom, s.loc, now)
 	s.cron = &expr
-	return fmt.Sprintf("schedule set: %s at %02d:%02d %s (saved as the UTC cron %q). "+
-		"It only fires once the workflow is deployed, so tell the user to press Deploy, and tell them the time and timezone above so they can check it. "+
+	// The UTC cron is deliberately not in the message: whatever the model is
+	// handed, it tends to repeat, and a cron expression means nothing to the
+	// person reading the reply.
+	return fmt.Sprintf("schedule set: %s at %02d:%02d %s. "+
+		"It only fires once the workflow is deployed, so tell the user to press Deploy. "+
+		"Tell them the schedule in plain words with its timezone, such as \"every Monday at 9:00 AM (Asia/Kolkata)\", so they can check it -- never as a cron expression. "+
 		"The workflow still starts from its manual trigger -- do not add another trigger.",
-		when, hour, minute, zoneName(s.loc), expr), nil
+		when, hour, minute, zoneName(s.loc)), nil
 }
 
 func zoneName(loc *time.Location) string {

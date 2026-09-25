@@ -2129,10 +2129,25 @@ function TriggerInspector({
           <input style={inputStyle} value={tpl?.name ?? ""} readOnly />
         </Field>
       )}
+      {/* A retired trigger type (see TRIGGER_TEMPLATES): old workflows can
+          still carry one. It used to show a cron box wired to nothing; the
+          real schedule is set per workflow, and always shown in words. */}
       {node.template === "cron" && (
-        <Field label="Cron">
-          <input style={monoInputStyle} defaultValue="0 9 * * *" />
-        </Field>
+        <div
+          style={{
+            padding: 12,
+            background: "var(--bg)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r-2)",
+            fontSize: 11,
+            color: "var(--fg-muted)",
+            lineHeight: 1.5,
+          }}
+        >
+          Schedules aren&apos;t set on a trigger any more. To run this workflow
+          every day, week or month, choose Schedule from its ⋯ menu on the
+          Workflows page.
+        </div>
       )}
       {node.template === "webhook" && (
         <WebhookTriggerFields node={node} workflowId={workflowId} />

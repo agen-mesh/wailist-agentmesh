@@ -66,6 +66,27 @@ func TestSetScheduleTellsTheModelWhatItSet(t *testing.T) {
 	}
 }
 
+// People read schedules in words. The cron is only what gets stored, so the
+// model is never handed one to repeat in its reply.
+func TestSetScheduleKeepsTheCronFromTheModel(t *testing.T) {
+	for _, args := range []map[string]any{
+		{"cadence": "daily", "time": "09:00"},
+		{"cadence": "weekly", "time": "09:00", "day": "monday"},
+		{"cadence": "monthly", "time": "09:00", "dayOfMonth": 15.0},
+	} {
+		s, msg := setSchedule(t, "Asia/Kolkata", args)
+		if s.cron == nil || *s.cron == "" {
+			t.Fatalf("%v: no schedule was set", args)
+		}
+		if strings.Contains(msg, *s.cron) || strings.Contains(strings.ToLower(msg), "cron \"") {
+			t.Errorf("%v: message hands the model the cron %q: %s", args, *s.cron, msg)
+		}
+		if !strings.Contains(msg, "plain words") {
+			t.Errorf("%v: message must ask for the schedule in plain words: %s", args, msg)
+		}
+	}
+}
+
 // An unknown or missing zone must not silently become some other zone the
 // user never named. UTC, stated as UTC, is the honest fallback.
 func TestSetScheduleFallsBackToUTCAndSaysSo(t *testing.T) {

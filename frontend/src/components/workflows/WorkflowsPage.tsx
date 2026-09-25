@@ -21,6 +21,9 @@ import { ImportModal } from "./ImportModal";
 import { ShareModal } from "./ShareModal";
 import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
 import { useReadOnly } from "@/hooks/useReadOnly";
+import { useIsCompact } from "@/hooks/useIsCompact";
+import { IS_NATIVE } from "@/lib/nativeAuth";
+import { DesktopRowMenu } from "./DesktopRowMenu";
 import {
   cadenceToCron,
   cronToCadence,
@@ -574,7 +577,8 @@ function WorkflowIcon({ name }: { name: string }) {
 // RowMenu is the ⋯ menu on a workflow row. Delete is permanent, so it asks for
 // a second click ("Delete permanently?") in place rather than firing on the
 // first — and rather than a browser confirm() dialog, which the rest of the app
-// doesn't use.
+// doesn't use. Compact viewports and the native shell only: desktop renders
+// DesktopRowMenu instead (see WorkflowRows).
 function RowMenu({
   workflowId,
   onDelete,
@@ -585,6 +589,8 @@ function RowMenu({
   onClearSchedule,
 }: {
   workflowId: string;
+  /** Used by DesktopRowMenu; accepted here so the two are interchangeable. */
+  workflowName?: string;
   onDelete: () => void;
   onShare: () => void;
   deployed: boolean;
@@ -1225,6 +1231,10 @@ function WorkflowRows({
   onShare: (id: string) => void;
 }) {
   const readOnly = useReadOnly();
+  // Desktop gets the shadcn/ui menu (DesktopRowMenu); compact viewports and
+  // the native shell keep RowMenu below, unchanged.
+  const desktop = !useIsCompact() && !IS_NATIVE;
+  const Menu = desktop ? DesktopRowMenu : RowMenu;
   return (
     <Card style={{ padding: 0, overflowX: "auto" }}>
       <div
@@ -1387,8 +1397,9 @@ function WorkflowRows({
               </button>
             )}
             {can("workflow.delete", readOnly) && (
-              <RowMenu
+              <Menu
                 workflowId={wf.id}
+                workflowName={wf.name}
                 onDelete={() => onDelete(wf.id)}
                 onShare={() => onShare(wf.id)}
                 deployed={wf.status === "deployed"}

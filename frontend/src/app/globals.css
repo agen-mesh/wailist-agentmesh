@@ -1,5 +1,7 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 @import "./responsive.css";
+@import "./shadcn.css";
 
 /* ── Design tokens ────────────────────────────────────────────────────── */
 :root {
