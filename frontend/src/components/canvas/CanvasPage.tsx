@@ -55,6 +55,7 @@ import {
   loadWidths,
   saveWidths,
 } from "./panelSizing";
+import { createSaveFlushQueue } from "./saveFlushQueue";
 
 interface CanvasPageProps {
   workflowId: string;
@@ -257,39 +258,68 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   // force both to land before something else reads the graph server-side.
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSave = useRef<Workflow | null>(null);
-  const inFlightSave = useRef<Promise<void> | null>(null);
+  const inFlightSave = useRef<Promise<boolean> | null>(null);
+  const [saveFlushQueue] = useState(createSaveFlushQueue);
 
-  const saveWorkflow = useCallback((wf: Workflow) => {
+  // Resolves true only when the update reached the server. The autosave timer
+  // can swallow the result, but Run and Deploy flush through it first and must
+  // not proceed against a graph the backend never persisted -- so the failure
+  // is surfaced here rather than lost behind the save label.
+  const saveWorkflow = useCallback((wf: Workflow): Promise<boolean> => {
     const p = workflowsApi
       .update(wf.id, { name: wf.name, nodes: wf.nodes, edges: wf.edges })
       .then(() => {
+        saveFlushQueue.record(true);
         const now = new Date();
         setSaveLabel(
           `saved · ${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`,
         );
+        return true;
       })
-      .catch(() => setSaveLabel("save failed"))
+      .catch(() => {
+        saveFlushQueue.record(false);
+        setSaveLabel("save failed");
+        return false;
+      })
       .finally(() => {
         if (inFlightSave.current === p) inFlightSave.current = null;
       });
     inFlightSave.current = p;
     return p;
-  }, []);
+  }, [saveFlushQueue]);
 
   // Settles whatever the autosave still owes the server. Anything that makes
   // the backend re-read the graph from the DB (build mode) must await this
   // first, or it edits a stale copy and its response overwrites the newer
   // client state -- silently reverting the edit that was mid-debounce.
-  const flushPendingSave = useCallback(async () => {
-    if (saveTimer.current !== null) {
-      clearTimeout(saveTimer.current);
-      saveTimer.current = null;
-    }
-    const pending = pendingSave.current;
-    pendingSave.current = null;
-    await inFlightSave.current;
-    if (pending) await saveWorkflow(pending);
-  }, [saveWorkflow]);
+  //
+  // Resolves true only when the latest graph reached the server. Run and
+  // Deploy check the result and abort when it is false: a run or deploy
+  // against a graph the server never received is exactly the stale-graph
+  // failure this whole mechanism exists to prevent (#67).
+  const flushPendingSave = useCallback(
+    (): Promise<boolean> =>
+      saveFlushQueue.run(async () => {
+        if (saveTimer.current !== null) {
+          clearTimeout(saveTimer.current);
+          saveTimer.current = null;
+        }
+        const pending = pendingSave.current;
+        pendingSave.current = null;
+        // Await whatever is already on the wire before starting the (possibly
+        // newer) pending save, so the two land in order and neither is skipped.
+        const inFlight = inFlightSave.current;
+        const inFlightOk = inFlight ? await inFlight : null;
+        if (pending) {
+          // The pending graph is the newest; its save alone decides whether the
+          // run/deploy may proceed. A failed older in-flight save is superseded
+          // by a successful newer pending save.
+          return saveWorkflow(pending);
+        }
+        return inFlightOk;
+      }),
+    [saveFlushQueue, saveWorkflow],
+  );
 
   useEffect(() => {
     if (!workflow) return;
@@ -452,6 +482,19 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     }
     setDeploying(true);
     try {
+      // Deploy reads the graph from the DB to provision a wallet per agent
+      // node, so an edit still sitting in the autosave debounce (an agent
+      // added a moment ago) would be deployed without. Same reason startBuild
+      // flushes first (#67). A failed flush means the server never got the
+      // latest graph: abort rather than deploy the stale one.
+      const flushed = await flushPendingSave();
+      if (!flushed) {
+        showToast(
+          "Deploy cancelled · latest changes failed to save",
+          "error",
+        );
+        return;
+      }
       const res = await workflowsApi.deploy(workflow.id);
       setDeployed(true);
       setEstimateTick((t) => t + 1);
@@ -466,7 +509,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     } finally {
       setDeploying(false);
     }
-  }, [deployed, workflow, showToast]);
+  }, [deployed, workflow, showToast, flushPendingSave]);
 
   const hasChatTrigger = useMemo(
     () =>
@@ -549,6 +592,19 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         showToast(runBlocked);
         return null;
       }
+      // The run executes the graph the backend loads from the DB, so an edit
+      // still in the autosave debounce would not be part of it -- the user
+      // changes a URL, hits Run, and the old URL gets called. Same reason
+      // startBuild flushes first (#67). A failed flush means the server never
+      // got the latest graph: abort rather than run the stale one.
+      const flushed = await flushPendingSave();
+      if (!flushed) {
+        showToast(
+          "Run cancelled · latest changes failed to save",
+          "error",
+        );
+        return null;
+      }
       try {
         const res = await workflowsApi.run(workflow.id, input);
         setRunId(res.runId);
@@ -564,7 +620,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         return null;
       }
     },
-    [workflow, runBlocked, showToast],
+    [workflow, runBlocked, showToast, flushPendingSave],
   );
 
   const startBuild = useCallback(

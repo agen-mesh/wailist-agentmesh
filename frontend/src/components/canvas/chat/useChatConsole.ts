@@ -186,7 +186,9 @@ export function useChatConsole({
   }, [hydrated, runId, conversation, completeTurnById]);
 
   const handleSend = (text: string) => {
-    const turnId = session.startTurn(text);
+    // A build turn is marked so a run started mid-build (topbar Run) can't
+    // bind to it -- see ChatMessage.build.
+    const turnId = session.startTurn(text, { build: buildMode });
     // A send that never becomes a run (offline, not deployed, backend
     // refusal) has nothing left to settle its turn -- startRun only surfaces
     // a toast -- so the bubble would spin forever. Settle it here instead.
