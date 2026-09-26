@@ -1235,6 +1235,9 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 		inputJSON, _ = json.Marshal(run.InputContext)
 	}
 	rc := NewRunContext(run.ID, inputJSON)
+	// Each node reads its input from its own flow predecessors, not from
+	// whichever node in its level finished last (#68) -- see nodeRunContext.
+	msgPreds := messagePredecessors(levels, wf.Edges)
 
 	// Workflow variables are loaded once per run. A workflow with none
 	// gets an empty map, and ExpandState is a no-op on every field, so
@@ -1318,7 +1321,7 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 				attempts := 0
 				for {
 					attempts++
-					result, execErr = r.executeNode(ctx, n, attachMap, walletByAgent, rc, run, wf)
+					result, execErr = r.executeNode(ctx, n, attachMap, walletByAgent, rc.forNode(msgPreds[n.ID]), run, wf)
 					// A sibling in this same parallel level already failed the
 					// run (atomic `failed` below) -- no point sleeping through
 					// a backoff and making another live outbound call for a
@@ -1571,7 +1574,7 @@ func (r *Runner) executeNode(
 	node models.WorkflowNode,
 	attachMap map[string]models.AttachConfig,
 	walletByAgent map[string]models.AgentWallet,
-	rc *RunContext,
+	rc *nodeRunContext,
 	run models.Run,
 	wf models.Workflow,
 ) (any, error) {
