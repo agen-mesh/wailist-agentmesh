@@ -1,5 +1,44 @@
 @import "tailwindcss";
 @import "./responsive.css";
+@import "tw-animate-css";
+
+@layer base {
+  :root {
+    --radius: 0.5rem;
+  }
+
+  *,
+  *::before,
+  *::after {
+    border-color: var(--border);
+  }
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: var(--accent);
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: var(--border);
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
 
 /* ── Design tokens ────────────────────────────────────────────────────── */
 :root {
@@ -35,6 +74,26 @@
   --r-4: 18px;
 
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* shadcn/ui theme (HSL without hsl() wrapper, used via hsl(var(--x))) */
+  --background: 250 30% 4%;
+  --foreground: 250 20% 95%;
+  --card: 250 30% 7%;
+  --card-foreground: 250 20% 95%;
+  --popover: 250 30% 8%;
+  --popover-foreground: 250 20% 95%;
+  --primary: 263 83% 67%;
+  --primary-foreground: 260 66% 8%;
+  --secondary: 250 30% 13%;
+  --secondary-foreground: 250 20% 95%;
+  --muted: 250 30% 13%;
+  --muted-foreground: 250 10% 56%;
+  --accent-foreground: 260 66% 8%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 250 20% 95%;
+  --input: 250 20% 16%;
+  --ring: 263 83% 67%;
+  --radius: 0.5rem;
 }
 
 /* ── Resets ───────────────────────────────────────────────────────────── */
