@@ -1594,6 +1594,21 @@ func (s *Store) CommitReservedDebit(ctx context.Context, userID string, amountUS
 	return err
 }
 
+// CommitReservedPlatformLLMDebit is CommitReservedDebit for the
+// platform_key_llm_fee kind. It writes the debit_ledger row, including the
+// model and token counts DebitCreditsForPlatformLLM records, for a
+// platform-key agent fee that ReserveCredits already took off the balance
+// before the agent's LLM turn ran. Like CommitReservedDebit it only writes
+// the audit row and never touches the balance, so it must never be called
+// with an amount that wasn't already reserved.
+func (s *Store) CommitReservedPlatformLLMDebit(ctx context.Context, userID string, amountUSDMicros int64, workflowID, runID, nodeID, model string, tokensIn, tokensOut int) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO debit_ledger (user_id, workflow_id, run_id, node_id, kind, amount_usd_micros, model, tokens_in, tokens_out)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, userID, workflowID, runID, nodeID, models.DebitKindPlatformKeyLLMFee, amountUSDMicros, model, tokensIn, tokensOut)
+	return err
+}
+
 // ReleaseReservedCredits credits back a ReserveCredits reservation that
 // never became a real charge (the payment attempt failed, or was never
 // confirmed settled, before any money moved). No debit_ledger row: nothing
