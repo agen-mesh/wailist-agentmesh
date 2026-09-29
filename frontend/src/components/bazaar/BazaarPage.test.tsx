@@ -53,6 +53,39 @@ describe("independent Bazaar requests", () => {
     expect(screen.getByText("Tendril", { exact: true })).toBeTruthy();
   });
 
+  // The Prev/Next toolbar was written here first; ui/Pager.tsx is it
+  // extracted, so this page has to keep working through the shared component
+  // rather than a second copy of it.
+  it("pages the catalogue through the shared Pager", async () => {
+    mocks.list.mockImplementation(
+      ({ supported: isPartner }: { supported: boolean }) =>
+        isPartner
+          ? Promise.resolve(pageOf([]))
+          : Promise.resolve({ ...pageOf([endpoint]), total: 24 }),
+    );
+    render(<BazaarPage />);
+    await screen.findByText(endpoint.description);
+    // Pager's own wording and page-size control, not the inline copy.
+    expect(screen.getByText(/24 endpoints/)).toBeTruthy();
+    expect(screen.getByText("Page 1 of 3")).toBeTruthy();
+    expect(screen.getByLabelText("endpoints per page")).toBeTruthy();
+    // Paging here is a refetch, not a slice: the request has to change.
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() =>
+      expect(mocks.list).toHaveBeenCalledWith(
+        expect.objectContaining({ supported: false, offset: 10, limit: 10 }),
+      ),
+    );
+    fireEvent.change(screen.getByLabelText("endpoints per page"), {
+      target: { value: "5" },
+    });
+    await waitFor(() =>
+      expect(mocks.list).toHaveBeenCalledWith(
+        expect.objectContaining({ supported: false, offset: 0, limit: 5 }),
+      ),
+    );
+  });
+
   it("shows a catalogue error and retries before partners settle", async () => {
     const supported = deferred<Page>();
     const catalogue = vi.fn().mockRejectedValueOnce(new Error("Catalogue unavailable")).mockResolvedValue(pageOf([endpoint]));

@@ -14,13 +14,17 @@ import { ProviderGroupCard } from "./ProviderGroupCard";
 import { AddToWorkflowDialog } from "./AddToWorkflowDialog";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import { can } from "@/lib/readonly";
+import { DEFAULT_PAGE_SIZE, Pager, type PageSize } from "@/components/ui/Pager";
 
 // Real pagination, not infinite scroll: a fixed page is fetched and shown at
 // a time, with Prev/Next and a page-size picker -- a long, unbounded list
 // that keeps growing as you scroll was the exact complaint this replaces.
-const PAGE_SIZE_OPTIONS = [5, 10, 20] as const;
-type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
-const DEFAULT_PAGE_SIZE: PageSize = 10;
+//
+// This page is where that toolbar was first written, and ui/Pager.tsx is it
+// extracted: the sizes, the button styling and the Prev/Next markup now live
+// there and are shared with the workflows list and both Usage tables. Paging
+// here is still a fetch rather than a slice -- the bar is what is shared, not
+// the state.
 
 // The partner track is explicit, not auto-fill. There are two partners; an
 // auto-fill grid stretches to four columns on a wide screen and leaves them
@@ -50,23 +54,6 @@ const GRID: React.CSSProperties = {
   gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
   gap: "var(--s-4)",
 };
-
-// Prev/Next share one style, differing only in their disabled state -- a
-// function rather than two near-duplicate inline style objects.
-function paginationBtnStyle(disabled: boolean): React.CSSProperties {
-  return {
-    height: 32,
-    padding: "0 14px",
-    background: "var(--bg-elev-1)",
-    border: "1px solid var(--border)",
-    borderRadius: "var(--r-2)",
-    color: "var(--fg-muted)",
-    fontFamily: "var(--font-sans)",
-    fontSize: "var(--t-2)",
-    cursor: disabled ? "default" : "pointer",
-    opacity: disabled ? 0.45 : 1,
-  };
-}
 
 // The community list renders as one bordered row-list rather than a card
 // grid: a card grid puts variable-height cards into CSS grid cells (no
@@ -480,9 +467,8 @@ export function BazaarPage() {
     };
   }, [page, pageSize, activeQuery, sort, retryTick]);
 
+  // Pager derives its own can-prev/can-next from these two.
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const canGoPrev = page > 0;
-  const canGoNext = page < totalPages - 1;
 
   return (
     // .am-viewport-min rather than a raw 100vh: on a phone browser 100vh
@@ -725,83 +711,15 @@ export function BazaarPage() {
           )}
 
           {!loading && !error && items.length > 0 && (
-            <div
-              style={{
-                marginTop: 16,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "var(--s-4)",
-                flexWrap: "wrap",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "var(--s-2)",
-                  fontSize: "var(--t-2)",
-                  color: "var(--fg-dim)",
-                }}
-              >
-                <span>Show</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) =>
-                    setPageSize(Number(e.target.value) as PageSize)
-                  }
-                  aria-label="Results per page"
-                  style={{
-                    height: 28,
-                    padding: "0 6px",
-                    border: "1px solid var(--border)",
-                    background: "var(--bg)",
-                    borderRadius: "var(--r-2)",
-                    color: "var(--fg)",
-                    fontSize: "var(--t-2)",
-                    fontFamily: "var(--font-sans)",
-                    cursor: "pointer",
-                  }}
-                >
-                  {PAGE_SIZE_OPTIONS.map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-                <span>per page · {total} total</span>
-              </div>
-
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "var(--s-3)",
-                }}
-              >
-                <span
-                  style={{ fontSize: "var(--t-2)", color: "var(--fg-dim)" }}
-                >
-                  Page {page + 1} of {totalPages}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  disabled={!canGoPrev}
-                  style={paginationBtnStyle(!canGoPrev)}
-                >
-                  ← Prev
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPage((p) => p + 1)}
-                  disabled={!canGoNext}
-                  style={paginationBtnStyle(!canGoNext)}
-                >
-                  Next →
-                </button>
-              </div>
-            </div>
+            <Pager
+              page={page}
+              totalPages={totalPages}
+              total={total}
+              pageSize={pageSize}
+              onPage={setPage}
+              onPageSize={setPageSize}
+              noun="endpoints"
+            />
           )}
         </section>
       </div>

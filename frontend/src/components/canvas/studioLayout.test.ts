@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitPanels, fitsBoth, RAIL_W } from "./studioLayout";
+import { fitPanels, RAIL_W } from "./studioLayout";
 import { INSPECTOR, MIN_CANVAS, PALETTE } from "./panelSizing";
 
 const base = {
@@ -84,19 +84,6 @@ describe("fitPanels", () => {
   });
 });
 
-describe("fitsBoth", () => {
-  it("is what the rail buttons ask before expanding", () => {
-    expect(fitsBoth(1400, PALETTE.default, INSPECTOR.default)).toBe(true);
-    expect(fitsBoth(919, PALETTE.default, INSPECTOR.default)).toBe(false);
-  });
-
-  it("assumes room before the row is measured", () => {
-    expect(fitsBoth(0, PALETTE.default, INSPECTOR.default)).toBe(true);
-  });
-});
-
-// The rule the layout audit forced: MIN_CANVAS guards the space BETWEEN two
-// panels. It is not a veto on opening one.
 describe("fitPanels with one side already closed", () => {
   const narrow = {
     rowWidth: 520,

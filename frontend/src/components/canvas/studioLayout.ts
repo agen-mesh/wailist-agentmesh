@@ -111,15 +111,3 @@ export function fitPanels(input: StudioFitInput): StudioFit {
   }
   return { palette: false, inspector: false, forced: true };
 }
-
-// Asked by the rail buttons before expanding: at a width that cannot hold
-// both, the answer is to collapse the other panel rather than let fitPanels
-// undo the press.
-export function fitsBoth(
-  rowWidth: number,
-  paletteW: number,
-  inspectorW: number,
-): boolean {
-  if (!Number.isFinite(rowWidth) || rowWidth <= 0) return true;
-  return fits(rowWidth, true, true, paletteW, inspectorW);
-}

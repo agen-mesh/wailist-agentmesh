@@ -1324,7 +1324,20 @@ function WorkflowRows({
                 href={workflowHref(wf.id)}
                 className="wf-row-name"
                 onClick={(e) => {
-                  // The row's handler routes; keep it a client-side nav.
+                  // A held modifier is a request aimed at the BROWSER -- open
+                  // this somewhere else -- not at the app. preventDefault on
+                  // one of those swallowed it and routed the current tab
+                  // instead, so the "open in new tab" this link was added for
+                  // did not work. Stop propagation all the same, or the row's
+                  // own onClick routes this tab while the browser opens the
+                  // other one. Middle click never arrives here; it fires
+                  // auxclick, which nothing handles, so the href just works.
+                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+                    e.stopPropagation();
+                    return;
+                  }
+                  // A plain click: the row's handler routes, so keep it a
+                  // client-side nav rather than a full page load.
                   e.preventDefault();
                   e.stopPropagation();
                   onOpen(wf.id);
