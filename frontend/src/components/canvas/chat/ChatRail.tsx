@@ -42,6 +42,8 @@ interface ChatRailProps {
    *  stays visible above. Absent on a desktop (the palette has its own
    *  column) and on a handheld (nothing to author with). */
   paletteNode?: React.ReactNode;
+  /** Collapses the rail to a strip. Absent in the sheet, which has a grip. */
+  onCollapse?: () => void;
   /** Switches the visible pane when it changes. The rail still owns its own
    *  tab state -- this only nudges it, so tapping a pill afterwards still
    *  wins. Used by the compact bottom sheet to open on the node the reader
@@ -67,6 +69,7 @@ export function ChatRail({
   forceTab = null,
   paletteNode,
   blockedNode,
+  onCollapse,
 }: ChatRailProps) {
   const [tab, setTab] = useState<RailTab>("chat");
 
@@ -92,6 +95,7 @@ export function ChatRail({
 
   return (
     <div
+      data-panel="chat"
       style={{
         width,
         flexShrink: 0,
@@ -118,7 +122,9 @@ export function ChatRail({
           columnGap: 4,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div
+          style={{ display: "flex", alignItems: "center", gap: "var(--s-2)" }}
+        >
           <RailSwitch
             tab={effectiveTab}
             onSelect={setTab}
@@ -136,15 +142,41 @@ export function ChatRail({
             />
           )}
         </div>
-        {onToggleBuildMode && (
-          <ChatModeSwitch
-            buildMode={!!buildMode}
-            onSelect={onToggleBuildMode}
-            hasChatTrigger={!!hasChatTrigger}
-            canRun={!!canToggleBuildMode}
-            busy={busy}
-          />
-        )}
+        {/* One right-hand cluster. The row is `space-between`, so a third
+            top-level child goes to the MIDDLE, not the right — which is
+            where the chevron ended up. The chevron is last so it sits
+            nearest the edge it folds the panel towards. */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--s-2)",
+            marginLeft: "auto",
+          }}
+        >
+          {onToggleBuildMode && (
+            <ChatModeSwitch
+              buildMode={!!buildMode}
+              onSelect={onToggleBuildMode}
+              hasChatTrigger={!!hasChatTrigger}
+              canRun={!!canToggleBuildMode}
+              busy={busy}
+            />
+          )}
+          {/* Mirrors the palette's chevron; the rail it leaves brings it
+              back. See studioLayout.ts. */}
+          {onCollapse && (
+            <button
+              type="button"
+              onClick={onCollapse}
+              className="rail-collapse"
+              title="Collapse the chat panel"
+              aria-label="Collapse the chat panel"
+            >
+              ›
+            </button>
+          )}
+        </div>
       </div>
 
       <div
@@ -309,7 +341,7 @@ function RailSwitch({
             style={{
               width: 5,
               height: 5,
-              borderRadius: 999,
+              borderRadius: "var(--r-full)",
               background: "var(--accent)",
               flexShrink: 0,
             }}
@@ -335,13 +367,13 @@ function TabPill({
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 5,
+        gap: "var(--s-1)",
         fontFamily: "var(--font-mono)",
-        fontSize: 9.5,
+        fontSize: "var(--t-0)",
         textTransform: "uppercase",
         letterSpacing: "0.06em",
         padding: "2px 8px",
-        borderRadius: 999,
+        borderRadius: "var(--r-full)",
         border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
         color: active ? "var(--accent)" : "var(--fg-dim)",
         background: "transparent",

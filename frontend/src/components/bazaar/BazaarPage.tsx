@@ -38,7 +38,7 @@ const CONSOLE_GRID: React.CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
   alignItems: "stretch",
-  gap: 14,
+  gap: "var(--s-4)",
 };
 
 // Any supported entry WITHOUT a console still renders as an ordinary card.
@@ -48,7 +48,7 @@ const CONSOLE_GRID: React.CSSProperties = {
 const GRID: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-  gap: 12,
+  gap: "var(--s-4)",
 };
 
 // Prev/Next share one style, differing only in their disabled state -- a
@@ -62,7 +62,7 @@ function paginationBtnStyle(disabled: boolean): React.CSSProperties {
     borderRadius: "var(--r-2)",
     color: "var(--fg-muted)",
     fontFamily: "var(--font-sans)",
-    fontSize: 12.5,
+    fontSize: "var(--t-2)",
     cursor: disabled ? "default" : "pointer",
     opacity: disabled ? 0.45 : 1,
   };
@@ -85,7 +85,7 @@ const BAZAAR_CSS = `
   position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--s-4);
   width: 100%;
   padding: 13px 16px;
   border: none;
@@ -137,7 +137,7 @@ const BAZAAR_CSS = `
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--t-2);
   flex-shrink: 0;
 }
 .bz-row__chevron {
@@ -147,7 +147,7 @@ const BAZAAR_CSS = `
   transform: rotate(90deg);
 }
 .bz-row__name {
-  font-size: 13px;
+  font-size: var(--t-3);
   font-weight: 600;
   color: var(--fg);
   white-space: nowrap;
@@ -156,7 +156,7 @@ const BAZAAR_CSS = `
 }
 .bz-row__path {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--t-0);
   color: var(--fg-dim);
   white-space: nowrap;
   overflow: hidden;
@@ -166,7 +166,7 @@ const BAZAAR_CSS = `
 }
 .bz-row__desc {
   margin: 2px 0 0;
-  font-size: 11.5px;
+  font-size: var(--t-1);
   color: var(--fg-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -175,10 +175,10 @@ const BAZAAR_CSS = `
 .bz-row__meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--s-3);
   flex-shrink: 0;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--t-1);
   color: var(--fg-dim);
 }
 .bz-row__price {
@@ -196,7 +196,7 @@ const BAZAAR_CSS = `
   border-radius: var(--r-1);
   background: var(--bg-elev-3);
   border: 1px solid var(--border-strong);
-  font-size: 10px;
+  font-size: var(--t-0);
 }
 .bz-row__add {
   flex-shrink: 0;
@@ -206,7 +206,7 @@ const BAZAAR_CSS = `
   background: transparent;
   color: var(--fg);
   border-radius: var(--r-2);
-  font-size: 11.5px;
+  font-size: var(--t-1);
   font-weight: 500;
   font-family: var(--font-sans);
   cursor: pointer;
@@ -256,7 +256,7 @@ const BAZAAR_CSS = `
    two squeezed controls sharing a cramped row. */
 .bz-toolbar {
   display: flex;
-  gap: 8px;
+  gap: var(--s-3);
   flex-wrap: wrap;
 }
 .bz-toolbar input,
@@ -280,7 +280,7 @@ const BAZAAR_CSS = `
 @media (max-width: 520px) {
   .bz-row {
     flex-wrap: wrap;
-    row-gap: 4px;
+    row-gap: var(--s-1);
   }
   .bz-row__add {
     order: 2;
@@ -289,7 +289,7 @@ const BAZAAR_CSS = `
     order: 3;
     flex-basis: 100%;
     flex-wrap: wrap;
-    row-gap: 2px;
+    row-gap: var(--s-0);
     padding-left: 38px;
   }
 }
@@ -507,7 +507,7 @@ export function BazaarPage() {
         <h1
           style={{
             margin: 0,
-            fontSize: 26,
+            fontSize: "var(--t-6)",
             fontWeight: 600,
             letterSpacing: "-0.02em",
             color: "var(--fg)",
@@ -518,7 +518,7 @@ export function BazaarPage() {
         <p
           style={{
             margin: "8px 0 0",
-            fontSize: 13.5,
+            fontSize: "var(--t-3)",
             color: "var(--fg-muted)",
             lineHeight: 1.65,
             maxWidth: "68ch",
@@ -538,12 +538,26 @@ export function BazaarPage() {
             role="region"
             aria-label="Partner services"
             aria-busy={!supportedSettled}
-            tabIndex={0}
-            // Late partner results must never displace the independent catalogue.
-            style={{ height: 320, overflowY: "auto", scrollbarGutter: "stable" }}
+            // Reserved only WHILE the request is in flight, which is all the
+            // old fixed `height: 320` was for. Keeping it afterwards left a
+            // ~110px hole above "Everything else" — three partner cards are
+            // about 210px tall. tabIndex goes with the scroller.
+            {...(supportedSettled
+              ? {}
+              : {
+                  tabIndex: 0,
+                  style: {
+                    height: 320,
+                    overflowY: "auto" as const,
+                    scrollbarGutter: "stable" as const,
+                  },
+                })}
           >
             {(!supportedSettled || supported.length === 0) && (
-              <p role="status" style={{ fontSize: 12.5, color: "var(--fg-dim)" }}>
+              <p
+                role="status"
+                style={{ fontSize: "var(--t-2)", color: "var(--fg-dim)" }}
+              >
                 {!supportedSettled
                   ? "Loading partners…"
                   : supportedError
@@ -580,7 +594,7 @@ export function BazaarPage() {
               display: "flex",
               alignItems: "baseline",
               justifyContent: "space-between",
-              gap: 12,
+              gap: "var(--s-4)",
               flexWrap: "wrap",
               marginBottom: 12,
             }}
@@ -602,7 +616,7 @@ export function BazaarPage() {
                   background: "var(--bg)",
                   borderRadius: "var(--r-2)",
                   color: "var(--fg)",
-                  fontSize: 12.5,
+                  fontSize: "var(--t-2)",
                   fontFamily: "var(--font-sans)",
                 }}
               />
@@ -623,7 +637,7 @@ export function BazaarPage() {
                   background: activeQuery ? "var(--bg-elev-2)" : "var(--bg)",
                   borderRadius: "var(--r-2)",
                   color: activeQuery ? "var(--fg-dim)" : "var(--fg)",
-                  fontSize: 12.5,
+                  fontSize: "var(--t-2)",
                   fontFamily: "var(--font-sans)",
                   cursor: activeQuery ? "default" : "pointer",
                 }}
@@ -663,7 +677,7 @@ export function BazaarPage() {
             <p
               style={{
                 marginTop: 16,
-                fontSize: 12.5,
+                fontSize: "var(--t-2)",
                 color: "var(--danger)",
               }}
             >
@@ -676,7 +690,7 @@ export function BazaarPage() {
                   border: "none",
                   color: "var(--accent)",
                   cursor: "pointer",
-                  fontSize: 12.5,
+                  fontSize: "var(--t-2)",
                   textDecoration: "underline",
                   fontFamily: "var(--font-sans)",
                 }}
@@ -690,7 +704,7 @@ export function BazaarPage() {
             <p
               style={{
                 marginTop: 16,
-                fontSize: 12.5,
+                fontSize: "var(--t-2)",
                 color: "var(--fg-dim)",
               }}
             >
@@ -702,7 +716,7 @@ export function BazaarPage() {
             <p
               style={{
                 marginTop: 16,
-                fontSize: 12.5,
+                fontSize: "var(--t-2)",
                 color: "var(--fg-dim)",
               }}
             >
@@ -717,7 +731,7 @@ export function BazaarPage() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                gap: 12,
+                gap: "var(--s-4)",
                 flexWrap: "wrap",
               }}
             >
@@ -725,8 +739,8 @@ export function BazaarPage() {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 6,
-                  fontSize: 12,
+                  gap: "var(--s-2)",
+                  fontSize: "var(--t-2)",
                   color: "var(--fg-dim)",
                 }}
               >
@@ -744,7 +758,7 @@ export function BazaarPage() {
                     background: "var(--bg)",
                     borderRadius: "var(--r-2)",
                     color: "var(--fg)",
-                    fontSize: 12,
+                    fontSize: "var(--t-2)",
                     fontFamily: "var(--font-sans)",
                     cursor: "pointer",
                   }}
@@ -758,8 +772,16 @@ export function BazaarPage() {
                 <span>per page · {total} total</span>
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 12, color: "var(--fg-dim)" }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--s-3)",
+                }}
+              >
+                <span
+                  style={{ fontSize: "var(--t-2)", color: "var(--fg-dim)" }}
+                >
                   Page {page + 1} of {totalPages}
                 </span>
                 <button
@@ -800,7 +822,7 @@ function SectionHeading({ title, note }: { title: string; note: string }) {
       <div
         style={{
           fontFamily: "var(--font-mono)",
-          fontSize: 10,
+          fontSize: "var(--t-0)",
           textTransform: "uppercase",
           letterSpacing: "0.08em",
           color: "var(--fg-dim)",
@@ -808,7 +830,13 @@ function SectionHeading({ title, note }: { title: string; note: string }) {
       >
         {title}
       </div>
-      <div style={{ fontSize: 12, color: "var(--fg-muted)", marginTop: 3 }}>
+      <div
+        style={{
+          fontSize: "var(--t-2)",
+          color: "var(--fg-muted)",
+          marginTop: 3,
+        }}
+      >
         {note}
       </div>
     </div>

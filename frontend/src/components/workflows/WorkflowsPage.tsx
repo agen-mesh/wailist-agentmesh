@@ -31,6 +31,12 @@ import { ImportModal } from "./ImportModal";
 import { ShareModal } from "./ShareModal";
 import { WorkflowsPhoneList } from "./phone/WorkflowsPhoneList";
 import { WorkflowOverview } from "./WorkflowOverview";
+import {
+  Pager,
+  pageSlice,
+  DEFAULT_PAGE_SIZE,
+  type PageSize,
+} from "@/components/ui/Pager";
 import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import {
@@ -129,6 +135,21 @@ export function WorkflowsPage() {
   const filtered = useMemo(
     () => filterWorkflows(wfList, { query: q, status }),
     [wfList, q, status],
+  );
+
+  // Fetched whole (list has no offset), so paging is a slice rather than a
+  // request — unlike Bazaar, which pages the server.
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
+  // pageSlice clamps rather than resetting, so a filter that shortens the
+  // list lands on its last page instead of an empty one.
+  const {
+    rows: pageRows,
+    page: safePage,
+    totalPages,
+  } = useMemo(
+    () => pageSlice(filtered, page, pageSize),
+    [filtered, page, pageSize],
   );
 
   const handleNewWorkflow = useCallback(async () => {
@@ -301,9 +322,6 @@ export function WorkflowsPage() {
               >
                 Workflows
               </h1>
-              <p style={{ margin: 0, color: "var(--fg-muted)", fontSize: 14 }}>
-                Design, deploy, and monitor agent pipelines.
-              </p>
             </div>
             <div
               className="wf-actions"
@@ -358,7 +376,7 @@ export function WorkflowsPage() {
                 border: "1px solid var(--danger)",
                 background: "var(--bg-elev-1)",
                 color: "var(--danger)",
-                fontSize: 12.5,
+                fontSize: "var(--t-2)",
               }}
             >
               {pageError.message}
@@ -389,7 +407,7 @@ export function WorkflowsPage() {
                   borderRadius: "var(--r-2)",
                   color: "var(--fg)",
                   fontFamily: "var(--font-sans)",
-                  fontSize: 13,
+                  fontSize: "var(--t-3)",
                   outline: "none",
                 }}
                 placeholder="Search workflows, tags…"
@@ -400,7 +418,7 @@ export function WorkflowsPage() {
             <div
               style={{
                 display: "flex",
-                gap: 2,
+                gap: "var(--s-0)",
                 background: "var(--bg-elev-1)",
                 padding: 3,
                 borderRadius: "var(--r-2)",
@@ -418,9 +436,9 @@ export function WorkflowsPage() {
                       status === s ? "var(--bg-elev-3)" : "transparent",
                     color: status === s ? "var(--fg)" : "var(--fg-muted)",
                     padding: "6px 12px",
-                    fontSize: 12,
+                    fontSize: "var(--t-2)",
                     fontWeight: 500,
-                    borderRadius: 5,
+                    borderRadius: "var(--r-2)",
                     cursor: "pointer",
                     textTransform: "capitalize",
                     fontFamily: "var(--font-sans)",
@@ -434,7 +452,7 @@ export function WorkflowsPage() {
             <div
               style={{
                 display: "flex",
-                gap: 2,
+                gap: "var(--s-0)",
                 background: "var(--bg-elev-1)",
                 padding: 3,
                 borderRadius: "var(--r-2)",
@@ -465,7 +483,7 @@ export function WorkflowsPage() {
                   border: "none",
                   display: "flex",
                   alignItems: "center",
-                  gap: 4,
+                  gap: "var(--s-1)",
                 }}
               >
                 <IconGrid size={11} /> Grid
@@ -478,7 +496,7 @@ export function WorkflowsPage() {
             <WorkflowListSkeleton />
           ) : view === "rows" ? (
             <WorkflowRows
-              items={filtered}
+              items={pageRows}
               onOpen={(id) => router.push(workflowHref(id))}
               onGeofence={(id) =>
                 router.push(workflowHref(id, { geofence: true }))
@@ -490,8 +508,22 @@ export function WorkflowsPage() {
             />
           ) : (
             <WorkflowGrid
-              items={filtered}
+              items={pageRows}
               onOpen={(id) => router.push(workflowHref(id))}
+            />
+          )}
+
+          {/* Both views read the same slice, so switching keeps your place.
+              Hidden at one page: "Page 1 of 1" is chrome, not information. */}
+          {!loading && totalPages > 1 && (
+            <Pager
+              page={safePage}
+              totalPages={totalPages}
+              total={filtered.length}
+              pageSize={pageSize}
+              onPage={setPage}
+              onPageSize={setPageSize}
+              noun="workflows"
             />
           )}
 
@@ -504,7 +536,7 @@ export function WorkflowsPage() {
                 borderRadius: "var(--r-3)",
                 color: "var(--fg-dim)",
                 fontFamily: "var(--font-mono)",
-                fontSize: 12,
+                fontSize: "var(--t-2)",
               }}
             >
               {wfList.length === 0
@@ -557,61 +589,6 @@ function StatusBadge({ status }: { status?: string }) {
   );
 }
 
-function WorkflowIcon({ name }: { name: string }) {
-  const seed = name.charCodeAt(0) + name.length;
-  const dotCount = 3 + (seed % 3);
-  const dots = Array.from({ length: dotCount }, (_, i) => {
-    const a = (i / dotCount) * Math.PI * 2 + seed * 0.3;
-    return { x: 14 + Math.cos(a) * 8, y: 14 + Math.sin(a) * 8 };
-  });
-  return (
-    <div
-      style={{
-        width: 36,
-        height: 36,
-        borderRadius: 8,
-        background: "var(--bg-elev-3)",
-        border: "1px solid var(--border-strong)",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-      }}
-    >
-      <svg width="28" height="28" viewBox="0 0 28 28">
-        {dots.map((d, i) =>
-          dots.map((d2, j) =>
-            j > i ? (
-              <line
-                key={`${i}_${j}`}
-                x1={d.x}
-                y1={d.y}
-                x2={d2.x}
-                y2={d2.y}
-                stroke="var(--fg-dim)"
-                strokeWidth="0.5"
-              />
-            ) : null,
-          ),
-        )}
-        {dots.map((d, i) => (
-          <circle
-            key={i}
-            cx={d.x}
-            cy={d.y}
-            r="2"
-            fill={i === 0 ? "var(--accent)" : "var(--fg-muted)"}
-          />
-        ))}
-      </svg>
-    </div>
-  );
-}
-
-// RowMenu is the ⋯ menu on a workflow row. Delete is permanent, so it asks for
-// a second click ("Delete permanently?") in place rather than firing on the
-// first — and rather than a browser confirm() dialog, which the rest of the app
-// doesn't use.
 function RowMenu({
   workflowId,
   onDelete,
@@ -811,10 +788,10 @@ function RowMenu({
                   textAlign: "left",
                   padding: "8px 10px",
                   border: "none",
-                  borderRadius: 5,
+                  borderRadius: "var(--r-2)",
                   background: "transparent",
                   color: deployed ? "var(--fg)" : "var(--fg-dim)",
-                  fontSize: 12.5,
+                  fontSize: "var(--t-2)",
                   fontWeight: 500,
                   fontFamily: "var(--font-sans)",
                   cursor: deployed ? "pointer" : "not-allowed",
@@ -841,10 +818,10 @@ function RowMenu({
                   textAlign: "left",
                   padding: "8px 10px",
                   border: "none",
-                  borderRadius: 5,
+                  borderRadius: "var(--r-2)",
                   background: "transparent",
                   color: "var(--fg)",
-                  fontSize: 12.5,
+                  fontSize: "var(--t-2)",
                   fontWeight: 500,
                   fontFamily: "var(--font-sans)",
                   cursor: "pointer",
@@ -881,12 +858,12 @@ function RowMenu({
                   textAlign: "left",
                   padding: "8px 10px",
                   border: "none",
-                  borderRadius: 5,
+                  borderRadius: "var(--r-2)",
                   background: confirming
                     ? "var(--danger-soft, transparent)"
                     : "transparent",
                   color: "var(--danger)",
-                  fontSize: 12.5,
+                  fontSize: "var(--t-2)",
                   fontWeight: confirming ? 600 : 500,
                   fontFamily: "var(--font-sans)",
                   cursor: "pointer",
@@ -912,10 +889,10 @@ function RowMenu({
                     textAlign: "left",
                     padding: "8px 10px",
                     border: "none",
-                    borderRadius: 5,
+                    borderRadius: "var(--r-2)",
                     background: "transparent",
                     color: "var(--fg-muted)",
-                    fontSize: 12.5,
+                    fontSize: "var(--t-2)",
                     fontFamily: "var(--font-sans)",
                     cursor: "pointer",
                   }}
@@ -934,14 +911,14 @@ function RowMenu({
                   border: "none",
                   color: "var(--fg-muted)",
                   cursor: "pointer",
-                  fontSize: 11,
+                  fontSize: "var(--t-1)",
                   padding: 0,
                   marginBottom: 8,
                 }}
               >
                 ← back
               </button>
-              <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+              <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)" }}>
                 Loading…
               </div>
             </div>
@@ -962,7 +939,7 @@ function RowMenu({
                   border: "none",
                   color: "var(--fg-muted)",
                   cursor: "pointer",
-                  fontSize: 11,
+                  fontSize: "var(--t-1)",
                   padding: 0,
                   marginBottom: 8,
                 }}
@@ -971,7 +948,7 @@ function RowMenu({
               </button>
               <div
                 style={{
-                  fontSize: 11,
+                  fontSize: "var(--t-1)",
                   color: "var(--danger)",
                   marginBottom: 8,
                 }}
@@ -1054,16 +1031,16 @@ function SchedulePopover({
     width: "100%",
     padding: "5px 6px",
     marginBottom: 8,
-    fontSize: 12,
+    fontSize: "var(--t-2)",
     fontFamily: "var(--font-mono)",
     background: "var(--bg-elev-1)",
     border: "1px solid var(--border)",
-    borderRadius: 4,
+    borderRadius: "var(--r-1)",
     color: "var(--fg)",
   };
   const labelStyle: React.CSSProperties = {
     display: "block",
-    fontSize: 10,
+    fontSize: "var(--t-0)",
     color: "var(--fg-dim)",
     marginBottom: 3,
   };
@@ -1077,14 +1054,14 @@ function SchedulePopover({
           border: "none",
           color: "var(--fg-muted)",
           cursor: "pointer",
-          fontSize: 11,
+          fontSize: "var(--t-1)",
           padding: 0,
           marginBottom: 8,
         }}
       >
         ← back
       </button>
-      <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+      <div style={{ display: "flex", gap: "var(--s-1)", marginBottom: 8 }}>
         {(["daily", "weekly", "monthly"] as Cadence[]).map((c) => (
           <button
             key={c}
@@ -1092,9 +1069,9 @@ function SchedulePopover({
             style={{
               flex: 1,
               padding: "5px 0",
-              fontSize: 11,
+              fontSize: "var(--t-1)",
               fontFamily: "var(--font-sans)",
-              borderRadius: 4,
+              borderRadius: "var(--r-1)",
               border: "1px solid var(--border)",
               background: cadence === c ? "var(--accent-soft)" : "transparent",
               color: cadence === c ? "var(--accent)" : "var(--fg-muted)",
@@ -1115,15 +1092,21 @@ function SchedulePopover({
           width: "100%",
           padding: "5px 6px",
           marginBottom: 8,
-          fontSize: 12,
+          fontSize: "var(--t-2)",
           fontFamily: "var(--font-mono)",
           background: "var(--bg-elev-1)",
           border: "1px solid var(--border)",
-          borderRadius: 4,
+          borderRadius: "var(--r-1)",
           color: "var(--fg)",
         }}
       />
-      <div style={{ fontSize: 11, color: "var(--fg-dim)", marginBottom: 8 }}>
+      <div
+        style={{
+          fontSize: "var(--t-1)",
+          color: "var(--fg-dim)",
+          marginBottom: 8,
+        }}
+      >
         Stored in UTC — may shift by an hour across daylight saving.
       </div>
       {cadence === "weekly" && (
@@ -1159,18 +1142,28 @@ function SchedulePopover({
         </>
       )}
       {scheduleNextRunAt && (
-        <div style={{ fontSize: 10, color: "var(--fg-dim)", marginBottom: 8 }}>
+        <div
+          style={{
+            fontSize: "var(--t-0)",
+            color: "var(--fg-dim)",
+            marginBottom: 8,
+          }}
+        >
           Next run: {new Date(scheduleNextRunAt).toLocaleString()}
         </div>
       )}
       {error && (
         <div
-          style={{ fontSize: 10.5, color: "var(--danger)", marginBottom: 8 }}
+          style={{
+            fontSize: "var(--t-0)",
+            color: "var(--danger)",
+            marginBottom: 8,
+          }}
         >
           {error}
         </div>
       )}
-      <div style={{ display: "flex", gap: 6 }}>
+      <div style={{ display: "flex", gap: "var(--s-2)" }}>
         <button
           disabled={saving}
           onClick={async () => {
@@ -1190,9 +1183,9 @@ function SchedulePopover({
           style={{
             flex: 1,
             padding: "6px 0",
-            fontSize: 11.5,
+            fontSize: "var(--t-1)",
             fontWeight: 600,
-            borderRadius: 4,
+            borderRadius: "var(--r-1)",
             border: "none",
             background: "var(--accent)",
             color: "var(--bg)",
@@ -1225,8 +1218,8 @@ function SchedulePopover({
             onBlur={() => setRemoveConfirming(false)}
             style={{
               padding: "6px 10px",
-              fontSize: 11.5,
-              borderRadius: 4,
+              fontSize: "var(--t-1)",
+              borderRadius: "var(--r-1)",
               border: "1px solid var(--border-strong)",
               background: removeConfirming
                 ? "var(--danger-soft, transparent)"
@@ -1269,12 +1262,12 @@ function WorkflowRows({
         style={{
           display: "grid",
           gridTemplateColumns: "var(--wf-row-cols)",
-          gap: 12,
+          gap: "var(--s-4)",
           padding: "10px 16px",
           background: "var(--bg-elev-2)",
           borderBottom: "1px solid var(--border)",
           fontFamily: "var(--font-mono)",
-          fontSize: 10,
+          fontSize: "var(--t-0)",
           textTransform: "uppercase",
           letterSpacing: "0.08em",
           color: "var(--fg-dim)",
@@ -1322,27 +1315,33 @@ function WorkflowRows({
             (e.currentTarget.style.background = "transparent")
           }
         >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              minWidth: 0,
-            }}
-          >
-            <WorkflowIcon name={wf.name ?? ""} />
+          {/* A real link, and load-bearing: the row is a div with an onClick,
+              so with "Open" gone this is the only keyboard route into a
+              workflow. It also buys middle-click and open-in-new-tab. */}
+          <div style={{ minWidth: 0 }}>
             <div style={{ minWidth: 0 }}>
-              <div
+              <a
+                href={workflowHref(wf.id)}
+                className="wf-row-name"
+                onClick={(e) => {
+                  // The row's handler routes; keep it a client-side nav.
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onOpen(wf.id);
+                }}
                 style={{
-                  fontSize: 14,
+                  display: "block",
+                  fontSize: "var(--t-4)",
                   fontWeight: 500,
+                  color: "inherit",
+                  textDecoration: "none",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
                 }}
               >
                 {wf.name}
-              </div>
+              </a>
               <div
                 style={{
                   display: "flex",
@@ -1356,7 +1355,7 @@ function WorkflowRows({
                     key={t}
                     style={{
                       fontFamily: "var(--font-mono)",
-                      fontSize: 11,
+                      fontSize: "var(--t-1)",
                       color: "var(--fg-dim)",
                       textTransform: "uppercase",
                       letterSpacing: "0.06em",
@@ -1373,7 +1372,7 @@ function WorkflowRows({
           </span>
           <span
             data-label="Agents"
-            style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}
+            style={{ fontFamily: "var(--font-mono)", fontSize: "var(--t-2)" }}
           >
             {wf.agents ??
               wf.nodes?.filter((n) => n.type === "agent").length ??
@@ -1383,7 +1382,7 @@ function WorkflowRows({
             data-label="Runs · 30d"
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 12,
+              fontSize: "var(--t-2)",
               color: "var(--fg-muted)",
             }}
           >
@@ -1393,7 +1392,7 @@ function WorkflowRows({
             data-label="Spend · 30d"
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 12,
+              fontSize: "var(--t-2)",
               color: "var(--accent)",
             }}
           >
@@ -1403,22 +1402,19 @@ function WorkflowRows({
             data-label="Updated"
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 11,
+              fontSize: "var(--t-1)",
               color: "var(--fg-muted)",
             }}
           >
             {fmtDate(wf.updatedAt ?? wf.updated)}
           </span>
-          <div className="wf-row-actions" style={{ display: "flex", gap: 4 }}>
-            <button
-              style={ghostBtnSm}
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpen(wf.id);
-              }}
-            >
-              Open
-            </button>
+          <div
+            className="wf-row-actions"
+            style={{ display: "flex", gap: "var(--s-1)" }}
+          >
+            {/* No "Open" button: the row is already the control, so it was a
+                second smaller target sitting among the row's real actions.
+                The name is a link, which is what carries keyboard access. */}
             {/* Its own button rather than an item in RowMenu below, because
                 that menu is gated on "workflow.delete" and so never appears on
                 a phone -- which is the one device this screen is for. Shown
@@ -1471,7 +1467,7 @@ function WorkflowGrid({
       style={{
         display: "grid",
         gridTemplateColumns: "var(--wf-card-cols)",
-        gap: 16,
+        gap: "var(--s-5)",
       }}
     >
       {items.map((wf) => (
@@ -1501,16 +1497,15 @@ function WorkflowGrid({
             style={{
               display: "flex",
               alignItems: "center",
-              justifyContent: "space-between",
+              justifyContent: "flex-end",
             }}
           >
-            <WorkflowIcon name={wf.name ?? ""} />
             <StatusBadge status={wf.status} />
           </div>
           <div
             style={{
               marginTop: 16,
-              fontSize: 16,
+              fontSize: "var(--t-4)",
               fontWeight: 500,
               letterSpacing: "-0.015em",
             }}
@@ -1530,7 +1525,7 @@ function WorkflowGrid({
                 key={t}
                 style={{
                   fontFamily: "var(--font-mono)",
-                  fontSize: 11,
+                  fontSize: "var(--t-1)",
                   color: "var(--fg-dim)",
                   textTransform: "uppercase",
                   letterSpacing: "0.06em",
@@ -1547,9 +1542,9 @@ function WorkflowGrid({
               borderTop: "1px solid var(--border-soft)",
               display: "grid",
               gridTemplateColumns: "var(--wf-cardmeta-cols)",
-              gap: 8,
+              gap: "var(--s-3)",
               fontFamily: "var(--font-mono)",
-              fontSize: 11,
+              fontSize: "var(--t-1)",
             }}
           >
             {[
@@ -1568,7 +1563,7 @@ function WorkflowGrid({
                 <div
                   style={{
                     color: "var(--fg-dim)",
-                    fontSize: 11,
+                    fontSize: "var(--t-1)",
                     textTransform: "uppercase",
                     letterSpacing: "0.06em",
                   }}

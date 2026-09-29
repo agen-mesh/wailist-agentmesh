@@ -20,11 +20,19 @@ import { useIsHandheld } from "@/hooks/useIsHandheld";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import { UsagePhonePage } from "./phone/UsagePhonePage";
 import {
+  Pager,
+  pageSlice,
+  DEFAULT_PAGE_SIZE,
+  type PageSize,
+} from "@/components/ui/Pager";
+import {
   ALGO_USD,
   CAT_COLOR,
   CAT_LABEL,
   TYPE_PILL,
   compactUsd,
+  endpointLabel,
+  pct,
   relTime,
   usd,
 } from "./format";
@@ -179,14 +187,14 @@ export function UsagePage() {
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 10,
+                gap: "var(--s-3)",
                 marginBottom: 16,
                 padding: "8px 12px",
                 background: "var(--accent-soft)",
                 border: "1px solid var(--accent-line)",
                 borderRadius: "var(--r-2)",
                 fontFamily: "var(--font-mono)",
-                fontSize: 11,
+                fontSize: "var(--t-1)",
                 color: "var(--accent)",
               }}
             >
@@ -200,7 +208,7 @@ export function UsagePage() {
                   color: "var(--accent)",
                   cursor: "pointer",
                   fontFamily: "var(--font-mono)",
-                  fontSize: 11,
+                  fontSize: "var(--t-1)",
                   textDecoration: "underline",
                 }}
               >
@@ -214,14 +222,14 @@ export function UsagePage() {
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 10,
+                gap: "var(--s-3)",
                 marginBottom: 16,
                 padding: "8px 12px",
                 background: "rgba(255,92,92,0.10)",
                 border: "1px solid rgba(255,92,92,0.35)",
                 borderRadius: "var(--r-2)",
                 fontFamily: "var(--font-mono)",
-                fontSize: 11,
+                fontSize: "var(--t-1)",
                 color: "var(--danger)",
               }}
             >
@@ -235,7 +243,7 @@ export function UsagePage() {
                   color: "var(--danger)",
                   cursor: "pointer",
                   fontFamily: "var(--font-mono)",
-                  fontSize: 11,
+                  fontSize: "var(--t-1)",
                   textDecoration: "underline",
                 }}
               >
@@ -251,7 +259,7 @@ export function UsagePage() {
                 textAlign: "center",
                 color: "var(--fg-dim)",
                 fontFamily: "var(--font-mono)",
-                fontSize: 12,
+                fontSize: "var(--t-2)",
               }}
             >
               loading usage…
@@ -264,7 +272,7 @@ export function UsagePage() {
                 border: "1px dashed var(--danger)",
                 borderRadius: "var(--r-3)",
                 fontFamily: "var(--font-mono)",
-                fontSize: 12,
+                fontSize: "var(--t-2)",
               }}
             >
               <div style={{ color: "var(--danger)", marginBottom: 8 }}>
@@ -287,7 +295,7 @@ export function UsagePage() {
                 borderRadius: "var(--r-3)",
                 color: "var(--fg-dim)",
                 fontFamily: "var(--font-mono)",
-                fontSize: 12,
+                fontSize: "var(--t-2)",
               }}
             >
               no usage yet, run a workflow to see spend here
@@ -361,15 +369,33 @@ function UsageBody({
   // documents for resetting state when a value changes, it avoids the extra
   // commit an effect would cost, and this repo lints against setState in
   // effects (AuthPage carries a disable comment for exactly that rule).
+  // Declared above the range reset below, which calls setSettlementPage --
+  // a const is in its temporal dead zone until its own line.
+  const [settlementPage, setSettlementPage] = useState(0);
+  const [settlementSize, setSettlementSize] =
+    useState<PageSize>(DEFAULT_PAGE_SIZE);
+
   const [rangeShown, setRangeShown] = useState(range);
   if (rangeShown !== range) {
     setRangeShown(range);
     setShowAllSettlements(false);
+    // Same reason: page 3 of the 30d settlements is a position in a list that
+    // no longer exists. Without this the reader lands on the last page of the
+    // shorter one rather than the top of it.
+    setSettlementPage(0);
   }
 
-  const settlementCap =
-    handheld && !showAllSettlements ? 6 : settlements.length;
-  const visibleSettlements = settlements.slice(0, settlementCap);
+  // Two answers to "this list is too long", one per client. The handheld
+  // keeps its six-cards-and-show-all disclosure; the pointer client pages,
+  // like the endpoints table and the workflows list.
+  const settlementSlice = pageSlice(
+    settlements,
+    settlementPage,
+    settlementSize,
+  );
+  const visibleSettlements = handheld
+    ? settlements.slice(0, showAllSettlements ? settlements.length : 6)
+    : settlementSlice.rows;
   useEffect(() => {
     let stale = false;
     usageApi
@@ -422,7 +448,7 @@ function UsageBody({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "flex-end",
-          gap: 16,
+          gap: "var(--s-5)",
           flexWrap: "wrap",
           // Unconditional 60px of headspace, which on a 812px phone is 7% of
           // the screen spent on nothing. Tokenised so the phone step drops it.
@@ -434,7 +460,7 @@ function UsageBody({
           style={{
             display: "flex",
             alignItems: "flex-end",
-            gap: 14,
+            gap: "var(--s-4)",
             flexWrap: "wrap",
             // Tokens, defaulting to what this was: see the 520 block beside
             // --us-headspace in globals.css.
@@ -460,7 +486,7 @@ function UsageBody({
                 : pctLeft < 0.1
                   ? "var(--danger)"
                   : pctLeft < 0.25
-                    ? "#FB923C"
+                    ? "var(--type-action)"
                     : "var(--accent)";
             return (
               <div
@@ -474,7 +500,7 @@ function UsageBody({
                   padding: "16px 20px",
                   display: "flex",
                   flexDirection: "column",
-                  gap: 8,
+                  gap: "var(--s-3)",
                   position: "relative",
                 }}
               >
@@ -503,7 +529,7 @@ function UsageBody({
                 <span
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: 10,
+                    fontSize: "var(--t-0)",
                     textTransform: "uppercase",
                     letterSpacing: "0.12em",
                     color: "var(--fg-dim)",
@@ -512,7 +538,11 @@ function UsageBody({
                   credits left
                 </span>
                 <div
-                  style={{ display: "flex", alignItems: "baseline", gap: 10 }}
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: "var(--s-3)",
+                  }}
                 >
                   <span
                     style={{
@@ -529,7 +559,7 @@ function UsageBody({
                   <span
                     style={{
                       fontFamily: "var(--font-mono)",
-                      fontSize: 14,
+                      fontSize: "var(--t-4)",
                       color: "var(--fg-muted)",
                     }}
                   >
@@ -538,14 +568,18 @@ function UsageBody({
                 </div>
                 {pctLeft != null && (
                   <div
-                    style={{ display: "flex", alignItems: "center", gap: 10 }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "var(--s-3)",
+                    }}
                   >
                     <div
                       style={{
                         flex: 1,
                         height: 4,
                         background: "var(--accent-soft)",
-                        borderRadius: 999,
+                        borderRadius: "var(--r-full)",
                         overflow: "hidden",
                       }}
                     >
@@ -554,14 +588,14 @@ function UsageBody({
                           height: "100%",
                           width: `${pctLeft * 100}%`,
                           background: tone,
-                          borderRadius: 999,
+                          borderRadius: "var(--r-full)",
                         }}
                       />
                     </div>
                     <span
                       style={{
                         fontFamily: "var(--font-mono)",
-                        fontSize: 11,
+                        fontSize: "var(--t-1)",
                         color: "var(--fg-dim)",
                         whiteSpace: "nowrap",
                       }}
@@ -578,7 +612,7 @@ function UsageBody({
           style={{
             display: "flex",
             alignItems: "flex-end",
-            gap: 14,
+            gap: "var(--s-4)",
             flexWrap: "wrap",
           }}
         >
@@ -631,7 +665,7 @@ function UsageBody({
                 >
                   <span
                     style={{
-                      fontSize: 13,
+                      fontSize: "var(--t-3)",
                       color: "var(--fg)",
                       minWidth: 0,
                       overflow: "hidden",
@@ -648,7 +682,7 @@ function UsageBody({
                       flex: 1,
                       height: 6,
                       background: "var(--accent-soft)",
-                      borderRadius: 999,
+                      borderRadius: "var(--r-full)",
                       overflow: "hidden",
                     }}
                   >
@@ -658,14 +692,14 @@ function UsageBody({
                         height: "100%",
                         width: `${(w.algo / maxWfAlgo) * 100}%`,
                         background: "var(--accent)",
-                        borderRadius: 999,
+                        borderRadius: "var(--r-full)",
                       }}
                     />
                   </span>
                   <span
                     style={{
                       fontFamily: "var(--font-mono)",
-                      fontSize: 12,
+                      fontSize: "var(--t-2)",
                       color: "var(--accent)",
                       flex: "0 0 auto",
                       minWidth: 78,
@@ -688,7 +722,7 @@ function UsageBody({
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 24,
+              gap: "var(--s-6)",
               padding: "12px 4px 8px",
               flexWrap: "wrap",
             }}
@@ -704,24 +738,28 @@ function UsageBody({
                 minWidth: 160,
                 display: "flex",
                 flexDirection: "column",
-                gap: 12,
+                gap: "var(--s-4)",
               }}
             >
               {segments.map((s) => (
                 <div
                   key={s.label}
-                  style={{ display: "flex", alignItems: "center", gap: 10 }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--s-3)",
+                  }}
                 >
                   <span
                     style={{
                       width: 10,
                       height: 10,
-                      borderRadius: 3,
+                      borderRadius: "var(--r-1)",
                       background: s.color,
                       flexShrink: 0,
                     }}
                   />
-                  <span style={{ fontSize: 13, color: "var(--fg)" }}>
+                  <span style={{ fontSize: "var(--t-3)", color: "var(--fg)" }}>
                     {s.label}
                     {s.label === "LLM" && (
                       <span style={{ color: "var(--fg-dim)" }}>*</span>
@@ -731,7 +769,7 @@ function UsageBody({
                     style={{
                       marginLeft: "auto",
                       fontFamily: "var(--font-mono)",
-                      fontSize: 12,
+                      fontSize: "var(--t-2)",
                       color: "var(--fg)",
                     }}
                   >
@@ -740,7 +778,7 @@ function UsageBody({
                   <span
                     style={{
                       fontFamily: "var(--font-mono)",
-                      fontSize: 11,
+                      fontSize: "var(--t-1)",
                       color: "var(--fg-dim)",
                       minWidth: 38,
                       textAlign: "right",
@@ -763,7 +801,7 @@ function UsageBody({
             <span
               style={{
                 fontFamily: "var(--font-mono)",
-                fontSize: 10,
+                fontSize: "var(--t-0)",
                 color: "var(--fg-dim)",
               }}
             >
@@ -777,7 +815,7 @@ function UsageBody({
               minWidth: "var(--us-settle-minw)",
               display: "grid",
               gridTemplateColumns: SETTLE_GRID,
-              gap: 14,
+              gap: "var(--s-4)",
               padding: "8px 10px",
               background: "var(--bg-elev-2)",
               borderRadius: "var(--r-2)",
@@ -798,7 +836,7 @@ function UsageBody({
                 style={{
                   display: "grid",
                   gridTemplateColumns: SETTLE_GRID,
-                  gap: 14,
+                  gap: "var(--s-4)",
                   alignItems: "center",
                   padding: "11px 10px",
                   borderBottom:
@@ -806,7 +844,7 @@ function UsageBody({
                       ? "1px solid var(--border-soft)"
                       : "none",
                   fontFamily: "var(--font-mono)",
-                  fontSize: 11,
+                  fontSize: "var(--t-1)",
                 }}
               >
                 <span
@@ -824,7 +862,7 @@ function UsageBody({
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
-                    color: "#E879F9",
+                    color: "var(--type-x402)",
                     textDecoration: "underline",
                     whiteSpace: "nowrap",
                     overflow: "hidden",
@@ -868,7 +906,9 @@ function UsageBody({
             carried the one CTA off screen with it -- exactly when somebody has
             scrolled far enough to want it. The fade this PR adds makes that
             scroll likelier, which is what turned a latent bug into a real one. */}
-        {settlements.length > visibleSettlements.length && (
+        {/* The handheld's disclosure button; the pointer client gets the
+            pager below instead, and never both. */}
+        {handheld && settlements.length > visibleSettlements.length && (
           <button
             type="button"
             onClick={() => setShowAllSettlements(true)}
@@ -878,11 +918,22 @@ function UsageBody({
               // ghostBtnSm is 28px, which is a pointer size. This one is
               // tapped, so it takes the 44px floor.
               minHeight: 44,
-              marginTop: 8,
+              marginTop: "var(--s-3)",
             }}
           >
             Show all {settlements.length} settlements
           </button>
+        )}
+        {!handheld && settlementSlice.totalPages > 1 && (
+          <Pager
+            page={settlementSlice.page}
+            totalPages={settlementSlice.totalPages}
+            total={settlements.length}
+            pageSize={settlementSize}
+            onPage={setSettlementPage}
+            onPageSize={setSettlementSize}
+            noun="settlements"
+          />
         )}
       </Card>
 
@@ -891,7 +942,7 @@ function UsageBody({
         style={{
           margin: "20px 4px 0",
           fontFamily: "var(--font-mono)",
-          fontSize: 10,
+          fontSize: "var(--t-0)",
           color: "var(--fg-dim)",
           letterSpacing: "0.02em",
         }}
@@ -986,24 +1037,46 @@ function EndpointTable({
         : { key, dir: ASC_FIRST.includes(key) ? "asc" : "desc" },
     );
 
+  // Nine sortable columns over an unbounded row count. A sort is only useful
+  // if you can see the top of the list; paging keeps the header and the rows
+  // it just reordered on screen together.
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
+  // Searching or switching category shortens the list under the reader. Same
+  // clamp the workflows list uses, for the same reason.
+  const {
+    rows: pageRows,
+    page: safePage,
+    totalPages,
+  } = useMemo(
+    () => pageSlice(filtered, page, pageSize),
+    [filtered, page, pageSize],
+  );
+
   return (
     <Card className={className} style={style}>
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 10,
+          gap: "var(--s-3)",
           padding: "2px 2px 14px",
           flexWrap: "wrap",
         }}
       >
-        <div style={{ fontSize: 14, fontWeight: 500, color: "var(--fg)" }}>
+        <div
+          style={{
+            fontSize: "var(--t-4)",
+            fontWeight: 500,
+            color: "var(--fg)",
+          }}
+        >
           Endpoints &amp; APIs
         </div>
         <div
           style={{
             display: "flex",
-            gap: 2,
+            gap: "var(--s-0)",
             background: "var(--bg-elev-2)",
             padding: 3,
             borderRadius: "var(--r-2)",
@@ -1019,9 +1092,9 @@ function EndpointTable({
                 background: cat === c ? "var(--bg-elev-3)" : "transparent",
                 color: cat === c ? "var(--fg)" : "var(--fg-muted)",
                 padding: "5px 11px",
-                fontSize: 12,
+                fontSize: "var(--t-2)",
                 fontWeight: 500,
-                borderRadius: 5,
+                borderRadius: "var(--r-2)",
                 cursor: "pointer",
                 fontFamily: "var(--font-sans)",
                 textTransform: "capitalize",
@@ -1058,7 +1131,7 @@ function EndpointTable({
               borderRadius: "var(--r-2)",
               color: "var(--fg)",
               fontFamily: "var(--font-sans)",
-              fontSize: 12,
+              fontSize: "var(--t-2)",
               outline: "none",
             }}
           />
@@ -1071,7 +1144,7 @@ function EndpointTable({
             style={{
               display: "grid",
               gridTemplateColumns: EP_GRID,
-              gap: 10,
+              gap: "var(--s-3)",
               padding: "8px 10px",
               background: "var(--bg-elev-2)",
               borderRadius: "var(--r-2)",
@@ -1108,47 +1181,51 @@ function EndpointTable({
           {filtered.length === 0 ? (
             <Empty text="no endpoints match" />
           ) : (
-            filtered.map((r) => (
+            pageRows.map((r) => (
               <div
                 key={r.endpoint}
                 style={{
                   display: "grid",
                   gridTemplateColumns: EP_GRID,
-                  gap: 10,
+                  gap: "var(--s-3)",
                   padding: "12px 10px",
                   alignItems: "center",
                   borderBottom: "1px solid var(--border-soft)",
                 }}
               >
-                <div style={{ minWidth: 0 }}>
+                <div style={{ minWidth: 0 }} title={r.endpoint}>
                   <div
                     style={{
-                      fontSize: 13,
+                      fontSize: "var(--t-3)",
                       color: "var(--fg)",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {r.endpoint}
+                    {endpointLabel(r).primary}
                   </div>
-                  <div
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 11,
-                      color: "var(--fg-dim)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {r.host}
-                  </div>
+                  {/* Absent on an LLM row, where it was a second copy of the
+                      node id already on the line above. See endpointLabel. */}
+                  {endpointLabel(r).secondary && (
+                    <div
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: "var(--t-1)",
+                        color: "var(--fg-dim)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {endpointLabel(r).secondary}
+                    </div>
+                  )}
                 </div>
                 <span
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: 11,
+                    fontSize: "var(--t-1)",
                     color: "var(--fg-muted)",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
@@ -1199,7 +1276,7 @@ function EndpointTable({
                     ...numCell,
                     display: "flex",
                     alignItems: "center",
-                    gap: 6,
+                    gap: "var(--s-2)",
                     justifyContent: "flex-end",
                   }}
                 >
@@ -1208,7 +1285,7 @@ function EndpointTable({
                       width: 34,
                       height: 5,
                       background: "var(--accent-soft)",
-                      borderRadius: 999,
+                      borderRadius: "var(--r-full)",
                       overflow: "hidden",
                       flexShrink: 0,
                     }}
@@ -1225,7 +1302,7 @@ function EndpointTable({
                   {/* Fixed-width value box so the bars line up in a column -- with the
                     text free-width, wider values pushed each row's bar to a different x. */}
                   <span style={{ minWidth: 40, textAlign: "right" }}>
-                    {r.pctOfSpend}%
+                    {pct(r.pctOfSpend)}%
                   </span>
                 </span>
                 <span
@@ -1251,6 +1328,19 @@ function EndpointTable({
           )}
         </div>
       </HScroll>
+      {/* Outside the HScroll: the pane is held open to 984px by the columns,
+          so anything inside it scrolls sideways off screen with the rows. */}
+      {totalPages > 1 && (
+        <Pager
+          page={safePage}
+          totalPages={totalPages}
+          total={filtered.length}
+          pageSize={pageSize}
+          onPage={setPage}
+          onPageSize={setPageSize}
+          noun="endpoints"
+        />
+      )}
     </Card>
   );
 }
@@ -1280,7 +1370,7 @@ function Th({
         padding: 0,
         color: sort.key === k ? "var(--fg-muted)" : "var(--fg-dim)",
         fontFamily: "var(--font-mono)",
-        fontSize: 10,
+        fontSize: "var(--t-0)",
         textTransform: "uppercase",
         letterSpacing: "0.08em",
         display: "inline-flex",
@@ -1289,7 +1379,7 @@ function Th({
         // at the top of it while the plain header cells beside it stay
         // centred.
         alignItems: "center",
-        gap: 3,
+        gap: "var(--s-0)",
         justifyContent: align === "right" ? "flex-end" : "flex-start",
       }}
     >
@@ -1311,7 +1401,7 @@ function RangeSelector({
     <div
       style={{
         display: "flex",
-        gap: 2,
+        gap: "var(--s-0)",
         background: "var(--bg-elev-1)",
         padding: 3,
         borderRadius: "var(--r-2)",
@@ -1327,9 +1417,9 @@ function RangeSelector({
             background: range === r ? "var(--bg-elev-3)" : "transparent",
             color: range === r ? "var(--fg)" : "var(--fg-muted)",
             padding: "6px 14px",
-            fontSize: 12,
+            fontSize: "var(--t-2)",
             fontWeight: 500,
-            borderRadius: 5,
+            borderRadius: "var(--r-2)",
             cursor: "pointer",
             fontFamily: "var(--font-mono)",
           }}
@@ -1351,12 +1441,12 @@ function TypeTag({ type }: { type: UsageCategory }) {
         alignItems: "center",
         height: 20,
         padding: "0 8px",
-        borderRadius: 999,
+        borderRadius: "var(--r-1)",
         border: `1px solid ${c}55`,
         background: `${c}1A`,
         color: c,
         fontFamily: "var(--font-mono)",
-        fontSize: 10,
+        fontSize: "var(--t-0)",
         letterSpacing: "0.04em",
       }}
     >
@@ -1381,7 +1471,9 @@ function CardHead({
         marginBottom: 6,
       }}
     >
-      <div style={{ fontSize: 14, fontWeight: 500, color: "var(--fg)" }}>
+      <div
+        style={{ fontSize: "var(--t-4)", fontWeight: 500, color: "var(--fg)" }}
+      >
         {title}
       </div>
       {right}
@@ -1391,21 +1483,26 @@ function CardHead({
 
 function Legend({ items }: { items: { c: string; label: string }[] }) {
   return (
-    <div style={{ display: "flex", gap: 14 }}>
+    <div style={{ display: "flex", gap: "var(--s-4)" }}>
       {items.map((i) => (
         <span
           key={i.label}
           style={{
             display: "inline-flex",
             alignItems: "center",
-            gap: 6,
+            gap: "var(--s-2)",
             fontFamily: "var(--font-mono)",
-            fontSize: 10,
+            fontSize: "var(--t-0)",
             color: "var(--fg-muted)",
           }}
         >
           <span
-            style={{ width: 8, height: 8, borderRadius: 999, background: i.c }}
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "var(--r-full)",
+              background: i.c,
+            }}
           />
           {i.label}
         </span>
@@ -1470,7 +1567,7 @@ function Empty({ text }: { text: string }) {
         textAlign: "center",
         color: "var(--fg-dim)",
         fontFamily: "var(--font-mono)",
-        fontSize: 11,
+        fontSize: "var(--t-1)",
       }}
     >
       {text}
@@ -1495,21 +1592,21 @@ function trim(n: number) {
 
 const hcell: React.CSSProperties = {
   fontFamily: "var(--font-mono)",
-  fontSize: 10,
+  fontSize: "var(--t-0)",
   textTransform: "uppercase",
   letterSpacing: "0.08em",
   color: "var(--fg-dim)",
 };
 const numCell: React.CSSProperties = {
   fontFamily: "var(--font-mono)",
-  fontSize: 12,
+  fontSize: "var(--t-2)",
   color: "var(--fg)",
   textAlign: "right",
 };
 const spendRowStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 12,
+  gap: "var(--s-4)",
   width: "100%",
   padding: "9px 4px",
   background: "transparent",

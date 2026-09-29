@@ -77,23 +77,43 @@ describe("independent Bazaar requests", () => {
     expect(screen.getByText(endpoint.description)).toBeTruthy();
   });
 
+  // The guarantee is that a late partner result never shoves the independent
+  // catalogue DOWN the page. This used to be enforced by pinning the partner
+  // region to height: 320 forever, which held it open even once three ~210px
+  // cards had landed -- a permanent ~110px hole above "Everything else" that
+  // read as a section failing to render. So the box is now reserved only while
+  // the request is in flight, and the assertions below moved with it: the
+  // reservation is checked WHILE PENDING, and afterwards the region is
+  // required to be no taller than it was, never taller.
   it.each(["success", "empty", "error"] as const)("preserves partner space on %s", async (outcome) => {
     const supported = deferred<Page>();
     mocks.list.mockImplementation(({ supported: isPartner }: { supported: boolean }) => isPartner ? supported.promise : Promise.resolve(pageOf([endpoint])));
     const view = render(<BazaarPage />);
     await screen.findByText(endpoint.description);
     const frame = screen.getByRole("region", { name: "Partner services" });
-    const height = getComputedStyle(frame).height;
-    expect(Number.parseFloat(height)).toBeGreaterThan(0);
+
+    // Pending: the space is held, so the catalogue below has somewhere to sit.
+    const reserved = Number.parseFloat(getComputedStyle(frame).height);
+    expect(reserved).toBeGreaterThan(0);
     expect(getComputedStyle(frame).overflowY).toBe("auto");
+    expect(frame.getAttribute("tabindex")).toBe("0");
+
     const row = view.container.querySelector(".bz-row");
     await act(async () => {
       if (outcome === "error") supported.reject(new Error("Partner service unavailable"));
       else supported.resolve(pageOf(outcome === "success" ? [partner] : []));
     });
+
+    // Settled: same node, catalogue intact and never pushed further down.
     expect(screen.getByRole("region", { name: "Partner services" })).toBe(frame);
-    expect(getComputedStyle(frame).height).toBe(height);
     expect(view.container.querySelector(".bz-row")).toBe(row);
+    const settled = Number.parseFloat(getComputedStyle(frame).height) || 0;
+    expect(settled).toBeLessThanOrEqual(reserved);
+
+    // And the reservation is released rather than left holding an empty box.
+    expect(getComputedStyle(frame).height).not.toBe(`${reserved}px`);
+    expect(frame.getAttribute("tabindex")).toBeNull();
+
     if (outcome === "empty") expect(screen.getByText("No partners available.")).toBeTruthy();
     if (outcome === "error") expect(screen.getByText("Could not load partners.")).toBeTruthy();
     expect(screen.queryByText(endpoint.description)).toBeTruthy();

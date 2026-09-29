@@ -24,7 +24,6 @@ import {
   TOOL_TEMPLATES,
   ACTION_TEMPLATES,
   GOOGLE_TEMPLATES,
-  STATE_TEMPLATES,
   TENDRIL_TEMPLATES,
   END_TEMPLATES,
 } from "./data";
@@ -423,25 +422,6 @@ export function buildNodeCatalog(): NodeCatalog {
           GOOGLE_ACCOUNT,
           ...(GOOGLE_FIELDS[t.id] ?? []),
           ...("usesMessage" in t && t.usesMessage ? [MESSAGE_TEMPLATE] : []),
-        ],
-      })),
-    },
-    {
-      type: "state",
-      desc: "Values that persist between runs of this workflow (a cursor, a counter, the last price seen). Read anywhere as {{state.key}}.",
-      templates: STATE_TEMPLATES.map((t) => ({
-        id: t.id,
-        name: t.name,
-        desc: t.desc,
-        kind: kindOf("state", t.id),
-        presets: { stateOp: t.id },
-        fields: [
-          { key: "stateKey", where: "field" as const, label: "Key", hint: "persists across runs", placeholder: "lastRowId" },
-          ...(t.id === "set"
-            ? [{ key: "stateValue", where: "field" as const, label: "Value", hint: "blank stores the previous step's output" }]
-            : t.id === "increment"
-              ? [{ key: "stateValue", where: "field" as const, label: "Amount", hint: "defaults to 1" }]
-              : []),
         ],
       })),
     },

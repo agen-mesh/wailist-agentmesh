@@ -16,7 +16,6 @@ import {
   PROVIDER_TEMPLATES,
   TOOL_TEMPLATES,
   ACTION_TEMPLATES,
-  STATE_TEMPLATES,
   ACTION_CATEGORIES,
   END_TEMPLATES,
   TENDRIL_TEMPLATES,
@@ -128,24 +127,6 @@ const PALETTE_TABS = [
     }),
   },
   {
-    id: "state",
-    label: "State",
-    items: () => STATE_TEMPLATES,
-    type: "state",
-    dotColor: "info" as const,
-    map: (it: (typeof STATE_TEMPLATES)[0]): Partial<WorkflowNode> => ({
-      type: "state",
-      template: it.id,
-      name: it.name,
-      icon: it.icon,
-      sub: it.desc,
-      // The dropped node already knows its operation -- the palette entry
-      // IS the choice of operation, so the inspector opens on a node that
-      // only needs a key, not a mode decision first.
-      stateOp: it.id as NonNullable<WorkflowNode["stateOp"]>,
-    }),
-  },
-  {
     id: "google",
     label: "Google",
     items: () => GOOGLE_TEMPLATES,
@@ -214,7 +195,7 @@ function highlightMatch(text: string, q: string): React.ReactNode {
         style={{
           background: "var(--accent-soft)",
           color: "var(--accent)",
-          borderRadius: 2,
+          borderRadius: "var(--r-1)",
         }}
       >
         {text.slice(idx, idx + q.length)}
@@ -484,6 +465,7 @@ export function PalettePanel({
   return (
     <div
       ref={rootRef}
+      data-panel="palette"
       style={{
         width,
         flexShrink: 0,
@@ -501,14 +483,14 @@ export function PalettePanel({
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            gap: 8,
+            gap: "var(--s-3)",
             marginBottom: 10,
           }}
         >
           <span
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 10,
+              fontSize: "var(--t-0)",
               textTransform: "uppercase",
               letterSpacing: "0.08em",
               color: "var(--fg-dim)",
@@ -534,7 +516,7 @@ export function PalettePanel({
                 borderRadius: "var(--r-1)",
                 color: "var(--fg-muted)",
                 cursor: "pointer",
-                fontSize: 12,
+                fontSize: "var(--t-2)",
                 lineHeight: 1,
               }}
             >
@@ -546,7 +528,7 @@ export function PalettePanel({
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 4,
+            gap: "var(--s-1)",
             background: "var(--bg)",
             padding: 3,
             borderRadius: "var(--r-2)",
@@ -563,8 +545,8 @@ export function PalettePanel({
                 cursor: "pointer",
                 background: tab === t.id ? "var(--bg-elev-3)" : "transparent",
                 color: tab === t.id ? "var(--fg)" : "var(--fg-muted)",
-                borderRadius: 5,
-                fontSize: 11,
+                borderRadius: "var(--r-2)",
+                fontSize: "var(--t-1)",
                 fontWeight: 500,
                 fontFamily: "var(--font-sans)",
               }}
@@ -598,7 +580,7 @@ export function PalettePanel({
               borderRadius: "var(--r-2)",
               color: "var(--fg)",
               fontFamily: "var(--font-sans)",
-              fontSize: 12,
+              fontSize: "var(--t-2)",
               outline: "none",
             }}
             placeholder={`search ${tabDef.label.toLowerCase()}…`}
@@ -610,7 +592,7 @@ export function PalettePanel({
           <div
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 10,
+              fontSize: "var(--t-0)",
               color: "var(--fg-dim)",
               marginTop: 6,
               paddingLeft: 2,
@@ -630,7 +612,7 @@ export function PalettePanel({
           display: "grid",
           gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
           alignContent: "start",
-          gap: 6,
+          gap: "var(--s-2)",
           overflowY: "auto",
           flex: 1,
         }}
@@ -685,7 +667,7 @@ export function PalettePanel({
                     <div
                       style={{
                         fontFamily: "var(--font-mono)",
-                        fontSize: 10,
+                        fontSize: "var(--t-0)",
                         textTransform: "uppercase",
                         letterSpacing: "0.08em",
                         color: "var(--fg-dim)",
@@ -698,7 +680,7 @@ export function PalettePanel({
                       style={{
                         display: "grid",
                         gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-                        gap: 6,
+                        gap: "var(--s-2)",
                       }}
                     >
                       {group.map((e, i) => (
@@ -743,7 +725,7 @@ export function PalettePanel({
               gridColumn: "1 / -1",
               padding: "24px 8px",
               fontFamily: "var(--font-mono)",
-              fontSize: 11,
+              fontSize: "var(--t-1)",
               color: "var(--fg-dim)",
               textAlign: "center",
             }}
@@ -759,7 +741,7 @@ export function PalettePanel({
           padding: 14,
           borderTop: "1px solid var(--border)",
           fontFamily: "var(--font-mono)",
-          fontSize: 10,
+          fontSize: "var(--t-0)",
           color: "var(--fg-dim)",
           lineHeight: 1.5,
         }}
@@ -784,7 +766,7 @@ function CreateRow({
   label?: string;
   isX402: boolean;
 }) {
-  const accent = isX402 ? "#E879F9" : "var(--accent)";
+  const accent = isX402 ? "var(--type-x402)" : "var(--accent)";
   const bg = isX402 ? "rgba(232, 121, 249, 0.06)" : "var(--accent-soft)";
   const bgHover = isX402 ? "rgba(232, 121, 249, 0.12)" : "var(--accent-soft)";
 
@@ -806,7 +788,7 @@ function CreateRow({
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 10,
+        gap: "var(--s-3)",
         padding: "9px 10px",
         background: bg,
         border: `1px dashed ${accent}`,
@@ -824,14 +806,14 @@ function CreateRow({
         style={{
           width: 22,
           height: 22,
-          borderRadius: 6,
+          borderRadius: "var(--r-2)",
           background: "var(--bg)",
           color: accent,
           border: `1px solid ${accent}`,
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: 14,
+          fontSize: "var(--t-4)",
           flexShrink: 0,
           fontWeight: 600,
         }}
@@ -839,13 +821,13 @@ function CreateRow({
         +
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: accent }}>
+        <div style={{ fontSize: "var(--t-2)", fontWeight: 600, color: accent }}>
           {(meta.name ?? meta.label) as string}
         </div>
         <div
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 10,
+            fontSize: "var(--t-0)",
             color: "var(--fg-muted)",
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -895,7 +877,7 @@ function DraggableRow({
           : "var(--bg-elev-3)";
   const dotFg =
     dotColor === "magenta"
-      ? "#E879F9"
+      ? "var(--type-x402)"
       : dotColor === "accent"
         ? "var(--accent)"
         : dotColor === "info"
@@ -920,7 +902,7 @@ function DraggableRow({
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 10,
+        gap: "var(--s-3)",
         padding: "8px 10px",
         background: "var(--bg-elev-2)",
         border: "1px solid var(--border)",
@@ -939,13 +921,13 @@ function DraggableRow({
         style={{
           width: 22,
           height: 22,
-          borderRadius: 6,
+          borderRadius: "var(--r-2)",
           background: dotBg,
           color: dotFg,
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: 12,
+          fontSize: "var(--t-2)",
           flexShrink: 0,
           fontWeight: 600,
         }}
@@ -953,13 +935,19 @@ function DraggableRow({
         <BrandLogo template={template} fallback={icon} size={14} />
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 500, color: "var(--fg)" }}>
+        <div
+          style={{
+            fontSize: "var(--t-2)",
+            fontWeight: 500,
+            color: "var(--fg)",
+          }}
+        >
           {titleNode ?? title}
         </div>
         <div
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 10,
+            fontSize: "var(--t-0)",
             color: "var(--fg-muted)",
             whiteSpace: "nowrap",
             overflow: "hidden",

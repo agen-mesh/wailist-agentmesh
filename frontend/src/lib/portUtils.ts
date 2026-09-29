@@ -103,18 +103,20 @@ export function isValidConnection(
   to: WorkflowNode,
   toPort: PortName,
 ): boolean {
-  // attach: provider/tool/tool402 → agent bottom ports. Gated on toPort
-  // first, not just from/to type -- tool and tool402 are ALSO valid flow
-  // sources into an agent's "in" port (see the flow branch below), so
-  // matching on from/to type alone would swallow that case here and return
-  // false before the flow branch ever runs, even though it's listed as
-  // valid there.
-  if (toPort === "model" || toPort === "tools") {
+  // The agent's two bottom ports take DIFFERENT things, and must match
+  // graph.go's attach switch: only a Provider on "model", only Tool/Tool402
+  // on "tools". They used to share one branch accepting any of the three into
+  // either, so an x402 endpoint could be wired into the model socket -- it
+  // saved, then the engine silently dropped the edge at run time.
+  //
+  // Gated on toPort before type: tool/tool402 are ALSO valid flow sources
+  // into an agent's "in" port, which the branch below handles.
+  if (toPort === "model") {
+    return from.type === "provider" && to.type === "agent";
+  }
+  if (toPort === "tools") {
     return (
-      (from.type === "provider" ||
-        from.type === "tool" ||
-        from.type === "tool402") &&
-      to.type === "agent"
+      (from.type === "tool" || from.type === "tool402") && to.type === "agent"
     );
   }
   // flow: trigger/agent/action/state/tool/tool402/tendril → agent/action/

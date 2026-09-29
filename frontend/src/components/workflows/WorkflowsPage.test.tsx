@@ -57,9 +57,6 @@ describe("WorkflowsPage", () => {
     expect(screen.getByRole("button", { name: /add credits/i })).toBeTruthy();
     expect(screen.queryByText(/Rows|Grid/)).toBeNull();
     expect(screen.queryByText(/your workspace/i)).toBeNull();
-    expect(
-      screen.queryByText("Design, deploy, and monitor agent pipelines."),
-    ).toBeNull();
     expect(screen.queryByRole("button", { name: /^Open$|^Zone/ })).toBeNull();
   });
 
@@ -67,9 +64,18 @@ describe("WorkflowsPage", () => {
     render(<WorkflowsPage />);
     expect(await screen.findByText("Customer Support Triage")).toBeTruthy();
     expect(screen.getByText(/Rows/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open" })).toBeTruthy();
-    expect(
-      screen.getByText("Design, deploy, and monitor agent pipelines."),
-    ).toBeTruthy();
+    // No "Open" button: the row itself is the control. The phone assertion
+    // above still checks that the desktop row actions stay off a handheld,
+    // via the Zone button that lives beside where Open used to be.
+    expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+    // ...but the row is a div with an onClick, so the name has to be a real
+    // link or the Rows view has no keyboard route into a workflow at all.
+    // Raised in code review when the button was removed.
+    const link = screen.getByRole("link", { name: "Customer Support Triage" });
+    expect(link.getAttribute("href")).toContain("/workflows/");
+    // The eyebrow, which is desktop-only chrome. It replaces an assertion on
+    // the "Design, deploy, and monitor agent pipelines." subtitle that used
+    // to sit under the h1 -- that line restated its own heading and is gone.
+    expect(screen.getByText(/your workspace/i)).toBeTruthy();
   });
 });

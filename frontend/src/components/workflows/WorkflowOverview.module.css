@@ -1,72 +1,108 @@
 .overview {
   display: grid;
   grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: var(--s-5);
+  margin-bottom: var(--s-6);
 }
+/* Each card is its own container, so its contents respond to the CARD's
+   width. The grid caps this column at 320px, so the card is 320px wide at any
+   window size — the `@media (max-width: 380px)` rule that stacked the heading
+   could only fire on a phone, and so never reached the layout it existed
+   for. */
 .credit,
 .upcoming {
+  container-type: inline-size;
   min-width: 0;
-  padding: 16px;
+  padding: var(--s-5);
   border: 1px solid var(--border);
   border-radius: var(--r-3);
   background: var(--bg-elev-1);
 }
+
+/* A column, so the figure sits hard under the heading rather than being
+   spread down a card the grid has stretched. */
+.credit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2);
+}
 .creditHeading {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--s-4);
 }
 .creditLabel {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--s-2);
   color: var(--fg-dim);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--t-0);
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  white-space: nowrap;
 }
+
+/* A labelled control, not a glyph: "+" alone is a guess about what is added. */
 .creditAdd {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: var(--s-2);
   flex-shrink: 0;
-  width: 32px;
-  min-height: 32px;
+  height: 28px;
+  padding: 0 var(--s-4);
   border: 1px solid var(--border);
-  border-radius: var(--r-2);
+  border-radius: var(--r-full);
   background: var(--bg-elev-2);
   color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--t-2);
+  font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
   touch-action: manipulation;
+  transition:
+    background 0.12s var(--ease),
+    border-color 0.12s var(--ease);
 }
 .creditAdd:focus-visible,
 .upcomingRow:focus-visible {
   outline: 2px solid var(--accent-line);
   outline-offset: 3px;
 }
+
+/* --t-7 against the --t-0 label above it: this is the number the card exists
+   to show. tabular-nums so a balance ticking down mid-run does not jitter. */
 .creditBalance {
-  margin: 0 0 4px;
+  margin: 0;
   font-family: var(--font-mono);
-  font-size: var(--wf-balance-size);
+  font-size: var(--t-7);
   font-weight: 500;
-  letter-spacing: -0.02em;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: var(--fg);
   font-variant-numeric: tabular-nums;
 }
-.creditHint {
-  margin: 0;
-  color: var(--fg-muted);
-  font-size: 11px;
+/* Before the balance arrives. The em dash this replaces was a real glyph in a
+   32px mono face and reserved the wrong width. */
+.creditPlaceholder {
+  display: inline-block;
+  width: 5ch;
+  height: 0.8em;
+  border-radius: var(--r-1);
+  background: var(--bg-elev-3);
 }
+
 .upcoming :global(.upc__title) {
-  margin-bottom: 8px;
+  margin-bottom: var(--s-3);
 }
 .upcomingRow {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--s-5);
   min-height: 36px;
   color: var(--fg);
   text-decoration: none;
@@ -82,48 +118,50 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--t-3);
 }
 .upcomingTime {
   flex-shrink: 0;
   color: var(--fg-muted);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--t-1);
   font-variant-numeric: tabular-nums;
 }
 @media (hover: hover) {
-  .creditAdd:hover,
+  .creditAdd:hover {
+    background: var(--bg-elev-3);
+    border-color: var(--border-strong);
+  }
   .upcomingRow:hover {
     background: var(--bg-elev-2);
   }
 }
 :global(.wfp-page) .overview {
-  margin: 16px 0 4px;
+  margin: var(--s-5) 0 var(--s-1);
 }
 @media (pointer: coarse) and (hover: none) {
   .creditAdd {
-    width: 44px;
+    height: 44px;
   }
   .upcomingRow {
     min-height: 44px;
   }
 }
+
+/* One column. The button is no longer absolutely positioned beside the
+   figure — it carries a word now, and would collide with a long balance. */
 @media (max-width: 600px) {
   .overview {
     grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
+    gap: var(--s-3);
   }
-  .credit {
-    position: relative;
-    padding-right: 72px;
-  }
-  .creditAdd {
-    position: absolute;
-    right: 16px;
-    top: 50%;
-    transform: translateY(-50%);
-  }
-  .creditBalance {
-    margin-top: 8px;
+}
+/* Narrower than the label and button side by side (~250px): they stack rather
+   than the button's text wrapping mid-word. */
+@container (max-width: 250px) {
+  .creditHeading {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s-3);
   }
 }

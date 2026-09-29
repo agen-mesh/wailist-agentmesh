@@ -1143,11 +1143,14 @@ body {
    See NAVBAR_HAMBURGER_RESEARCH_PLAN.md §1.3 for what the ideal version does. */
 :root {
   --ease-nav: cubic-bezier(0.4, 0, 0.6, 1);
-  --nav-rate-fade: 0.24s;
   --nav-rate-slow: 0.32s;
-  --nav-stagger: 80ms;
   --nav-h: 56px;
 }
+/* --nav-rate-fade and --nav-stagger are gone with the CSS transition they
+   timed. The sheet's entrance and exit are springs owned by motion in
+   AppNav.tsx now, and its stagger is a real per-child sequence rather than
+   one delay applied to the whole panel -- so there is nothing left here for
+   either value to time. */
 
 /* The bar is --nav-h tall, and then sits below the status bar rather than under
    it. From Android 15 the WebView draws edge to edge (see layout.tsx), so the
@@ -1179,13 +1182,13 @@ body {
   /* 12px, not 20: the only gap that is ever visible is inline-links → actions,
      and that spacing carries over from the pre-AppNav bar. The gaps either side
      of the flex:1 spacer are absorbed by the spacer. */
-  gap: 12px;
+  gap: var(--s-4);
   padding: 0 24px;
 }
 .appnav__inline {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--s-0);
 }
 .appnav__spacer {
   flex: 1;
@@ -1193,7 +1196,7 @@ body {
 .appnav__actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--s-4);
 }
 .appnav__trigger {
   display: none;
@@ -1334,6 +1337,14 @@ body[data-typing] .bottomnav {
   }
 }
 
+/* The sheet is MOUNTED only while open (AnimatePresence in AppNav.tsx), so
+   there is no opacity/visibility/transform state here any more and no
+   transition for a resize to interrupt -- motion owns the whole entrance and
+   exit. What is left is the surface itself.
+
+   Mounting on demand is also what makes the overlap question trivial: when
+   the menu is shut there is no full-viewport fixed element in the tree at
+   all, so nothing can sit under it at any width. */
 .appnav__sheet {
   position: fixed;
   /* Below the whole bar, inset included, or the sheet starts underneath it. */
@@ -1346,55 +1357,96 @@ body[data-typing] .bottomnav {
   overscroll-behavior: contain;
   background: var(--bg-elev-1);
   /* Clear of the gesture bar, and of a side navigation bar in landscape. */
-  padding: 8px calc(16px + var(--safe-right)) calc(40px + var(--safe-bottom))
-    calc(16px + var(--safe-left));
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(-6px);
-  transition:
-    opacity var(--nav-rate-fade) var(--ease-nav),
-    transform var(--nav-rate-fade) var(--ease-nav),
-    visibility var(--nav-rate-fade) step-end;
+  padding: var(--s-3) calc(16px + var(--safe-right))
+    calc(40px + var(--safe-bottom)) calc(16px + var(--safe-left));
 }
-.appnav--open .appnav__sheet {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
-  transition:
-    opacity var(--nav-rate-fade) var(--ease-nav) var(--nav-stagger),
-    transform var(--nav-rate-fade) var(--ease-nav) var(--nav-stagger),
-    visibility var(--nav-rate-fade) step-start var(--nav-stagger);
+.appnav__section + .appnav__section {
+  margin-top: var(--s-4);
+}
+.appnav__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 .appnav__group {
-  margin-top: 18px;
-  padding: 0 8px 6px;
+  margin-top: var(--s-5);
+  padding: 0 var(--s-5) var(--s-2);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--t-0);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--fg-dim);
 }
+/* A row, not a line of text. It fills the width, clears the 44px touch floor
+   on its own, and says which way it goes with a chevron -- the old version was
+   left-aligned prose whose only state was a colour change, which gave a reader
+   nothing to aim at and no feedback that they had hit it. */
 .appnav__link {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
   width: 100%;
+  min-height: 52px;
+  padding: var(--s-4) var(--s-4) var(--s-4) var(--s-5);
   text-align: left;
-  padding: 13px 8px;
   background: transparent;
   border: none;
-  border-radius: var(--r-2);
+  border-radius: var(--r-3);
   color: var(--fg-muted);
   font-family: var(--font-sans);
-  font-size: 17px;
+  font-size: var(--t-5);
   font-weight: 400;
   cursor: pointer;
-  transition: color var(--nav-rate-fade) var(--ease-nav);
+  position: relative;
+  transition:
+    color 0.15s var(--ease-nav),
+    background 0.15s var(--ease-nav);
 }
-.appnav__link[aria-current="page"] {
+/* The accent marker for the page you are on. An absolutely positioned bar
+   rather than a border-left, so the row's text does not shift by 3px as the
+   marker appears and disappears between routes. */
+.appnav__link::before {
+  content: "";
+  position: absolute;
+  left: var(--s-2);
+  top: 50%;
+  width: 3px;
+  height: 0;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  transform: translateY(-50%);
+  transition: height 0.2s var(--ease-nav);
+}
+.appnav__link[data-active] {
   color: var(--fg);
   font-weight: 500;
+  background: var(--accent-soft);
+}
+.appnav__link[data-active]::before {
+  height: 20px;
+}
+.appnav__chevron {
+  flex-shrink: 0;
+  color: var(--fg-dim);
+  transition: transform 0.15s var(--ease-nav);
+}
+@media (hover: hover) {
+  .appnav__link:hover {
+    background: var(--bg-elev-2);
+    color: var(--fg);
+  }
+  .appnav__link:hover .appnav__chevron {
+    transform: translateX(2px);
+  }
 }
 .appnav__link:active {
-  background: var(--bg-elev-2);
+  background: var(--bg-elev-3);
+  transform: scale(0.99);
+}
+.appnav__link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 /* Sits below the links, outside the <nav>, separated by a rule rather than a
    heading — it is an action, not another destination. */
@@ -1451,7 +1503,7 @@ body[data-typing] .bottomnav {
   padding: 0 32px;
 }
 .appnav--landing .appnav__actions {
-  gap: 8px;
+  gap: var(--s-3);
 }
 .appnav--landing .appnav__sheet {
   background: rgba(12, 10, 24, 0.96);
@@ -1495,7 +1547,7 @@ body[data-typing] .bottomnav {
      28px. Tighter spacing, a narrower button and no arrow give that back. */
   .appnav--landing .appnav__bar {
     padding: 0 16px;
-    gap: 8px;
+    gap: var(--s-3);
   }
   .lp-open-studio {
     padding: 8px 14px;
@@ -1507,14 +1559,18 @@ body[data-typing] .bottomnav {
 
 /* Applied while the viewport is being resized so crossing the breakpoint never
    plays the open animation. */
-.appnav-block-transitions .appnav__sheet {
-  transition: none !important;
-}
+/* `.appnav-block-transitions` is gone with the sheet's CSS transition. It
+   existed so a resize could not replay an entrance mid-drag; the sheet now
+   mounts on open, so there is no entrance for a resize to catch. */
 @media (prefers-reduced-motion: reduce) {
-  .appnav__sheet,
   .appnav__trigger,
-  .appnav__link {
+  .appnav__link,
+  .appnav__link::before,
+  .appnav__chevron {
     transition: none !important;
+  }
+  .appnav__link:active {
+    transform: none;
   }
 }
 
