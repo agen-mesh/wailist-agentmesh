@@ -504,6 +504,8 @@ func TestResolveLeaseAllowsOwnLease(t *testing.T) {
 }
 
 type fakeTendrilStore struct {
+	activeLeases    []models.TendrilLease
+	activeLeaseErr  error
 	hasLatestLease  bool
 	latestLease     models.TendrilLease
 	tendrilCredit   int64
@@ -552,6 +554,15 @@ func (f *fakeTendrilStore) LatestActiveLeaseForUser(_ context.Context, _ string)
 		return f.latestLease, nil
 	}
 	return models.TendrilLease{}, nil
+}
+func (f *fakeTendrilStore) ListActiveTendrilLeases(_ context.Context, _ string) ([]models.TendrilLease, error) {
+	if f.activeLeaseErr != nil || f.activeLeases != nil {
+		return f.activeLeases, f.activeLeaseErr
+	}
+	if f.hasLatestLease {
+		return []models.TendrilLease{f.latestLease}, nil
+	}
+	return nil, nil
 }
 func (f *fakeTendrilStore) TendrilCreditBalance(_ context.Context, _ string) (int64, error) {
 	return f.tendrilCredit, nil
@@ -621,6 +632,7 @@ func TestAutoReusesActiveLeaseWithoutRenting(t *testing.T) {
 				latestLease: models.TendrilLease{
 					ID: "row1", UserID: "user1", LeaseID: "lease1", Status: "active", TendrilNodeID: "m1",
 					LeaseTokenEnc: enc, FundedUntil: time.Now().Add(time.Hour),
+					StartedAt: time.Now().Add(-15 * time.Minute), HoursPurchased: 1,
 				},
 			}
 			node := models.WorkflowNode{
