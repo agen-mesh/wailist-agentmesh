@@ -1,4 +1,4 @@
-import { cronToCadence, type CadenceValue } from "./cronCadence";
+import type { CadenceValue } from "./cronCadence";
 
 // Everything a person reads about a workflow schedule is written here, in
 // plain English and in their own timezone. The cron expression the backend
@@ -49,19 +49,6 @@ export function describeCadence(value: CadenceValue): string {
     return `On the ${ordinal(value.dayOfMonth ?? 1)} of every month at ${at}`;
   }
   return `Every day at ${at}`;
-}
-
-/**
- * A stored schedule in plain English, or null when it is not one of the
- * daily/weekly/monthly shapes this app writes (only possible if something
- * other than the app set it) -- callers say "a custom schedule" instead.
- */
-export function describeCron(
-  cron: string,
-  now: Date = new Date(),
-): string | null {
-  const value = cronToCadence(cron, now);
-  return value ? describeCadence(value) : null;
 }
 
 /**

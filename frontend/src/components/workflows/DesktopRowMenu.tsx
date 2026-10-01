@@ -28,7 +28,7 @@ import {
 import { DesktopSchedulePanel } from "./DesktopSchedulePanel";
 
 // The ⋯ menu on a workflow row, on desktop. Compact viewports and the native
-// shell keep RowMenu (WorkflowsPage.tsx) exactly as it was.
+// shell use RowMenu (WorkflowsPage.tsx), subject to the device policy.
 //
 // Three shadcn/ui layers share the one ⋯ button: the menu itself, the
 // schedule editor (a popover anchored to the button, so it stays beside the

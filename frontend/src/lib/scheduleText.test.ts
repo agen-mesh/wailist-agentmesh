@@ -7,7 +7,6 @@ process.env.TZ = "America/New_York";
 
 import {
   describeCadence,
-  describeCron,
   describeNextRun,
   describeRun,
   formatLocalTime,
@@ -58,22 +57,6 @@ describe("describeCadence", () => {
     expect(
       describeCadence({ cadence: "monthly", time: "00:05", dayOfMonth: 22 }),
     ).toBe("On the 22nd of every month at 12:05 AM");
-  });
-});
-
-describe("describeCron", () => {
-  it("reads a stored UTC cron back in local time", () => {
-    // 14:00 UTC is 09:00 EST.
-    expect(describeCron("0 14 * * *", NOW)).toBe("Every day at 9:00 AM");
-    expect(describeCron("0 14 * * 1", NOW)).toBe("Every Monday at 9:00 AM");
-    expect(describeCron("0 14 15 * *", NOW)).toBe(
-      "On the 15th of every month at 9:00 AM",
-    );
-  });
-
-  it("returns null for a shape the app never writes", () => {
-    expect(describeCron("*/15 * * * *", NOW)).toBeNull();
-    expect(describeCron("0 9 * 1 *", NOW)).toBeNull();
   });
 });
 

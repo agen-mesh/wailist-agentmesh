@@ -117,6 +117,36 @@ describe("DesktopSchedulePanel", () => {
     expect(text()).not.toContain("*/15");
   });
 
+  it("requires explicit replacement before saving a custom schedule", async () => {
+    get.mockResolvedValue(wf({ scheduleCron: "0 14 * * 1,5" }));
+    const { onSave } = renderPanel();
+    const update = await screen.findByRole("button", { name: "Update" });
+    expect(update).toHaveProperty("disabled", true);
+    fireEvent.click(update);
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Time")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Replace schedule" }));
+    fireEvent.click(update);
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+  });
+
+  it.each(["save", "remove"])("masks a cron rejection on %s", async (action) => {
+    get.mockResolvedValue(wf(action === "remove" ? { scheduleCron: "0 14 * * *" } : {}));
+    const { onSave, onRemove } = renderPanel();
+    onSave.mockRejectedValue(new Error("cron 0 14 * * * rejected"));
+    onRemove.mockRejectedValue(new Error("cron storage failure"));
+    if (action === "save") {
+      fireEvent.click(await screen.findByRole("button", { name: "Save schedule" }));
+    } else {
+      fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+      fireEvent.click(screen.getByRole("button", { name: "Confirm remove" }));
+    }
+    const message = action === "save" ? "The schedule couldn't be saved. Please try again." : "The schedule couldn't be removed. Please try again.";
+    await screen.findByText(message);
+    expect(screen.getAllByText(message)).toHaveLength(1);
+    expect(text()).not.toContain("cron");
+  });
+
   it("flags a monthly time that can't repeat before Save", async () => {
     get.mockResolvedValue(wf());
     renderPanel();

@@ -2127,7 +2127,7 @@ function TriggerInspector({
           <input style={inputStyle} value={tpl?.name ?? ""} readOnly />
         </Field>
       )}
-      {/* A retired trigger type (see TRIGGER_TEMPLATES): old workflows can
+      {/* An unsupported trigger type (see TRIGGER_TEMPLATES): old workflows can
           still carry one. It used to show a cron box wired to nothing; the
           real schedule is set per workflow, and always shown in words. */}
       {node.template === "cron" && (

@@ -16,6 +16,7 @@ import {
   ordinal,
   timeZoneLabel,
 } from "@/lib/scheduleText";
+import { scheduleErrorText } from "@/lib/scheduleError";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -79,10 +80,8 @@ export function DesktopSchedulePanel({
   onRemove: () => Promise<void>;
   onClose: () => void;
 }) {
-  // The list endpoint never includes a workflow's schedule, so it is read
-  // fresh every time the panel opens (the panel mounts per open). Never fall
-  // back to defaults when this fails: Save would then overwrite a real
-  // schedule we simply couldn't read.
+  // Read on every open so a stale list cannot overwrite a newer schedule.
+  // Failed reads must not fall back to editable defaults.
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -100,7 +99,7 @@ export function DesktopSchedulePanel({
         if (live) {
           setLoad({
             status: "error",
-            message: e instanceof Error ? e.message : "Please try again.",
+            message: scheduleErrorText(e, "load"),
           });
         }
       },
@@ -211,6 +210,8 @@ function ScheduleForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [removeArmed, setRemoveArmed] = useState(false);
+  const [replacingCustom, setReplacingCustom] = useState(false);
+  const editing = !custom || replacingCustom;
 
   const value: CadenceValue = { cadence, time, dayOfWeek, dayOfMonth };
   const timeValid = /^\d{2}:\d{2}$/.test(time);
@@ -240,13 +241,13 @@ function ScheduleForm({
         : null;
 
   const save = async () => {
-    if (!cron || unchanged) return;
+    if (!editing || !cron || unchanged) return;
     setSaving(true);
     setError(null);
     try {
       await onSave(cron);
     } catch (e) {
-      setError(saveErrorText(e));
+      setError(scheduleErrorText(e));
       setSaving(false);
     }
   };
@@ -261,9 +262,7 @@ function ScheduleForm({
     try {
       await onRemove();
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Couldn't remove the schedule.",
-      );
+      setError(scheduleErrorText(e, "remove"));
       setSaving(false);
       setRemoveArmed(false);
     }
@@ -321,12 +320,18 @@ function ScheduleForm({
             <Info />
             <AlertTitle>This workflow has a custom schedule</AlertTitle>
             <AlertDescription>
-              It was set outside this editor, so it can&apos;t be shown here.
-              Saving replaces it.
+              This editor can&apos;t represent the saved schedule. It stays
+              unchanged unless you choose to replace or remove it.
+              {!editing && (
+                <Button type="button" variant="outline" size="sm" onClick={() => setReplacingCustom(true)}>
+                  Replace schedule
+                </Button>
+              )}
             </AlertDescription>
           </Alert>
         )}
 
+        {editing && (
         <Tabs
           value={cadence}
           onValueChange={(v) => setCadence(v as Cadence)}
@@ -409,8 +414,9 @@ function ScheduleForm({
             {timeField}
           </TabsContent>
         </Tabs>
+        )}
 
-        {unschedulable ? (
+        {editing && (unschedulable ? (
           <Alert variant="destructive">
             <AlertCircle />
             <AlertTitle>This time can&apos;t repeat monthly</AlertTitle>
@@ -431,7 +437,7 @@ function ScheduleForm({
           </Alert>
         ) : (
           <p className="text-xs text-muted-foreground">Pick a time.</p>
-        )}
+        ))}
 
         {observesDaylightSaving(now) && (
           <p className="text-xs leading-relaxed text-muted-foreground">
@@ -479,7 +485,7 @@ function ScheduleForm({
           <Button
             type="submit"
             size="sm"
-            disabled={saving || !cron || unchanged}
+            disabled={saving || !editing || !cron || unchanged}
             title={unchanged ? "No changes to save" : undefined}
           >
             {saving ? "Saving…" : stored.cron ? "Update" : "Save schedule"}
@@ -495,14 +501,4 @@ function keepTimesTogether(s: string): string {
   return s
     .replace(/ (AM|PM)\b/g, "\u00a0$1")
     .replace(/\([^)]*\)/g, (m) => m.replace(/ /g, "\u00a0"));
-}
-
-// The server only ever sees the cron the app built, so a rejection that names
-// it is our fault, not something the user can act on by reading it.
-function saveErrorText(e: unknown): string {
-  const message = e instanceof Error ? e.message : "";
-  if (!message || /cron/i.test(message)) {
-    return "The schedule couldn't be saved. Please try again.";
-  }
-  return message;
 }
