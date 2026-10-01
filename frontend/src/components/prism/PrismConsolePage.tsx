@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Topbar } from "@/components/Topbar";
 import { Tag, ghostBtnSm } from "@/components/ui";
+import { ExternalLink } from "@/components/ExternalLink";
 import {
   prism as prismApi,
   formatUsd,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/prism";
 import { formatFileSize, readFileAsBase64 } from "@/lib/fileEncoding";
 import { PrismResult } from "./PrismResult";
+import { PrismRepoReview } from "./PrismRepoReview";
 
 // A stable identity for "this endpoint has no values yet". Without it the
 // `?? {}` fallback allocates a fresh object every render and the memo that
@@ -25,9 +27,9 @@ const EMPTY_FIELDS: Record<string, PrismRunField> = {};
 // Prism shares the x402 magenta the canvas tool node, the Inspector and the
 // Tendril console all use, so a paid endpoint reads as the same kind of thing
 // wherever it appears in the app.
-const MAGENTA = "#E879F9";
-const MAGENTA_DIM = "rgba(232, 121, 249, 0.08)";
-const AMBER = "#FFB547";
+const MAGENTA = "var(--type-x402)";
+const MAGENTA_DIM = "var(--type-x402-soft)";
+const AMBER = "var(--warning)";
 
 // ── Shared chrome, matching TendrilConsolePage's idiom ──────────────────────
 function Panel({
@@ -56,7 +58,7 @@ function PanelLabel({ children }: { children: React.ReactNode }) {
     <div
       style={{
         fontFamily: "var(--font-mono)",
-        fontSize: 10,
+        fontSize: "var(--t-0)",
         textTransform: "uppercase",
         letterSpacing: "0.1em",
         color: "var(--fg-dim)",
@@ -75,7 +77,7 @@ const textInput: React.CSSProperties = {
   border: "1px solid var(--border-strong)",
   borderRadius: "var(--r-1)",
   color: "var(--fg)",
-  fontSize: 13,
+  fontSize: "var(--t-3)",
   fontFamily: "var(--font-mono)",
   outline: "none",
   boxSizing: "border-box",
@@ -85,7 +87,7 @@ function nameplateButton(disabled: boolean): React.CSSProperties {
   return {
     height: 36,
     padding: "0 18px",
-    fontSize: 11,
+    fontSize: "var(--t-1)",
     fontWeight: 700,
     letterSpacing: "0.08em",
     textTransform: "uppercase",
@@ -93,7 +95,7 @@ function nameplateButton(disabled: boolean): React.CSSProperties {
     background: disabled ? "var(--bg-elev-2)" : MAGENTA,
     border: `1px solid ${disabled ? "var(--border-strong)" : MAGENTA}`,
     borderRadius: "var(--r-1)",
-    color: disabled ? "var(--fg-dim)" : "#1a0a1a",
+    color: disabled ? "var(--fg-dim)" : "var(--type-x402-fg)",
     cursor: disabled ? "default" : "pointer",
     whiteSpace: "nowrap",
   };
@@ -103,7 +105,7 @@ const txLinkStyle: React.CSSProperties = {
   color: MAGENTA,
   textDecoration: "underline",
   fontFamily: "var(--font-mono)",
-  fontSize: 11,
+  fontSize: "var(--t-1)",
   wordBreak: "break-all",
 };
 
@@ -125,7 +127,7 @@ function Segmented<T extends string>({
       aria-label={ariaLabel}
       style={{
         display: "flex",
-        gap: 6,
+        gap: "var(--s-2)",
         flexWrap: "wrap",
       }}
     >
@@ -148,14 +150,15 @@ function Segmented<T extends string>({
               color: "var(--fg)",
               cursor: "pointer",
               fontFamily: "var(--font-sans)",
-              transition: "border-color 0.15s var(--ease), background 0.15s var(--ease)",
+              transition:
+                "border-color 0.15s var(--ease), background 0.15s var(--ease)",
             }}
           >
-            <div style={{ fontSize: 13, fontWeight: 600 }}>{o.label}</div>
+            <div style={{ fontSize: "var(--t-3)", fontWeight: 600 }}>{o.label}</div>
             {o.note && (
               <div
                 style={{
-                  fontSize: 11,
+                  fontSize: "var(--t-1)",
                   color: active ? "var(--fg-muted)" : "var(--fg-dim)",
                   marginTop: 2,
                   fontFamily: "var(--font-mono)",
@@ -206,32 +209,36 @@ function FieldControl({
       // swapped out, and they would pay for that mistake.
       setFileSize(null);
       onChange(undefined);
-      setFileError(e instanceof Error ? e.message : `Could not read ${file.name}.`);
+      setFileError(
+        e instanceof Error ? e.message : `Could not read ${file.name}.`,
+      );
     }
   };
 
   const label = (
-    <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-      <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--fg)" }}>
+    <div style={{ display: "flex", alignItems: "baseline", gap: "var(--s-2)" }}>
+      <span style={{ fontSize: "var(--t-2)", fontWeight: 600, color: "var(--fg)" }}>
         {field.label}
       </span>
       {!field.required && (
-        <span style={{ fontSize: 10.5, color: "var(--fg-dim)" }}>optional</span>
+        <span style={{ fontSize: "var(--t-0)", color: "var(--fg-dim)" }}>optional</span>
       )}
     </div>
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
       {label}
       {field.description && (
-        <div style={{ fontSize: 11.5, color: "var(--fg-muted)", lineHeight: 1.5 }}>
+        <div
+          style={{ fontSize: "var(--t-1)", color: "var(--fg-muted)", lineHeight: 1.5 }}
+        >
           {field.description}
         </div>
       )}
 
       {field.kind === "file" ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
           <input
             ref={inputRef}
             type="file"
@@ -250,7 +257,7 @@ function FieldControl({
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 8,
+                gap: "var(--s-3)",
                 padding: "9px 11px",
                 border: `1px solid ${MAGENTA}`,
                 background: MAGENTA_DIM,
@@ -265,7 +272,7 @@ function FieldControl({
                   flex: 1,
                   minWidth: 0,
                   fontFamily: "var(--font-mono)",
-                  fontSize: 12,
+                  fontSize: "var(--t-2)",
                   color: "var(--fg)",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
@@ -278,7 +285,7 @@ function FieldControl({
                 <span
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: 11,
+                    fontSize: "var(--t-1)",
                     color: "var(--fg-dim)",
                   }}
                 >
@@ -299,7 +306,7 @@ function FieldControl({
                   border: "none",
                   color: "var(--fg-dim)",
                   cursor: disabled ? "default" : "pointer",
-                  fontSize: 13,
+                  fontSize: "var(--t-3)",
                   padding: 0,
                 }}
               >
@@ -317,7 +324,7 @@ function FieldControl({
                 borderRadius: "var(--r-1)",
                 background: "var(--bg)",
                 color: "var(--fg-muted)",
-                fontSize: 12.5,
+                fontSize: "var(--t-2)",
                 fontFamily: "var(--font-sans)",
                 cursor: disabled ? "default" : "pointer",
               }}
@@ -329,7 +336,9 @@ function FieldControl({
             </button>
           )}
           {fileError && (
-            <div style={{ fontSize: 11.5, color: "var(--danger)" }}>{fileError}</div>
+            <div style={{ fontSize: "var(--t-1)", color: "var(--danger)" }}>
+              {fileError}
+            </div>
           )}
         </div>
       ) : field.kind === "textarea" ? (
@@ -385,6 +394,11 @@ export function PrismConsolePage() {
     Record<string, Record<string, PrismRunField>>
   >({});
 
+  // Code review comes in two shapes: one file, or a whole repository (one
+  // paid call per file). Only the code-review task has a repo mode — there is
+  // no such thing as screening a repository of resumes.
+  const [scope, setScope] = useState<"file" | "repo">("file");
+
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   // Set when the run was refused for want of credit (402). The error panel
@@ -405,7 +419,9 @@ export function PrismConsolePage() {
       .catch((e: unknown) => {
         if (!stale) {
           setLoadError(
-            e instanceof Error ? e.message : "Could not load Prism's endpoints.",
+            e instanceof Error
+              ? e.message
+              : "Could not load Prism's endpoints.",
           );
         }
       });
@@ -486,7 +502,7 @@ export function PrismConsolePage() {
     >
       <Topbar />
       <div style={{ flex: 1, overflow: "auto" }}>
-        <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 24px 96px" }}>
+        <div className="am-console-page">
           {/* ghostBtnSm is inline-flex (so its own icon+label stay aligned),
               and Tag is inline-flex too -- with no block-level element
               between them, the button's marginBottom did nothing and the
@@ -494,38 +510,33 @@ export function PrismConsolePage() {
               like a separator glued to "Workflows". A wrapping block gives
               the margin somewhere real to apply. */}
           <div style={{ marginBottom: 18 }}>
-            <button onClick={() => router.push("/workflows")} style={ghostBtnSm}>
+            <button
+              onClick={() => router.push("/workflows")}
+              style={ghostBtnSm}
+            >
               ← Workflows
             </button>
           </div>
 
           <Tag>prism · ai routing</Tag>
-          <h1
-            style={{
-              margin: "14px 0 6px",
-              fontSize: 34,
-              fontWeight: 500,
-              letterSpacing: "-0.02em",
-              color: "var(--fg)",
-            }}
-          >
-            Run an AI task
-          </h1>
+          <h1 className="am-console-title">Run an AI task</h1>
           <p
             style={{
               margin: "0 0 14px",
               color: "var(--fg-muted)",
-              fontSize: 14,
+              fontSize: "var(--t-4)",
               maxWidth: 540,
             }}
           >
-            Pick a task, fill it in, and pay for that one run. Nothing to set
-            up and no subscription.
+            Pick a task, fill it in, and pay for that one run. Nothing to set up
+            and no subscription.
           </p>
 
           {loadError && (
             <Panel style={{ padding: 16, borderColor: "var(--danger)" }}>
-              <div style={{ fontSize: 13, color: "var(--danger)" }}>{loadError}</div>
+              <div style={{ fontSize: "var(--t-3)", color: "var(--danger)" }}>
+                {loadError}
+              </div>
             </Panel>
           )}
 
@@ -533,7 +544,7 @@ export function PrismConsolePage() {
             <div
               style={{
                 fontFamily: "var(--font-mono)",
-                fontSize: 12,
+                fontSize: "var(--t-2)",
                 color: "var(--fg-dim)",
               }}
             >
@@ -552,6 +563,7 @@ export function PrismConsolePage() {
                     value={taskKey ?? ""}
                     onChange={(k) => {
                       setTaskKey(k);
+                      if (k !== "code-review") setScope("file");
                       setResult(null);
                       setRunError(null);
                     }}
@@ -581,10 +593,19 @@ export function PrismConsolePage() {
                       .map((e) => ({
                         key: e.tier,
                         label: e.tier === "fast" ? "Quick" : "Thorough",
-                        // The TOTAL, not Prism's share. Comparing tiers on the
-                        // vendor price alone understates both by $1.50 and
-                        // makes the cheaper one look 2x better than it is.
-                        note: `${formatUsd(totalCostMicros(e, fee))} a run`,
+                        // In repo mode the run covers N files with ONE fee, so
+                        // a single-run total here would contradict the real
+                        // total the repo panel works out. Quote per file
+                        // instead; the panel below owns the run total.
+                        //
+                        // For a single file it is the TOTAL, not Prism's share:
+                        // comparing tiers on the vendor price alone understates
+                        // both by $1.50 and makes the cheaper one look twice as
+                        // good as it is.
+                        note:
+                          scope === "repo"
+                            ? `${formatUsd(e.amountMicros)} a file`
+                            : `${formatUsd(totalCostMicros(e, fee))} a run`,
                       }))}
                   />
                 </div>
@@ -592,7 +613,7 @@ export function PrismConsolePage() {
                   <p
                     style={{
                       margin: "12px 0 0",
-                      fontSize: 12,
+                      fontSize: "var(--t-2)",
                       color: "var(--fg-muted)",
                       lineHeight: 1.55,
                     }}
@@ -604,10 +625,10 @@ export function PrismConsolePage() {
                   <div
                     style={{
                       display: "flex",
-                      gap: 7,
+                      gap: "var(--s-2)",
                       alignItems: "baseline",
                       marginTop: 10,
-                      fontSize: 11.5,
+                      fontSize: "var(--t-1)",
                       color: "var(--fg-dim)",
                       lineHeight: 1.55,
                     }}
@@ -623,8 +644,44 @@ export function PrismConsolePage() {
                 )}
               </Panel>
 
+              {/* ── What to review ───────────────────────────────────── */}
+              {taskKey === "code-review" && (
+                <Panel style={{ padding: "18px 20px", marginBottom: 16 }}>
+                  <PanelLabel>What to review</PanelLabel>
+                  <div style={{ marginTop: 10 }}>
+                    <Segmented
+                      ariaLabel="What to review"
+                      value={scope}
+                      onChange={(v) => {
+                        setScope(v);
+                        setResult(null);
+                        setRunError(null);
+                      }}
+                      options={[
+                        {
+                          key: "file" as const,
+                          label: "One file",
+                          note: "paste a link to a single file",
+                        },
+                        {
+                          key: "repo" as const,
+                          label: "Whole repo",
+                          note: "every source file, one pass each",
+                        },
+                      ]}
+                    />
+                  </div>
+                </Panel>
+              )}
+
+              {taskKey === "code-review" && scope === "repo" && endpoint && (
+                <Panel style={{ padding: "18px 20px", marginBottom: 16 }}>
+                  <PrismRepoReview endpoint={endpoint} platformFee={fee} />
+                </Panel>
+              )}
+
               {/* ── Form ─────────────────────────────────────────────── */}
-              {endpoint && (
+              {endpoint && scope === "file" && (
                 <Panel style={{ padding: "18px 20px", marginBottom: 16 }}>
                   <PanelLabel>Input</PanelLabel>
                   <div
@@ -632,7 +689,7 @@ export function PrismConsolePage() {
                       marginTop: 14,
                       display: "flex",
                       flexDirection: "column",
-                      gap: 16,
+                      gap: "var(--s-5)",
                     }}
                   >
                     {endpoint.fields.map((f) => (
@@ -641,7 +698,9 @@ export function PrismConsolePage() {
                         field={f}
                         value={fieldValues[f.name]}
                         disabled={running}
-                        onChange={(next) => setField(endpoint.task, f.name, next)}
+                        onChange={(next) =>
+                          setField(endpoint.task, f.name, next)
+                        }
                       />
                     ))}
                   </div>
@@ -656,7 +715,7 @@ export function PrismConsolePage() {
                       borderTop: "1px solid var(--border)",
                       display: "flex",
                       alignItems: "center",
-                      gap: 14,
+                      gap: "var(--s-4)",
                       // Same escape hatch the pre-flatten layout had: on a
                       // narrow viewport the hint text can't shrink below its
                       // own width, so without wrap it would overflow the
@@ -667,7 +726,7 @@ export function PrismConsolePage() {
                     {missing.length > 0 && (
                       <div
                         style={{
-                          fontSize: 11.5,
+                          fontSize: "var(--t-1)",
                           color: "var(--fg-dim)",
                         }}
                       >
@@ -677,7 +736,12 @@ export function PrismConsolePage() {
                     )}
                     <div
                       aria-hidden
-                      style={{ flex: 1, minWidth: 24, height: 1, background: "var(--border)" }}
+                      style={{
+                        flex: 1,
+                        minWidth: 24,
+                        height: 1,
+                        background: "var(--border)",
+                      }}
                     />
                     <button
                       type="button"
@@ -691,7 +755,7 @@ export function PrismConsolePage() {
                 </Panel>
               )}
 
-              {runError && (
+              {runError && scope === "file" && (
                 <Panel
                   style={{
                     padding: "14px 16px",
@@ -703,7 +767,7 @@ export function PrismConsolePage() {
                   <div
                     style={{
                       marginTop: 6,
-                      fontSize: 12.5,
+                      fontSize: "var(--t-2)",
                       color: "var(--danger)",
                       lineHeight: 1.55,
                     }}
@@ -716,7 +780,7 @@ export function PrismConsolePage() {
                     <div style={{ marginTop: 10 }}>
                       <div
                         style={{
-                          fontSize: 11.5,
+                          fontSize: "var(--t-1)",
                           color: "var(--fg-muted)",
                           lineHeight: 1.55,
                         }}
@@ -739,7 +803,7 @@ export function PrismConsolePage() {
                     <div
                       style={{
                         marginTop: 8,
-                        fontSize: 11.5,
+                        fontSize: "var(--t-1)",
                         color: "var(--fg-muted)",
                         lineHeight: 1.55,
                       }}
@@ -751,14 +815,14 @@ export function PrismConsolePage() {
                 </Panel>
               )}
 
-              {result && (
+              {result && scope === "file" && (
                 <Panel style={{ padding: "18px 20px" }}>
                   <div
                     style={{
                       display: "flex",
                       alignItems: "baseline",
                       justifyContent: "space-between",
-                      gap: 12,
+                      gap: "var(--s-4)",
                       flexWrap: "wrap",
                     }}
                   >
@@ -766,7 +830,7 @@ export function PrismConsolePage() {
                     <span
                       style={{
                         fontFamily: "var(--font-mono)",
-                        fontSize: 11,
+                        fontSize: "var(--t-1)",
                         color: result.settled ? "var(--fg-muted)" : AMBER,
                       }}
                     >
@@ -788,14 +852,14 @@ export function PrismConsolePage() {
                         border: `1px solid ${AMBER}`,
                         borderRadius: "var(--r-1)",
                         background: "rgba(255, 181, 71, 0.07)",
-                        fontSize: 11.5,
+                        fontSize: "var(--t-1)",
                         color: "var(--fg-muted)",
                         lineHeight: 1.55,
                       }}
                     >
                       Prism answered without asking for payment, so this run was
-                      free. That is unusual, so double-check the result before you
-                      rely on it.
+                      free. That is unusual, so double-check the result before
+                      you rely on it.
                     </div>
                   )}
 
@@ -809,33 +873,29 @@ export function PrismConsolePage() {
                         marginTop: 12,
                         display: "flex",
                         flexDirection: "column",
-                        gap: 4,
+                        gap: "var(--s-1)",
                       }}
                     >
                       {result.txId && (
-                        <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+                        <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)" }}>
                           Paid to Prism{" "}
-                          <a
+                          <ExternalLink
                             href={result.explorerURL}
-                            target="_blank"
-                            rel="noopener noreferrer"
                             style={txLinkStyle}
                           >
                             {result.txId}
-                          </a>
+                          </ExternalLink>
                         </div>
                       )}
                       {result.platformFeeTxId && (
-                        <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+                        <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)" }}>
                           AgentMesh fee{" "}
-                          <a
+                          <ExternalLink
                             href={result.platformFeeExplorerURL}
-                            target="_blank"
-                            rel="noopener noreferrer"
                             style={txLinkStyle}
                           >
                             {result.platformFeeTxId}
-                          </a>
+                          </ExternalLink>
                         </div>
                       )}
                     </div>

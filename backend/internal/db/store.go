@@ -48,7 +48,7 @@ func (s *Store) Close() {
 // sites, and one was missed. A future column now only needs to be added
 // here and in scanWorkflowRow's Scan call, once, for every caller to pick
 // it up automatically.
-const workflowColumns = `id, user_id, name, status, graph, deployed_at, run_endpoint, created_at, updated_at, schedule_cron, schedule_next_run_at, geofence_lat, geofence_lng, geofence_radius_m, geofence_inside, geofence_last_fix_at, is_system`
+const workflowColumns = `id, user_id, name, status, graph, deployed_at, run_endpoint, created_at, updated_at, schedule_cron, schedule_next_run_at, geofence_lat, geofence_lng, geofence_radius_m, geofence_inside, geofence_last_fix_at, is_system, description`
 
 // rowScanner is satisfied by both pgx.Row (QueryRow) and *pgx.Rows
 // (Query's per-row iteration) -- scanWorkflowRow works with either, so a
@@ -63,18 +63,22 @@ type rowScanner interface {
 func scanWorkflowRow(row rowScanner) (models.Workflow, error) {
 	var w models.Workflow
 	var graphJSON []byte
-	var runEndpoint *string
+	var runEndpoint, description *string
 	if err := row.Scan(
 		&w.ID, &w.UserID, &w.Name, &w.Status, &graphJSON,
 		&w.DeployedAt, &runEndpoint, &w.CreatedAt, &w.UpdatedAt,
 		&w.ScheduleCron, &w.ScheduleNextRunAt,
 		&w.GeofenceLat, &w.GeofenceLng, &w.GeofenceRadiusM,
 		&w.GeofenceInside, &w.GeofenceLastFixAt, &w.IsSystem,
+		&description,
 	); err != nil {
 		return models.Workflow{}, err
 	}
 	if runEndpoint != nil {
 		w.RunEndpoint = *runEndpoint
+	}
+	if description != nil {
+		w.Description = *description
 	}
 	unmarshalGraph(graphJSON, &w)
 	return w, nil
@@ -172,6 +176,20 @@ func (s *Store) SetWorkflowSchedule(ctx context.Context, workflowID, cronExpr st
 		UPDATE workflows SET schedule_cron=$2, schedule_next_run_at=$3 WHERE id=$1
 	`, workflowID, cronExpr, nextRunAt)
 	return err
+}
+
+// RescheduleWorkflowNextRun moves a workflow's next scheduled run to next,
+// but only while its schedule is still cronExpr: a schedule changed or
+// removed since the caller read it is left as it now is. Reports whether a
+// row was updated.
+func (s *Store) RescheduleWorkflowNextRun(ctx context.Context, workflowID, cronExpr string, next time.Time) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE workflows SET schedule_next_run_at=$3 WHERE id=$1 AND schedule_cron=$2
+	`, workflowID, cronExpr, next)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 // ClearWorkflowSchedule disables scheduling for a workflow. Idempotent --
@@ -410,6 +428,69 @@ func (s *Store) ClaimDueSchedules(ctx context.Context, now time.Time, nextRun fu
 	return out, nil
 }
 
+// ListSchedulesNeedingWarning finds deployed, scheduled workflows whose next
+// occurrence falls strictly after `now` (not yet due -- ClaimDueSchedules
+// owns anything due already) and at or before `before` (the lookahead
+// window), and have not already been warned about that exact occurrence.
+//
+// schedule_warned_for IS DISTINCT FROM schedule_next_run_at covers both
+// "never warned" (the column starts NULL) and "warned for an occurrence that
+// has since advanced" -- a schedule that fired and moved to its next
+// occurrence, or was edited, is correctly treated as unwarned again.
+//
+// Read-only and deliberately separate from ClaimDueSchedules: this never
+// claims or advances schedule_next_run_at, which stays exclusively that
+// function's column to write.
+func (s *Store) ListSchedulesNeedingWarning(ctx context.Context, now, before time.Time) ([]models.Workflow, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+workflowColumns+`
+		FROM workflows
+		WHERE status = 'deployed'
+		  AND schedule_cron IS NOT NULL
+		  AND schedule_next_run_at > $1
+		  AND schedule_next_run_at <= $2
+		  AND schedule_warned_for IS DISTINCT FROM schedule_next_run_at
+	`, now, before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []models.Workflow
+	for rows.Next() {
+		w, err := scanWorkflowRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+// ClaimScheduleWarning records that the upcoming-run heads-up is being sent
+// for this schedule's occurrence, and reports whether this caller is the one
+// sending it. The occurrence is identified by its schedule_next_run_at rather
+// than a boolean, so a schedule that has since advanced (fired, or been edited
+// to a new time) is correctly treated as unwarned again for whatever
+// occurrence comes next.
+//
+// A conditional update, not a read followed by a write: every replica runs the
+// scheduler, and two ticks that both listed the same unwarned occurrence would
+// otherwise both mark it and both push. Only the update that finds the row
+// still on this occurrence and still unwarned changes it, so exactly one
+// caller gets true.
+func (s *Store) ClaimScheduleWarning(ctx context.Context, workflowID string, forOccurrence time.Time) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE workflows SET schedule_warned_for = $2
+		WHERE id = $1
+		  AND schedule_next_run_at = $2
+		  AND schedule_warned_for IS DISTINCT FROM $2
+	`, workflowID, forOccurrence)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 // AND NOT is_system excludes a partner console's hidden row (Tendril,
 // Prism): the user never authored it and there is nothing to open on a
 // canvas, so it has no place in a list of things the user built. Filtered
@@ -442,7 +523,15 @@ func (s *Store) ListWorkflows(ctx context.Context, userID string) ([]models.Work
 		// `debit_ledger`. A problem aggregating them must not turn "show me
 		// my workflows" into a 500 -- log it and return the list with those
 		// fields left at their zero values.
+		//
+		// Those zero values are not facts, though, and they are not
+		// distinguishable from real ones on the wire, so each row says so.
+		// Otherwise a client renders an aggregation outage as "0 runs, $0
+		// spent", which is a number the reader has no reason to doubt.
 		log.Printf("db: list workflows for user %s: stats aggregation failed: %v", userID, err)
+		for i := range wfs {
+			wfs[i].StatsUnavailable = true
+		}
 	}
 	return wfs, nil
 }
@@ -468,8 +557,9 @@ func (s *Store) attachWorkflowStats(ctx context.Context, userID string, wfs []mo
 	since := time.Now().Add(-workflowStatsWindow)
 
 	runCounts := map[string]int{}
+	lastRuns := map[string]time.Time{}
 	rows, err := s.pool.Query(ctx, `
-		SELECT r.workflow_id, COUNT(*)
+		SELECT r.workflow_id, COUNT(*), MAX(r.started_at)
 		FROM runs r
 		JOIN workflows w ON w.id = r.workflow_id
 		WHERE w.user_id = $1 AND r.started_at >= $2
@@ -481,11 +571,13 @@ func (s *Store) attachWorkflowStats(ctx context.Context, userID string, wfs []mo
 	for rows.Next() {
 		var id string
 		var n int
-		if err := rows.Scan(&id, &n); err != nil {
+		var last time.Time
+		if err := rows.Scan(&id, &n, &last); err != nil {
 			rows.Close()
 			return err
 		}
 		runCounts[id] = n
+		lastRuns[id] = last
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -518,6 +610,9 @@ func (s *Store) attachWorkflowStats(ctx context.Context, userID string, wfs []mo
 
 	for i := range wfs {
 		wfs[i].Runs = runCounts[wfs[i].ID]
+		if last, ok := lastRuns[wfs[i].ID]; ok {
+			wfs[i].LastRunAt = &last
+		}
 		// Spend is a display string in USD. Left empty when nothing settled
 		// so the UI renders its "no data" dash rather than a misleading
 		// "$0.00" on a workflow that has simply never run.
@@ -529,13 +624,58 @@ func (s *Store) attachWorkflowStats(ctx context.Context, userID string, wfs []mo
 }
 
 func (s *Store) UpdateWorkflow(ctx context.Context, id, name string, graph models.WorkflowGraph) (models.Workflow, error) {
+	return s.UpdateWorkflowAndDescription(ctx, id, name, graph, nil)
+}
+
+// UpdateWorkflowAndDescription saves the name, the graph and, when
+// description is non-nil, the description, in one statement. A save that
+// changes both either takes effect whole or not at all; two statements could
+// commit the graph and then fail on the description, answering 500 for a save
+// that half happened. A nil description leaves the stored one alone, and an
+// empty one clears it.
+func (s *Store) UpdateWorkflowAndDescription(ctx context.Context, id, name string, graph models.WorkflowGraph, description *string) (models.Workflow, error) {
 	graphJSON, _ := json.Marshal(graph)
+	var value *string
+	if description != nil && *description != "" {
+		value = description
+	}
 	row := s.pool.QueryRow(ctx, `
-		UPDATE workflows SET name=$2, graph=$3::jsonb, updated_at=NOW()
+		UPDATE workflows SET name=$2, graph=$3::jsonb, updated_at=NOW(),
+			description = CASE WHEN $4::boolean THEN $5::text ELSE description END
 		WHERE id=$1
 		RETURNING `+workflowColumns+`
-	`, id, name, string(graphJSON))
+	`, id, name, string(graphJSON), description != nil, value)
 	return scanWorkflowRow(row)
+}
+
+// SetWorkflowDescription writes a workflow's description, or clears it when
+// description is empty. Kept apart from UpdateWorkflow so saving the graph
+// from the editor, which never sends a description, cannot wipe one.
+func (s *Store) SetWorkflowDescription(ctx context.Context, id, description string) error {
+	var value *string
+	if description != "" {
+		value = &description
+	}
+	_, err := s.pool.Exec(ctx, `UPDATE workflows SET description=$2 WHERE id=$1`, id, value)
+	return err
+}
+
+// CountRuns counts every run a workflow has had, however old.
+func (s *Store) CountRuns(ctx context.Context, workflowID string) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM runs WHERE workflow_id = $1`, workflowID).Scan(&n)
+	return n, err
+}
+
+// AttachWorkflowStats fills one workflow's 30-day Runs, Spend and LastRunAt
+// the same way the list does, for the detail endpoint.
+func (s *Store) AttachWorkflowStats(ctx context.Context, userID string, wf *models.Workflow) error {
+	wfs := []models.Workflow{*wf}
+	if err := s.attachWorkflowStats(ctx, userID, wfs); err != nil {
+		return err
+	}
+	*wf = wfs[0]
+	return nil
 }
 
 func (s *Store) DeleteWorkflow(ctx context.Context, id string) error {
@@ -735,12 +875,24 @@ func (s *Store) CreateRunWithCooldown(ctx context.Context, workflowID, triggered
 func (s *Store) GetRun(ctx context.Context, runID string) (models.Run, error) {
 	var r models.Run
 	var ic []byte
+	// Spend joins the same way runSpendJoin does for the list endpoints
+	// (runs_list.go): a lateral sum over debit_ledger, defaulted to 0 so a
+	// run with no charges yet still scans cleanly. No user_id filter here —
+	// GetRun has never been user-scoped; the handler enforces ownership
+	// afterward via GetWorkflow.
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, workflow_id, triggered_by, status, started_at, finished_at, input_context
-		FROM runs WHERE id=$1
+		SELECT r.id, r.workflow_id, r.triggered_by, r.status, r.started_at,
+		       r.finished_at, r.input_context, COALESCE(spend.total, 0)
+		FROM runs r
+		LEFT JOIN LATERAL (
+			SELECT SUM(d.amount_usd_micros) AS total
+			FROM debit_ledger d
+			WHERE d.run_id = r.id
+		) spend ON true
+		WHERE r.id = $1
 	`, runID).Scan(
 		&r.ID, &r.WorkflowID, &r.TriggeredBy, &r.Status,
-		&r.StartedAt, &r.FinishedAt, &ic,
+		&r.StartedAt, &r.FinishedAt, &ic, &r.SpendUSDMicros,
 	)
 	if err != nil {
 		return r, err
@@ -1126,6 +1278,17 @@ func (s *Store) CreateCryptoCreditTransaction(ctx context.Context, userID, provi
 	return txn, err
 }
 
+// clearLowBalanceMarker goes in an UPDATE that adds $1 to a user's balance.
+// It clears the low-balance marker when the new balance is back at or above
+// the threshold. CheckAndMarkLowBalance also clears it, but it only runs when
+// a run finishes. Without this, a top-up that restored the balance left the
+// marker set, and the next drop below the threshold was never reported.
+// (In an UPDATE the right-hand side sees the row as it was, so the sum is the
+// new balance.)
+var clearLowBalanceMarker = fmt.Sprintf(`low_balance_notified_at = CASE
+		WHEN credit_balance_usd_micros + $1 >= %d THEN NULL
+		ELSE low_balance_notified_at END`, models.LowBalanceThresholdUSDMicros)
+
 // ErrCreditTransactionNotFound is returned when no credit_ledger row exists for the given
 // provider order ID — the caller supplied an order Razorpay never told us about (or that
 // our own CreateCreditTransaction failed to record). Callers should treat this as a
@@ -1180,7 +1343,9 @@ func (s *Store) CompleteCreditTransaction(ctx context.Context, provider, provide
 	}
 
 	if _, err := tx.Exec(ctx, `
-		UPDATE users SET credit_balance_usd_micros = credit_balance_usd_micros + $1 WHERE id = $2
+		UPDATE users SET credit_balance_usd_micros = credit_balance_usd_micros + $1,
+		`+clearLowBalanceMarker+`
+		WHERE id = $2
 	`, creditUSDMicros, userID); err != nil {
 		return 0, false, err
 	}
@@ -1189,6 +1354,21 @@ func (s *Store) CompleteCreditTransaction(ctx context.Context, provider, provide
 		return 0, false, err
 	}
 	return creditUSDMicros, true, nil
+}
+
+// GetCreditTransactionUserID looks up who a completed ledger row belongs to.
+//
+// CompleteCreditTransaction already knows this internally but does not return
+// it, since its many call sites (production and test) would all need updating
+// for one field only two callers need. Those two are exactly the payment
+// webhooks (Cashfree, NOWPayments): unauthenticated routes with no session to
+// read a user id from, needed only to address a top-up-completed push.
+func (s *Store) GetCreditTransactionUserID(ctx context.Context, provider, providerOrderID string) (string, error) {
+	var userID string
+	err := s.pool.QueryRow(ctx, `
+		SELECT user_id FROM credit_ledger WHERE provider_order_id = $1 AND provider = $2
+	`, providerOrderID, provider).Scan(&userID)
+	return userID, err
 }
 
 // RefundCreditTransaction reverses previously-credited USD micros when Razorpay reports a
@@ -1276,6 +1456,56 @@ func (s *Store) GetCreditBalance(ctx context.Context, userID string) (int64, err
 // as a pair there) without a second implementation of the same query.
 func (s *Store) CreditBalance(ctx context.Context, userID string) (int64, error) {
 	return s.GetCreditBalance(ctx, userID)
+}
+
+// CheckAndMarkLowBalance reports whether a low-balance push is worth sending
+// right now, and records the answer atomically so the next call sees it.
+//
+// A crossing notifies once: the first check to find the balance below
+// thresholdUSDMicros with low_balance_notified_at still unset marks it and
+// reports true. Every check after that sees the marker already set and stays
+// quiet, however many more debits land while the balance stays low. Once the
+// balance recovers back to or above the threshold, the marker clears, so the
+// next time it dips back down notifies again.
+//
+// Same FOR UPDATE shape as debitCredits/ReserveCredits above: read the row
+// locked, decide, write, commit. The balance it read is returned too, so the
+// notification quotes the figure the decision was made on.
+func (s *Store) CheckAndMarkLowBalance(ctx context.Context, userID string, thresholdUSDMicros int64) (notify bool, balance int64, err error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	var notifiedAt *time.Time
+	if err := tx.QueryRow(ctx, `
+		SELECT credit_balance_usd_micros, low_balance_notified_at
+		FROM users WHERE id = $1 FOR UPDATE
+	`, userID).Scan(&balance, &notifiedAt); err != nil {
+		return false, 0, err
+	}
+
+	switch {
+	case balance < thresholdUSDMicros && notifiedAt == nil:
+		if _, err := tx.Exec(ctx, `
+			UPDATE users SET low_balance_notified_at = NOW() WHERE id = $1
+		`, userID); err != nil {
+			return false, 0, err
+		}
+		notify = true
+	case balance >= thresholdUSDMicros && notifiedAt != nil:
+		if _, err := tx.Exec(ctx, `
+			UPDATE users SET low_balance_notified_at = NULL WHERE id = $1
+		`, userID); err != nil {
+			return false, 0, err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, 0, err
+	}
+	return notify, balance, nil
 }
 
 // ListCreditTransactions returns a user's top-up history, newest first.
@@ -1434,7 +1664,8 @@ func (s *Store) RedeemCoupon(ctx context.Context, userID, code string) (newBalan
 	}
 
 	if err := tx.QueryRow(ctx, `
-		UPDATE users SET credit_balance_usd_micros = credit_balance_usd_micros + $1
+		UPDATE users SET credit_balance_usd_micros = credit_balance_usd_micros + $1,
+		`+clearLowBalanceMarker+`
 		WHERE id = $2
 		RETURNING credit_balance_usd_micros
 	`, amount, userID).Scan(&newBalance); err != nil {
@@ -1614,6 +1845,22 @@ func (s *Store) DebitCreditsForPlatformLLM(ctx context.Context, userID string, a
 			INSERT INTO debit_ledger (user_id, workflow_id, run_id, node_id, kind, amount_usd_micros, model, tokens_in, tokens_out)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		`, userID, workflowID, runID, nodeID, models.DebitKindPlatformKeyLLMFee, amountUSDMicros, model, tokensIn, tokensOut)
+		return err
+	})
+}
+
+// DebitCreditsForBuildTest charges a platform-key agent call made by a chat
+// build's test run. Same atomic lock/check/decrement as every other debit;
+// the only difference is that run_id is NULL, because a test run is never
+// persisted as a run (see migration 000037). Without this a user with a
+// single credit could test-run platform-key agents for free, over and over,
+// one build message at a time.
+func (s *Store) DebitCreditsForBuildTest(ctx context.Context, userID string, amountUSDMicros int64, workflowID, nodeID, model string) error {
+	return s.debitCredits(ctx, userID, amountUSDMicros, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO debit_ledger (user_id, workflow_id, run_id, node_id, kind, amount_usd_micros, model)
+			VALUES ($1, $2, NULL, $3, $4, $5, $6)
+		`, userID, workflowID, nodeID, models.DebitKindBuildTestLLMFee, amountUSDMicros, model)
 		return err
 	})
 }
@@ -2051,6 +2298,28 @@ func (s *Store) LatestActiveLeaseForRun(ctx context.Context, runID string) (mode
 		`SELECT `+tendrilLeaseCols+` FROM tendril_leases
 		 WHERE run_id = $1 AND status = 'active'
 		 ORDER BY started_at DESC LIMIT 1`, runID))
+}
+
+// ListActiveTendrilLeasesForRun returns every lease a run opened that is
+// still active, for the runner's end-of-run cleanup and Resume.
+func (s *Store) ListActiveTendrilLeasesForRun(ctx context.Context, runID string) ([]models.TendrilLease, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+tendrilLeaseCols+` FROM tendril_leases
+		 WHERE run_id = $1 AND status = 'active'
+		 ORDER BY started_at`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []models.TendrilLease
+	for rows.Next() {
+		l, err := scanTendrilLease(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
 }
 
 // LatestActiveLeaseForUser is the fallback resolveLease reaches for once a

@@ -120,7 +120,7 @@ export function ImportModal({
           <div>
             <h2
               style={{
-                fontSize: 17,
+                fontSize: "var(--t-5)",
                 fontWeight: 700,
                 margin: 0,
                 letterSpacing: "-0.01em",
@@ -128,7 +128,7 @@ export function ImportModal({
             >
               Import workflow
             </h2>
-            <p style={{ margin: "3px 0 0", fontSize: 12.5, color: "var(--fg-muted)" }}>
+            <p style={{ margin: "3px 0 0", fontSize: "var(--t-2)", color: "var(--fg-muted)" }}>
               Paste a code from someone&apos;s Share
             </p>
           </div>
@@ -166,7 +166,7 @@ export function ImportModal({
             height: 110,
             resize: "none",
             fontFamily: "var(--font-mono)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             lineHeight: 1.5,
             padding: 10,
             background: "var(--bg-elev-2)",
@@ -187,12 +187,12 @@ export function ImportModal({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: 7,
+            gap: "var(--s-2)",
             borderRadius: "var(--r-2)",
             border: "1px solid var(--border-strong)",
             background: "transparent",
             color: "var(--fg)",
-            fontSize: 12.5,
+            fontSize: "var(--t-2)",
             fontWeight: 500,
             cursor: "pointer",
             marginBottom: 14,
@@ -202,12 +202,12 @@ export function ImportModal({
         </button>
 
         {error && (
-          <div style={{ fontSize: 12, color: "var(--danger)", marginBottom: 12 }}>
+          <div style={{ fontSize: "var(--t-2)", color: "var(--danger)", marginBottom: 12 }}>
             {error}
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: "var(--s-3)" }}>
           <button
             type="button"
             onClick={onClose}
@@ -218,7 +218,7 @@ export function ImportModal({
               border: "1px solid var(--border-strong)",
               background: "transparent",
               color: "var(--fg-muted)",
-              fontSize: 13,
+              fontSize: "var(--t-3)",
               fontWeight: 500,
               cursor: "pointer",
             }}
@@ -236,7 +236,7 @@ export function ImportModal({
               border: "1px solid var(--accent-line)",
               background: "var(--accent)",
               color: "var(--accent-fg)",
-              fontSize: 13,
+              fontSize: "var(--t-3)",
               fontWeight: 600,
               cursor: !code.trim() || importing ? "not-allowed" : "pointer",
               opacity: !code.trim() || importing ? 0.6 : 1,

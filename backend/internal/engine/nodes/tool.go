@@ -154,19 +154,27 @@ func executeTool(ctx context.Context, node models.WorkflowNode, rc RunContexter,
 	case "quickchart":
 		return executeQuickChart(node, rc)
 	case "websearch":
-		return webSearch(ctx, websearchQuery(args, rc), platformGeminiKey())
+		return webSearch(ctx, websearchQuery(node, args, rc), platformGeminiKey())
 	default:
 		return rc.Message(), nil
 	}
 }
 
-// websearchQuery prefers the LLM's own "query" argument -- the whole point
-// of an agent choosing to call this tool -- and falls back to the run's
-// current message for a standalone (non-agent-attached) websearch node,
-// same fallback convention "http" already uses for its request body.
-func websearchQuery(args map[string]any, rc RunContexter) string {
+// websearchQuery decides what this node searches for, in priority order.
+//
+// An agent's function-call argument wins: that is the question actually being
+// asked. Then the node's own searchQuery, which is what makes a standalone
+// flow node possible at all -- the catalog used to give this template no
+// fields, so a node wired into the flow had nothing to search for and failed
+// with "query is required" whenever the step before it produced no text, as a
+// manual trigger always does. The upstream message is the last resort and the
+// original behaviour.
+func websearchQuery(node models.WorkflowNode, args map[string]any, rc RunContexter) string {
 	if q, ok := args["query"].(string); ok && strings.TrimSpace(q) != "" {
 		return q
+	}
+	if q := configVal(node, "searchQuery", ""); strings.TrimSpace(q) != "" {
+		return resolveTemplate(q, rc)
 	}
 	return rc.Message()
 }
@@ -184,6 +192,11 @@ var platformKeysForTools map[string]string
 func SetPlatformKeys(keys map[string]string) { platformKeysForTools = keys }
 
 func platformGeminiKey() string { return platformKeysForTools["gemini"] }
+
+// PlatformKeys returns the provider key map the runner was configured with
+// (SetPlatformKeys), for code outside a run -- the builder's dry run -- that
+// has to call a platform-key agent the same way a run would.
+func PlatformKeys() map[string]string { return platformKeysForTools }
 
 // httpMethodsWithBody are the methods callHTTP attaches rc.Message() to as a
 // request body -- GET/HEAD/OPTIONS never carry one, matching real HTTP
@@ -223,48 +236,61 @@ func IsIdempotentHTTPMethod(method string) bool {
 	return isIdempotentHTTPMethod(method)
 }
 
-func callHTTP(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
-	if err := urlValidator(node.URL); err != nil {
-		return nil, err
-	}
-	// rawMethod (trimmed, NOT case-normalized) drives the legacy "does this
-	// node default to sending rc.Message() as its body" decision below --
-	// keeping that comparison case-sensitive against the exact "POST"
-	// constant preserves the exact pre-existing behavior for any
-	// already-saved node with a non-canonical-case Method (e.g. "post"),
-	// which previously never matched the old literal method == "POST"
-	// check and so never got a body. method (normalized) is still what's
-	// actually sent on the wire and used for template-gated body support on
-	// PUT/PATCH/DELETE, since that's new behavior with no legacy nodes to
-	// preserve compatibility for.
+// httpRequestBody is the body callHTTP sends for this node, whether it sends
+// one at all, and whether it came from httpBodyTemplate. The one place this
+// decision lives: callHTTP sends it, and the builder's dry run reports it as
+// what a simulated request would have carried, so the two cannot disagree.
+//
+// Only POST, PUT, PATCH and DELETE carry a body. httpBodyTemplate is this
+// node's own template key, distinct from messageTemplate -- a different node
+// type/Inspector, and "body" is the accurate term for what a request carries,
+// vs. a connector's "message". Same {{ result }} / {{ result.field }} /
+// {{ node.<id> }} syntax either way (resolveTemplate).
+//
+// Only POST defaults to rc.Message() verbatim with no template set -- that's
+// the pre-existing behavior and changing it would silently alter every
+// already-saved POST node. That comparison is against the trimmed but NOT
+// case-normalized method, so an already-saved "post" keeps sending no body,
+// exactly as it did under the old literal method == "POST" check.
+// PUT/PATCH/DELETE only attach a body when the node explicitly opts in via
+// httpBodyTemplate -- never defaulted, to avoid silently changing behavior
+// for nodes saved before this method-aware body logic existed.
+func httpRequestBody(node models.WorkflowNode, rc RunContexter) (body string, sends, templated bool) {
 	rawMethod := strings.TrimSpace(node.Method)
 	method := strings.ToUpper(rawMethod)
 	if method == "" {
 		method = http.MethodGet
 	}
+	if !httpMethodsWithBody[method] {
+		return "", false, false
+	}
+	if tmpl := configVal(node, "httpBodyTemplate", ""); tmpl != "" {
+		return resolveTemplate(tmpl, rc), true, true
+	}
+	if rawMethod == http.MethodPost {
+		return rc.Message(), true, false
+	}
+	return "", false, false
+}
+
+// HTTPRequestBodyForDryRun exports httpRequestBody for the builder's dry run.
+func HTTPRequestBodyForDryRun(node models.WorkflowNode, rc RunContexter) (body string, sends, templated bool) {
+	return httpRequestBody(node, rc)
+}
+
+func callHTTP(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
+	if err := urlValidator(node.URL); err != nil {
+		return nil, err
+	}
+	// method (normalized) is what's sent on the wire; whether a body goes
+	// with it is httpRequestBody's decision.
+	method := strings.ToUpper(strings.TrimSpace(node.Method))
+	if method == "" {
+		method = http.MethodGet
+	}
 	var bodyReader io.Reader
-	if httpMethodsWithBody[method] {
-		// httpBodyTemplate is this node's own template key, distinct from
-		// messageTemplate -- a different node type/Inspector, and "body" is
-		// the accurate term for what a request carries, vs. a connector's
-		// "message". Same {{ result }} / {{ result.field }} / {{ node.<id> }}
-		// syntax either way (resolveTemplate).
-		//
-		// Only POST defaults to rc.Message() verbatim with no template set --
-		// that's the pre-existing behavior and changing it would silently
-		// alter every already-saved POST node. PUT/PATCH/DELETE are new
-		// body-carrying methods as far as already-saved nodes are concerned
-		// (previously they never got a body at all), so they only attach one
-		// when the node explicitly opts in via httpBodyTemplate -- never
-		// defaulted, to avoid silently changing behavior for nodes saved
-		// before this method-aware body logic existed.
-		tmpl := configVal(node, "httpBodyTemplate", "")
-		switch {
-		case tmpl != "":
-			bodyReader = bytes.NewReader([]byte(resolveTemplate(tmpl, rc)))
-		case rawMethod == http.MethodPost:
-			bodyReader = bytes.NewReader([]byte(rc.Message()))
-		}
+	if body, sends, _ := httpRequestBody(node, rc); sends {
+		bodyReader = bytes.NewReader([]byte(body))
 	}
 	req, err := http.NewRequestWithContext(ctx, method, node.URL, bodyReader)
 	if err != nil {

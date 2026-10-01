@@ -17,6 +17,7 @@ import (
 	"github.com/agentmesh/backend/internal/alert"
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/payments"
+	"github.com/agentmesh/backend/internal/push"
 	"github.com/agentmesh/backend/internal/respond"
 )
 
@@ -250,6 +251,10 @@ func (d *Deps) VerifyCashfreePayment(w http.ResponseWriter, r *http.Request) {
 	}
 	if applied {
 		go alert.Notify(context.Background(), alert.ChannelCredits, fmt.Sprintf("credited $%.2f (order %s, via cashfree)", float64(creditedMicros)/1e6, body.OrderID))
+		// To whoever the ledger credited, not whoever is signed in here: the
+		// two differ when the account was switched before the checkout
+		// callback landed, and the owner is the one who was paid.
+		go d.notifyTopUpOwner("cashfree", body.OrderID, creditedMicros)
 	}
 
 	respond.JSON(w, http.StatusOK, map[string]any{
@@ -326,6 +331,7 @@ func (d *Deps) CashfreeWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 		if applied {
 			go alert.Notify(context.Background(), alert.ChannelCredits, fmt.Sprintf("credited $%.2f (order %s, payment %s, via cashfree webhook)", float64(creditedMicros)/1e6, orderID, paymentID))
+			go d.notifyTopUpOwner("cashfree", orderID, creditedMicros)
 		}
 		respond.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 
@@ -436,6 +442,7 @@ func (d *Deps) NOWPaymentsWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 		if applied {
 			go alert.Notify(context.Background(), alert.ChannelCredits, fmt.Sprintf("credited $%.2f (order %s, payment %s, via nowpayments)", float64(creditedMicros)/1e6, event.OrderID, paymentID))
+			go d.notifyTopUpOwner("nowpayments", event.OrderID, creditedMicros)
 		}
 		respond.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 
@@ -459,6 +466,21 @@ func (d *Deps) NOWPaymentsWebhook(w http.ResponseWriter, r *http.Request) {
 	default:
 		respond.JSON(w, http.StatusOK, map[string]string{"status": "ignored"})
 	}
+}
+
+// notifyTopUpOwner pushes a top-up confirmation to the user a completed
+// order credited. The owner always comes from the ledger row, never from the
+// request: a webhook carries no session, and the client verify path's session
+// can belong to a different account than the one that paid. Call it with `go`,
+// like alert.Notify: a push must never delay the response.
+func (d *Deps) notifyTopUpOwner(provider, orderID string, creditedMicros int64) {
+	ctx := context.Background()
+	ownerID, err := d.Store.GetCreditTransactionUserID(ctx, provider, orderID)
+	if err != nil {
+		log.Printf("%s webhook: could not look up owner for push: %v", provider, err)
+		return
+	}
+	push.NotifyTopUpCompleted(ctx, d.Store, ownerID, creditedMicros)
 }
 
 // PaymentProviders reports which checkout providers this deployment can

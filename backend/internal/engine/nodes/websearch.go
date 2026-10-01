@@ -6,7 +6,30 @@ import (
 	"strings"
 )
 
-const webSearchModel = "gemini-2.5-flash"
+// defaultWebSearchModel is what grounded search runs on when nothing is
+// configured. Grounding is billed per grounded prompt, not per token, and the
+// 3.x tier is the cheaper one once past its free allowance: 5,000 free a
+// month then $14 per 1,000, against 2.5's 1,500 free a day then $35 per 1,000.
+// The default stays on 2.5 until a 3.x model has been confirmed to ground on
+// this account, since a model that rejects grounding breaks every web search
+// -- and a failed read step now degrades quietly instead of stopping the run.
+const defaultWebSearchModel = "gemini-2.5-flash"
+
+// webSearchModelOverride is set once at startup from WEB_SEARCH_MODEL,
+// mirroring platformKeysForTools rather than widening webSearch's signature
+// for a value that is genuinely process-wide.
+var webSearchModelOverride string
+
+// SetWebSearchModel installs the model grounded search runs on. Blank
+// restores the default.
+func SetWebSearchModel(model string) { webSearchModelOverride = strings.TrimSpace(model) }
+
+func webSearchModelID() string {
+	if webSearchModelOverride != "" {
+		return webSearchModelOverride
+	}
+	return defaultWebSearchModel
+}
 
 // webSearch answers a query by asking Gemini to ground its response in a
 // live Google Search -- the model itself issues and reads the search; this
@@ -23,7 +46,7 @@ func webSearch(ctx context.Context, query, geminiAPIKey string) (any, error) {
 	if geminiAPIKey == "" {
 		return nil, fmt.Errorf("websearch: platform Gemini key is not configured")
 	}
-	apiURL := fmt.Sprintf("%s/v1beta/models/%s:generateContent", geminiBaseURL, webSearchModel)
+	apiURL := fmt.Sprintf("%s/v1beta/models/%s:generateContent", geminiBaseURL, webSearchModelID())
 	headers := map[string]string{"x-goog-api-key": geminiAPIKey}
 	payload := map[string]any{
 		"contents": []map[string]any{

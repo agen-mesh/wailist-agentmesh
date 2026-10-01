@@ -2,9 +2,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   runs as runsApi,
+  isSettledLogStatus,
   type RunLogRecord,
   type DeadLetterRun,
 } from "@/lib/api";
+import { sameRunCosts, type RunCosts } from "@/lib/runCosts";
 
 // This hook owns everything about *what happened in a run*: the live SSE
 // stream, the DB reconciliation that covers the stream's gaps, and the cached
@@ -20,7 +22,9 @@ export interface LogEvent {
   stepIndex: number;
   nodeId: string;
   nodeType: string;
-  status: "running" | "success" | "failed" | "stopped";
+  // "degraded": a read step failed and the run carried on with an error
+  // payload rather than stopping (backend: engine.Runner, nodes.IsDegradable).
+  status: "running" | "success" | "failed" | "stopped" | "degraded";
   output: unknown;
   durationMs: number;
   ts: string;
@@ -174,6 +178,12 @@ export interface RunTranscript {
   /** The run was stopped from the UI rather than reaching its own end. */
   stopped: boolean;
   deadLetters: DeadLetterRun[];
+  /**
+   * What the run was charged, per step and in total, from the backend's debit
+   * ledger (#111). Null until the run record has been fetched, and for a
+   * backend that does not report costs yet.
+   */
+  costs: RunCosts | null;
 }
 
 export function useRunTranscript({
@@ -195,6 +205,7 @@ export function useRunTranscript({
   const [deadLetters, setDeadLetters] = useState<DeadLetterRun[]>(
     cached?.deadLetters ?? [],
   );
+  const [costs, setCosts] = useState<RunCosts | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const startRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -249,6 +260,7 @@ export function useRunTranscript({
       setLogs([]);
       setElapsed(null);
       setDeadLetters([]);
+      setCosts(null);
     }
   }
 
@@ -347,7 +359,10 @@ export function useRunTranscript({
         let next = prev;
         let mutated = false;
         for (const l of dbLogs) {
-          if (l.status !== "success" && l.status !== "failed") continue;
+          // Every settled status, not a hand-listed pair: this is the path
+          // that repairs a transcript when an SSE event was dropped, so a
+          // status missing here is a step the console never learns about.
+          if (!isSettledLogStatus(l.status)) continue;
           if (
             next.some(
               (e) =>
@@ -362,7 +377,7 @@ export function useRunTranscript({
             stepIndex: l.stepIndex,
             nodeId: l.nodeId,
             nodeType: l.nodeType,
-            status: l.status as "success" | "failed",
+            status: l.status as LogEvent["status"],
             output: l.output,
             durationMs: l.durationMs ?? 0,
             ts: l.ts,
@@ -400,9 +415,17 @@ export function useRunTranscript({
             run,
             logs: dbLogs,
             deadLetters: dl,
+            costs: runCosts,
           } = await runsApi.get(runId);
           if (cancelled) return;
           if (dbLogs.length > 0) mergeDBLogs(dbLogs);
+          // What the run was charged so far, from the debit ledger (#111).
+          // Kept as-is when a backend without costs omits the field, and when
+          // a poll returns the same figures, so an unchanged poll does not
+          // re-render the console.
+          if (runCosts) {
+            setCosts((prev) => (sameRunCosts(prev, runCosts) ? prev : runCosts));
+          }
           // Preserve the existing reference when nothing actually changed:
           // this poll runs every 2s for up to 30 minutes, and a fresh array
           // reference on every tick (even an unchanged one) re-fires
@@ -600,5 +623,6 @@ export function useRunTranscript({
     leaseId,
     stopped,
     deadLetters: visibleDeadLetters,
+    costs,
   };
 }

@@ -137,3 +137,26 @@ func TestBuildAttachMap_IgnoresNonProviderOnModelPort(t *testing.T) {
 		t.Fatalf("want a non-Provider node never populating cfg.Provider, got %v", cfg.Provider)
 	}
 }
+
+// The same tool twice becomes two identical function declarations, which
+// the model APIs reject outright.
+func TestBuildAttachMapIgnoresADuplicateAttachEdge(t *testing.T) {
+	nodes := []models.WorkflowNode{
+		{ID: "a", Type: models.NodeTypeAgent},
+		{ID: "p", Type: models.NodeTypeProvider},
+		{ID: "t", Type: models.NodeTypeTool, Template: "websearch"},
+	}
+	edges := []models.WorkflowEdge{
+		{From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"},
+		{From: "p", To: "a", Kind: models.EdgeKindAttach, ToPort: "model"},
+		{From: "t", To: "a", Kind: models.EdgeKindAttach, ToPort: "tools"},
+		{From: "t", To: "a", Kind: models.EdgeKindAttach, ToPort: "tools"},
+	}
+	cfg := engine.BuildAttachMap(nodes, edges)["a"]
+	if cfg.Provider == nil || cfg.Provider.ID != "p" {
+		t.Fatalf("provider not attached: %+v", cfg.Provider)
+	}
+	if len(cfg.Tools) != 1 {
+		t.Fatalf("want the tool attached once, got %d copies", len(cfg.Tools))
+	}
+}

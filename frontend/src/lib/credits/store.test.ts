@@ -215,6 +215,8 @@ describe("resetCredits", () => {
     expect(readCredits().balanceUSD).toBe(42);
     expect(readCreditsFlags()).toEqual({
       balanceKnown: true,
+      balanceLoading: false,
+      balanceFailed: false,
       purchasesKnown: true,
       purchasesFailed: false,
     });
@@ -228,6 +230,8 @@ describe("resetCredits", () => {
     // purchases" rather than as still loading.
     expect(readCreditsFlags()).toEqual({
       balanceKnown: false,
+      balanceLoading: false,
+      balanceFailed: false,
       purchasesKnown: false,
       purchasesFailed: false,
     });
@@ -292,6 +296,8 @@ describe("refreshPurchases failure handling", () => {
     // is indistinguishable from an account that never paid.
     expect(store.readCreditsFlags()).toEqual({
       balanceKnown: false,
+      balanceLoading: false,
+      balanceFailed: false,
       purchasesKnown: false,
       purchasesFailed: true,
     });

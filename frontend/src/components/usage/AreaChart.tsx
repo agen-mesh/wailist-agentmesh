@@ -18,10 +18,16 @@ export function AreaChart({
   data,
   height = 210,
   algoUsd = 1,
+  maxLabels = 6,
 }: {
   data: UsagePoint[];
   height?: number;
   algoUsd?: number;
+  /**
+   * How many dates the axis may show. A narrow chart needs fewer: with the
+   * first label anchored left, it and the second ran together at 320px.
+   */
+  maxLabels?: number;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -65,7 +71,7 @@ export function AreaChart({
   const lineUsage = `M ${usageTop.join(" L ")}`;
 
   const gridY = [0, 0.25, 0.5, 0.75, 1].map((f) => padT + f * innerH);
-  const labelEvery = Math.max(1, Math.ceil(n / 6));
+  const labelEvery = Math.max(1, Math.ceil(n / maxLabels));
 
   const onMove = (e: React.MouseEvent) => {
     const el = wrapRef.current;
@@ -84,10 +90,18 @@ export function AreaChart({
     >
       <svg
         width="100%"
-        height={H}
         viewBox={`0 0 ${W} ${H}`}
+        // Already "none", so the drawing has always stretched to whatever box it
+        // is given -- which is what makes the height safe to change from CSS
+        // without touching a single path below.
         preserveAspectRatio="none"
-        style={{ display: "block" }}
+        style={{
+          display: "block",
+          // Was a hard height={H}. 210px of chart is right on a desktop and is
+          // a quarter of a phone screen; the token drops it to 150 there. The
+          // fallback keeps H authoritative if the property is ever missing.
+          height: `var(--us-chart-h, ${H}px)`,
+        }}
       >
         <defs>
           <linearGradient id="am-gx402" x1="0" y1="0" x2="0" y2="1">
@@ -152,18 +166,26 @@ export function AreaChart({
         )}
       </svg>
 
-      {/* x-axis labels, positioned at their data points */}
+      {/* x-axis labels, positioned at their data points. Centred, the first
+          and last hung half their width past the chart's edges -- on a phone,
+          past the screen's. So the ends are anchored inward, and a label too
+          close to the last one is dropped rather than drawn over it. */}
       <div style={{ position: "relative", height: 14, marginTop: 4 }}>
         {data.map((d, i) =>
-          i % labelEvery === 0 || i === n - 1 ? (
+          i === n - 1 || (i % labelEvery === 0 && n - 1 - i >= labelEvery) ? (
             <span
               key={i}
               style={{
                 position: "absolute",
                 left: `${(x(i) / W) * 100}%`,
-                transform: "translateX(-50%)",
+                transform:
+                  i === 0
+                    ? "none"
+                    : i === n - 1
+                      ? "translateX(-100%)"
+                      : "translateX(-50%)",
                 fontFamily: "var(--font-mono)",
-                fontSize: 9,
+                fontSize: "var(--t-0)",
                 color: "var(--fg-dim)",
                 whiteSpace: "nowrap",
               }}
@@ -212,7 +234,7 @@ function ChartTip({
         borderRadius: "var(--r-2)",
         padding: "8px 10px",
         fontFamily: "var(--font-mono)",
-        fontSize: 10,
+        fontSize: "var(--t-0)",
         color: "var(--fg)",
         boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
         whiteSpace: "nowrap",
@@ -239,7 +261,7 @@ function TipRow({ c, label, val }: { c: string; label: string; val: string }) {
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 7,
+        gap: "var(--s-2)",
         marginTop: 2,
         color: "var(--fg-muted)",
       }}
@@ -248,7 +270,7 @@ function TipRow({ c, label, val }: { c: string; label: string; val: string }) {
         style={{
           width: 7,
           height: 7,
-          borderRadius: 999,
+          borderRadius: "var(--r-full)",
           background: c,
           display: "inline-block",
         }}

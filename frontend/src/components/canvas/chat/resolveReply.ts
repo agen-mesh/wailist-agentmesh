@@ -126,6 +126,46 @@ export function latestPerNode(logs: LogEvent[]): LogEvent[] {
   return logs.filter((l, i) => lastIndexOfNode.get(l.nodeId) === i);
 }
 
+/**
+ * What a finished run amounts to: whether it failed, how many steps degraded
+ * (a read step whose failure the run carried on past), and how many succeeded.
+ *
+ * Reads each node's FINAL attempt, for the same reason everything else here
+ * does -- see latestPerNode: a resumed node that failed and then succeeded
+ * still has its stale row in `logs`, and a raw scan would keep reporting it.
+ */
+export function runSummary(logs: LogEvent[]) {
+  return summarizeFinal(latestPerNode(logs));
+}
+
+/**
+ * runSummary over a list already narrowed by latestPerNode.
+ *
+ * Split out so resolveReply, which has narrowed the list for its own reasons
+ * by the time it needs the counts, can share this one reduction instead of
+ * re-deriving "how many degraded" inline. The console and the chat must never
+ * disagree about the same run, and three copies of the predicate is how that
+ * starts.
+ */
+function summarizeFinal(final: LogEvent[]) {
+  return {
+    failed: final.some((l) => l.status === "failed"),
+    degraded: final.filter((l) => l.status === "degraded").length,
+    succeeded: final.filter((l) => l.status === "success").length,
+    total: final.length,
+  };
+}
+
+/**
+ * degradedNote is what the chat adds under an answer produced by a run that
+ * lost a step. The answer itself is the agent's, and it is asked to name the
+ * source it fell back to; this says plainly that something did not run, so a
+ * partial answer is never mistaken for a whole one.
+ */
+function degradedNote(count: number): string {
+  return `\n\n_${count} step${count === 1 ? "" : "s"} failed during this run, so this answer may be incomplete._`;
+}
+
 export function resolveReply(logs: LogEvent[]): RunSummary {
   const toolCount = logs.filter(
     (l) =>
@@ -139,6 +179,7 @@ export function resolveReply(logs: LogEvent[]): RunSummary {
   // latestPerNode's doc comment for why a raw scan over `logs` is wrong once
   // a resumed run can log the same node twice.
   const final = latestPerNode(logs);
+  const { degraded } = summarizeFinal(final);
 
   // A failure is the headline: showing an earlier node's partial output as if
   // it were the answer would be a lie about what happened.
@@ -160,7 +201,12 @@ export function resolveReply(logs: LogEvent[]): RunSummary {
   if (agent) {
     const text = textFromOutput(agent.output);
     if (text.trim() !== "") {
-      return { text, isError: false, toolCount, spendUSD };
+      return {
+        text: degraded > 0 ? text + degradedNote(degraded) : text,
+        isError: false,
+        toolCount,
+        spendUSD,
+      };
     }
   }
 
@@ -169,8 +215,9 @@ export function resolveReply(logs: LogEvent[]): RunSummary {
   // something rather than rendering an empty bubble.
   const last = [...final].reverse().find((l) => l.status === "success");
   const fallback = last ? textFromOutput(last.output) : "";
+  const text = fallback.trim() === "" ? "The run finished." : fallback;
   return {
-    text: fallback.trim() === "" ? "The run finished." : fallback,
+    text: degraded > 0 ? text + degradedNote(degraded) : text,
     isError: false,
     toolCount,
     spendUSD,

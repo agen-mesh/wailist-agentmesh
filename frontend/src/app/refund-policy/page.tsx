@@ -22,9 +22,9 @@ export default function RefundPolicyPage() {
     >
       {/* Nav bar */}
       <div
+        className="am-legal-bar"
         style={{
           borderBottom: "1px solid var(--border)",
-          padding: "16px 32px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -34,7 +34,7 @@ export default function RefundPolicyPage() {
           href="/"
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 14,
+            fontSize: "var(--t-4)",
             fontWeight: 700,
             color: "var(--fg)",
             textDecoration: "none",
@@ -46,7 +46,7 @@ export default function RefundPolicyPage() {
         <span
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             color: "var(--fg-dim)",
           }}
         >
@@ -54,22 +54,20 @@ export default function RefundPolicyPage() {
         </span>
       </div>
 
-      <main
-        style={{ maxWidth: 740, margin: "0 auto", padding: "64px 32px 96px" }}
-      >
+      <main className="am-legal-main">
         {/* Header */}
         <div style={{ marginBottom: 56 }}>
           <div
             style={{
               display: "inline-block",
               fontFamily: "var(--font-mono)",
-              fontSize: 11,
+              fontSize: "var(--t-1)",
               letterSpacing: "0.1em",
               textTransform: "uppercase",
               color: "var(--accent)",
               background: "var(--accent-soft)",
               border: "1px solid var(--accent-line)",
-              borderRadius: 999,
+              borderRadius: "var(--r-full)",
               padding: "3px 12px",
               marginBottom: 20,
             }}
@@ -79,7 +77,7 @@ export default function RefundPolicyPage() {
           <h1
             style={{
               margin: 0,
-              fontSize: 40,
+              fontSize: "var(--t-8)",
               fontWeight: 600,
               letterSpacing: "-0.025em",
               lineHeight: 1.15,
@@ -91,7 +89,7 @@ export default function RefundPolicyPage() {
             style={{
               margin: "12px 0 0",
               color: "var(--fg-muted)",
-              fontSize: 15,
+              fontSize: "var(--t-4)",
               lineHeight: 1.6,
             }}
           >
@@ -109,18 +107,18 @@ export default function RefundPolicyPage() {
             borderRadius: "var(--r-3)",
             marginBottom: 48,
             display: "flex",
-            gap: 16,
+            gap: "var(--s-5)",
             alignItems: "flex-start",
           }}
         >
-          <span style={{ fontSize: 20, flexShrink: 0, marginTop: 1 }}>⚠</span>
+          <span style={{ fontSize: "var(--t-5)", flexShrink: 0, marginTop: 1 }}>⚠</span>
           <div>
-            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>
+            <div style={{ fontWeight: 600, fontSize: "var(--t-4)", marginBottom: 4 }}>
               Important: All credit purchases are final.
             </div>
             <div
               style={{
-                fontSize: 13.5,
+                fontSize: "var(--t-3)",
                 lineHeight: 1.65,
                 color: "var(--fg-muted)",
               }}
@@ -141,7 +139,7 @@ export default function RefundPolicyPage() {
             paddingTop: 32,
             borderTop: "1px solid var(--border)",
             display: "flex",
-            gap: 24,
+            gap: "var(--s-6)",
             flexWrap: "wrap",
           }}
         >
@@ -183,7 +181,7 @@ function PolicyDoc() {
             margin: "10px 0 0",
             paddingLeft: 20,
             color: "var(--fg-muted)",
-            fontSize: 14.5,
+            fontSize: "var(--t-4)",
             lineHeight: 1.8,
           }}
         >
@@ -249,7 +247,7 @@ function PolicyDoc() {
             margin: "10px 0 0",
             paddingLeft: 20,
             color: "var(--fg-muted)",
-            fontSize: 14.5,
+            fontSize: "var(--t-4)",
             lineHeight: 1.8,
           }}
         >
@@ -322,37 +320,38 @@ function Section({
 }) {
   return (
     <div
+      // A highlighted section's margin and padding live in .am-legal-callout
+      // (responsive.css), so a phone can take the bleed away. Inline values
+      // would override that rule.
+      className={highlight ? "am-legal-callout" : undefined}
       style={{
-        padding: "32px 0",
         borderBottom: "1px solid var(--border-soft)",
         ...(highlight
           ? {
-              margin: "8px -24px",
-              padding: "32px 24px",
               background: "var(--bg-elev-1)",
               borderRadius: "var(--r-3)",
               border: "1px solid var(--border)",
               borderBottom: "1px solid var(--border)",
             }
-          : {}),
+          : { padding: "32px 0" }),
       }}
     >
       <div
         style={{
           display: "flex",
           alignItems: "baseline",
-          gap: 12,
+          gap: "var(--s-4)",
           marginBottom: 16,
         }}
       >
         <span
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             color: "var(--accent)",
             background: "var(--accent-soft)",
             border: "1px solid var(--accent-line)",
-            borderRadius: 999,
+            borderRadius: "var(--r-full)",
             padding: "2px 8px",
             flexShrink: 0,
           }}
@@ -362,7 +361,7 @@ function Section({
         <h2
           style={{
             margin: 0,
-            fontSize: 20,
+            fontSize: "var(--t-5)",
             fontWeight: 600,
             letterSpacing: "-0.015em",
           }}
@@ -370,7 +369,7 @@ function Section({
           {title}
         </h2>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
         {children}
       </div>
     </div>
@@ -388,7 +387,7 @@ function P({
     <p
       style={{
         margin: 0,
-        fontSize: 14.5,
+        fontSize: "var(--t-4)",
         lineHeight: 1.75,
         color: "var(--fg-muted)",
         ...style,
@@ -408,7 +407,7 @@ function Notice({ children }: { children: React.ReactNode }) {
         background: "rgba(255,181,71,0.08)",
         border: "1px solid rgba(255,181,71,0.25)",
         borderRadius: "var(--r-2)",
-        fontSize: 13,
+        fontSize: "var(--t-3)",
         lineHeight: 1.6,
         color: "var(--fg)",
       }}
@@ -420,7 +419,7 @@ function Notice({ children }: { children: React.ReactNode }) {
 
 const footerLink: React.CSSProperties = {
   fontFamily: "var(--font-mono)",
-  fontSize: 12,
+  fontSize: "var(--t-2)",
   color: "var(--fg-muted)",
   textDecoration: "none",
 };

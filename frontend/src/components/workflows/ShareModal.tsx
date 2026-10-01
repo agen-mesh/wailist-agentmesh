@@ -170,7 +170,7 @@ export function ShareModal({
           <div>
             <h2
               style={{
-                fontSize: 17,
+                fontSize: "var(--t-5)",
                 fontWeight: 700,
                 margin: 0,
                 letterSpacing: "-0.01em",
@@ -178,7 +178,7 @@ export function ShareModal({
             >
               Share workflow
             </h2>
-            <p style={{ margin: "3px 0 0", fontSize: 12.5, color: "var(--fg-muted)" }}>
+            <p style={{ margin: "3px 0 0", fontSize: "var(--t-2)", color: "var(--fg-muted)" }}>
               {name || "Loading…"}
             </p>
           </div>
@@ -204,20 +204,20 @@ export function ShareModal({
         </div>
 
         {loading && (
-          <div style={{ padding: "24px 0", textAlign: "center", fontSize: 12.5, color: "var(--fg-dim)" }}>
+          <div style={{ padding: "24px 0", textAlign: "center", fontSize: "var(--t-2)", color: "var(--fg-dim)" }}>
             Preparing share code…
           </div>
         )}
 
         {!loading && error && (
-          <div style={{ fontSize: 12.5, color: "var(--danger)", padding: "8px 0" }}>
+          <div style={{ fontSize: "var(--t-2)", color: "var(--danger)", padding: "8px 0" }}>
             {error}
           </div>
         )}
 
         {!loading && !error && code && (
           <>
-            <div style={{ fontSize: 11.5, color: "var(--fg-dim)", marginBottom: 6 }}>
+            <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)", marginBottom: 6 }}>
               Code ({formatBytes(code.length)}) -- API keys are never included, so
               re-enter them after importing.
             </div>
@@ -230,7 +230,7 @@ export function ShareModal({
                 height: 88,
                 resize: "none",
                 fontFamily: "var(--font-mono)",
-                fontSize: 11,
+                fontSize: "var(--t-1)",
                 lineHeight: 1.5,
                 padding: 10,
                 background: "var(--bg-elev-2)",
@@ -250,12 +250,12 @@ export function ShareModal({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 7,
+                gap: "var(--s-2)",
                 borderRadius: "var(--r-2)",
                 border: "1px solid var(--accent-line)",
                 background: "var(--accent)",
                 color: "var(--accent-fg)",
-                fontSize: 13,
+                fontSize: "var(--t-3)",
                 fontWeight: 600,
                 cursor: "pointer",
                 marginBottom: 14,
@@ -272,10 +272,10 @@ export function ShareModal({
               }}
             />
 
-            <div style={{ fontSize: 11.5, color: "var(--fg-dim)", marginBottom: 8 }}>
+            <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)", marginBottom: 8 }}>
               Or tell someone about it
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: "var(--s-3)" }}>
               <a
                 href={tweetUrl}
                 target="_blank"
@@ -286,12 +286,12 @@ export function ShareModal({
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  gap: 7,
+                  gap: "var(--s-2)",
                   borderRadius: "var(--r-2)",
                   border: "1px solid var(--border-strong)",
                   background: "transparent",
                   color: "var(--fg)",
-                  fontSize: 12.5,
+                  fontSize: "var(--t-2)",
                   fontWeight: 500,
                   textDecoration: "none",
                   cursor: "pointer",
@@ -307,12 +307,12 @@ export function ShareModal({
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  gap: 7,
+                  gap: "var(--s-2)",
                   borderRadius: "var(--r-2)",
                   border: "1px solid var(--border-strong)",
                   background: "transparent",
                   color: "var(--fg)",
-                  fontSize: 12.5,
+                  fontSize: "var(--t-2)",
                   fontWeight: 500,
                   textDecoration: "none",
                   cursor: "pointer",

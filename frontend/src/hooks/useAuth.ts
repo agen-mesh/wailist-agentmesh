@@ -1,7 +1,12 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
-import { auth, AuthUser } from "@/lib/api";
-import { IS_NATIVE, setAuthToken, authReady } from "@/lib/nativeAuth";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { auth, AuthCheckError, AuthUser, isConnectionFailure } from "@/lib/api";
+import {
+  IS_NATIVE,
+  setAuthToken,
+  getAuthToken,
+  authReady,
+} from "@/lib/nativeAuth";
 import { resetCredits } from "@/lib/credits/store";
 
 const UI_COOKIE = "agentmesh_ui";
@@ -69,25 +74,95 @@ export function useAuth() {
   const [signedIn, setSignedIn] = useState(false);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<AuthUser | null>(null);
+  // The last session check could not reach the server. Not the same as signed
+  // out: nothing is cleared, and the check can be run again with retry().
+  const [offline, setOffline] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  // Goes up whenever the session itself changes: a sign-in, a sign-up, or a
+  // sign-out. A check that started before the change is then known to be
+  // describing the session from before it, and is ignored rather than applied
+  // on top of it.
+  const sessionEpoch = useRef(0);
 
   useEffect(() => {
+    let cancelled = false;
+    // The session as it stood when this check went out. AuthPage mounts this
+    // hook and lets the form be submitted while its own check is still in
+    // flight, so a "no session" answer can arrive after that sign-in has
+    // succeeded. Acting on it then cleared the cookie the sign-in had just
+    // written, and middleware sent the signed-in user back to /signin.
+    const epoch = sessionEpoch.current;
+    // The token this check is made with. A rejection is about this one only:
+    // a sign-in can replace it before the answer arrives.
+    let sent: string | null = null;
     // On native, wait for NativeBoot to finish restoring (or fail to
     // restore) the persisted token before asking who's signed in -- calling
     // auth.me() first would race it and 401 with no Authorization header
     // attached yet.
     authReady
-      .then(() => auth.me())
+      .then(() => {
+        sent = getAuthToken();
+        return auth.me();
+      })
       .then((u) => {
+        if (cancelled || epoch !== sessionEpoch.current) return;
         setUICookie();
+        setOffline(false);
         setSignedIn(true);
         setUser(u);
       })
-      .catch(() => {
+      .catch((err) => {
+        // A session started or ended since: this answer describes a session
+        // that is no longer the current one and must change nothing.
+        if (cancelled || epoch !== sessionEpoch.current) return;
+        // A check that never got an answer says nothing about the session.
+        // Treating it as signed out sent a signed-in user to the sign-in
+        // screen whenever the phone was offline or the server was down.
+        if (isConnectionFailure(err)) {
+          setOffline(true);
+          return;
+        }
+        // The server has answered that this token is not a session. On the
+        // phone it has to go, from memory and from the device: NativeBoot
+        // treats any token it holds as a session, so a stale one left in
+        // place let a tapped notification open a protected screen without
+        // signing in, and the next launch restored it again.
+        //
+        // Only the token this check sent, and only while it is still the
+        // current one. Clearing whatever is current instead let a check that
+        // failed just before a sign-in -- AuthPage runs its own -- delete the
+        // session that sign-in had just saved.
+        const rejected = sent;
+        if (
+          IS_NATIVE &&
+          rejected !== null &&
+          err instanceof AuthCheckError &&
+          (err.status === 401 || err.status === 403)
+        ) {
+          if (getAuthToken() === rejected) setAuthToken(null);
+          void import("@/native")
+            .then(({ shell }) => shell.onSessionRejected(rejected))
+            .catch((e) =>
+              console.error("native shell failed to clear a rejected token", e),
+            );
+        }
         clearUICookie();
+        setOffline(false);
         setSignedIn(false);
         setUser(null);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
+
+  // Runs the session check again, for the offline screen's Retry.
+  const retry = useCallback(() => {
+    setLoading(true);
+    setAttempt((n) => n + 1);
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
@@ -96,6 +171,7 @@ export function useAuth() {
     // session. On native this throws rather than resolving if the device could
     // not keep the token, so the two lines below are not reached.
     if (token && IS_NATIVE) await persistNativeSession(token);
+    sessionEpoch.current += 1;
     setUICookie();
     setSignedIn(true);
   }, []);
@@ -104,6 +180,7 @@ export function useAuth() {
     async (email: string, password: string, name: string, org: string) => {
       const token = await auth.signUp(email, password, name, org);
       if (token && IS_NATIVE) await persistNativeSession(token);
+      sessionEpoch.current += 1;
       setUICookie();
       setSignedIn(true);
     },
@@ -111,6 +188,7 @@ export function useAuth() {
   );
 
   const clearLocalSession = useCallback(() => {
+    sessionEpoch.current += 1;
     if (IS_NATIVE) {
       setAuthToken(null);
       // Logged for the mirror-image reason: a shared device that fails to
@@ -143,7 +221,10 @@ export function useAuth() {
     try {
       await auth.signOut();
     } catch (err) {
-      console.error("sign-out request failed; clearing local session anyway", err);
+      console.error(
+        "sign-out request failed; clearing local session anyway",
+        err,
+      );
     } finally {
       clearLocalSession();
     }
@@ -160,6 +241,8 @@ export function useAuth() {
   return {
     signedIn,
     loading,
+    offline,
+    retry,
     user,
     signIn,
     signUp,

@@ -3,7 +3,7 @@ import { assetSymbol, formatPrice, type BazaarResource } from "@/lib/bazaar";
 
 // Matches ResourceCard's tool402 accent, so a row still reads as "the same
 // kind of thing" as the pinned Supported cards above it.
-const MAGENTA = "#E879F9";
+const MAGENTA = "var(--type-x402)";
 const MAGENTA_SOFT = "rgba(232, 121, 249, 0.14)";
 
 // A single catalog entry, as one fixed-height row rather than a card. Every
@@ -19,7 +19,9 @@ export function EndpointRow({
   indent = false,
 }: {
   resource: BazaarResource;
-  onAdd: (r: BazaarResource) => void;
+  // Omitted where the workflow graph cannot be edited; the row is then
+  // listed without an Add button.
+  onAdd?: (r: BazaarResource) => void;
   indent?: boolean;
 }) {
   const params = resource.params ?? [];
@@ -33,10 +35,7 @@ export function EndpointRow({
   }
 
   return (
-    <div
-      className="bz-row"
-      style={{ paddingLeft: indent ? 44 : 16 }}
-    >
+    <div className="bz-row" style={{ paddingLeft: indent ? 44 : 16 }}>
       <span
         aria-hidden
         className="bz-row__icon"
@@ -46,8 +45,10 @@ export function EndpointRow({
       </span>
 
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-          <span className="bz-row__name">{resource.provider ?? resource.host}</span>
+        <div style={{ display: "flex", alignItems: "baseline", gap: "var(--s-3)" }}>
+          <span className="bz-row__name">
+            {resource.provider ?? resource.host}
+          </span>
           <span className="bz-row__path" title={resource.url}>
             {resource.method} {displayPath}
           </span>
@@ -73,9 +74,15 @@ export function EndpointRow({
         )}
       </div>
 
-      <button type="button" className="bz-row__add" onClick={() => onAdd(resource)}>
-        Add
-      </button>
+      {onAdd && (
+        <button
+          type="button"
+          className="bz-row__add"
+          onClick={() => onAdd(resource)}
+        >
+          Add
+        </button>
+      )}
     </div>
   );
 }

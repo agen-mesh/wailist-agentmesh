@@ -4,7 +4,7 @@ import { assetSymbol, formatPrice, type BazaarResource } from "@/lib/bazaar";
 
 // The tool402 accent, matching the canvas node and Inspector so an endpoint
 // looks like the same thing everywhere it appears (Inspector.tsx:276-280).
-const MAGENTA = "#E879F9";
+const MAGENTA = "var(--type-x402)";
 const MAGENTA_SOFT = "rgba(232, 121, 249, 0.14)";
 
 // One catalog entry. A supported entry is visually distinct because the badge
@@ -15,7 +15,9 @@ export function ResourceCard({
   onAdd,
 }: {
   resource: BazaarResource;
-  onAdd: (r: BazaarResource) => void;
+  // Omitted where the workflow graph cannot be edited; the card is then shown
+  // without its "Add to workflow" button.
+  onAdd?: (r: BazaarResource) => void;
 }) {
   // (resource.params ?? []): defense in depth. The backend guarantees a
   // non-nil array, but a mirror of an external catalog should never trust
@@ -34,12 +36,14 @@ export function ResourceCard({
     <div
       style={{
         border: `1px solid ${resource.supported ? "var(--accent-line)" : "var(--border)"}`,
-        background: resource.supported ? "var(--accent-soft)" : "var(--bg-elev-1)",
+        background: resource.supported
+          ? "var(--accent-soft)"
+          : "var(--bg-elev-1)",
         borderRadius: "var(--r-2)",
         padding: 14,
         display: "flex",
         flexDirection: "column",
-        gap: 10,
+        gap: "var(--s-3)",
         minWidth: 0,
         // Fills the grid cell the wrapper stretches to, so cards in a row
         // end at the same baseline instead of each stopping at its own
@@ -48,7 +52,7 @@ export function ResourceCard({
         boxSizing: "border-box",
       }}
     >
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--s-3)" }}>
         <span
           aria-hidden
           style={{
@@ -60,7 +64,7 @@ export function ResourceCard({
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: 13,
+            fontSize: "var(--t-3)",
             flexShrink: 0,
           }}
         >
@@ -69,7 +73,7 @@ export function ResourceCard({
         <div style={{ minWidth: 0, flex: 1 }}>
           <div
             style={{
-              fontSize: 13,
+              fontSize: "var(--t-3)",
               fontWeight: 600,
               color: "var(--fg)",
               // Wraps instead of truncating. overflowWrap handles the long
@@ -82,7 +86,7 @@ export function ResourceCard({
           <div
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 10.5,
+              fontSize: "var(--t-0)",
               color: "var(--fg-dim)",
               overflowWrap: "anywhere",
             }}
@@ -97,7 +101,7 @@ export function ResourceCard({
       <p
         style={{
           margin: 0,
-          fontSize: 12,
+          fontSize: "var(--t-2)",
           lineHeight: 1.55,
           color: "var(--fg-muted)",
           // Grows into whatever height the tallest card in the row sets, so
@@ -113,9 +117,9 @@ export function ResourceCard({
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 8,
+          gap: "var(--s-3)",
           flexWrap: "wrap",
-          fontSize: 11,
+          fontSize: "var(--t-1)",
           color: "var(--fg-dim)",
           fontFamily: "var(--font-mono)",
         }}
@@ -125,7 +129,9 @@ export function ResourceCard({
         </span>
         <span>/ call</span>
         {resource.testnet && <Pill>testnet</Pill>}
-        {resource.settleCount > 0 && <span>· {resource.settleCount} settles</span>}
+        {resource.settleCount > 0 && (
+          <span>· {resource.settleCount} settles</span>
+        )}
         {paramCount > 0 && (
           <span>
             · {paramCount} field{paramCount === 1 ? "" : "s"}
@@ -137,8 +143,9 @@ export function ResourceCard({
           is guaranteed — say so rather than letting a blank node imply it is
           ready to run. */}
       {!resource.supported && (
-        <div style={{ fontSize: 11, color: "var(--fg-dim)", lineHeight: 1.5 }}>
-          Community listing — you&apos;ll configure its fields yourself after adding.
+        <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)", lineHeight: 1.5 }}>
+          Community listing — you&apos;ll configure its fields yourself after
+          adding.
         </div>
       )}
 
@@ -148,29 +155,31 @@ export function ResourceCard({
           console and is drawn by ConsoleCard instead. This is the fallback for
           a future partner that has neither params nor a console. */}
       {resource.supported && paramCount === 0 && (
-        <div style={{ fontSize: 11, color: "var(--fg-dim)", lineHeight: 1.5 }}>
+        <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)", lineHeight: 1.5 }}>
           Officially supported — this endpoint takes no input, or its fields
           aren&apos;t set up yet. Configure via Discover after adding.
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={() => onAdd(resource)}
-        style={{
-          height: 32,
-          border: `1px solid ${resource.supported ? "var(--accent)" : "var(--border-strong)"}`,
-          background: resource.supported ? "var(--accent)" : "transparent",
-          color: resource.supported ? "var(--accent-fg)" : "var(--fg)",
-          borderRadius: "var(--r-2)",
-          fontSize: 12,
-          fontWeight: 500,
-          cursor: "pointer",
-          fontFamily: "var(--font-sans)",
-        }}
-      >
-        Add to workflow
-      </button>
+      {onAdd && (
+        <button
+          type="button"
+          onClick={() => onAdd(resource)}
+          style={{
+            height: 32,
+            border: `1px solid ${resource.supported ? "var(--accent)" : "var(--border-strong)"}`,
+            background: resource.supported ? "var(--accent)" : "transparent",
+            color: resource.supported ? "var(--accent-fg)" : "var(--fg)",
+            borderRadius: "var(--r-2)",
+            fontSize: "var(--t-2)",
+            fontWeight: 500,
+            cursor: "pointer",
+            fontFamily: "var(--font-sans)",
+          }}
+        >
+          Add to workflow
+        </button>
+      )}
     </div>
   );
 }

@@ -645,6 +645,20 @@ type X402RelayConfig struct {
 	// amount+markup total from one DB-backed ledger per call — there's no
 	// upfront padded pool to protect against in that path.
 	MarkupLedger RunLedger
+	// BatchPlatformFee suppresses the per-call flat markup on this call.
+	//
+	// Set ONLY by a caller that charges models.X402PlatformFeeUSDMicros once
+	// for a whole batch of calls itself (see handlers.PrismRepoReview). A repo
+	// review is N calls to one endpoint on the user's single instruction, and
+	// billing the flat fee N times turned a 30-file review into $48 of markup
+	// on $3 of vendor cost -- the fee is priced per user action, not per HTTP
+	// request.
+	//
+	// When true this call reserves and commits the vendor amount only, and
+	// settles no fee on-chain. The batch owner is then responsible for exactly
+	// one Commit + SettlePlatformFee covering the run; leaving this true
+	// without doing that means the platform is never paid at all.
+	BatchPlatformFee bool
 	// LegacyLedger is the original per-call, DB-backed ledger (always
 	// r.newPaymentLedger(wf, run), never the run-level in-memory pool) —
 	// what the legacy flat-quote dialect's direct-pay branch reserves/
@@ -1373,7 +1387,14 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 	// plus the platform's flat markup -- see executeTool402RunLevel's
 	// identical total/amount split for the run-funded path; both real x402
 	// dispatch paths bill the same way.
-	total := int64(amount) + models.X402PlatformFeeUSDMicros
+	// Zero when the caller bills one fee for a whole batch (see
+	// X402RelayConfig.BatchPlatformFee); every reserve/commit/settle below
+	// keys off this rather than the constant, so there is one switch.
+	perCallFee := models.X402PlatformFeeUSDMicros
+	if cfg.BatchPlatformFee {
+		perCallFee = 0
+	}
+	total := int64(amount) + perCallFee
 	//
 	// Reserve (atomically decrement) the exact amount now, before signing —
 	// not just check it — so a second call racing this one (another
@@ -1458,11 +1479,13 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 	if payResp.Header.Get("X-Inbound-Settled") == "true" {
 		out.SettledUSDMicros = int64(amount)
 		out.DebitKind = models.DebitKindX402RelayCost
-		out.PlatformFeeUSDMicros = models.X402PlatformFeeUSDMicros
+		out.PlatformFeeUSDMicros = perCallFee
 		settled = true
 		if commit := ledger.Commit; commit != nil {
 			commit(ctx, node.ID, int64(amount), models.DebitKindX402RelayCost)
-			commit(ctx, node.ID, models.X402PlatformFeeUSDMicros, models.DebitKindX402PlatformFee)
+			if perCallFee > 0 {
+				commit(ctx, node.ID, perCallFee, models.DebitKindX402PlatformFee)
+			}
 		}
 		// Settle the platform's own flat markup as a second, real Wallet 1
 		// -> Wallet 2 payment -- see SettlePlatformFee's doc comment for why
@@ -1498,7 +1521,7 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 		// the CRITICAL alert below is the actual backstop for the failure
 		// case -- worth revisiting if p95 tool-call latency under a
 		// degraded facilitator becomes a real product problem.
-		if cfg.Facilitator != nil {
+		if cfg.Facilitator != nil && perCallFee > 0 {
 			fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), SelfSettleRetryBudget)
 			feeTxID, feeErr := SettlePlatformFee(fctx, RunPreFundConfig{
 				USDCSigner:               usdcSigner,
@@ -1509,11 +1532,11 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 				RelayFeePayer:            cfg.RelayFeePayer,
 				ExpectedAssetID:          expectedAssetID,
 				FrontendURL:              cfg.FrontendURL,
-			}, models.X402PlatformFeeUSDMicros)
+			}, perCallFee)
 			cancel()
 			if feeErr != nil {
 				msg := fmt.Sprintf("CRITICAL: x402 platform fee failed to settle on-chain (node %s, target %s, fee %d): %v",
-					node.ID, node.Endpoint, models.X402PlatformFeeUSDMicros, feeErr)
+					node.ID, node.Endpoint, perCallFee, feeErr)
 				log.Print(msg)
 				go alert.Notify(context.Background(), alert.ChannelPayments, msg)
 			} else {

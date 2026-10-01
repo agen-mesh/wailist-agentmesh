@@ -199,3 +199,31 @@ func TestDebitCreditsForPlatformLLMInsufficientBalance(t *testing.T) {
 		t.Fatalf("err = %v, want ErrInsufficientCredits", err)
 	}
 }
+
+// A build's test run charges its platform-key agent calls with no run to
+// point at (migration 000037 makes run_id nullable for this kind only). The
+// debit must still be the same atomic check-and-decrement as any other.
+func TestDebitCreditsForBuildTestChargesWithoutARun(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	userID, workflowID, _ := setupDebitTestFixtures(t, store, 100000)
+
+	if err := store.DebitCreditsForBuildTest(ctx, userID, 30000, workflowID, "agent1", "gemini-2.5-flash"); err != nil {
+		t.Fatalf("a test-run charge with no run must be accepted: %v", err)
+	}
+	balance, err := store.GetCreditBalance(ctx, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 70000 {
+		t.Fatalf("balance = %d, want 70000", balance)
+	}
+
+	err = store.DebitCreditsForBuildTest(ctx, userID, 999999, workflowID, "agent1", "gemini-2.5-flash")
+	if !errors.Is(err, db.ErrInsufficientCredits) {
+		t.Fatalf("want ErrInsufficientCredits, got %v", err)
+	}
+	if balance, _ := store.GetCreditBalance(ctx, userID); balance != 70000 {
+		t.Fatalf("a refused charge must leave the balance alone, got %d", balance)
+	}
+}

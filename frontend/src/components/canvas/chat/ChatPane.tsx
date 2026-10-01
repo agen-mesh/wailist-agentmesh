@@ -25,9 +25,22 @@ interface ChatPaneProps {
   /** True while a run is in flight — the composer waits rather than queueing. */
   busy: boolean;
   onShowLogs?: () => void;
+  /** Rendered directly above the composer when a run cannot start. Sits
+   *  here rather than in the transcript so it stays put as the
+   *  conversation scrolls -- it explains the composer, not a past turn. */
+  blockedNode?: React.ReactNode;
+  /** Replaces the composer: there is nothing to send a message to. */
+  composerNote?: string;
 }
 
-export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
+export function ChatPane({
+  session,
+  onSend,
+  busy,
+  onShowLogs,
+  blockedNode,
+  composerNote,
+}: ChatPaneProps) {
   const [draft, setDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   // What `draft` held before the current dictation session started, so a
@@ -122,7 +135,7 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
           padding: "10px 14px",
           display: "flex",
           flexDirection: "column",
-          gap: 12,
+          gap: "var(--s-4)",
         }}
       >
         {session.hydrated && session.messages.length === 0 && (
@@ -132,7 +145,7 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
               textAlign: "center",
               maxWidth: "34ch",
               color: "var(--fg-dim)",
-              fontSize: 12,
+              fontSize: "var(--t-2)",
               lineHeight: 1.6,
             }}
           >
@@ -142,7 +155,7 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
                 display: "block",
                 marginTop: 8,
                 fontFamily: "var(--font-mono)",
-                fontSize: 10,
+                fontSize: "var(--t-0)",
                 lineHeight: 1.7,
               }}
             >
@@ -164,12 +177,13 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
 
       {/* Composer */}
       <div style={{ flexShrink: 0, minWidth: 0 }}>
+        {blockedNode}
         {stt.error && (
           <div
             role="alert"
             style={{
               padding: "6px 10px 0",
-              fontSize: 11,
+              fontSize: "var(--t-1)",
               lineHeight: 1.5,
               color: "var(--danger)",
             }}
@@ -177,13 +191,27 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
             {stt.error}
           </div>
         )}
+        {composerNote ? (
+          <div
+            style={{
+              minWidth: 0,
+              borderTop: "1px solid var(--border)",
+              padding: "14px 12px",
+              fontSize: "var(--t-1)",
+              lineHeight: 1.5,
+              color: "var(--fg-dim)",
+            }}
+          >
+            {composerNote}
+          </div>
+        ) : (
         <div
           style={{
             minWidth: 0,
             borderTop: "1px solid var(--border)",
             padding: 10,
             display: "flex",
-            gap: 8,
+            gap: "var(--s-3)",
             alignItems: "flex-end",
           }}
         >
@@ -224,7 +252,7 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
             borderRadius: "var(--r-2)",
             color: "var(--fg)",
             fontFamily: "var(--font-sans)",
-            fontSize: 13,
+            fontSize: "var(--t-3)",
             lineHeight: 1.5,
             outline: "none",
             opacity: busy ? 0.6 : 1,
@@ -273,7 +301,7 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
             borderRadius: "var(--r-2)",
             color: "var(--accent-fg)",
             fontFamily: "var(--font-sans)",
-            fontSize: 13,
+            fontSize: "var(--t-3)",
             fontWeight: 600,
             cursor: busy || draft.trim() === "" ? "default" : "pointer",
             opacity: busy || draft.trim() === "" ? 0.45 : 1,
@@ -283,6 +311,7 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
           Send
         </button>
         </div>
+        )}
       </div>
     </div>
   );

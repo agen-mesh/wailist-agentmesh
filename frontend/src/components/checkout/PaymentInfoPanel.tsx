@@ -2,12 +2,12 @@
 import { useState } from "react";
 import { Pill } from "@/components/ui";
 import type { PaymentMethod } from "./types";
+import type { PaymentProvider } from "./paymentProviders";
 import {
   USD_PROVIDERS,
   MIN_CRYPTO_AMOUNT_USD_CENTS,
   MAX_CRYPTO_AMOUNT_USD_CENTS,
 } from "./paymentProviders";
-import { usePaymentProviders } from "./usePaymentProviders";
 import { payments } from "@/lib/api";
 import { useCashfreeCheckout } from "./useCashfreeCheckout";
 
@@ -42,7 +42,9 @@ const PANEL_CSS = `
    cursor and hover affordance belong to the box, not the whole strip. */
 .checkout-agree { transition: border-color 0.15s var(--ease), background 0.15s var(--ease); }
 .checkout-agree:focus-within { border-color: var(--accent-line) !important; }
-.checkout-agree-box:hover span { border-color: var(--accent) !important; }
+@media (hover: hover) {
+  .checkout-agree-box:hover span { border-color: var(--accent) !important; }
+}
 @media (prefers-reduced-motion: reduce) {
   .checkout-pay, .checkout-provider { transition: none; }
 }
@@ -58,12 +60,21 @@ export function PaymentInfoPanel({
   amountINR,
   payable,
   onPaid,
+  providers,
+  usdPerINR,
+  providersLoading,
 }: {
   method: PaymentMethod;
   onMethodChange: (method: PaymentMethod) => void;
   amountINR: number;
   payable: boolean;
   onPaid: (creditsUSDOverride?: number) => void;
+  // Supplied by CheckoutModal, which fetches them once for the whole
+  // dialog. Mounting a second copy of usePaymentProviders here meant two
+  // requests for one rate, and two chances to disagree about it.
+  providers: PaymentProvider[];
+  usdPerINR: number;
+  providersLoading: boolean;
 }) {
   const [status, setStatus] = useState<PayStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -104,8 +115,6 @@ export function PaymentInfoPanel({
     onDismiss: () => setStatus("idle"),
   });
 
-  const { providers, usdPerINR, loading: providersLoading } =
-    usePaymentProviders();
   const selected = providers.find((p) => p.id === method);
 
   // NOWPayments charges in dollars while this panel is denominated in rupees,
@@ -119,9 +128,7 @@ export function PaymentInfoPanel({
   // (see usePaymentProviders), so only a USD gateway -- which needs that
   // fetch's rate to even price itself -- should block on it.
   const busy =
-    status === "processing" ||
-    cashfree.loading ||
-    (isUSD && providersLoading);
+    status === "processing" || cashfree.loading || (isUSD && providersLoading);
   const isSuccess = status === "success";
   // Cashfree specifically needs a real phone; other providers don't ask for
   // one, so this gate only applies when that method is selected.
@@ -180,9 +187,9 @@ export function PaymentInfoPanel({
   const trust = `Secured by ${selected?.label ?? "our payment provider"} · details are encrypted`;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-5)" }}>
       <style>{PANEL_CSS}</style>
-      <div style={{ fontSize: 16, fontWeight: 600, color: "var(--fg)" }}>
+      <div style={{ fontSize: "var(--t-4)", fontWeight: 600, color: "var(--fg)" }}>
         Payment method
       </div>
 
@@ -190,7 +197,7 @@ export function PaymentInfoPanel({
       <div
         role="radiogroup"
         aria-label="Payment method"
-        style={{ display: "flex", flexDirection: "column", gap: 10 }}
+        style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}
       >
         {providers.map((p) => {
           const active = method === p.id;
@@ -208,7 +215,7 @@ export function PaymentInfoPanel({
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 12,
+                gap: "var(--s-4)",
                 width: "100%",
                 textAlign: "left",
                 padding: "12px 14px",
@@ -226,7 +233,7 @@ export function PaymentInfoPanel({
                 style={{
                   width: 16,
                   height: 16,
-                  borderRadius: 999,
+                  borderRadius: "var(--r-full)",
                   flexShrink: 0,
                   border: `1px solid ${active ? "var(--accent)" : "var(--border-strong)"}`,
                   display: "inline-flex",
@@ -239,17 +246,17 @@ export function PaymentInfoPanel({
                     style={{
                       width: 8,
                       height: 8,
-                      borderRadius: 999,
+                      borderRadius: "var(--r-full)",
                       background: "var(--accent)",
                     }}
                   />
                 )}
               </span>
               <span
-                style={{ display: "flex", flexDirection: "column", gap: 2 }}
+                style={{ display: "flex", flexDirection: "column", gap: "var(--s-0)" }}
               >
-                <span style={{ fontSize: 13, fontWeight: 500 }}>{p.label}</span>
-                <span style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+                <span style={{ fontSize: "var(--t-3)", fontWeight: 500 }}>{p.label}</span>
+                <span style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)" }}>
                   {p.sublabel}
                 </span>
               </span>
@@ -266,10 +273,10 @@ export function PaymentInfoPanel({
       {/* Cashfree needs a real contact number on the order — shown only for
           that provider, since others don't ask for one. */}
       {method === "cashfree" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
           <label
             htmlFor="checkout-phone"
-            style={{ fontSize: 12, fontWeight: 500, color: "var(--fg-muted)" }}
+            style={{ fontSize: "var(--t-2)", fontWeight: 500, color: "var(--fg-muted)" }}
           >
             Phone number
           </label>
@@ -293,13 +300,13 @@ export function PaymentInfoPanel({
               }`,
               background: "var(--bg)",
               color: "var(--fg)",
-              fontSize: 13,
+              fontSize: "var(--t-3)",
               fontFamily: "var(--font-mono)",
             }}
           />
           <span
             style={{
-              fontSize: 11,
+              fontSize: "var(--t-1)",
               color:
                 phoneTouched && !phoneValid ? "var(--danger)" : "var(--fg-dim)",
             }}
@@ -318,10 +325,10 @@ export function PaymentInfoPanel({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: 6,
+            gap: "var(--s-2)",
             marginBottom: 12,
             color: "var(--fg-dim)",
-            fontSize: 12,
+            fontSize: "var(--t-2)",
           }}
         >
           <svg
@@ -361,7 +368,7 @@ export function PaymentInfoPanel({
             border: "1px solid var(--accent-line)",
             borderRadius: "var(--r-2)",
             color: isSuccess ? "var(--accent)" : "var(--accent-fg)",
-            fontSize: 14,
+            fontSize: "var(--t-4)",
             fontWeight: 600,
             cursor: canPay ? "pointer" : "default",
             opacity: !canPay && !isSuccess ? 0.5 : 1,
@@ -378,7 +385,7 @@ export function PaymentInfoPanel({
             style={{
               display: "flex",
               alignItems: "flex-start",
-              gap: 9,
+              gap: "var(--s-3)",
               marginTop: 12,
               padding: "10px 12px",
               borderRadius: "var(--r-2)",
@@ -403,7 +410,7 @@ export function PaymentInfoPanel({
                 style={{
                   width: 15,
                   height: 15,
-                  borderRadius: 4,
+                  borderRadius: "var(--r-1)",
                   border: `1.5px solid ${agreed ? "var(--accent)" : "var(--border-strong)"}`,
                   background: agreed ? "var(--accent)" : "transparent",
                   display: "inline-flex",
@@ -449,7 +456,7 @@ export function PaymentInfoPanel({
                 stay clickable. */}
             <span
               style={{
-                fontSize: 11.5,
+                fontSize: "var(--t-1)",
                 lineHeight: 1.6,
                 color: "var(--fg-muted)",
                 userSelect: "none",
@@ -493,7 +500,7 @@ export function PaymentInfoPanel({
           <p
             style={{
               margin: "10px 0 0",
-              fontSize: 12,
+              fontSize: "var(--t-2)",
               color: "var(--danger)",
               textAlign: "center",
             }}
@@ -506,7 +513,7 @@ export function PaymentInfoPanel({
           <p
             style={{
               margin: "10px 0 0",
-              fontSize: 12,
+              fontSize: "var(--t-2)",
               color: "var(--fg-dim)",
               textAlign: "center",
             }}
@@ -522,8 +529,8 @@ export function PaymentInfoPanel({
                   : isUSD && amountUSDCents > MAX_CRYPTO_AMOUNT_USD_CENTS
                     ? `Maximum $${(MAX_CRYPTO_AMOUNT_USD_CENTS / 100).toFixed(2)} for crypto payments.`
                     : !agreed
-                    ? "Please confirm the credit policy above to continue."
-                    : `You'll be redirected to ${selected?.label ?? "the provider"} to complete payment.`}
+                      ? "Please confirm the credit policy above to continue."
+                      : `You'll be redirected to ${selected?.label ?? "the provider"} to complete payment.`}
           </p>
         )}
       </div>

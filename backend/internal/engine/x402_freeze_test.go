@@ -39,6 +39,23 @@ import (
 // payment amounts/addresses/signing logic (the thing this test actually
 // guards) is unchanged. Digests below reflect the merged state.
 //
+// Updated 2026-09-25: executeTendrilTopup gained TendrilCoverHours. When set,
+// it reads the market (a free GET), skips with nothing paid if the user's
+// Tendril credit already covers renting the cheapest online machine for
+// that many hours, and otherwise raises the purchase to the shortfall
+// (rounded up to a cent, lifted to Tendril's minimum topup) before the
+// unchanged affordability check and payTendril call. Only the amount can
+// grow, and still inside Tendril's live max; addresses and signing are
+// untouched.
+//
+// Updated 2026-09-24: tendril.go's executeTendrilTopup gained an optional
+// TendrilMinBalance threshold -- when the user's Tendril credit is already
+// at or above it, the topup returns a "skipped" result BEFORE any platform
+// lookup or payTendril call. It is a pure early exit that moves no money;
+// the payment amounts/addresses/signing on the paying path are unchanged.
+// The one other edit on the paying path is that the user's Tendril balance
+// is now read once, before the threshold check, instead of after it.
+//
 // Updated again 2026-08-26, rebasing PR #65 onto current master, which moved
 // further while this PR was still open --
 //   - billing.go: BillableFlatFee gained "websearch" alongside "http" as a
@@ -109,20 +126,35 @@ import (
 // PR's ErrPaymentAlreadyCommitted wrapping on top of it; the digest below
 // is freshly computed from that merged file, not copied from either side.
 // No amount/address/signing logic touched by the merge itself.
+// Updated 2026-09-08 for the repo-review batch fee, with explicit sign-off.
+// tool402.go gains X402RelayConfig.BatchPlatformFee: when set, executeTool402V2Relay
+// reserves/commits the vendor amount ONLY and settles no markup on-chain, so a
+// caller that makes N calls on one user instruction can charge
+// models.X402PlatformFeeUSDMicros once for the whole batch instead of N times.
 //
-// Updated 2026-09-07 for issue #173 (automate Tendril renting): tendril.go
-// gained a new "auto" TendrilAction (executeTendrilAuto) that reuses an
-// already-active lease, or auto-tops-up and rents one for a default $1
-// budget, then runs the payload -- routed through the SAME performRent /
-// performTopup / payTendril helpers the existing explicit rent/topup actions
-// now share (extracted from executeTendrilRent/executeTendrilTopup verbatim,
-// no reservation/settlement/signing logic changed). The explicit
-// topup/rent/run/release actions are unchanged in behavior.
+// Why the payment path had to move: a repo-wide code review is one user action
+// that fans out to one x402 call per file. Billing the flat $1.50 per call made
+// a 30-file review cost $48 -- $45 of markup on $3 of vendor cost -- which is
+// not a pricing decision anyone made, just an artifact of the fee being keyed to
+// HTTP requests rather than to user actions.
+//
+// What did NOT change: no amount, address, asset, network, signing call, or
+// wallet-topology line. The three legs are the same three legs. The switch is a
+// single `perCallFee` variable that is models.X402PlatformFeeUSDMicros unless the
+// caller opts out, and every reserve/commit/settle site reads it instead of the
+// constant, so there is exactly one place the fee can be turned off.
+//
+// The zero value is OFF (fee charged normally) -- pinned by
+// nodes.TestBatchPlatformFeeIsOffByDefault, because a default that waived the
+// platform's fee on every call in the product is the most expensive possible
+// mistake here. The only caller that sets it is handlers.PrismRepoReview, which
+// is responsible for exactly one Commit + SettlePlatformFee covering the run.
+// Auto shares the current top-up and rent paths; provider minimums stay inside its budget.
 var frozenX402Files = map[string]string{
-	"nodes/tool402.go":             "af54224f3e2afd23ce5fb1f434bc1ff912b12af47f21e6f941291ae136e90860",
+	"nodes/tool402.go":             "4bbf33a779b3f9bc4002c90d56fd01cfefa11de71ce7de02181ce88d50fed16c",
 	"nodes/runfund.go":             "792e2a3c96465545119cebfcb744d487b79b27e5df7b9842ec643a98dce7b782",
 	"nodes/walletpay.go":           "98bb3f7d0cb167f8a50d050e04720738c63c68b9fd570758fa5b9604338a4e37",
-	"nodes/tendril.go":             "2ee8bb2fd73803d5df92fa063a3f4d5bdd793654e9dd1c3a1264b7f883e9330f",
+	"nodes/tendril.go":             "896b59d1f1eacdc0960e4bc37d7c4dcc0d7842e0a0cbb4901b2320c1f4ffb05d",
 	"nodes/billing.go":             "d6bc9e5931816840d99678f9015f7b186ae3069d54e28605aa618c367bf5beb9",
 	"nodes/tier.go":                "5718a3538e042c9d7f90b37f38b47d893644d6093f560d103ea9036c90ddc90b",
 	"../api/handlers/x402relay.go": "eacd56896816a213dd5658aa536c704db22362a5d787113cbf269d7fe7c1d858",

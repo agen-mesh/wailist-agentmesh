@@ -299,3 +299,35 @@ func TestRelayUnpayableSeparatesMisconfigurationFromAQuietTarget(t *testing.T) {
 		}
 	}
 }
+
+// TestRepoReviewFileCapIsEnforceable guards the blast radius. Each file is a
+// paid call, so an unbounded list is an unbounded bill.
+func TestRepoReviewFileCapIsEnforceable(t *testing.T) {
+	if maxRepoReviewFiles <= 0 || maxRepoReviewFiles > 200 {
+		t.Fatalf("maxRepoReviewFiles = %d; a cap outside 1..200 is either useless or a runaway bill", maxRepoReviewFiles)
+	}
+	// At PRISM's cheapest tier the cap still authorises real money, so the
+	// number should be chosen deliberately rather than drifting upward.
+	worst := int64(maxRepoReviewFiles) * 100_000
+	if worst > 15_000_000 {
+		t.Errorf("the cap authorises $%.2f of vendor spend in one request; that is too much to allow without a second confirmation", float64(worst)/1e6)
+	}
+}
+
+// TestRepoReviewRejectsUnreviewablePathsServerSide is the counterpart to the
+// client-side file list. The browser sends paths it got from us, but a caller
+// can post anything — and an unfiltered path means paying to "review" a
+// lockfile, or reaching outside the repo entirely.
+func TestRepoReviewRejectsUnreviewablePathsServerSide(t *testing.T) {
+	for _, p := range []string{
+		"package-lock.json",
+		"node_modules/react/index.js",
+		"dist/bundle.min.js",
+		"../../etc/passwd",
+		"README.md",
+	} {
+		if got := prism.ClassifyFile(p, 1); got.Skip == "" {
+			t.Errorf("%q would be sent and paid for by the repo reviewer", p)
+		}
+	}
+}

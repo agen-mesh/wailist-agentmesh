@@ -11,7 +11,11 @@ import {
   IconPlay,
   IconStop,
 } from "@/components/ui";
-import { workflows as workflowsApi, runs as runsApi } from "@/lib/api";
+import {
+  workflows as workflowsApi,
+  runs as runsApi,
+  BuildRequestError,
+} from "@/lib/api";
 import {
   useCredits,
   refreshBalance as refreshCredits,
@@ -25,9 +29,24 @@ import { ResizeHandle } from "./ResizeHandle";
 import { ChatRail } from "./chat/ChatRail";
 import { useChatConsole, type ChatConsole } from "./chat/useChatConsole";
 import { can } from "@/lib/readonly";
+import { workflowHref } from "@/lib/routes";
 import { ghostBtnSm, primaryBtnSm } from "@/components/ui/buttons";
 import { useIsCompact } from "@/hooks/useIsCompact";
-import { runBlockedMessage } from "./runBlocked";
+import { runBlockedReason } from "./runBlocked";
+import {
+  isGraphRunnable,
+  agentMissingModel,
+  firstUnreachedStep,
+  hasFlowLoop,
+  shouldReleaseBuildMode,
+} from "./buildModeRelease";
+import { RunBlockedCard } from "./chat/RunBlockedCard";
+import {
+  newBuildId,
+  startProgressPolling,
+  waitForFinishedBuild,
+  type BuildProgress,
+} from "./chat/buildProgress";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import { ShareModal } from "@/components/workflows/ShareModal";
 import {
@@ -57,6 +76,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [logOpen, setLogOpen] = useState(false);
   const [manualBuildMode, setManualBuildMode] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  // The card reappears whenever the obstacle changes -- dismissing "not
+  // deployed" should not also silence "no model attached" later.
+  const [dismissedBlock, setDismissedBlock] = useState<string | null>(null);
   // Below the compact breakpoint the studio stacks instead of sitting in
   // three columns, and the rail becomes a sheet. Closed by default: the
   // reader came to look at the graph, so the graph gets the screen until
@@ -72,7 +95,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   // refetches against the freshly persisted graph.
   const [estimateTick, setEstimateTick] = useState(0);
   const [running, setRunning] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    tone: "ok" | "warn" | "error";
+  } | null>(null);
   const [saveLabel, setSaveLabel] = useState("");
   const [runId, setRunId] = useState<string | null>(null);
   const [resumeAttempt, setResumeAttempt] = useState(0);
@@ -194,7 +220,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       workflowsApi
         .create("Untitled workflow")
         .then((wf) => {
-          if (!cancelled) router.replace(`/workflows/${wf.id}`);
+          if (!cancelled) router.replace(workflowHref(wf.id));
         })
         .catch(() => {
           if (!cancelled) setLoading(false);
@@ -316,10 +342,26 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     return out;
   }, [workflow]);
 
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2400);
-  }, []);
+  // Errors dwell longer than confirmations: 2.4s is enough to register "Run
+  // started", not enough to read and act on a failure.
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback(
+    (message: string, tone: "ok" | "warn" | "error" = "ok") => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      setToast({ message, tone });
+      toastTimer.current = setTimeout(
+        () => setToast(null),
+        tone === "ok" ? 2400 : 6000,
+      );
+    },
+    [],
+  );
+  useEffect(
+    () => () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    },
+    [],
+  );
 
   const handleResume = useCallback(
     async (deadLetterRunId: string) => {
@@ -332,7 +374,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       // silently no-opping while the button still looks clickable.
       const targetRunId = runId ?? deadLetterRunId;
       if (!targetRunId) {
-        showToast("Nothing to resume — start the workflow again to retry it.");
+        showToast(
+          "Nothing to resume — start the workflow again to retry it.",
+          "warn",
+        );
         return;
       }
       try {
@@ -344,6 +389,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       } catch (err) {
         showToast(
           `Resume failed · ${err instanceof Error ? err.message : "unknown error"}`,
+          "error",
         );
       }
     },
@@ -405,6 +451,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       showToast("Re-deployed");
       return;
     }
+    setDeploying(true);
     try {
       const res = await workflowsApi.deploy(workflow.id);
       setDeployed(true);
@@ -415,7 +462,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     } catch (err: unknown) {
       showToast(
         `Deploy failed · ${err instanceof Error ? err.message : "unknown error"}`,
+        "error",
       );
+    } finally {
+      setDeploying(false);
     }
   }, [deployed, workflow, showToast]);
 
@@ -427,28 +477,64 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     [workflow],
   );
 
-  // No provider node yet means there is nothing to run -- chat always
-  // builds in that state. Once one exists, the Build/Run pill decides.
   const hasProviderNode = useMemo(
     () => workflow?.nodes.some((n) => n.type === "provider") ?? false,
     [workflow],
   );
 
+  // Whether the graph itself could run -- decided from its wiring, not from
+  // whether a provider node exists. A tool-only pipeline (trigger -> http ->
+  // json_extract -> end) needs no provider and runs fine; the chat builder
+  // now builds exactly that for fetch-and-save requests, and gating on a
+  // provider left such a workflow stuck in build mode behind a "No model
+  // attached yet" card.
+  const graphReady = useMemo(
+    () => (workflow ? isGraphRunnable(workflow.nodes, workflow.edges) : false),
+    [workflow],
+  );
+  const missingModel = useMemo(
+    () => (workflow ? agentMissingModel(workflow.nodes, workflow.edges) : false),
+    [workflow],
+  );
+  const flowLoop = useMemo(
+    () => (workflow ? hasFlowLoop(workflow.nodes, workflow.edges) : false),
+    [workflow],
+  );
+  const unreachedStep = useMemo(() => {
+    if (!workflow) return undefined;
+    const n = firstUnreachedStep(workflow.nodes, workflow.edges);
+    return n ? n.name || n.label || n.template || n.type : undefined;
+  }, [workflow]);
+
   // Null when a run can proceed. Naming the real obstacle matters most to a
   // viewer, who cannot deploy and so cannot act on "deploy first" at all.
-  const runBlocked = useMemo(
+  const blockedReason = useMemo(
     () =>
-      runBlockedMessage({
+      runBlockedReason({
         deployed,
-        hasProviderNode,
+        graphReady,
+        agentMissingModel: missingModel,
+        unreachedStep,
+        flowLoop,
         canDeploy: can("workflow.deploy", readOnly),
       }),
-    [deployed, hasProviderNode, readOnly],
+    [deployed, graphReady, missingModel, unreachedStep, flowLoop, readOnly],
   );
+  const runBlocked = blockedReason?.detail ?? null;
+  const showBlockedCard =
+    blockedReason !== null && dismissedBlock !== blockedReason.code;
 
+  // Nothing that could run yet means chat always builds. Once the graph is
+  // runnable -- or has a provider, which kept the Build/Run choice available
+  // for hand-built workflows before readiness was judged from the graph --
+  // the Build/Run switch decides.
+  //
+  // A chat trigger is required too: without one a run carries no message, so
+  // a run conversation would be typing into something that never reads it.
+  const canLeaveBuildMode = (graphReady || hasProviderNode) && hasChatTrigger;
   const buildMode =
     can("workflow.buildFromChat", readOnly) &&
-    (!hasProviderNode || manualBuildMode);
+    (!canLeaveBuildMode || manualBuildMode);
 
   // Returns the new run's id, or null when no run started. Callers that own a
   // chat turn need that signal: a failure here only raises a toast, and
@@ -474,6 +560,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       } catch (err: unknown) {
         showToast(
           `Run failed · ${err instanceof Error ? err.message : "unknown error"}`,
+          "error",
         );
         return null;
       }
@@ -482,34 +569,109 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   );
 
   const startBuild = useCallback(
-    async (text: string): Promise<{ ok: boolean; reply?: string }> => {
+    async (
+      text: string,
+      onProgress?: (p: BuildProgress) => void,
+    ): Promise<{ ok: boolean; reply?: string; onSettled?: () => void }> => {
       if (!workflow) return { ok: false };
-      // Latch build mode on for the rest of the session. Without this, the
-      // provider node this very call is about to add flips hasProviderNode
-      // true, and the next message would route to a run instead of
-      // continuing the conversation. Latching here (rather than defaulting
-      // manualBuildMode to true) keeps an already-populated workflow that is
-      // merely being reopened in run mode until the user actually builds.
+      // Poll the build's steps while it runs so the chat can show them. The
+      // poller is stopped -- with one final flush -- before this returns, so
+      // every step is on the turn before it settles.
+      const buildId = newBuildId();
+      const wfId = workflow.id;
+      const before = { nodes: workflow.nodes, edges: workflow.edges };
+      const poller = onProgress
+        ? startProgressPolling(
+            () => workflowsApi.buildProgress(wfId, buildId),
+            onProgress,
+            1000,
+          )
+        : null;
+      // Latch build mode on for the duration of THIS call. Without it, the
+      // nodes this very call is about to add can make the graph runnable
+      // while the request is still in flight, and a message sent in that
+      // window would route to a run instead of continuing the conversation. Latching here (rather than defaulting manualBuildMode
+      // to true) keeps an already-populated workflow that is merely being
+      // reopened in run mode until the user actually builds.
       setManualBuildMode(true);
       try {
         // The backend loads the graph fresh from the DB, so a drag still
         // sitting in the autosave debounce would be invisible to it and lost
         // when the build response replaces local state.
         await flushPendingSave();
-        const res = await workflowsApi.build(workflow.id, text);
+        const res = await workflowsApi.build(workflow.id, text, buildId);
+        await poller?.stop();
         setWorkflow((wf) =>
           wf
             ? { ...wf, nodes: res.workflow.nodes, edges: res.workflow.edges }
             : wf,
         );
-        return { ok: true, reply: res.reply };
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "unknown error";
-        showToast(`Build failed · ${message}`);
+        // ...and release it the moment the graph can actually run. The latch
+        // used to be permanent, so once the builder had produced a workflow
+        // every later message still went to the builder: the user typed "run
+        // it" and got another build summary back. Released only when this
+        // build made a graph that could not run runnable -- a half-built one
+        // keeps the conversation going, and a user who chose Build on an
+        // already-runnable workflow keeps that choice (shouldReleaseBuildMode).
+        // Handed back rather than applied here: the caller settles the chat
+        // turn first, because the mode change swaps the transcript out from
+        // under it.
         return {
-          ok: false,
-          reply: `Could not update the workflow: ${message}`,
+          ok: true,
+          reply: res.reply,
+          onSettled: shouldReleaseBuildMode(before, res.workflow)
+            ? () => setManualBuildMode(false)
+            : undefined,
         };
+      } catch (err: unknown) {
+        await poller?.stop();
+        const message = err instanceof Error ? err.message : "unknown error";
+        const fail = (reply: string) => {
+          showToast(`Build failed · ${message}`, "error");
+          return { ok: false, reply };
+        };
+        // The backend answered with an error, so the build is over and the
+        // message is the real reason.
+        if (err instanceof BuildRequestError && err.answered) {
+          return fail(`Could not update the workflow: ${message}`);
+        }
+        // Otherwise the request died on its way back, and the build -- which
+        // the backend runs detached from the request -- may still be going.
+        // Wait for it, with its steps still showing, rather than calling a
+        // build failed that is about to finish and save.
+        const outcome = await waitForFinishedBuild(
+          () => workflowsApi.buildProgress(wfId, buildId),
+          { onProgress },
+        );
+        if (outcome.kind === "ended") {
+          return fail(
+            "The builder stopped without finishing, so nothing was saved. Send your message again.",
+          );
+        }
+        if (outcome.kind === "unknown") {
+          return fail(
+            "Lost contact with the builder while it was working. It may still have finished: reload the page to see the latest workflow.",
+          );
+        }
+        // The saved graph is reloaded from the workflow record rather than
+        // trusted from anywhere else.
+        try {
+          const saved = await workflowsApi.get(wfId);
+          setWorkflow((wf) =>
+            wf ? { ...wf, nodes: saved.nodes, edges: saved.edges } : wf,
+          );
+          return {
+            ok: true,
+            reply: outcome.reply,
+            onSettled: shouldReleaseBuildMode(before, saved)
+              ? () => setManualBuildMode(false)
+              : undefined,
+          };
+        } catch {
+          // The reply is real even if the reload failed; show it, and let
+          // the next autosave cycle or a reload bring the canvas up to date.
+          return { ok: true, reply: outcome.reply };
+        }
       }
     },
     [workflow, showToast, flushPendingSave],
@@ -567,8 +729,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     // Consume the param either way: a malformed value must not re-trigger on
     // every render, and must not survive a refresh as a phantom pending node.
     consumedAdd.current = pendingAdd;
-    router.replace(`/workflows/${workflow.id}`);
-    if (!meta) return;
+    router.replace(workflowHref(workflow.id));
+    // A client that cannot edit the graph drops the handoff as well. The
+    // Bazaar hides Add there, so this covers a link opened directly.
+    if (!meta || !canEdit) return;
     // Drop it slightly off-centre so it never lands exactly on an existing
     // node when several are added in a row. Wraps every 8 nodes instead of
     // growing with workflow.nodes.length forever -- otherwise a workflow
@@ -597,7 +761,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setWorkflow((wf) => (wf ? { ...wf, nodes: [...wf.nodes, node] } : wf));
     showToast(`Added ${meta.name ?? "endpoint"} to the canvas`);
-  }, [pendingAdd, workflow, router, setWorkflow, showToast]);
+  }, [pendingAdd, workflow, canEdit, router, setWorkflow, showToast]);
 
   // Wrapper typed as non-null so child components don't need to change.
   // Safe because children only render after the null guard above.
@@ -694,51 +858,55 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         {/* Collapsed: the column and its resize handle give way to a thin
             rail, so the canvas gets the full ~280px back without the palette
             disappearing with no way to bring it back. */}
-        {!compact && can("workflow.editGraph", readOnly) && paletteCollapsed && (
-          <button
-            type="button"
-            onClick={() => setPaletteCollapsed(false)}
-            title="Expand the library"
-            aria-label="Expand the library"
-            style={{
-              flexShrink: 0,
-              width: 26,
-              alignSelf: "stretch",
-              background: "var(--bg-elev-1)",
-              border: "none",
-              borderRight: "1px solid var(--border)",
-              color: "var(--fg-muted)",
-              cursor: "pointer",
-              fontSize: 12,
-            }}
-          >
-            ›
-          </button>
-        )}
-
-        {!compact && can("workflow.editGraph", readOnly) && !paletteCollapsed && (
-          <>
-            <PalettePanel
-              onDragNodeStart={onDragNodeStart}
-              onAddNode={(meta) => addAtCentre.current?.(meta)}
-              width={paletteW}
-              onCollapse={() => setPaletteCollapsed(true)}
-            />
-            <ResizeHandle
-              side="left"
-              value={paletteW}
-              min={PALETTE.min}
-              max={PALETTE.max}
-              ariaLabel="Resize palette panel"
-              onChange={resizePalette}
-              onCommit={persistWidths}
-              onReset={() => {
-                setPaletteW(PALETTE.default);
-                persistWidths();
+        {!compact &&
+          can("workflow.editGraph", readOnly) &&
+          paletteCollapsed && (
+            <button
+              type="button"
+              onClick={() => setPaletteCollapsed(false)}
+              title="Expand the library"
+              aria-label="Expand the library"
+              style={{
+                flexShrink: 0,
+                width: 26,
+                alignSelf: "stretch",
+                background: "var(--bg-elev-1)",
+                border: "none",
+                borderRight: "1px solid var(--border)",
+                color: "var(--fg-muted)",
+                cursor: "pointer",
+                fontSize: 12,
               }}
-            />
-          </>
-        )}
+            >
+              ›
+            </button>
+          )}
+
+        {!compact &&
+          can("workflow.editGraph", readOnly) &&
+          !paletteCollapsed && (
+            <>
+              <PalettePanel
+                onDragNodeStart={onDragNodeStart}
+                onAddNode={(meta) => addAtCentre.current?.(meta)}
+                width={paletteW}
+                onCollapse={() => setPaletteCollapsed(true)}
+              />
+              <ResizeHandle
+                side="left"
+                value={paletteW}
+                min={PALETTE.min}
+                max={PALETTE.max}
+                ariaLabel="Resize palette panel"
+                onChange={resizePalette}
+                onCommit={persistWidths}
+                onReset={() => {
+                  setPaletteW(PALETTE.default);
+                  persistWidths();
+                }}
+              />
+            </>
+          )}
 
         <ChatConsoleHost
           runId={runId}
@@ -788,6 +956,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                   elapsed={chat.elapsed}
                   done={chat.done}
                   deadLetters={chat.deadLetters}
+                  costs={chat.costs}
                   onResume={handleResume}
                 />
               </div>
@@ -817,9 +986,24 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                       buildMode={buildMode}
                       canToggleBuildMode={
                         can("workflow.buildFromChat", readOnly) &&
-                        hasProviderNode
+                        canLeaveBuildMode
                       }
-                      onToggleBuildMode={() => setManualBuildMode((v) => !v)}
+                      onToggleBuildMode={
+                        can("workflow.buildFromChat", readOnly)
+                          ? () => setManualBuildMode((v) => !v)
+                          : undefined
+                      }
+                      hasChatTrigger={hasChatTrigger}
+                      blockedNode={
+                        showBlockedCard && blockedReason ? (
+                          <RunBlockedCard
+                            reason={blockedReason}
+                            deploying={deploying}
+                            onDeploy={onDeploy}
+                            onDismiss={() => setDismissedBlock(blockedReason.code)}
+                          />
+                        ) : undefined
+                      }
                       inspectorNode={
                         <Inspector
                           selected={selected}
@@ -872,9 +1056,25 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                     width={inspectorW}
                     buildMode={buildMode}
                     canToggleBuildMode={
-                      can("workflow.buildFromChat", readOnly) && hasProviderNode
+                      can("workflow.buildFromChat", readOnly) &&
+                      canLeaveBuildMode
                     }
-                    onToggleBuildMode={() => setManualBuildMode((v) => !v)}
+                    onToggleBuildMode={
+                      can("workflow.buildFromChat", readOnly)
+                        ? () => setManualBuildMode((v) => !v)
+                        : undefined
+                    }
+                    hasChatTrigger={hasChatTrigger}
+                    blockedNode={
+                      showBlockedCard && blockedReason ? (
+                        <RunBlockedCard
+                          reason={blockedReason}
+                          deploying={deploying}
+                          onDeploy={onDeploy}
+                          onDismiss={() => setDismissedBlock(blockedReason.code)}
+                        />
+                      ) : undefined
+                    }
                     inspectorNode={
                       <Inspector
                         selected={selected}
@@ -896,7 +1096,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         </ChatConsoleHost>
       </div>
 
-      {toast && <Toast message={toast} />}
+      {toast && <Toast message={toast.message} tone={toast.tone} />}
     </div>
   );
 }
@@ -926,7 +1126,10 @@ function ChatConsoleHost({
   workflowId?: string;
   onSendMessage?: (text: string) => Promise<boolean>;
   buildMode?: boolean;
-  onBuildMessage?: (text: string) => Promise<{ ok: boolean; reply?: string }>;
+  onBuildMessage?: (
+    text: string,
+    onProgress?: (p: BuildProgress) => void,
+  ) => Promise<{ ok: boolean; reply?: string; onSettled?: () => void }>;
   attempt?: number;
   children: (chat: ChatConsole) => React.ReactNode;
 }) {
@@ -964,8 +1167,9 @@ const nameFieldStyle: React.CSSProperties = {
   maxWidth: 480,
   // A floor, not 0. With minWidth:0 the field collapsed to 12px on a narrow
   // topbar -- the workflow name was simply gone. 120px keeps enough to read
-  // and to recognise, and the text ellipsizes from there.
-  minWidth: 120,
+  // and to recognise, and the text ellipsizes from there. A phone lowers the
+  // floor through the token (see .am-canvas-bar in responsive.css).
+  minWidth: "var(--canvas-name-min, 120px)",
   overflow: "hidden",
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
@@ -1008,7 +1212,7 @@ function CanvasTopbar({
   onRun: () => void;
   /** Why the Run button is disabled, or null when a run can proceed --
    *  computed once in CanvasPage (runBlockedMessage) so this component
-   *  doesn't need its own copy of hasProviderNode/canDeploy to derive it. */
+   *  doesn't need its own copy of graphReady/canDeploy to derive it. */
   runBlocked: string | null;
   saveLabel: string;
   /** Bumped by CanvasPage after each successful deploy so the run-cost
@@ -1021,8 +1225,7 @@ function CanvasTopbar({
   // financial cluster. The value comes from the backend (the same row the
   // engine debits), so it is only meaningful once that fetch has landed —
   // hence balanceKnown, which separates a real $0 from "not asked yet".
-  const { balanceUSD, balanceKnown, refreshBalance } =
-    useCredits();
+  const { balanceUSD, balanceKnown, refreshBalance } = useCredits();
   const lowBalance = balanceKnown && balanceUSD < LOW_BALANCE_THRESHOLD_USD;
   const [shareOpen, setShareOpen] = useState(false);
   const [estimate, setEstimate] = useState<CostEstimate | null>(null);
@@ -1057,12 +1260,16 @@ function CanvasTopbar({
         borderBottom: "1px solid var(--border)",
         display: "flex",
         alignItems: "center",
-        padding: "0 14px",
-        gap: 14,
+        // Tokens, defaulting to the desktop values: see .am-canvas-bar in
+        // responsive.css for the phone step.
+        padding: "0 var(--canvas-bar-pad, 14px)",
+        gap: "var(--canvas-bar-gap, 14px)",
       }}
+      className="am-canvas-bar"
     >
       <button
         onClick={onBack}
+        className="am-canvas-bar__wide"
         style={{
           background: "transparent",
           border: "none",
@@ -1073,14 +1280,18 @@ function CanvasTopbar({
       >
         <Logo size={16} />
       </button>
-      <Hairline vertical length={20} />
+      <Hairline className="am-canvas-bar__wide" vertical length={20} />
       <button
         onClick={onBack}
+        aria-label="Back to workflows"
+        className="am-canvas-bar__back"
         style={{ ...ghostBtnSm, flexShrink: 0, whiteSpace: "nowrap" }}
       >
-        ← Workflows
+        ←<span className="am-canvas-bar__label"> Workflows</span>
       </button>
-      <span style={{ color: "var(--fg-dim)" }}>/</span>
+      <span className="am-canvas-bar__wide" style={{ color: "var(--fg-dim)" }}>
+        /
+      </span>
       {can("workflow.editGraph", readOnly) ? (
         <input
           value={workflow.name}
@@ -1112,13 +1323,6 @@ function CanvasTopbar({
         </span>
       )}
       {saveLabel && <Pill mono>{saveLabel}</Pill>}
-      {!can("workflow.editGraph", readOnly) && (
-        <span title="Editing happens in the AgentMesh desktop app.">
-          <Pill mono dot tone="warm">
-            viewing only
-          </Pill>
-        </span>
-      )}
 
       <div style={{ flex: 1 }} />
 
@@ -1127,7 +1331,7 @@ function CanvasTopbar({
           display: "flex",
           alignItems: "center",
           gap: 14,
-          padding: "0 14px",
+          padding: "0 var(--canvas-stats-pad, 14px)",
           borderLeft: "1px solid var(--border)",
           borderRight: "1px solid var(--border)",
           height: 36,
@@ -1137,11 +1341,12 @@ function CanvasTopbar({
         {estLabel && (
           <>
             <span
+              className="am-canvas-bar__wide"
               title="Estimated credits for one run of this workflow. Refreshes when you deploy."
             >
               <Stat label="est. run" value={estLabel} />
             </span>
-            <Hairline vertical length={18} />
+            <Hairline className="am-canvas-bar__wide" vertical length={18} />
           </>
         )}
         <Stat
@@ -1202,7 +1407,7 @@ function CanvasTopbar({
         title={runBlocked ?? "Run workflow"}
         style={{
           ...primaryBtnSm,
-          minWidth: 86,
+          minWidth: "var(--canvas-run-min, 86px)",
           justifyContent: "center",
           opacity: runBlocked ? 0.5 : 1,
         }}
@@ -1217,8 +1422,9 @@ function CanvasTopbar({
           </>
         )}
       </button>
-      <Hairline vertical length={20} />
+      <Hairline className="am-canvas-bar__wide" vertical length={20} />
       <div
+        className="am-canvas-bar__wide"
         style={{
           width: 28,
           height: 28,

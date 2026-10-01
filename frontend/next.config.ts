@@ -15,7 +15,11 @@ const nextConfig: NextConfig = {
   // meta-agent loop can take several sequential Gemini round trips per
   // message. Give it more room.
   experimental: {
-    proxyTimeout: 120000,
+    // Vercel's function timeout is 300s on all plans; this was 120s from
+    // when it was 60-90s. The builder's own budget is set under this
+    // (nodes.defaultBuildTimeBudget) so a finished build still has somewhere
+    // to send its reply.
+    proxyTimeout: 300000,
   },
   async rewrites() {
     if (!BACKEND_URL) return [];

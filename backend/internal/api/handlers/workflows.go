@@ -1,13 +1,16 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/robfig/cron/v3"
 
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine"
@@ -78,10 +81,26 @@ func (d *Deps) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusNotFound, "workflow not found")
 		return
 	}
+	// The figures a workflow's own screen shows. Like the list, a failure
+	// here leaves them out rather than failing the whole response -- and
+	// says so, because the zero values it leaves behind are indistinguishable
+	// from a workflow that simply had no runs or spend in the window.
+	if err := d.loadWorkflowStats(r.Context(), userID, &wf); err != nil {
+		log.Printf("workflow %s stats: %v", wf.ID, err)
+		wf.StatsUnavailable = true
+	}
+	if n, err := d.Store.CountRuns(r.Context(), wf.ID); err != nil {
+		log.Printf("workflow %s run count: %v", wf.ID, err)
+	} else {
+		wf.TotalRuns = &n
+	}
 	decrypted := decryptNodes(wf.Nodes, d.EncryptionKey)
 	wf.Nodes = unmaskWebhookSecrets(maskNodes(wf.Nodes), decrypted)
 	respond.JSON(w, http.StatusOK, wf)
 }
+
+// maxDescriptionLen matches the CHECK on workflows.description.
+const maxDescriptionLen = 2000
 
 // EstimateWorkflowCost returns a static low/high USD-micros band for one
 // run of the workflow. It reads only non-secret node fields (node type,
@@ -110,8 +129,19 @@ func (d *Deps) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		Name  string                `json:"name"`
 		Nodes []models.WorkflowNode `json:"nodes"`
 		Edges []models.WorkflowEdge `json:"edges"`
+		// Optional. Absent leaves the description as it is, so a save
+		// that does not know about it (the editor's) never clears it.
+		Description *string `json:"description"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
+	var description string
+	if body.Description != nil {
+		description = strings.TrimSpace(*body.Description)
+		if len([]rune(description)) > maxDescriptionLen {
+			respond.Error(w, http.StatusBadRequest, "Description is too long. Keep it under 2000 characters.")
+			return
+		}
+	}
 	// is_system is the real identity guard (FindSystemWorkflow requires it,
 	// so a rename alone can no longer forge a console). This check exists so
 	// the collision shape can't arise at all: an ordinary workflow renamed to
@@ -127,7 +157,11 @@ func (d *Deps) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	encryptedNodes := encryptNodes(body.Nodes, d.EncryptionKey, existing.Nodes)
 	encryptedNodes = ensureWebhookSecrets(encryptedNodes, d.EncryptionKey)
 	graph := models.WorkflowGraph{Nodes: encryptedNodes, Edges: body.Edges}
-	wf, err := d.Store.UpdateWorkflow(r.Context(), id, body.Name, graph)
+	var newDescription *string
+	if body.Description != nil {
+		newDescription = &description
+	}
+	wf, err := d.Store.UpdateWorkflowAndDescription(r.Context(), id, body.Name, graph, newDescription)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -278,19 +312,117 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Message string `json:"message"`
+		// BuildID, when the client supplies one, lets it poll
+		// BuildWorkflowProgress for this build's steps while it runs.
+		BuildID string `json:"buildId"`
+		// TimeZone is the browser's IANA zone, which set_schedule reads the
+		// user's "9 am" in.
+		TimeZone string `json:"timeZone"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 	if strings.TrimSpace(body.Message) == "" {
 		respond.Error(w, http.StatusBadRequest, "message required")
 		return
 	}
+	// What the chat will show once this build is done, read by the deferred
+	// finish below. See buildProgressEntry.reply for why the POST response is
+	// not enough on its own.
+	var finishedReply string
+	var onProgress func(nodes.BuildProgress)
+	if buildIDPattern.MatchString(body.BuildID) {
+		key := buildProgressKey(userID, id, body.BuildID)
+		onProgress = func(p nodes.BuildProgress) { buildProgress.set(key, p) }
+		// Deferred, so "done" is only reported once the workflow has been
+		// saved -- or the build has failed -- never while the save is pending.
+		//
+		// The reply is captured through a closure rather than passed in
+		// directly: this runs on every exit path, and on the ones that never
+		// produced a reply the empty string is the right answer. A build that
+		// ended without an answer is still finished, and the chat has to be
+		// able to tell that from one still running.
+		defer func() { buildProgress.finish(key, finishedReply) }()
+	}
 	if d.PlatformGeminiAPIKey == "" {
 		respond.Error(w, http.StatusServiceUnavailable, "workflow builder is not configured")
 		return
 	}
 
+	// Prior turns give a follow-up something to refer back to. A failure to
+	// load them is not a reason to refuse the build -- degrade to a cold turn
+	// rather than blocking the user on a history read.
+	var history []nodes.BuildTurn
+	stored, err := d.Store.GetBuildMessages(r.Context(), id, db.DefaultBuildHistoryTurns)
+	if err != nil {
+		log.Printf("build workflow %s: load history: %v", id, err)
+	}
+	for _, m := range stored {
+		history = append(history, nodes.BuildTurn{Role: m.Role, Text: m.Text})
+	}
+
+	// Taken before the build, not after: what the build started from is
+	// what a mid-build save is compared against, and nothing the build does
+	// may be able to change it.
+	startedFrom := graphFingerprint(decryptNodes(existing.Nodes, d.EncryptionKey), existing.Edges)
 	maskedGraph := models.WorkflowGraph{Nodes: redactNodesForBuildAgent(existing.Nodes), Edges: existing.Edges}
-	result, err := nodes.BuildGraph(r.Context(), d.PlatformGeminiAPIKey, body.Message, maskedGraph)
+	// Detached from the request: if the client goes away mid-build (a proxy
+	// timeout, a closed tab), the build still finishes and is saved, so the
+	// work shows up on reload instead of vanishing. BuildGraph bounds its own
+	// running time, so nothing here can run away.
+	buildCtx := context.WithoutCancel(r.Context())
+	result, err := nodes.BuildGraph(buildCtx, nodes.BuildRequest{
+		APIKey:      d.PlatformGeminiAPIKey,
+		Message:     body.Message,
+		Graph:       maskedGraph,
+		History:     history,
+		X402Catalog: d.catalog,
+		TraceID:     id,
+		OnProgress:  onProgress,
+		TimeZone:    body.TimeZone,
+		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) nodes.DryRunResult {
+			// The builder edits a redacted copy: credentials are the "__enc__"
+			// sentinel. Merge them back exactly as the save below does, then
+			// decrypt, so the test calls a connector with the user's real key
+			// rather than the placeholder. Nothing here is persisted.
+			merged := encryptNodes(g.Nodes, d.EncryptionKey, existing.Nodes)
+			runnable := models.WorkflowGraph{Nodes: decryptNodes(merged, d.EncryptionKey), Edges: g.Edges}
+			keys := nodes.PlatformKeys()
+			if len(keys) == 0 {
+				keys = map[string]string{"gemini": d.PlatformGeminiAPIKey}
+			}
+			// Variables loaded as a run loads them, so a test calls the URL a
+			// run would. Unreadable variables degrade to none, as in a run.
+			vars, err := d.Store.GetWorkflowVariables(ctx, id)
+			if err != nil {
+				log.Printf("build workflow %s: load variables for test run: %v", id, err)
+			}
+			return engine.DryRun(ctx, runnable, engine.DryRunOptions{
+				Input:        input,
+				State:        vars,
+				PlatformKeys: keys,
+				// The same gate a run's preflight applies. A test run is not
+				// billed, so without it credits would be the only thing a
+				// platform-key agent did not need here.
+				CheckBalance: func(cctx context.Context, amount int64) error {
+					balance, err := d.Store.GetCreditBalance(cctx, userID)
+					if err != nil {
+						return err
+					}
+					if balance < amount {
+						return errors.New("insufficient credits")
+					}
+					return nil
+				},
+				// A test run spends the platform's model credits exactly as
+				// a run does, so it is charged the same fee. The balance
+				// check above only gates the call; without this debit a
+				// single credit would buy unlimited platform-key agent
+				// calls, one build message at a time.
+				ChargeAgent: func(cctx context.Context, nodeID string, amount int64, model string) error {
+					return d.Store.DebitCreditsForBuildTest(cctx, userID, amount, id, nodeID, model)
+				},
+			})
+		},
+	})
 	if err != nil {
 		// The upstream text (a raw Gemini error body, keys and all) lands
 		// straight in the user's chat bubble if forwarded -- same anti-pattern
@@ -306,17 +438,133 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 	// same clamp UpdateWorkflow's own HTTP handler applies, so a future
 	// change that lets the chat-driven builder set these fields (or a raw
 	// JSON passthrough bug) can't silently bypass the retry-storm cap.
+	// The build ran detached and can take up to a couple of minutes; the
+	// graph it edited is the one read when the request arrived. If that
+	// graph was changed since (an edit in another tab, another build),
+	// saving now would silently overwrite that work -- so don't, and don't
+	// remember a build that never landed.
+	//
+	// The graph is compared, not updated_at: deploying, renaming or dragging
+	// a node all bump updated_at without touching anything the builder
+	// edited, and none of those should throw away a minute of build work.
+	current, err := d.Store.GetWorkflow(buildCtx, id)
+	if err != nil {
+		log.Printf("build workflow %s: reload before save: %v", id, err)
+		respond.Error(w, http.StatusInternalServerError, "could not save the updated workflow")
+		return
+	}
+	if graphFingerprint(decryptNodes(current.Nodes, d.EncryptionKey), current.Edges) != startedFrom {
+		log.Printf("build workflow %s: workflow changed during the build; not saving", id)
+		respond.Error(w, http.StatusConflict, "the workflow changed while the builder was working, so nothing was saved -- send your message again")
+		return
+	}
+
+	keepLayout(result.Graph.Nodes, current.Nodes)
 	clampRetryFields(result.Graph.Nodes)
-	encryptedNodes := encryptNodes(result.Graph.Nodes, d.EncryptionKey, existing.Nodes)
+	encryptedNodes := encryptNodes(result.Graph.Nodes, d.EncryptionKey, current.Nodes)
 	encryptedNodes = ensureWebhookSecrets(encryptedNodes, d.EncryptionKey)
 	graph := models.WorkflowGraph{Nodes: encryptedNodes, Edges: result.Graph.Edges}
-	wf, err := d.Store.UpdateWorkflow(r.Context(), id, existing.Name, graph)
+	wf, err := d.Store.UpdateWorkflow(buildCtx, id, current.Name, graph)
 	if err != nil {
 		log.Printf("build workflow %s: save: %v", id, err)
 		respond.Error(w, http.StatusInternalServerError, "could not save the updated workflow")
 		return
 	}
+
+	// The schedule is saved after the graph, never before: a schedule on a
+	// graph that failed to save would fire a workflow the user never saw.
+	reply := result.Reply
+	if result.Schedule != nil {
+		if note := d.applyBuildSchedule(buildCtx, &wf, *result.Schedule); note != "" {
+			reply += "\n\n" + note
+		}
+	}
+
+	// Recorded only once the graph is actually saved, and only as a pair.
+	// Before the build call, a model error would leave an unanswered question
+	// in the history; before the save, a save failure would leave the model
+	// "remembering" a build the canvas never got -- and the next turn would
+	// reason about nodes that are not there. A failure here is logged, not
+	// surfaced: the build itself succeeded, and losing one turn of memory is
+	// not worth failing a request whose work is already persisted.
+	if err := d.Store.AppendBuildMessage(buildCtx, id, "user", body.Message); err != nil {
+		log.Printf("build workflow %s: save user turn: %v", id, err)
+	} else if err := d.Store.AppendBuildMessage(buildCtx, id, "model", reply); err != nil {
+		log.Printf("build workflow %s: save model turn: %v", id, err)
+	}
 	decrypted := decryptNodes(wf.Nodes, d.EncryptionKey)
 	wf.Nodes = unmaskWebhookSecrets(maskNodes(wf.Nodes), decrypted)
-	respond.JSON(w, http.StatusOK, map[string]any{"reply": result.Reply, "workflow": wf})
+	// Set before responding, so the deferred finish records it even if the
+	// client is already gone and this write goes nowhere.
+	finishedReply = reply
+	respond.JSON(w, http.StatusOK, map[string]any{"reply": reply, "workflow": wf})
+}
+
+// applyBuildSchedule saves the schedule a build set, onto wf as well as the
+// store, and returns a note for the reply when it could not be saved.
+//
+// Unlike SetSchedule, this saves onto a draft. The builder is where a
+// workflow is still being made, so it is nearly always a draft here, and
+// refusing would bring back the "go and set it yourself" chore this exists
+// to remove. It stays safe because the scheduler only claims deployed
+// workflows, and Deploy recomputes the next run from the moment of
+// deployment, so a schedule saved days before deploying cannot fire a
+// stale catch-up run the instant it goes live.
+//
+// The model has already told the user the schedule is set, so a failure
+// here must say otherwise in the same reply rather than only in a log.
+func (d *Deps) applyBuildSchedule(ctx context.Context, wf *models.Workflow, expr string) string {
+	const failed = "The schedule could not be saved, so this workflow will not run on its own yet. Set it from the Schedule option on the Workflows page."
+	if expr == "" {
+		if err := d.Store.ClearWorkflowSchedule(ctx, wf.ID); err != nil {
+			log.Printf("build workflow %s: clear schedule: %v", wf.ID, err)
+			return "The schedule could not be removed. Remove it from the Schedule option on the Workflows page."
+		}
+		wf.ScheduleCron, wf.ScheduleNextRunAt = nil, nil
+		return ""
+	}
+	sched, err := cron.ParseStandard(expr)
+	if err != nil {
+		log.Printf("build workflow %s: builder produced an invalid cron %q: %v", wf.ID, expr, err)
+		return failed
+	}
+	next := sched.Next(time.Now().UTC())
+	if err := d.Store.SetWorkflowSchedule(ctx, wf.ID, expr, next); err != nil {
+		log.Printf("build workflow %s: save schedule: %v", wf.ID, err)
+		return failed
+	}
+	wf.ScheduleCron, wf.ScheduleNextRunAt = &expr, &next
+	return ""
+}
+
+// graphFingerprint is a graph's nodes and edges with canvas positions left
+// out: what BuildWorkflow compares to tell whether the graph a build edited
+// was changed while it ran. Pass decrypted nodes. The canvas is handed a
+// webhook trigger's real secret (unmaskWebhookSecrets) and sends it back on
+// every save, where it is encrypted again under a fresh nonce -- compared as
+// ciphertext, a plain drag would look like a changed secret. The result holds
+// plaintext secrets: compare it, never log or store it.
+func graphFingerprint(nodes []models.WorkflowNode, edges []models.WorkflowEdge) string {
+	unplaced := make([]models.WorkflowNode, len(nodes))
+	copy(unplaced, nodes)
+	for i := range unplaced {
+		unplaced[i].X, unplaced[i].Y = 0, 0
+	}
+	b, _ := json.Marshal(models.WorkflowGraph{Nodes: unplaced, Edges: edges})
+	return string(b)
+}
+
+// keepLayout gives each built node that already existed its current canvas
+// position, so a node dragged while the build ran stays where it was put.
+// Nodes the build added keep the position the builder gave them.
+func keepLayout(built, current []models.WorkflowNode) {
+	pos := make(map[string][2]float64, len(current))
+	for _, n := range current {
+		pos[n.ID] = [2]float64{n.X, n.Y}
+	}
+	for i, n := range built {
+		if p, ok := pos[n.ID]; ok {
+			built[i].X, built[i].Y = p[0], p[1]
+		}
+	}
 }

@@ -123,27 +123,97 @@ func (r *Runner) SetGoogleOAuth(clientID, clientSecret string) {
 func (r *Runner) preflightCheck(ctx context.Context, wf models.Workflow, amountUSDMicros int64) error {
 	balance, err := r.store.GetCreditBalance(ctx, wf.UserID)
 	if err != nil {
-		return err
+		// Wrapped for the same reason the refusal below is: this is the
+		// billing gate failing, not the node's own work. Left bare it reads
+		// as an ordinary node failure, and a read node would degrade -- the
+		// run would report success having silently skipped its paid step
+		// because of a database blip.
+		return fmt.Errorf("checking credit balance: %w", errBillingCheckFailed)
 	}
 	if balance < amountUSDMicros {
-		return fmt.Errorf("insufficient credits: balance %d micros, need %d micros", balance, amountUSDMicros)
+		// Wrapped, not bare: a caller has to be able to tell a billing
+		// refusal from a failure of the thing the node was trying to do.
+		// The degradation branch in execute() is the caller that matters --
+		// a node the user cannot pay for must fail the run and say so, not
+		// quietly degrade into a partial answer that never mentions credit.
+		// Mirrors store.go's own insufficient-credits wrapping.
+		return fmt.Errorf("insufficient credits: balance %d micros, need %d micros: %w", balance, amountUSDMicros, db.ErrInsufficientCredits)
 	}
 	return nil
 }
 
-// debitOrLog charges amountUSDMicros against wf.UserID for nodeID and just
-// logs on failure rather than failing the node — the node already ran
-// successfully by the time this is called, so there's nothing left to roll
-// back (x402 payments in particular can't be undone once sent on-chain).
-func (r *Runner) debitOrLog(ctx context.Context, wf models.Workflow, run models.Run, nodeID string, amountUSDMicros int64, kind string) {
-	if err := r.store.DebitCredits(ctx, wf.UserID, amountUSDMicros, kind, wf.ID, run.ID, nodeID); err != nil {
-		log.Printf("debit failed: user=%s workflow=%s run=%s node=%s kind=%s amount=%d: %v",
-			wf.UserID, wf.ID, run.ID, nodeID, kind, amountUSDMicros, err)
-		return // the DB was never actually charged -- don't settle it on-chain either
+// isBillingRefusal reports whether err came from the billing gate rather than
+// from the node's own work: the platform declining to run a node the user
+// cannot pay for, or the gate being unable to reach a verdict at all.
+//
+// These must never degrade. A degraded run reports success and answers with
+// what it has, which for a billing refusal would mean a workflow that
+// silently stops doing the paid half of its job and never tells the user why
+// -- while the unpaid steps keep being skipped on every later run too. A
+// gate that could not answer belongs here for the same reason: nothing
+// established that the work was affordable, so nothing may proceed as if it
+// were.
+// errBillingCheckFailed is the balance gate itself being unable to answer --
+// a database or pool error reading the user's credits, not a verdict on
+// whether they have enough. It is deliberately its own sentinel rather than
+// the underlying driver error: what matters downstream is only that no
+// billing decision was reached, and forwarding the driver's text would put
+// connection-string detail into a run log the user reads.
+var errBillingCheckFailed = errors.New("the billing check could not be completed")
+
+func isBillingRefusal(err error) bool {
+	var blocked *nodes.ErrBalanceBlocked
+	return errors.Is(err, db.ErrInsufficientCredits) ||
+		errors.Is(err, errBillingCheckFailed) ||
+		errors.As(err, &blocked)
+}
+
+// withReservedFlatFee runs exec for a standalone billable node (an "http"
+// Tool, an Action/connector, or a Google node) with its BYOK flat fee
+// reserved against wf.UserID BEFORE exec makes any real request, then
+// commits the fee if exec succeeds or releases it if exec fails.
+//
+// This replaces the old check-then-debit shape (preflightCheck, run the
+// node, debit afterwards), which left the node's whole real side effect in
+// an unlocked window: sibling nodes at the same topology level run in
+// parallel goroutines, so two of them could both pass the read-only balance
+// check, both fire their request, and only one debit would ever land (#31).
+// Reserving up front uses the same atomic decrement (ReserveCredits) and
+// the same Commit/Release closures agent-attached flat-fee calls already
+// use via X402RelayConfig.FlatFeeLedger, so a node that runs standalone is
+// billed identically to one an agent calls.
+//
+// When billable is false exec simply runs, unbilled. Any error from exec --
+// including nodes.ErrActionSkipped, which callers translate into a
+// successful, unbilled skip -- releases the reservation, so failed or
+// skipped work is never charged. The release is deferred, so a panic in
+// exec cannot strand the reserved fee either.
+func (r *Runner) withReservedFlatFee(ctx context.Context, wf models.Workflow, run models.Run, nodeID string, billable bool, exec func() (any, error)) (any, error) {
+	if !billable {
+		return exec()
 	}
-	// Always a BYOK flat fee (the only kind debitOrLog is ever called with),
-	// never a tool402 kind -- safe to accumulate unconditionally.
-	r.addRunBilling(run.ID, amountUSDMicros)
+	ledger := r.newPaymentLedger(wf, run)
+	if err := ledger.Reserve(ctx, models.ByokFlatFeeUSDMicros); err != nil {
+		if errors.Is(err, db.ErrInsufficientCredits) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("reserving credits: %w", errBillingCheckFailed)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			ledger.Release(ctx, models.ByokFlatFeeUSDMicros)
+		}
+	}()
+	result, err := exec()
+	if err != nil {
+		return result, err
+	}
+	// Commit also folds the fee into this run's on-chain run-total
+	// settlement (see newPaymentLedger), as debiting afterwards used to.
+	ledger.Commit(ctx, nodeID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
+	committed = true
+	return result, nil
 }
 
 // addRunBilling folds amountUSDMicros into the running total settleRunTotal
@@ -385,6 +455,11 @@ func nodeConfigHash(n models.WorkflowNode) string {
 		StateOp          string
 		StateKey         string
 		StateValue       string
+
+		// omitempty keeps every existing node's hash unchanged, so a Resume
+		// of a run from before this field existed doesn't re-execute it.
+		TendrilMinBal string `json:",omitempty"`
+		TendrilCover  string `json:",omitempty"`
 	}{
 		Type: n.Type, Template: n.Template, SystemPrompt: n.SystemPrompt,
 		Wallet: n.Wallet, Balance: n.Balance, Model: n.Model, KeyMode: n.KeyMode,
@@ -395,8 +470,8 @@ func nodeConfigHash(n models.WorkflowNode) string {
 		DiscoveredParams: n.DiscoveredParams, ParamDefaults: n.ParamDefaults,
 		CustomParams: n.CustomParams, BodyMode: n.BodyMode, BodyTemplate: n.BodyTemplate,
 		Config: n.Config, TendrilAction: n.TendrilAction, TendrilNodeID: n.TendrilNodeID,
-		TendrilHours: n.TendrilHours, TendrilAmount: n.TendrilAmount,
-		StateOp: n.StateOp, StateKey: n.StateKey, StateValue: n.StateValue,
+		TendrilHours: n.TendrilHours, TendrilAmount: n.TendrilAmount, TendrilMinBal: n.TendrilMinBalance,
+		TendrilCover: n.TendrilCoverHours, StateOp: n.StateOp, StateKey: n.StateKey, StateValue: n.StateValue,
 	}
 	b, err := json.Marshal(relevant)
 	if err != nil {
@@ -814,8 +889,8 @@ func prependRunFundingReceipt(result map[string]any, rf runFundResult, node mode
 // spends on the user's behalf — platform-key LLM calls, and real x402
 // settlements paid out of the platform wallets. Charging for BYOK billed
 // users for compute they had already bought themselves. Logs on failure
-// rather than failing the node, same rationale as debitOrLog: the call
-// already happened, there's nothing left to roll back.
+// rather than failing the node: the call already happened, there's nothing
+// left to roll back.
 func (r *Runner) debitAgentFee(ctx context.Context, wf models.Workflow, run models.Run, nodeID string, amountUSDMicros int64, platformMode bool, model string, tokensIn, tokensOut int) {
 	if !platformMode {
 		return
@@ -992,6 +1067,26 @@ func (r *Runner) finishRun(wf models.Workflow, run models.Run, status models.Run
 	// worth notifying about, and does nothing at all until a Firebase service
 	// account is configured.
 	go push.NotifyRunFinished(context.Background(), r.store, wf.UserID, wf.ID, wf.Name, run.ID, run.TriggeredBy, status)
+
+	// A run's own debits have just landed (CommitReservedDebit/DebitCredits,
+	// during execution above), so right after it finishes is the natural
+	// point to notice a balance that has crossed low -- same fire-and-forget
+	// shape, same reason: this must never hold a run open.
+	go r.notifyIfBalanceLow(context.Background(), wf.UserID)
+}
+
+// notifyIfBalanceLow checks the crossing and delivers the push if it just
+// happened. Split out so the crossing decision (store-side, atomic) and the
+// delivery (push package) each stay testable on their own terms.
+func (r *Runner) notifyIfBalanceLow(ctx context.Context, userID string) {
+	notify, balance, err := r.store.CheckAndMarkLowBalance(ctx, userID, models.LowBalanceThresholdUSDMicros)
+	if err != nil {
+		log.Printf("low balance check: %v", err)
+		return
+	}
+	if notify {
+		push.NotifyLowBalance(ctx, r.store, userID, balance)
+	}
 }
 
 // Run executes a workflow from scratch. Call via Start rather than directly.
@@ -1022,6 +1117,8 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run, ge
 		r.settleRunTotal(sctx, wf, run, runTotal)
 		r.runBilling.Delete(run.ID)
 	}()
+
+	defer r.releaseRunLeases(ctx, wf, run)
 
 	go alert.Notify(context.Background(), alert.ChannelWorkflows, fmt.Sprintf("workflow %q run %s started", wf.Name, run.ID))
 
@@ -1117,6 +1214,13 @@ func (r *Runner) Resume(ctx context.Context, wf models.Workflow, run models.Run,
 	// claim is Resume's actual admission gate (see StartResume's doc
 	// comment for why it has to happen there and not here).
 
+	if err := reopenReleasedRentsWith(ctx, wf, run.ID, states, r.store); err != nil {
+		log.Printf("resume: checking run %s's Tendril leases failed: %v", run.ID, err)
+		r.finishRun(wf, run, models.RunStatusFailed)
+		return
+	}
+	defer r.releaseRunLeases(ctx, wf, run)
+
 	go alert.Notify(context.Background(), alert.ChannelWorkflows, fmt.Sprintf("workflow %q run %s resumed", wf.Name, run.ID))
 
 	r.execute(ctx, wf, run, states)
@@ -1184,6 +1288,9 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 		inputJSON, _ = json.Marshal(run.InputContext)
 	}
 	rc := NewRunContext(run.ID, inputJSON)
+	// Each node reads its input from its own flow predecessors, not from
+	// whichever node in its level finished last (#68) -- see nodeRunContext.
+	msgPreds := messagePredecessors(levels, wf.Edges)
 
 	// Workflow variables are loaded once per run. A workflow with none
 	// gets an empty map, and ExpandState is a no-op on every field, so
@@ -1267,7 +1374,7 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 				attempts := 0
 				for {
 					attempts++
-					result, execErr = r.executeNode(ctx, n, attachMap, walletByAgent, rc, run, wf)
+					result, execErr = r.executeNode(ctx, n, attachMap, walletByAgent, rc.forNode(msgPreds[n.ID]), run, wf)
 					// A sibling in this same parallel level already failed the
 					// run (atomic `failed` below) -- no point sleeping through
 					// a backoff and making another live outbound call for a
@@ -1296,6 +1403,78 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 					}
 				}
 				dur := int(time.Since(start).Milliseconds())
+
+				// A read node that failed every attempt does not have to end
+				// the run. Hand the error downstream as data instead: the
+				// agent after it can say what failed, and answer from another
+				// source if one is attached to it. Three conditions, each
+				// load-bearing:
+				//
+				//   IsDegradable     -- an action may already have sent,
+				//                       written or paid; only a read is safe
+				//                       to continue past.
+				//   !isPaymentRisk   -- real money may have moved for this
+				//                       attempt, and a run reporting success
+				//                       over that is the worst outcome here.
+				//   !isBillingRefusal -- the platform declining to run a node
+				//                       the user cannot pay for is not the
+				//                       node's work failing, and must be
+				//                       said out loud rather than degraded.
+				//   ctx.Err() == nil -- a run cancelled by Stop surfaces as
+				//                       execErr too, and a stop is not a
+				//                       degradation.
+				//
+				// The retry loop above has already exhausted MaxRetries, so
+				// this never short-circuits a retryable error.
+				if execErr != nil && nodes.IsDegradable(n) && !isPaymentRisk(execErr) && !isBillingRefusal(execErr) && ctx.Err() == nil {
+					degraded := map[string]any{
+						"error":    nodes.SanitizeRunError(execErr.Error()),
+						"degraded": true,
+						"node":     n.Name,
+					}
+					rc.Set(n.ID, degraded)
+					outJSON, _ := json.Marshal(degraded)
+					// "" for configHash: it is only meaningful on a success
+					// row, which is what Resume's skip check reads.
+					//
+					// This row IS the audit record, and no dead-letter row is
+					// written beside it. A dead-letter row means "this run
+					// failed at this node and can be resumed from it", and
+					// neither half is true here: the run finishes successfully,
+					// and MarkRunRunning only ever claims a run in "failed" or
+					// "stopped", so a resume would be refused. Writing one
+					// anyway would put a Resume button in the console that
+					// cannot do anything. The failure is not lost -- it is on
+					// this row, with the node and the error, and the console
+					// reports the run as partial because of it.
+					r.store.UpdateRunLog(context.Background(), logEntry.ID, models.LogStatusDegraded, outJSON, dur, "")
+					// Same reason the success path clears these, and for the
+					// same rows: this run reached here via Resume, and an
+					// earlier attempt at this node hard-failed and left a
+					// dead-letter row. Degrading settles that node -- the run
+					// goes on to finish successfully -- so the row no longer
+					// reflects anything, and leaving it would put a
+					// force-required Resume button on a successful run. It
+					// would also never clear: MarkRunRunning claims only a
+					// run in "failed" or "stopped", so this run can never be
+					// resumed again to reach the success path that deletes
+					// it. A fresh run has no such rows, so this is a no-op
+					// there.
+					if delErr := r.store.DeleteDeadLettersForNode(context.Background(), run.ID, n.ID); delErr != nil {
+						log.Printf("resume: clearing dead-letter rows for degraded node %s, run=%s failed: %v", n.ID, run.ID, delErr)
+					}
+					log.Printf("degraded node %s (%s/%s), run=%s after %d attempt(s): %v", n.ID, n.Type, n.Template, run.ID, attempts, execErr)
+					r.broker.Publish(run.ID, models.LogEvent{
+						StepIndex:  idx,
+						NodeID:     n.ID,
+						NodeType:   n.Type,
+						Status:     models.LogStatusDegraded,
+						Output:     degraded,
+						DurationMs: dur,
+						Ts:         time.Now(),
+					})
+					return
+				}
 
 				if execErr != nil {
 					atomic.StoreInt32(&failed, 1)
@@ -1422,12 +1601,33 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 	r.finishRun(wf, run, models.RunStatusSuccess)
 }
 
+// expandNodeState resolves {{state.x}} in the user-authored fields a run
+// expands (see executeNode for which, and why credentials are not among
+// them). Shared with DryRun, so a test run calls exactly what a run would.
+func expandNodeState(node models.WorkflowNode, state map[string]any) models.WorkflowNode {
+	node.URL = nodes.ExpandState(node.URL, state)
+	node.Endpoint = nodes.ExpandState(node.Endpoint, state)
+	node.SystemPrompt = nodes.ExpandState(node.SystemPrompt, state)
+	node.BodyTemplate = nodes.ExpandState(node.BodyTemplate, state)
+	node.EmailTo = nodes.ExpandState(node.EmailTo, state)
+	node.EmailSubject = nodes.ExpandState(node.EmailSubject, state)
+	node.EmailBody = nodes.ExpandState(node.EmailBody, state)
+	if len(node.ParamDefaults) > 0 {
+		expanded := make(map[string]string, len(node.ParamDefaults))
+		for k, v := range node.ParamDefaults {
+			expanded[k] = nodes.ExpandState(v, state)
+		}
+		node.ParamDefaults = expanded
+	}
+	return node
+}
+
 func (r *Runner) executeNode(
 	ctx context.Context,
 	node models.WorkflowNode,
 	attachMap map[string]models.AttachConfig,
 	walletByAgent map[string]models.AgentWallet,
-	rc *RunContext,
+	rc *nodeRunContext,
 	run models.Run,
 	wf models.Workflow,
 ) (any, error) {
@@ -1450,21 +1650,7 @@ func (r *Runner) executeNode(
 	// leak the literal placeholder into a real request -- ExpandState's own
 	// fast path (no "{{" in the string) already makes this a no-op for
 	// every field on a workflow that doesn't reference state at all.
-	state := rc.State()
-	node.URL = nodes.ExpandState(node.URL, state)
-	node.Endpoint = nodes.ExpandState(node.Endpoint, state)
-	node.SystemPrompt = nodes.ExpandState(node.SystemPrompt, state)
-	node.BodyTemplate = nodes.ExpandState(node.BodyTemplate, state)
-	node.EmailTo = nodes.ExpandState(node.EmailTo, state)
-	node.EmailSubject = nodes.ExpandState(node.EmailSubject, state)
-	node.EmailBody = nodes.ExpandState(node.EmailBody, state)
-	if len(node.ParamDefaults) > 0 {
-		expanded := make(map[string]string, len(node.ParamDefaults))
-		for k, v := range node.ParamDefaults {
-			expanded[k] = nodes.ExpandState(v, state)
-		}
-		node.ParamDefaults = expanded
-	}
+	node = expandNodeState(node, rc.State())
 
 	switch node.Type {
 	case models.NodeTypeTrigger:
@@ -1628,18 +1814,13 @@ func (r *Runner) executeNode(
 	case models.NodeTypeProvider:
 		return rc.Message(), nil
 	case models.NodeTypeTool:
+		// Fee reserved before the request goes out -- see withReservedFlatFee.
 		billable := nodes.BillableFlatFee(node.Type, node.Template)
-		if billable {
-			if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
-				return nil, err
-			}
-		}
-		result, err := nodes.ExecuteTool(ctx, node, rc)
+		result, err := r.withReservedFlatFee(ctx, wf, run, node.ID, billable, func() (any, error) {
+			return nodes.ExecuteTool(ctx, node, rc)
+		})
 		if err != nil {
 			return nil, err
-		}
-		if billable {
-			r.debitOrLog(ctx, wf, run, node.ID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
 		}
 		return result, nil
 	case models.NodeTypeTool402:
@@ -1729,21 +1910,18 @@ func (r *Runner) executeNode(
 			},
 		})
 	case models.NodeTypeAction:
+		// Fee reserved before the connector call -- see withReservedFlatFee.
+		// A skip comes back as an error there, so its reservation is released
+		// and the skip itself is still reported as success below.
 		billable := nodes.BillableFlatFee(node.Type, node.Template)
-		if billable {
-			if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
-				return nil, err
-			}
-		}
-		result, err := nodes.ExecuteAction(ctx, node, rc)
+		result, err := r.withReservedFlatFee(ctx, wf, run, node.ID, billable, func() (any, error) {
+			return nodes.ExecuteAction(ctx, node, rc)
+		})
 		if err != nil {
 			if errors.Is(err, nodes.ErrActionSkipped) {
 				return result, nil
 			}
 			return nil, err
-		}
-		if billable {
-			r.debitOrLog(ctx, wf, run, node.ID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
 		}
 		return result, nil
 	case models.NodeTypeGoogle:
@@ -1757,27 +1935,23 @@ func (r *Runner) executeNode(
 		// "http"), so calling it here means a future template-conditional
 		// change there (e.g. a free Google read-only op) takes effect
 		// automatically instead of silently being ignored by this branch.
+		//
+		// Fee reserved before the Google API call -- see withReservedFlatFee.
 		billable := nodes.BillableFlatFee(node.Type, node.Template)
-		if billable {
-			if err := r.preflightCheck(ctx, wf, models.ByokFlatFeeUSDMicros); err != nil {
-				return nil, err
-			}
-		}
-		result, err := nodes.ExecuteGoogle(ctx, node, rc, nodes.GoogleConfig{
-			Store:        r.store,
-			EncryptKey:   r.encryptionKey,
-			ClientID:     r.googleClientID,
-			ClientSecret: r.googleClientSecret,
-			UserID:       wf.UserID,
+		result, err := r.withReservedFlatFee(ctx, wf, run, node.ID, billable, func() (any, error) {
+			return nodes.ExecuteGoogle(ctx, node, rc, nodes.GoogleConfig{
+				Store:        r.store,
+				EncryptKey:   r.encryptionKey,
+				ClientID:     r.googleClientID,
+				ClientSecret: r.googleClientSecret,
+				UserID:       wf.UserID,
+			})
 		})
 		if err != nil {
 			if errors.Is(err, nodes.ErrActionSkipped) {
 				return result, nil
 			}
 			return nil, err
-		}
-		if billable {
-			r.debitOrLog(ctx, wf, run, node.ID, models.ByokFlatFeeUSDMicros, models.DebitKindByokFlatFee)
 		}
 		return result, nil
 	default:

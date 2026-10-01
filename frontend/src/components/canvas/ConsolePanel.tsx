@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pill } from "@/components/ui";
 import type { DeadLetterRun } from "@/lib/api";
 import {
@@ -7,7 +7,13 @@ import {
   type LogEvent,
   type X402Payment,
 } from "./useRunTranscript";
-import { latestPerNode } from "./chat/resolveReply";
+import { runSummary } from "./chat/resolveReply";
+import {
+  costsByNode,
+  describeStepCost,
+  formatUsdMicros,
+  type RunCosts,
+} from "@/lib/runCosts";
 
 interface ConsolePanelProps {
   open: boolean;
@@ -18,6 +24,9 @@ interface ConsolePanelProps {
   elapsed: number | null;
   done: boolean;
   deadLetters: DeadLetterRun[];
+  // What the run was charged, from the debit ledger (#111). Null until the
+  // run record is fetched, or when the backend does not report costs.
+  costs: RunCosts | null;
   // Takes the dead-letter's own runId rather than relying solely on the
   // caller's live session state: a dead-letter row restored from
   // useRunTranscript's cache (see CachedRun.deadLetters) can render with no
@@ -46,16 +55,27 @@ export function ConsolePanel({
   elapsed,
   done,
   deadLetters,
+  costs,
   onResume,
 }: ConsolePanelProps) {
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [resizing, setResizing] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Below this the four fixed columns (52 + 34 + 110 + gaps) leave the output
-  // cell so little room that JSON wraps a few characters per line -- a single
-  // step measured 431px tall in a 293px-wide console. Rows switch to a stacked
-  // layout instead of squeezing.
+  // Ledger charges are per node, but a resumed node has one log row per
+  // attempt -- so a node's cost is shown once, on its last row (#111).
+  const stepCosts = useMemo(() => costsByNode(costs), [costs]);
+  const lastRowByNode = useMemo(() => {
+    const last = new Map<string, number>();
+    logs.forEach((l, i) => last.set(l.nodeId, i));
+    return last;
+  }, [logs]);
+  const showStepCosts = stepCosts.size > 0;
+
+  // Below this the fixed metadata columns (time, status, node, optional cost)
+  // leave the output cell so little room that JSON wraps a few characters per
+  // line -- a single step measured 431px tall in a 293px-wide console. Rows
+  // switch to a stacked layout instead of squeezing.
   const [compactRows, setCompactRows] = useState(false);
   const logListRef = useRef<HTMLDivElement | null>(null);
   // Observed on the list, not the window: the console's width is whatever is
@@ -127,14 +147,16 @@ export function ConsolePanel({
 
   const statusColor = (s: LogEvent["status"]) => {
     if (s === "success") return "var(--accent)";
-    if (s === "failed") return "#F87171";
-    if (s === "stopped") return "#FB923C";
+    if (s === "failed") return "var(--danger)";
+    if (s === "degraded") return "var(--warning)";
+    if (s === "stopped") return "var(--type-action)";
     return "var(--fg-dim)";
   };
 
   const statusLabel = (s: LogEvent["status"]) => {
     if (s === "success") return "OK";
     if (s === "failed") return "ERR";
+    if (s === "degraded") return "DEG";
     if (s === "stopped") return "STP";
     return "RUN";
   };
@@ -191,7 +213,7 @@ export function ConsolePanel({
             style={{
               width: 40,
               height: 3,
-              borderRadius: 2,
+              borderRadius: "var(--r-1)",
               background: resizing ? "var(--accent)" : "var(--border-strong)",
             }}
           />
@@ -212,11 +234,11 @@ export function ConsolePanel({
           flexShrink: 0,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--s-4)" }}>
           <span
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 10,
+              fontSize: "var(--t-0)",
               color: "var(--fg-muted)",
               textTransform: "uppercase",
               letterSpacing: "0.08em",
@@ -233,7 +255,7 @@ export function ConsolePanel({
             <span
               style={{
                 fontFamily: "var(--font-mono)",
-                fontSize: 10,
+                fontSize: "var(--t-0)",
                 color: "var(--fg-dim)",
               }}
             >
@@ -245,13 +267,13 @@ export function ConsolePanel({
           style={{
             display: "inline-flex",
             alignItems: "center",
-            gap: 5,
+            gap: "var(--s-1)",
             fontFamily: "var(--font-mono)",
-            fontSize: 13,
+            fontSize: "var(--t-3)",
             color: "var(--fg-muted)",
           }}
         >
-          <span style={{ fontSize: 15, lineHeight: 1 }}>
+          <span style={{ fontSize: "var(--t-4)", lineHeight: 1 }}>
             {open ? "▾" : "▴"}
           </span>
           {open ? "collapse" : "expand"}
@@ -269,7 +291,7 @@ export function ConsolePanel({
             overflow: "auto",
             padding: "6px 14px 10px",
             fontFamily: "var(--font-mono)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             lineHeight: 1.7,
           }}
         >
@@ -290,14 +312,16 @@ export function ConsolePanel({
                 display: "grid",
                 gridTemplateColumns: compactRows
                   ? "1fr"
-                  : "52px 34px 110px 1fr",
+                  : showStepCosts
+                    ? "52px 34px 110px max-content minmax(0, 1fr)"
+                    : "52px 34px 110px minmax(0, 1fr)",
                 gap: compactRows ? 2 : 10,
                 alignItems: compactRows ? "stretch" : "baseline",
                 borderBottom: "1px solid var(--border-soft)",
                 padding: "3px 0",
               }}
             >
-              {/* display:contents keeps these three as real grid cells in the
+              {/* display:contents keeps these fields as real grid cells in the
                     wide layout; in compact mode they collapse onto one meta
                     line above the output instead of each taking a row. */}
               <div
@@ -305,14 +329,14 @@ export function ConsolePanel({
                   compactRows
                     ? {
                         display: "flex",
-                        gap: 8,
+                        gap: "var(--s-3)",
                         alignItems: "baseline",
                         minWidth: 0,
                       }
                     : { display: "contents" }
                 }
               >
-                <span style={{ color: "var(--fg-dim)", fontSize: 9.5 }}>
+                <span style={{ color: "var(--fg-dim)", fontSize: "var(--t-0)" }}>
                   {new Date(l.ts).toLocaleTimeString("en", {
                     hour12: false,
                     hour: "2-digit",
@@ -324,7 +348,7 @@ export function ConsolePanel({
                   style={{
                     color: statusColor(l.status),
                     fontWeight: 600,
-                    fontSize: 9.5,
+                    fontSize: "var(--t-0)",
                   }}
                 >
                   {statusLabel(l.status)}
@@ -347,6 +371,25 @@ export function ConsolePanel({
                     </span>
                   )}
                 </span>
+                {showStepCosts &&
+                  (() => {
+                    // Ledger charges include billable steps without receipts.
+                    const step = stepCosts.get(l.nodeId);
+                    const showOnThisRow =
+                      step && lastRowByNode.get(l.nodeId) === i;
+                    return (
+                      <span
+                        style={{ color: "var(--warm)", whiteSpace: "nowrap" }}
+                        title={
+                          showOnThisRow ? describeStepCost(step) : undefined
+                        }
+                      >
+                        {showOnThisRow
+                          ? `· ${formatUsdMicros(step.totalUsdMicros)}`
+                          : null}
+                      </span>
+                    );
+                  })()}
               </div>
               <OutputCell output={l.output} />
             </div>
@@ -361,23 +404,29 @@ export function ConsolePanel({
               // its stale "failed" row sitting in `logs` (see
               // latestPerNode's doc comment), and a raw scan would still
               // report the run as failed for that node even though it went
-              // on to succeed.
-              const final = latestPerNode(logs);
-              const succeeded = final.filter(
-                (l) => l.status === "success",
-              ).length;
-              const hasFailure = final.some((l) => l.status === "failed");
+              // on to succeed. runSummary is that reduction, shared with the
+              // chat so the two cannot disagree about the same run.
+              const { failed, degraded, succeeded, total } = runSummary(logs);
+              const color = failed
+                ? "var(--danger)"
+                : degraded > 0
+                  ? "var(--warning)"
+                  : "var(--accent)";
+              // A degraded run really did finish and really did answer, so it
+              // is not reported as a failure -- but it is not reported as a
+              // clean run either.
+              const headline = failed
+                ? "✕ run failed"
+                : degraded > 0
+                  ? `! ${degraded} step${degraded === 1 ? "" : "s"} failed, this answer is partial`
+                  : "✓ run complete";
               return (
-                <div
-                  style={{
-                    color: hasFailure ? "#F87171" : "var(--accent)",
-                    paddingTop: 6,
-                    fontSize: 10,
-                  }}
-                >
-                  {hasFailure ? "✕ run failed" : "✓ run complete"} ·{" "}
-                  {(elapsed ?? 0).toFixed(1)}s · {succeeded}/{final.length} nodes
-                  succeeded
+                <div style={{ color, paddingTop: 6, fontSize: "var(--t-0)" }}>
+                  {headline} · {(elapsed ?? 0).toFixed(1)}s · {succeeded}/{total}{" "}
+                  nodes succeeded
+                  {costs && (
+                    <> · {formatUsdMicros(costs.totalUsdMicros)} charged</>
+                  )}
                 </div>
               );
             })()}
@@ -411,14 +460,14 @@ function DeadLetterRow({
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 8,
+          gap: "var(--s-3)",
           flexWrap: "wrap",
         }}
       >
         <Pill mono tone="danger" dot>
           dead-lettered
         </Pill>
-        <span style={{ color: "var(--fg-muted)", fontSize: 10.5 }}>
+        <span style={{ color: "var(--fg-muted)", fontSize: "var(--t-0)" }}>
           {dl.nodeId} · attempt {dl.attemptCount}
         </span>
         <button
@@ -434,9 +483,9 @@ function DeadLetterRow({
           style={{
             marginLeft: "auto",
             fontFamily: "var(--font-mono)",
-            fontSize: 10.5,
+            fontSize: "var(--t-0)",
             padding: "3px 8px",
-            borderRadius: 4,
+            borderRadius: "var(--r-1)",
             border: "1px solid var(--border-strong)",
             background: confirming ? "var(--accent-soft)" : "var(--bg-elev-2)",
             color: confirming ? "var(--accent)" : "var(--fg)",
@@ -446,7 +495,7 @@ function DeadLetterRow({
           {confirming ? "Confirm — completed steps won't re-run" : "Resume"}
         </button>
       </div>
-      <div style={{ color: "var(--fg-dim)", fontSize: 10, paddingTop: 2 }}>
+      <div style={{ color: "var(--fg-dim)", fontSize: "var(--t-0)", paddingTop: 2 }}>
         {dl.error}
       </div>
     </div>
@@ -487,7 +536,7 @@ function OutputCell({ output }: { output: unknown }) {
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 5,
+            gap: "var(--s-1)",
             flexWrap: "wrap",
           }}
         >
@@ -547,7 +596,7 @@ function OutputCell({ output }: { output: unknown }) {
               cursor: "pointer",
               color: "var(--accent)",
               fontFamily: "var(--font-mono)",
-              fontSize: 10,
+              fontSize: "var(--t-0)",
             }}
           >
             {expanded ? "▾" : "▸"} response · {formatSize(text.length)}
@@ -561,9 +610,9 @@ function OutputCell({ output }: { output: unknown }) {
                 overflow: "auto",
                 background: "var(--bg)",
                 border: "1px solid var(--border)",
-                borderRadius: 4,
+                borderRadius: "var(--r-1)",
                 fontFamily: "var(--font-mono)",
-                fontSize: 10,
+                fontSize: "var(--t-0)",
                 lineHeight: 1.5,
                 color: "var(--fg)",
                 whiteSpace: "pre-wrap",
@@ -590,17 +639,17 @@ function OutputCell({ output }: { output: unknown }) {
 }
 
 const txLinkStyle: React.CSSProperties = {
-  color: "#E879F9",
+  color: "var(--type-x402)",
   textDecoration: "underline",
   fontFamily: "var(--font-mono)",
-  fontSize: 9.5,
+  fontSize: "var(--t-0)",
   whiteSpace: "nowrap",
 };
 
 function nodeTypeColor(t: string): string {
   if (t === "agent") return "var(--accent)";
-  if (t === "tool402") return "#E879F9";
-  if (t === "action") return "#FB923C";
+  if (t === "tool402") return "var(--type-x402)";
+  if (t === "action") return "var(--type-action)";
   return "var(--fg-dim)";
 }
 

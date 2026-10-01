@@ -179,6 +179,39 @@ func buildPrismNode(req prismRunRequest) (models.WorkflowNode, error) {
 	return node, nil
 }
 
+// prismRelayConfig builds the relay config both Prism entry points use — the
+// single-call console and the repo-review batch.
+//
+// PerCallLedger is what makes a call BILL. Leaving it nil would not fail
+// loudly: PaymentLedger's doc comment says a nil hook means "unconditionally
+// allowed", so every reserve/commit would silently no-op while the platform
+// still paid the vendor for real. That exact regression shipped once on the
+// Tendril console (see newConsolePaymentLedger), which is why this lives in one
+// place instead of being retyped per handler.
+func (d *Deps) prismRelayConfig(ledger nodes.PaymentLedger) nodes.X402RelayConfig {
+	return nodes.X402RelayConfig{
+		USDCSigner:               d.USDCSigner,
+		PlatformSpendEncMnemonic: d.PlatformSpendWalletEncMnemonic,
+		ExpectedAssetID:          d.USDCAssetID,
+		RelayBaseURL:             d.RelayBaseURL,
+		Facilitator:              d.FacilitatorClient,
+		PlatformWalletAddress:    d.PlatformWalletAddress,
+		RelayNetwork:             d.RelayNetwork,
+		RelayFeePayer:            d.RelayFeePayer,
+		FrontendURL:              d.FrontendURL,
+		Ledger:                   nodes.RunLedger(ledger),
+		LegacyLedger:             nodes.CallLedger(ledger),
+		PerCallLedger:            nodes.CallLedger(ledger),
+	}
+}
+
+// isBalanceBlocked reports whether a run failed because the user is out of
+// credit, as opposed to anything the vendor or the network did.
+func isBalanceBlocked(err error) bool {
+	var blocked *nodes.ErrBalanceBlocked
+	return errors.As(err, &blocked)
+}
+
 // relayUnpayable reports whether a result is executeTool402V2Relay's
 // "cannot pay" sentinel rather than a real answer from the target.
 //
@@ -241,20 +274,7 @@ func (d *Deps) PrismConsoleRun(w http.ResponseWriter, r *http.Request) {
 	// newConsolePaymentLedger) — TestPrismConsoleWiresThePerCallLedger exists
 	// so it cannot happen again here.
 	ledger := newConsolePaymentLedger(d.Store, userID, wf.ID, run.ID)
-	relay := nodes.X402RelayConfig{
-		USDCSigner:               d.USDCSigner,
-		PlatformSpendEncMnemonic: d.PlatformSpendWalletEncMnemonic,
-		ExpectedAssetID:          d.USDCAssetID,
-		RelayBaseURL:             d.RelayBaseURL,
-		Facilitator:              d.FacilitatorClient,
-		PlatformWalletAddress:    d.PlatformWalletAddress,
-		RelayNetwork:             d.RelayNetwork,
-		RelayFeePayer:            d.RelayFeePayer,
-		FrontendURL:              d.FrontendURL,
-		Ledger:                   nodes.RunLedger(ledger),
-		LegacyLedger:             nodes.CallLedger(ledger),
-		PerCallLedger:            nodes.CallLedger(ledger),
-	}
+	relay := d.prismRelayConfig(ledger)
 
 	// An empty AgentWallet and nil signer are correct here: those are the
 	// legacy-dialect direct-pay path's inputs, and a v2 target never reaches
@@ -291,8 +311,7 @@ func (d *Deps) PrismConsoleRun(w http.ResponseWriter, r *http.Request) {
 		// gateway failure, so it gets 402 rather than 502. lib/prism.ts turns
 		// that status into a PrismRunError the console reads to show an "Add
 		// credits" button instead of a bare error line.
-		var blocked *nodes.ErrBalanceBlocked
-		if errors.As(execErr, &blocked) {
+		if isBalanceBlocked(execErr) {
 			respond.Error(w, http.StatusPaymentRequired, execErr.Error())
 			return
 		}

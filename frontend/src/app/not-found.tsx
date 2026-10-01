@@ -13,7 +13,7 @@ export default function NotFound() {
       <style>{NOT_FOUND_CSS}</style>
       {/* Subtle glow background effect */}
       <div style={glowBgStyle} />
-      
+
       {/* SVG canvas grid background element */}
       <div className="canvas-bg" style={gridBgStyle} />
 
@@ -36,11 +36,7 @@ export default function NotFound() {
         <h1 style={headingStyle}>Lost in the Mesh</h1>
 
         {/* Description */}
-        <p style={descriptionStyle}>
-          This route wandered off mid workflow and never checked back in.
-          Your wallet and credits are exactly where you left them, this URL
-          just isn&apos;t a real node.
-        </p>
+        <p style={descriptionStyle}>This page doesn&apos;t exist.</p>
 
         {/* Action navigation links */}
         <div style={actionsStyle}>
@@ -175,5 +171,3 @@ const secondaryButtonStyle: React.CSSProperties = {
   transition: "background 0.15s var(--ease), border-color 0.15s var(--ease)",
   cursor: "pointer",
 };
-
-

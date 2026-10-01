@@ -38,7 +38,12 @@ func TestDeadLetterWrittenAfterRetriesExhausted(t *testing.T) {
 	graph := models.WorkflowGraph{
 		Nodes: []models.WorkflowNode{
 			{ID: "n1", Type: models.NodeTypeTrigger},
-			{ID: "n2", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "GET", MaxRetries: 2},
+			// PUT, not GET: a GET is a read step now, and a read step's
+			// failure degrades (nodes.IsDegradable) instead of dead-lettering
+			// the run. PUT is idempotent, so a 5xx on it is still retryable --
+			// which is what this test is about -- while remaining an action,
+			// so the failure stays a real one.
+			{ID: "n2", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "PUT", MaxRetries: 2},
 			{ID: "n3", Type: models.NodeTypeEnd},
 		},
 		Edges: []models.WorkflowEdge{
@@ -167,7 +172,10 @@ func TestResumeAfterDeadLetterSkipsSucceededUpstreamNode(t *testing.T) {
 		Nodes: []models.WorkflowNode{
 			{ID: "n1", Type: models.NodeTypeTrigger},
 			{ID: "n2", Type: models.NodeTypeTool, Template: "calc", URL: "1+1"},
-			{ID: "n3", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "GET"},
+			// PUT rather than GET so this stays a hard failure: a GET degrades
+			// now, and a degraded run finishes successfully with nothing to
+			// resume. See nodes.IsDegradable.
+			{ID: "n3", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "PUT"},
 			{ID: "n4", Type: models.NodeTypeEnd},
 		},
 		Edges: []models.WorkflowEdge{
@@ -388,7 +396,11 @@ func TestDeadLetterRowClearedOnceNodeLaterSucceeds(t *testing.T) {
 	graph := models.WorkflowGraph{
 		Nodes: []models.WorkflowNode{
 			{ID: "n1", Type: models.NodeTypeTrigger},
-			{ID: "n3", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "GET"},
+			// PUT rather than GET: a GET is a read step and degrades instead
+			// of dead-lettering, and this test is about the dead-letter row
+			// being cleared once the node later succeeds. See
+			// nodes.IsDegradable.
+			{ID: "n3", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: "PUT"},
 			{ID: "n4", Type: models.NodeTypeEnd},
 		},
 		Edges: []models.WorkflowEdge{
@@ -513,5 +525,85 @@ func TestResumeRefusesNodeStuckRunningWithoutForce(t *testing.T) {
 	runner.Resume(ctx, wf, run, 0, true)
 	if got := atomic.LoadInt32(&n2Hits); got == 0 {
 		t.Fatal("resume with force made 0 requests to n2, want at least 1 (must actually attempt the stuck node)")
+	}
+}
+
+// A node that dead-lettered on an earlier attempt and DEGRADES on a resume
+// must have its row cleared too, not just one that succeeds.
+//
+// The run finishes successfully after a degrade, so the success path that
+// clears these rows is never reached -- and MarkRunRunning claims only a run
+// in "failed" or "stopped", so this run can never be resumed again to reach
+// it either. A row left here is permanent: the console shows a dead-letter
+// entry and a force-required Resume on a run that succeeded, forever.
+func TestDeadLetterRowClearedWhenNodeLaterDegrades(t *testing.T) {
+	runner, store := newTestRunner(t)
+	ctx := context.Background()
+
+	// Always fails: the point is that the SECOND failure degrades rather
+	// than dead-letters, because by then the node is a read.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	wf, err := store.CreateWorkflow(ctx, "Dead Letter Degrade Test", fundedTestUser(t, store))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.DeleteWorkflow(context.Background(), wf.ID) })
+
+	node := func(method string) models.WorkflowGraph {
+		return models.WorkflowGraph{
+			Nodes: []models.WorkflowNode{
+				{ID: "n1", Type: models.NodeTypeTrigger},
+				{ID: "n3", Type: models.NodeTypeTool, Template: "http", URL: srv.URL, Method: method},
+				{ID: "n4", Type: models.NodeTypeEnd},
+			},
+			Edges: []models.WorkflowEdge{
+				{ID: "e1", From: "n1", To: "n3", Kind: models.EdgeKindFlow},
+				{ID: "e2", From: "n3", To: "n4", Kind: models.EdgeKindFlow},
+			},
+		}
+	}
+
+	// A PUT is an action: it hard-fails and dead-letters.
+	wf, _ = store.UpdateWorkflow(ctx, wf.ID, wf.Name, node("PUT"))
+	run, err := store.CreateRun(ctx, wf.ID, "test", []byte("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker := sse.NewBroker()
+	broker.Create(run.ID)
+	runner.Run(ctx, wf, run, 0)
+
+	before, err := store.GetDeadLetterRuns(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 1 || before[0].NodeID != "n3" {
+		t.Fatalf("want exactly 1 dead-letter row for n3 before resume, got %+v", before)
+	}
+
+	// The user fixes the node in the Inspector -- it reads now -- and
+	// resumes. The source is still down, so this time it degrades.
+	wf, _ = store.UpdateWorkflow(ctx, wf.ID, wf.Name, node("GET"))
+	broker.Create(run.ID)
+	runner.Resume(ctx, wf, run, 0, false)
+
+	finalRun, err := store.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finalRun.Status != models.RunStatusSuccess {
+		t.Fatalf("run status after a degraded resume = %s, want success", finalRun.Status)
+	}
+
+	after, err := store.GetDeadLetterRuns(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 0 {
+		t.Fatalf("want 0 dead-letter rows once n3 degraded, got %+v -- this run can never be resumed again, so nothing would ever clear it", after)
 	}
 }

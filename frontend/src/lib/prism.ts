@@ -116,6 +116,57 @@ export class PrismRunError extends Error {
   }
 }
 
+export interface PrismRepoFile {
+  path: string;
+  size: number;
+  /** Empty when reviewable; otherwise a short reason the file was left out. */
+  skip?: string;
+}
+
+export interface PrismRepoListing {
+  owner: string;
+  name: string;
+  ref: string;
+  files: PrismRepoFile[];
+  reviewableCount: number;
+  maxFiles: number;
+  /** The flat markup, charged ONCE for the whole repo run — not per file. */
+  platformFeeTotal: number;
+}
+
+export interface PrismRepoFileResult {
+  path: string;
+  response?: unknown;
+  error?: string;
+  costUsdMicros: number;
+  txId?: string;
+}
+
+export interface PrismRepoReviewResult {
+  repo: string;
+  ref: string;
+  tier: string;
+  results: PrismRepoFileResult[];
+  vendorTotalUsdMicros: number;
+  platformFeeUsdMicros: number;
+  totalUsdMicros: number;
+}
+
+// repoRunCost is what a repo review actually costs: the per-file vendor price
+// times the number of files, plus ONE platform fee for the run.
+//
+// This is the whole reason the batch exists. Billing the flat fee per call — as
+// every other x402 path does — made a 30-file review $48, of which $45 was
+// markup on $3 of review.
+export function repoRunCost(
+  fileCount: number,
+  perFileMicros: number,
+  platformFeeMicros: number,
+): number {
+  if (fileCount <= 0) return 0;
+  return fileCount * perFileMicros + platformFeeMicros;
+}
+
 export const prism = {
   async spec(): Promise<PrismSpec> {
     const res = await apiFetch(`${BASE}/prism/endpoints`, {
@@ -123,6 +174,40 @@ export const prism = {
     });
     if (!res.ok) throw new Error(`endpoints: ${res.status}`);
     return (await res.json()) as PrismSpec;
+  },
+
+  async repoFiles(repo: string): Promise<PrismRepoListing> {
+    const res = await apiFetch(`${BASE}/prism/repo/files`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? "Could not read that repository.");
+    return data as PrismRepoListing;
+  },
+
+  async repoReview(
+    repo: string,
+    ref: string,
+    tier: string,
+    paths: string[],
+  ): Promise<PrismRepoReviewResult> {
+    const res = await apiFetch(`${BASE}/prism/repo/review`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo, ref, tier, paths }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // PrismRunError, not a bare Error: a repo review refused for want of
+      // credit comes back as a 402 exactly like a single run, and the panel
+      // needs the status to offer a top-up instead of a dead red line.
+      throw new PrismRunError(data.error ?? "The review failed.", res.status);
+    }
+    return data as PrismRepoReviewResult;
   },
 
   async run(

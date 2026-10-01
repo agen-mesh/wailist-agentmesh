@@ -1,14 +1,25 @@
 "use client";
 import type { OrderTotals } from "./types";
-import { bonusUSD, creditsForTopup, gstBreakdown } from "@/lib/credits/fx";
+import { creditsForTopup, gstBreakdown } from "@/lib/credits/fx";
 
 // Money summary for the credits checkout -- a totals block. Coupons are
 // intentionally omitted (not offered yet) and there is no shipping, since
 // credits are digital: you pay the subtotal. The credits you receive are
 // highlighted as the reward of the purchase.
-export function OrderSummary({ totals }: { totals: OrderTotals }) {
-  const credits = creditsForTopup(totals.total);
-  const bonus = bonusUSD(totals.total);
+export function OrderSummary({
+  totals,
+  usdPerINR,
+}: {
+  totals: OrderTotals;
+  /** The server's live rate. 0 until it arrives; see the comment below. */
+  usdPerINR: number;
+}) {
+  // Only quote once the server has told us the rate it will charge at.
+  // This used to convert at a hardcoded 1/83 and add a 5% bonus the
+  // backend never granted, so it promised roughly 21% more credit than
+  // the ledger recorded -- on the screen where the payer decides.
+  const credits =
+    usdPerINR > 0 ? creditsForTopup(totals.total, usdPerINR) : null;
   const { base, gst } = gstBreakdown(totals.total);
   return (
     <div
@@ -17,7 +28,7 @@ export function OrderSummary({ totals }: { totals: OrderTotals }) {
         borderTop: "1px solid var(--border)",
         display: "flex",
         flexDirection: "column",
-        gap: 12,
+        gap: "var(--s-4)",
       }}
     >
       <SummaryRow label="Subtotal (excl. GST)" value={base} />
@@ -32,12 +43,12 @@ export function OrderSummary({ totals }: { totals: OrderTotals }) {
           borderTop: "1px solid var(--border)",
         }}
       >
-        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)" }}>
+        <span style={{ fontSize: "var(--t-4)", fontWeight: 600, color: "var(--fg)" }}>
           Total payable
         </span>
         <span
           style={{
-            fontSize: 20,
+            fontSize: "var(--t-5)",
             fontWeight: 700,
             color: "var(--fg)",
             fontFamily: "var(--font-mono)",
@@ -61,33 +72,21 @@ export function OrderSummary({ totals }: { totals: OrderTotals }) {
           border: "1px solid var(--accent-line)",
         }}
       >
-        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--accent)" }}>
+        <span style={{ fontSize: "var(--t-2)", fontWeight: 500, color: "var(--accent)" }}>
           You receive
         </span>
         <span
           style={{
-            fontSize: 15,
+            fontSize: "var(--t-4)",
             fontWeight: 700,
             fontFamily: "var(--font-mono)",
             fontVariantNumeric: "tabular-nums",
             color: "var(--accent)",
           }}
         >
-          ≈ ${credits.toFixed(2)} credits
+          {credits === null ? "≈ —" : `≈ $${credits.toFixed(2)} credits`}
         </span>
       </div>
-      {bonus > 0 && (
-        <div
-          style={{
-            fontSize: 11,
-            color: "var(--fg-dim)",
-            textAlign: "right",
-            marginTop: -4,
-          }}
-        >
-          includes ${bonus.toFixed(2)} bonus
-        </div>
-      )}
     </div>
   );
 }
@@ -95,10 +94,10 @@ export function OrderSummary({ totals }: { totals: OrderTotals }) {
 function SummaryRow({ label, value }: { label: string; value: number }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between" }}>
-      <span style={{ fontSize: 13, color: "var(--fg-muted)" }}>{label}</span>
+      <span style={{ fontSize: "var(--t-3)", color: "var(--fg-muted)" }}>{label}</span>
       <span
         style={{
-          fontSize: 13,
+          fontSize: "var(--t-3)",
           color: "var(--fg)",
           fontFamily: "var(--font-mono)",
           fontVariantNumeric: "tabular-nums",

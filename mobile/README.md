@@ -174,6 +174,41 @@ wired and inert: with no Firebase project configured the app builds and runs
 normally, it simply never receives a notification, and the server's send path
 does nothing at all.
 
+"Inert" was not true until `PushAvailabilityPlugin` existed. Without
+`google-services.json` the push plugin's `register()` and `unregister()` throw
+natively (`Default FirebaseApp is not initialized`), and Capacitor turns that
+into a process crash that no JavaScript can catch: turning notifications on
+closed the app, and so did signing out. `frontend/src/native/push.ts` now asks
+`pushAvailable()` before any call that reaches Firebase, and a build without it
+reports `unavailable` instead.
+
+### Making notifications actually deliver
+
+1. **Firebase project (needs the project owner).** Create it, add the Android
+   app `ai.agentmesh.app`, and put `google-services.json` in
+   `mobile/android/app/` (details below).
+2. **Backend credentials (needs the project owner).** Generate a service-account
+   key and set it as `FCM_SERVICE_ACCOUNT_JSON` on the backend service.
+3. **Check the deployed backend has the routes.** An unauthenticated
+   `POST /devices` must answer 401, not 404.
+4. **Delivery polish in the app, once 1 exists.**
+   - A `runs` notification channel, set as FCM's default through the
+     `com.google.firebase.messaging.default_notification_channel_id` manifest
+     meta-data, so the server payload needs no change.
+   - A white-on-transparent `default_notification_icon`, or Android draws a grey
+     square in the status bar.
+   - Something in the app for a push that arrives while it is open, which FCM
+     does not display on its own.
+5. **End to end, on a Play-services device.** The `agentmesh_test` AVD is a
+   `google_apis_playstore` image, so it qualifies.
+   - Build with the JSON present, sign in, and turn notifications on. Expect the
+     Android 13+ dialog, a `device_tokens` row, and the sheet reading on.
+   - Make a run fail, or let a webhook or scheduled run succeed. A manual
+     success is deliberately silent.
+   - Confirm the notification arrives with the app in the background, and that
+     tapping it opens the workflow.
+   - Turn notifications off, then sign out: no crash, and the token is gone.
+
 Turning it on needs two artefacts, and they are not the same kind of thing.
 
 **`google-services.json` — config, not a secret.** In the Firebase console,
@@ -210,19 +245,35 @@ shows the result. The rule lives in one tested function,
 **Testing needs a real device or an emulator image with Google Play services.**
 A plain AVD image has no FCM and will never receive anything.
 
-**There is no way for a user to turn notifications on yet, and that is
-deliberate.** `enablePush()` and `PUSH_DISCLOSURE` in `frontend/src/native/push.ts`
-are complete and tested, but nothing calls them: no settings toggle, no
-onboarding step, no prompt on first run. So no permission is ever requested and
-no `device_tokens` row is ever created, which means the backend send path stays
-unreachable however well configured Firebase is.
+**Where a user turns them on.** Account menu (the avatar, top right) ->
+Notifications. Native builds only: there is no FCM in a browser, so the item is
+not rendered there.
 
-The entry point is its own child of the mobile epic (#127), for a reason worth
-stating rather than leaving as an accident: where and when to ask for
-notification permission is a product decision with its own copy and its own
-placement, and Android's permission prompt is asked once -- a refusal is
-expensive to recover from. Bundling it into the plumbing would have meant
-deciding it in passing.
+The sheet shows one of four states, and they are not interchangeable:
+
+| State       | What it means                                                                                                                                                                             |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| off         | Not on. Either Android has never been asked, or it was asked, said yes, and notifications were switched off here anyway. Shows `PUSH_DISCLOSURE`, then asks Android if it still needs to. |
+| granted     | Permission granted **and** turned on here. Offers a way back off.                                                                                                                         |
+| denied      | Refused. Android will not ask again, so the only route back is Settings, and the sheet says so instead of offering a retry that would do nothing.                                         |
+| unavailable | No Firebase in this build (checked natively, before anything can crash), or no Play services. Nobody refused anything, so no route to Settings is offered.                                |
+
+The state is read with `notificationState()`, which combines
+`checkPermissions()` with the stored opt-in, and never requests. Both halves
+matter: switching notifications off in the app cannot revoke Android's
+permission -- nothing in an app can -- so permission alone kept reading
+"granted" the instant after the user turned them off, and the sheet snapped
+back to its "on" panel. Not requesting matters too: on Android 13+ the permission
+dialog is a one-shot, and using `enablePush()` to find out what to draw would
+spend the single ask on rendering a switch.
+
+Turning it on is remembered on the device (`agentmesh.push.optIn`, plain
+preferences -- it is a preference, not a credential) and re-registered on the
+next launch that restores a session. Two reasons: FCM rotates tokens, and
+`push.ts` keeps the current one in memory only, so without the re-arm there
+would be nothing to unregister and the switch could not be moved back. Signing
+out clears the flag, so the next person to use the phone is not registered for
+notifications they were never asked about.
 
 ## Location permission
 

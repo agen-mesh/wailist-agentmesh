@@ -1,5 +1,7 @@
 "use client";
+import { useState } from "react";
 import { IconSpeaker, IconStop } from "@/components/ui";
+import { stepsSummary, type BuildStep } from "./buildProgress";
 import { toSpeechText } from "./speechText";
 import { useSpeechPlayback } from "./useSpeechPlayback";
 import type { ChatMessage as Message } from "./useChatSession";
@@ -34,6 +36,137 @@ function activityParts(m: Message): string[] {
   return parts;
 }
 
+/** Steps shown while a build is still running; older ones fold into a count. */
+const LIVE_STEPS_SHOWN = 8;
+
+const stepLineStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "12px 1fr",
+  columnGap: 6,
+  alignItems: "baseline",
+  fontFamily: "var(--font-mono)",
+  fontSize: "var(--t-1)",
+  lineHeight: 1.5,
+  minWidth: 0,
+};
+
+/**
+ * A chat build's steps, one line each -- the builder's work shown the way a
+ * coding agent shows its tool calls, rather than a spinner. A failed step
+ * keeps its reason on the line beneath it, since "Couldn't add … (HTTP 404)"
+ * is exactly the kind of thing the user needs to see.
+ */
+function StepList({ steps }: { steps: BuildStep[] }) {
+  return (
+    <div
+      style={{ display: "flex", flexDirection: "column", gap: "var(--s-0)", minWidth: 0 }}
+    >
+      {steps.map((st, i) => {
+        const failed = st.status === "error";
+        return (
+          <div key={i} style={stepLineStyle}>
+            <span
+              aria-hidden
+              style={{
+                color: failed ? "var(--danger)" : "var(--fg-dim)",
+                textAlign: "center",
+              }}
+            >
+              {failed ? "✕" : "✓"}
+            </span>
+            <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+              <span
+                style={{ color: failed ? "var(--danger)" : "var(--fg-muted)" }}
+              >
+                {st.label}
+              </span>
+              {st.detail && (
+                <span style={{ display: "block", color: "var(--fg-dim)" }}>
+                  {st.detail}
+                </span>
+              )}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** While pending: the latest steps and what is running right now. */
+function LiveProgress({
+  steps,
+  current,
+}: {
+  steps: BuildStep[];
+  current?: string;
+}) {
+  const hidden = Math.max(0, steps.length - LIVE_STEPS_SHOWN);
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--s-0)",
+        padding: "4px 0",
+        minWidth: 0,
+      }}
+    >
+      {hidden > 0 && (
+        <div style={{ ...stepLineStyle, color: "var(--fg-dim)" }}>
+          <span aria-hidden />
+          <span>
+            +{hidden} earlier step{hidden === 1 ? "" : "s"}
+          </span>
+        </div>
+      )}
+      <StepList steps={steps.slice(-LIVE_STEPS_SHOWN)} />
+      <div style={{ ...stepLineStyle, color: "var(--fg-dim)" }}>
+        <span style={{ display: "flex", justifyContent: "center" }}>
+          <span className="chat-thinking-dot" />
+        </span>
+        <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+          {current ? `${current}…` : "working…"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Once settled: the steps fold into one dim line that expands on click. */
+function SettledSteps({ steps }: { steps: BuildStep[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: 6, minWidth: 0 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        style={{
+          padding: "2px 0",
+          background: "none",
+          border: "none",
+          fontFamily: "var(--font-mono)",
+          fontSize: "var(--t-0)",
+          letterSpacing: "0.02em",
+          color: "var(--fg-dim)",
+          cursor: "pointer",
+        }}
+      >
+        <span aria-hidden>{open ? "▾" : "▸"} </span>
+        {stepsSummary(steps)}
+      </button>
+      {open && (
+        <div style={{ marginTop: 4 }}>
+          <StepList steps={steps} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
   const isUser = message.sender === "user";
   // Called unconditionally -- Rules of Hooks -- even on the user branch,
@@ -54,7 +187,7 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
             background: "var(--bg-elev-3)",
             border: "1px solid var(--border)",
             color: "var(--fg)",
-            fontSize: 13,
+            fontSize: "var(--t-3)",
             lineHeight: 1.55,
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
@@ -67,6 +200,7 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
   }
 
   const parts = activityParts(message);
+  const steps = message.steps ?? [];
   const canShowLogs = !!onShowLogs;
   const canSpeak = !message.pending && message.text.trim() !== "";
 
@@ -75,15 +209,20 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
       className="chat-msg"
       style={{ display: "flex", flexDirection: "column" }}
     >
-      {message.pending ? (
+      {/* A settled build keeps its steps, folded above the answer. */}
+      {!message.pending && steps.length > 0 && <SettledSteps steps={steps} />}
+
+      {message.pending && (steps.length > 0 || message.current) ? (
+        <LiveProgress steps={steps} current={message.current} />
+      ) : message.pending ? (
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 7,
+            gap: "var(--s-2)",
             color: "var(--fg-dim)",
             fontFamily: "var(--font-mono)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             padding: "4px 0",
           }}
         >
@@ -101,7 +240,7 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
               : message.interrupted
                 ? "var(--fg-muted)"
                 : "var(--fg)",
-            fontSize: 13,
+            fontSize: "var(--t-3)",
             lineHeight: 1.6,
             overflowWrap: "anywhere",
           }}
@@ -113,7 +252,7 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
             <span
               style={{
                 fontFamily: "var(--font-mono)",
-                fontSize: 10,
+                fontSize: "var(--t-0)",
                 textTransform: "uppercase",
                 letterSpacing: "0.08em",
                 display: "block",
@@ -141,7 +280,7 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
             marginTop: 5,
             display: "flex",
             alignItems: "center",
-            gap: 10,
+            gap: "var(--s-3)",
           }}
         >
           {canSpeak && playback.supported && (
@@ -178,7 +317,7 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
                 background: "none",
                 border: "none",
                 fontFamily: "var(--font-mono)",
-                fontSize: 10,
+                fontSize: "var(--t-0)",
                 fontVariantNumeric: "tabular-nums",
                 color: "var(--fg-dim)",
                 cursor: canShowLogs ? "pointer" : "default",

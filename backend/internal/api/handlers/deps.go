@@ -5,6 +5,7 @@ import (
 
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine"
+	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/payments"
 	"github.com/agentmesh/backend/internal/sse"
 	"github.com/agentmesh/backend/internal/tendril"
@@ -44,11 +45,15 @@ type USDCSigner interface {
 var _ USDCSigner = (*wallet.Service)(nil)
 
 type Deps struct {
-	Store   *db.Store
-	Broker  *sse.Broker
-	Wallet  *wallet.Service
-	Engine  *engine.Runner
-	BaseURL string
+	Store *db.Store
+	// WorkflowStatsLoader overrides the detail endpoint's stats read when set.
+	// Production uses Store; the seam lets handler tests exercise its failure
+	// response without damaging shared database tables.
+	WorkflowStatsLoader func(context.Context, string, *models.Workflow) error
+	Broker              *sse.Broker
+	Wallet              *wallet.Service
+	Engine              *engine.Runner
+	BaseURL             string
 	// RelayBaseURL is where THIS instance's own /x402/relay is reached from
 	// (see main.go's relayBaseURL — distinct from BaseURL, which also signs
 	// auth cookies). Needed by the Tendril console's direct-action endpoints
@@ -137,4 +142,11 @@ type Deps struct {
 	GitLabClientSecret          string
 	TodoistClientID             string
 	TodoistClientSecret         string
+}
+
+func (d *Deps) loadWorkflowStats(ctx context.Context, userID string, wf *models.Workflow) error {
+	if d.WorkflowStatsLoader != nil {
+		return d.WorkflowStatsLoader(ctx, userID, wf)
+	}
+	return d.Store.AttachWorkflowStats(ctx, userID, wf)
 }

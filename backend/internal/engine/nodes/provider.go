@@ -9,8 +9,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/agentmesh/backend/internal/models"
 )
@@ -86,7 +88,21 @@ func defaultModel(template string) string {
 // node's own Model if set, else its template's default. Exported so
 // runner.go can compute the same billing tier before the call that
 // provider.go computes for the call itself.
+//
+// GEMINI_MODEL_LOCK, when set, pins every Gemini call to that one model
+// regardless of what the node asks for -- an opt-in cost guard for running
+// the stack against a personal key. Unset (the default, and production)
+// changes nothing. It lives here rather than at each call site because this
+// is the single function every provider call and the billing preflight both
+// use, so the model that runs and the model that is billed stay the same.
+// Non-Gemini templates are left alone: a Gemini model name forced onto an
+// OpenAI or Anthropic call would only break it.
 func ResolveModel(template, model string) string {
+	if template == "gemini" {
+		if lock := os.Getenv("GEMINI_MODEL_LOCK"); lock != "" {
+			return lock
+		}
+	}
 	if model != "" {
 		return model
 	}
@@ -442,6 +458,42 @@ func paymentReceipt(p *ToolPaymentInfo) map[string]any {
 	return receipt
 }
 
+// agentInput is what the agent is asked: the run's input plus the output of
+// the step it follows. Before this an agent placed after data steps saw only
+// the trigger input, never the data it was added to explain.
+// clipRunes cuts s to at most n bytes on a rune boundary, saying so.
+func clipRunes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "\n… (truncated: the step returned more data than fits in one prompt)"
+}
+
+// maxAgentInputData bounds the upstream output pasted into the prompt: a
+// feed can return megabytes, billed before the provider refuses it.
+const maxAgentInputData = 32000
+
+// rc.Message() is the most recent output -- for a single chain the agent's
+// own predecessor, for parallel branches whichever finished last (#212).
+func agentInput(rc RunContexter) string {
+	ask := strings.TrimSpace(rc.UserInput())
+	data := clipRunes(strings.TrimSpace(rc.Message()), maxAgentInputData)
+	switch {
+	case ask == "" && data == "":
+		// Gemini rejects an empty user part.
+		return "Begin."
+	case data == "" || data == ask:
+		return ask
+	case ask == "":
+		return data
+	}
+	return ask + "\n\nInput from the previous step:\n" + data
+}
+
 func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.WorkflowNode, tools []models.WorkflowNode, aw models.AgentWallet, signer WalletSigner, rc RunContexter, checkBalance BalanceChecker, platformKeys map[string]string, relayCfg X402RelayConfig) (any, error) {
 	model := ResolveModel(provider.Template, provider.Model)
 
@@ -454,7 +506,7 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 	apiHeaders := map[string]string{"x-goog-api-key": apiKey}
 
 	contents := []map[string]any{
-		{"role": "user", "parts": []map[string]any{{"text": rc.UserInput()}}},
+		{"role": "user", "parts": []map[string]any{{"text": agentInput(rc)}}},
 	}
 
 	payload := map[string]any{"contents": contents}
@@ -565,6 +617,10 @@ func callGemini(ctx context.Context, agent models.WorkflowNode, provider models.
 	return nil, fmt.Errorf("agent exceeded maximum tool call iterations (%d)", maxToolIterations)
 }
 
+// ErrNoModelText is the model answering with neither text nor a function
+// call -- not a fault, so a dry run can tell it apart from a bad key.
+var ErrNoModelText = errors.New("no text part in Gemini response")
+
 func extractGeminiText(resp map[string]any) (string, error) {
 	candidates, _ := resp["candidates"].([]any)
 	if len(candidates) == 0 {
@@ -578,7 +634,29 @@ func extractGeminiText(resp map[string]any) (string, error) {
 			return text, nil
 		}
 	}
-	return "", fmt.Errorf("no text part in Gemini response")
+	reason, _ := candidates[0].(map[string]any)["finishReason"].(string)
+	if reason == "" {
+		reason = "none given"
+	}
+	return "", fmt.Errorf("%w (finish reason: %s, %d parts)", ErrNoModelText, reason, len(parts))
+}
+
+// FinishedOnOutputLimit reports whether Gemini stopped this response because
+// it reached maxOutputTokens rather than because it was done.
+//
+// Thinking tokens count toward that limit, so a round can spend the whole
+// budget planning and come back with no text and no function call -- or,
+// worse, with a function call whose arguments were cut off mid-object. Either
+// way the response is unusable, and re-sending the identical payload produces
+// the identical truncation, so the caller must stop rather than retry.
+func FinishedOnOutputLimit(resp map[string]any) bool {
+	candidates, _ := resp["candidates"].([]any)
+	if len(candidates) == 0 {
+		return false
+	}
+	first, _ := candidates[0].(map[string]any)
+	reason, _ := first["finishReason"].(string)
+	return reason == "MAX_TOKENS"
 }
 
 type geminiFuncCall struct {
@@ -628,7 +706,7 @@ func callOpenAICompat(ctx context.Context, agent models.WorkflowNode, provider m
 	if agent.SystemPrompt != "" {
 		messages = append(messages, map[string]any{"role": "system", "content": agent.SystemPrompt})
 	}
-	messages = append(messages, map[string]any{"role": "user", "content": rc.UserInput()})
+	messages = append(messages, map[string]any{"role": "user", "content": agentInput(rc)})
 
 	payload := map[string]any{"model": model, "messages": messages}
 
@@ -765,7 +843,7 @@ func callAnthropic(ctx context.Context, agent models.WorkflowNode, provider mode
 	payload := map[string]any{
 		"model":      model,
 		"max_tokens": 4096,
-		"messages":   []anthMsg{{Role: "user", Content: rc.UserInput()}},
+		"messages":   []anthMsg{{Role: "user", Content: agentInput(rc)}},
 	}
 	if agent.SystemPrompt != "" {
 		payload["system"] = agent.SystemPrompt

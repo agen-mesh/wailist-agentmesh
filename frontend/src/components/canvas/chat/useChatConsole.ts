@@ -4,6 +4,8 @@ import { useRunTranscript, type LogEvent } from "../useRunTranscript";
 import { useChatSession, type ChatSession } from "./useChatSession";
 import { resolveReply } from "./resolveReply";
 import { recoverPendingTurn } from "./recoverPendingTurn";
+import type { BuildProgress } from "./buildProgress";
+import type { RunCosts } from "@/lib/runCosts";
 import {
   runs as runsApi,
   type RunLogRecord,
@@ -17,9 +19,12 @@ interface UseChatConsoleArgs {
   workflowId?: string;
   onSendMessage?: (text: string) => Promise<boolean>;
   // Build mode routes a chat turn to graph editing instead of running the
-  // deployed agent -- see CanvasPage's hasProviderNode/buildMode wiring.
+  // deployed agent -- see CanvasPage's graphReady/buildMode wiring.
   buildMode?: boolean;
-  onBuildMessage?: (text: string) => Promise<{ ok: boolean; reply?: string }>;
+  onBuildMessage?: (
+    text: string,
+    onProgress?: (p: BuildProgress) => void,
+  ) => Promise<{ ok: boolean; reply?: string; onSettled?: () => void }>;
   attempt?: number;
 }
 
@@ -32,6 +37,8 @@ export interface ChatConsole {
   busy: boolean;
   handleSend: (text: string) => void;
   deadLetters: DeadLetterRun[];
+  /** What the current run was charged -- see RunTranscript.costs. */
+  costs: RunCosts | null;
 }
 
 // Owns the run transcript (SSE + reconciliation) and the chat session
@@ -47,7 +54,7 @@ export function useChatConsole({
   onBuildMessage,
   attempt,
 }: UseChatConsoleArgs): ChatConsole {
-  const { logs, elapsed, done, leaseId, stopped, deadLetters } =
+  const { logs, elapsed, done, leaseId, stopped, deadLetters, costs } =
     useRunTranscript({
       runId,
       running,
@@ -56,7 +63,7 @@ export function useChatConsole({
       attempt,
     });
 
-  const session = useChatSession(workflowId);
+  const session = useChatSession(workflowId, buildMode ? "build" : "run");
 
   // Bind the turn the user just sent to the run the backend actually started.
   // This effect has no access to the id startTurn returned to handleSend's
@@ -125,14 +132,19 @@ export function useChatConsole({
   // Recover a turn stranded by a page reload. See ConsolePanel's former
   // version of this effect for the full ordering rationale -- unchanged here,
   // just relocated.
-  const recoveredRef = useRef(false);
+  // Keyed by conversation, not a bare flag. The hook never remounts on a
+  // mode switch, so a one-shot ref was spent recovering the Run transcript
+  // and a turn stranded in Build was never settled -- its composer stayed
+  // locked, and a reload repeated the same order.
+  const recoveredRef = useRef<string | null>(null);
   const messagesRef = useRef(session.messages);
   useEffect(() => {
     messagesRef.current = session.messages;
   }, [session.messages]);
+  const conversation = `${workflowId ?? ""}:${buildMode ? "build" : "run"}`;
   useEffect(() => {
-    if (!hydrated || runId || recoveredRef.current) return;
-    recoveredRef.current = true;
+    if (!hydrated || runId || recoveredRef.current === conversation) return;
+    recoveredRef.current = conversation;
 
     const stranded = [...messagesRef.current].reverse().find((m) => m.pending);
     if (!stranded) return;
@@ -174,7 +186,7 @@ export function useChatConsole({
     return () => {
       cancelled = true;
     };
-  }, [hydrated, runId, completeTurnById]);
+  }, [hydrated, runId, conversation, completeTurnById]);
 
   const handleSend = (text: string) => {
     const turnId = session.startTurn(text);
@@ -186,8 +198,14 @@ export function useChatConsole({
         // Build mode has no runId/SSE transcript to settle against -- it
         // resolves synchronously in one round trip, so settle the turn
         // directly here instead of via the runId-keyed effects above.
-        const res = (await onBuildMessage?.(text)) ?? { ok: false };
+        // Each step the builder takes lands on this turn as it happens, so
+        // the chat shows the work instead of a bare spinner.
+        const res =
+          (await onBuildMessage?.(text, (p) =>
+            session.setTurnProgress(turnId, p),
+          )) ?? { ok: false };
         completeTurnById(turnId, {
+          current: undefined,
           text:
             res.reply ??
             (res.ok
@@ -195,6 +213,11 @@ export function useChatConsole({
               : "Could not update the workflow — see the notification for why, then try again."),
           isError: !res.ok,
         });
+        // Only now: leaving build mode swaps the transcript under this hook,
+        // and a turn settled after that swap lands on the run conversation,
+        // where it does not exist -- the reply is dropped and the build one
+        // keeps a turn pending for ever.
+        res.onSettled?.();
         return;
       }
       const ok = (await onSendMessage?.(text)) ?? false;
@@ -228,5 +251,6 @@ export function useChatConsole({
     busy,
     handleSend,
     deadLetters,
+    costs,
   };
 }

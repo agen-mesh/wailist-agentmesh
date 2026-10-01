@@ -1,6 +1,20 @@
 "use client";
-import { useEffect } from "react";
-import { IS_NATIVE, setAuthToken, markAuthReady } from "@/lib/nativeAuth";
+import { useCallback, useEffect, useRef } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  IS_NATIVE,
+  setAuthToken,
+  markAuthReady,
+  getAuthToken,
+  authReady,
+} from "@/lib/nativeAuth";
+import { auth, BASE } from "@/lib/api";
+import {
+  gateRoute,
+  setInAppNavigator,
+  takePendingRoute,
+  type InAppRoute,
+} from "@/lib/nativeNav";
 
 // Restores the session the native shell persisted, once, on first mount.
 //
@@ -23,7 +37,10 @@ import { IS_NATIVE, setAuthToken, markAuthReady } from "@/lib/nativeAuth";
 const BOOT_TIMEOUT_MS = 10_000;
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("native boot timed out")), ms);
+    const timer = setTimeout(
+      () => reject(new Error("native boot timed out")),
+      ms,
+    );
     p.then(
       (v) => {
         clearTimeout(timer);
@@ -40,11 +57,79 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 // Renders nothing. Mounted in the root layout because the session has to be
 // restored before any page makes its first authenticated call, not when some
 // particular screen happens to appear.
+//
+// It also gives the shell a router (lib/nativeNav.ts). A notification tap or an
+// OAuth result arrives from native code with nowhere to navigate, and a page
+// load would reopen the app on its launch page.
 export function NativeBoot() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  const navigation = useRef(0);
+  useEffect(() => {
+    pathnameRef.current = pathname;
+    return () => {
+      navigation.current += 1;
+    };
+  }, [pathname]);
+
+  const go = useCallback(
+    async (route: InAppRoute) => {
+      const request = ++navigation.current;
+      let signedIn = !BASE;
+      if (BASE && !route.href.startsWith("/signin")) {
+        await authReady;
+        if (request !== navigation.current) return;
+        const token = getAuthToken();
+        if (token !== null) {
+          try {
+            await withTimeout(auth.me(), BOOT_TIMEOUT_MS);
+            signedIn = getAuthToken() === token;
+          } catch {
+            // An unconfirmed session keeps the destination behind sign-in.
+            signedIn = false;
+          }
+        }
+      }
+      // A newer tap, route change, or unmount supersedes an in-flight check.
+      if (request !== navigation.current) return;
+      const { href, replace } = gateRoute(route, signedIn);
+      if (replace) router.replace(href);
+      else router.push(href);
+    },
+    [router],
+  );
+
+  // Registered before boot() runs below (effects run in order), because boot()
+  // attaches the listeners that navigate.
+  useEffect(() => {
+    if (!IS_NATIVE) return;
+    setInAppNavigator((route) => {
+      // The launch page is still choosing between /workflows and /signin. It
+      // takes the held route in place of its default (app/page.tsx).
+      if (pathnameRef.current === "/") return false;
+      void go(route);
+      return true;
+    });
+    return () => setInAppNavigator(null);
+  }, [go]);
+
+  // A route that arrived while the launch page was already redirecting is
+  // still held once the redirect lands. Follow it then.
+  useEffect(() => {
+    if (!IS_NATIVE || pathname === "/") return;
+    const held = takePendingRoute();
+    if (!held) return;
+    void go(held);
+  }, [pathname, go]);
+
   useEffect(() => {
     if (!IS_NATIVE) return;
     let cancelled = false;
-    void withTimeout(import("@/native").then(({ boot }) => boot()), BOOT_TIMEOUT_MS)
+    void withTimeout(
+      import("@/native").then(({ boot }) => boot()),
+      BOOT_TIMEOUT_MS,
+    )
       .then((token) => {
         if (!cancelled && token) setAuthToken(token);
       })

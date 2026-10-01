@@ -62,22 +62,22 @@ export function ConnectorOAuthButton({
           borderRadius: "var(--r-2)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--s-3)" }}>
           {/* Glowing green connected dot */}
           <span
             style={{
               width: 7,
               height: 7,
               borderRadius: "50%",
-              background: "#4ade80",
-              boxShadow: "0 0 7px #4ade80",
+              background: "var(--success)",
+              boxShadow: "0 0 7px var(--success)",
               flexShrink: 0,
             }}
           />
-          <span style={{ fontSize: 12, color: "#4ade80", fontWeight: 500 }}>
+          <span style={{ fontSize: "var(--t-2)", color: "var(--success)", fontWeight: 500 }}>
             Connected
           </span>
-          <span style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+          <span style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)" }}>
             · {displayName(provider)}
           </span>
         </div>
@@ -93,7 +93,7 @@ export function ConnectorOAuthButton({
             border: `1px solid ${reconnectHovered ? "var(--border-strong)" : "var(--border)"}`,
             borderRadius: "var(--r-2)",
             color: reconnectHovered ? "var(--fg-muted)" : "var(--fg-dim)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             fontFamily: "var(--font-sans)",
             cursor: "pointer",
             transition: "all 0.15s",
@@ -118,12 +118,12 @@ export function ConnectorOAuthButton({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        gap: 7,
+        gap: "var(--s-2)",
         background: hovered ? "var(--accent-soft)" : "transparent",
         border: `1px solid ${hovered ? "var(--accent)" : "var(--accent-line)"}`,
         borderRadius: "var(--r-2)",
         color: hovered ? "var(--accent)" : "var(--fg-muted)",
-        fontSize: 12,
+        fontSize: "var(--t-2)",
         fontFamily: "var(--font-sans)",
         fontWeight: 500,
         cursor: "pointer",

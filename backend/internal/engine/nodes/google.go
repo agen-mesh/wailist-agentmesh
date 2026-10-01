@@ -26,44 +26,21 @@ type GoogleConfig struct {
 	UserID string
 }
 
-// gmailAPIBase/sheetsAPIBase/calendarAPIBase/driveAPIBase/googleTokenEndpoint
-// are overridden in tests via SetGoogleAPIBasesForTest /
-// SetGoogleTokenEndpointForTest, matching the SetXAPIBaseForTest pattern
-// used throughout this package.
-var (
-	gmailAPIBase        = "https://gmail.googleapis.com/gmail/v1"
-	sheetsAPIBase       = "https://sheets.googleapis.com/v4/spreadsheets"
-	calendarAPIBase     = "https://www.googleapis.com/calendar/v3/calendars"
-	driveAPIBase        = "https://www.googleapis.com/drive/v3/files"
-	googleTokenEndpoint = "https://oauth2.googleapis.com/token"
-)
-
-// SetGoogleAPIBasesForTest overrides all four Google product API bases at
-// once. Call only from tests. Pass all "" to reset to the real APIs.
+// SetGoogleAPIBasesForTest overrides all four Google product API bases
+// ("gmail", "sheets", "calendar", "drive" in apiBaseDefaults) at once. Call
+// only from tests. Pass all "" to reset to the real APIs; a single "" restores
+// just that product's real base.
 func SetGoogleAPIBasesForTest(gmail, sheets, calendar, drive string) {
-	if gmail == "" && sheets == "" && calendar == "" && drive == "" {
-		gmailAPIBase = "https://gmail.googleapis.com/gmail/v1"
-		sheetsAPIBase = "https://sheets.googleapis.com/v4/spreadsheets"
-		calendarAPIBase = "https://www.googleapis.com/calendar/v3/calendars"
-		driveAPIBase = "https://www.googleapis.com/drive/v3/files"
-		return
-	}
-	gmailAPIBase = gmail
-	sheetsAPIBase = sheets
-	calendarAPIBase = calendar
-	driveAPIBase = drive
+	setAPIBaseForTest("gmail", gmail)
+	setAPIBaseForTest("sheets", sheets)
+	setAPIBaseForTest("calendar", calendar)
+	setAPIBaseForTest("drive", drive)
 }
 
 // SetGoogleTokenEndpointForTest overrides the OAuth2 token-refresh endpoint
 // googleAccessToken refreshes an expired credential against. Call only from
 // tests. Pass "" to reset to the real endpoint.
-func SetGoogleTokenEndpointForTest(base string) {
-	if base == "" {
-		googleTokenEndpoint = "https://oauth2.googleapis.com/token"
-	} else {
-		googleTokenEndpoint = base
-	}
-}
+func SetGoogleTokenEndpointForTest(base string) { setAPIBaseForTest("google_token", base) }
 
 // ExecuteGoogle dispatches to the Gmail/Sheets/Calendar/Drive connector
 // matching node.Template's prefix -- one node type covering all four
@@ -109,7 +86,7 @@ func googleAccessToken(ctx context.Context, node models.WorkflowNode, cfg Google
 		return "", fmt.Errorf("google: connected account is not a Google credential")
 	}
 	return oauthcred.GetValidAccessToken(ctx, cfg.Store, cfg.EncryptKey, cred, oauthcred.ProviderConfig{
-		TokenURL:     googleTokenEndpoint,
+		TokenURL:     apiBase("google_token"),
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
 	})
@@ -150,7 +127,7 @@ func executeGmail(ctx context.Context, node models.WorkflowNode, rc RunContexter
 		if max := resolveTemplate(configVal(node, "gmailMaxResults", ""), rc); max != "" {
 			q.Set("maxResults", max)
 		}
-		target := gmailAPIBase + "/users/me/messages"
+		target := apiBase("gmail") + "/users/me/messages"
 		if len(q) > 0 {
 			target += "?" + q.Encode()
 		}
@@ -161,7 +138,7 @@ func executeGmail(ctx context.Context, node models.WorkflowNode, rc RunContexter
 		if id == "" {
 			return "gmail_skipped_no_message_id", ErrActionSkipped
 		}
-		target := gmailAPIBase + "/users/me/messages/" + url.PathEscape(id)
+		target := apiBase("gmail") + "/users/me/messages/" + url.PathEscape(id)
 		raw, err := googleGET(ctx, target, token, "Gmail")
 		if err != nil {
 			return nil, err
@@ -181,14 +158,14 @@ func executeGmail(ctx context.Context, node models.WorkflowNode, rc RunContexter
 		if node.Template == "gmail_reply" && !strings.HasPrefix(strings.ToLower(subject), "re:") {
 			subject = "Re: " + subject
 		}
-		body := resolveMessage(node, rc)
+		body, _, _ := googleOutgoingText(node, rc)
 		payload := map[string]any{"raw": buildRFC2822Message(to, subject, body)}
 		if node.Template == "gmail_reply" {
 			if threadID := resolveTemplate(configVal(node, "gmailThreadID", ""), rc); threadID != "" {
 				payload["threadId"] = threadID
 			}
 		}
-		req, err := newJSONRequest(ctx, http.MethodPost, gmailAPIBase+"/users/me/messages/send", bearerHeader(token), payload)
+		req, err := newJSONRequest(ctx, http.MethodPost, apiBase("gmail")+"/users/me/messages/send", bearerHeader(token), payload)
 		if err != nil {
 			return nil, fmt.Errorf("Gmail: %w", err)
 		}
@@ -327,12 +304,12 @@ func executeSheets(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		// space in a path segment, so any range/sheet name containing a
 		// space (e.g. a sheet literally named "My Sheet") silently
 		// targeted the wrong (nonexistent) range.
-		target := sheetsAPIBase + "/" + url.PathEscape(spreadsheetID) + "/values/" + url.PathEscape(rangeA1)
+		target := apiBase("sheets") + "/" + url.PathEscape(spreadsheetID) + "/values/" + url.PathEscape(rangeA1)
 		return googleGET(ctx, target, token, "Google Sheets")
 
 	case "sheets_append":
-		target := sheetsAPIBase + "/" + url.PathEscape(spreadsheetID) + "/values/" + url.PathEscape(rangeA1) + ":append?valueInputOption=USER_ENTERED"
-		msg := resolveMessage(node, rc)
+		target := apiBase("sheets") + "/" + url.PathEscape(spreadsheetID) + "/values/" + url.PathEscape(rangeA1) + ":append?valueInputOption=USER_ENTERED"
+		msg, _, _ := googleOutgoingText(node, rc)
 		// A row is an array of cell values. If the upstream message is
 		// already a JSON array (e.g. via a {{ result.someArrayField }}
 		// template), append it as one row of that many cells; otherwise
@@ -366,14 +343,11 @@ func executeCalendar(ctx context.Context, node models.WorkflowNode, rc RunContex
 
 	switch node.Template {
 	case "calendar_list":
-		target := calendarAPIBase + "/" + url.PathEscape(calendarID) + "/events"
+		target := apiBase("calendar") + "/" + url.PathEscape(calendarID) + "/events"
 		return googleGET(ctx, target, token, "Google Calendar")
 
 	case "calendar_create":
-		summary := resolveTemplate(configVal(node, "calendarSummary", ""), rc)
-		if summary == "" {
-			summary = resolveMessage(node, rc)
-		}
+		summary, _, _ := googleOutgoingText(node, rc)
 		startISO := resolveTemplate(configVal(node, "calendarStart", ""), rc)
 		endISO := resolveTemplate(configVal(node, "calendarEnd", ""), rc)
 		if startISO == "" || endISO == "" {
@@ -384,7 +358,7 @@ func executeCalendar(ctx context.Context, node models.WorkflowNode, rc RunContex
 			"start":   map[string]any{"dateTime": startISO},
 			"end":     map[string]any{"dateTime": endISO},
 		}
-		target := calendarAPIBase + "/" + url.PathEscape(calendarID) + "/events"
+		target := apiBase("calendar") + "/" + url.PathEscape(calendarID) + "/events"
 		req, err := newJSONRequest(ctx, http.MethodPost, target, bearerHeader(token), payload)
 		if err != nil {
 			return nil, fmt.Errorf("Google Calendar: %w", err)
@@ -414,7 +388,7 @@ func executeDrive(ctx context.Context, node models.WorkflowNode, rc RunContexter
 		if query := resolveTemplate(configVal(node, "driveQuery", ""), rc); query != "" {
 			q.Set("q", query)
 		}
-		target := driveAPIBase
+		target := apiBase("drive")
 		if len(q) > 0 {
 			target += "?" + q.Encode()
 		}
@@ -425,14 +399,14 @@ func executeDrive(ctx context.Context, node models.WorkflowNode, rc RunContexter
 		if id == "" {
 			return "drive_skipped_no_file_id", ErrActionSkipped
 		}
-		return googleGET(ctx, driveAPIBase+"/"+url.PathEscape(id), token, "Google Drive")
+		return googleGET(ctx, apiBase("drive")+"/"+url.PathEscape(id), token, "Google Drive")
 
 	case "drive_download":
 		id := resolveTemplate(configVal(node, "driveFileID", ""), rc)
 		if id == "" {
 			return "drive_skipped_no_file_id", ErrActionSkipped
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, driveAPIBase+"/"+url.PathEscape(id)+"?alt=media", nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase("drive")+"/"+url.PathEscape(id)+"?alt=media", nil)
 		if err != nil {
 			return nil, fmt.Errorf("Google Drive: build request: %w", err)
 		}
@@ -466,4 +440,30 @@ func executeDrive(ctx context.Context, node models.WorkflowNode, rc RunContexter
 		}, nil
 	}
 	return nil, fmt.Errorf("google: unknown drive template %q", node.Template)
+}
+
+// googleOutgoingText is the content a Google write step sends -- an email's
+// body, an appended row, an event's summary -- whether the template sends any
+// at all, and whether that content came from a template. The one place this
+// decision lives: the connector above sends it, and the builder's dry run
+// reports it as what a simulated step would have carried, so the two cannot
+// disagree. Read-only templates send nothing.
+func googleOutgoingText(node models.WorkflowNode, rc RunContexter) (text string, sends, templated bool) {
+	switch node.Template {
+	case "gmail_send", "gmail_reply", "sheets_append":
+		return resolveMessage(node, rc), true, configVal(node, messageTemplateKey, "") != ""
+	case "calendar_create":
+		// The event's own summary wins; the run's message only fills in for
+		// a summary that is unset or resolves to nothing.
+		if summary := resolveTemplate(configVal(node, "calendarSummary", ""), rc); summary != "" {
+			return summary, true, true
+		}
+		return resolveMessage(node, rc), true, configVal(node, messageTemplateKey, "") != ""
+	}
+	return "", false, false
+}
+
+// GoogleOutgoingForDryRun exports googleOutgoingText for the builder's dry run.
+func GoogleOutgoingForDryRun(node models.WorkflowNode, rc RunContexter) (text string, sends, templated bool) {
+	return googleOutgoingText(node, rc)
 }
