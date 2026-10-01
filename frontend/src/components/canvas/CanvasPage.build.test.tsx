@@ -6,7 +6,7 @@ import type { BuildProgress } from "./chat/buildProgress";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(), update: vi.fn(), build: vi.fn(), estimate: vi.fn(),
-  stop: vi.fn(), refreshBalance: vi.fn(),
+  stop: vi.fn(), waitForFinishedBuild: vi.fn(), refreshBalance: vi.fn(),
   router: { push: vi.fn(), replace: vi.fn() },
   onBuild: undefined as undefined | ((text: string, progress?: (p: BuildProgress) => void) => Promise<{ ok: boolean; reply?: string }>),
 }));
@@ -15,7 +15,8 @@ vi.mock("next/navigation", () => ({
   useRouter: () => mocks.router,
   useSearchParams: () => new URLSearchParams(),
 }));
-vi.mock("@/lib/api", () => ({
+vi.mock("@/lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api")>()),
   workflows: { get: mocks.get, update: mocks.update, build: mocks.build, estimate: mocks.estimate },
   runs: {},
 }));
@@ -40,6 +41,7 @@ vi.mock("./chat/useChatConsole", () => ({
 vi.mock("./chat/buildProgress", () => ({
   newBuildId: () => "build-test",
   startProgressPolling: () => ({ stop: mocks.stop }),
+  waitForFinishedBuild: mocks.waitForFinishedBuild,
 }));
 vi.mock("./CanvasGraph", () => ({
   CanvasGraph: ({ workflow, setWorkflow }: { workflow: Workflow; setWorkflow: Dispatch<SetStateAction<Workflow>> }) => (
@@ -92,6 +94,7 @@ describe("CanvasPage Build save boundary", () => {
     }));
     expect(mocks.build).not.toHaveBeenCalled();
     expect(mocks.stop).toHaveBeenCalledTimes(1);
+    expect(mocks.waitForFinishedBuild).not.toHaveBeenCalled();
     expect(result).toEqual({ ok: false, reply: expect.stringContaining("failed to save") });
     expect(screen.getByTestId("graph").textContent).toBe(localGraph);
   });

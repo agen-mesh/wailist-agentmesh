@@ -648,7 +648,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         // when the build response replaces local state.
         const flushed = await flushPendingSave();
         if (!flushed) {
-          throw new Error("Latest changes failed to save. Try again before building.");
+          await poller?.stop();
+          const message = "Latest changes failed to save. Try again before building.";
+          showToast(`Build cancelled · ${message}`, "error");
+          return { ok: false, reply: `Could not update the workflow: ${message}` };
         }
         const res = await workflowsApi.build(workflow.id, text, buildId);
         await poller?.stop();
