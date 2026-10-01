@@ -11,6 +11,7 @@ import { buildCreditCart, computeTotals } from "./mockData";
 import { CartItemRow } from "./CartItemRow";
 import { OrderSummary } from "./OrderSummary";
 import { PaymentInfoPanel } from "./PaymentInfoPanel";
+import { usePaymentProviders } from "./usePaymentProviders";
 
 // We intentionally avoid native <dialog showModal()> here because showModal()
 // places the element in the browser top layer, which sits above every z-index
@@ -18,7 +19,7 @@ import { PaymentInfoPanel } from "./PaymentInfoPanel";
 // Cashfree SDK render its QR / hosted checkout above our modal without any
 // stacking conflict.
 const MODAL_CSS = `
-.checkout-split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; }
+.checkout-split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: var(--s-5); }
 .checkout-check { animation: checkout-pulse 2.4s var(--ease) infinite; }
 .checkout-backdrop {
   position: fixed; inset: 0; z-index: 1000;
@@ -30,7 +31,7 @@ const MODAL_CSS = `
 .checkout-panel {
   position: relative;
   display: flex; flex-direction: column;
-  max-height: 90vh; max-width: min(980px, calc(100vw - 48px));
+  max-height: 90vh; max-height: 90dvh; max-width: min(980px, calc(100vw - 48px));
   width: 100%;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-4);
@@ -77,7 +78,19 @@ export function CheckoutModal({
   // credit_ledger is where the purchase lives, written by the backend when the
   // payment was created and settled by the gateway's webhook. Keeping a local
   // record here is what used to make history per-browser.
+  const [paid, setPaid] = useState(false);
+  // null means the amount is not known, NOT that nothing was paid -- the
+  // success screen is gated on `paid` for exactly that reason.
   const [creditedUSD, setCreditedUSD] = useState<number | null>(null);
+
+  // Fetched once here and handed to both panels. Each used to mount its
+  // own copy of this hook, which meant two requests for the same rate and
+  // two chances for them to disagree about what the payer receives.
+  const {
+    providers,
+    usdPerINR,
+    loading: providersLoading,
+  } = usePaymentProviders();
 
   const totals = useMemo(() => computeTotals(items), [items]);
 
@@ -87,7 +100,11 @@ export function CheckoutModal({
     // estimate for this screen only -- the balance shown underneath comes from
     // the server either way, so an estimate here can never become a number the
     // user is billed against.
-    setCreditedUSD(creditsUSDOverride ?? creditsForTopup(totals.total));
+    setCreditedUSD(
+      creditsUSDOverride ??
+        (usdPerINR > 0 ? creditsForTopup(totals.total, usdPerINR) : null),
+    );
+    setPaid(true);
     void recordPurchase();
   };
 
@@ -116,14 +133,14 @@ export function CheckoutModal({
           <div
             style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 24 }}
           >
-            {creditedUSD !== null ? (
+            {paid ? (
               <div
                 style={{
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
                   textAlign: "center",
-                  gap: 12,
+                  gap: "var(--s-4)",
                   padding: "40px 16px",
                 }}
               >
@@ -132,21 +149,21 @@ export function CheckoutModal({
                   style={{
                     width: 52,
                     height: 52,
-                    borderRadius: 999,
+                    borderRadius: "var(--r-full)",
                     background: "var(--accent-soft)",
                     border: "1px solid var(--accent-line)",
                     color: "var(--accent)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontSize: 24,
+                    fontSize: "var(--t-6)",
                   }}
                 >
                   ✓
                 </div>
                 <h2
                   style={{
-                    fontSize: 18,
+                    fontSize: "var(--t-5)",
                     fontWeight: 700,
                     color: "var(--fg)",
                     margin: 0,
@@ -155,15 +172,16 @@ export function CheckoutModal({
                   Payment successful
                 </h2>
                 <p
-                  style={{ fontSize: 13, color: "var(--fg-muted)", margin: 0 }}
+                  style={{ fontSize: "var(--t-3)", color: "var(--fg-muted)", margin: 0 }}
                 >
-                  ${creditedUSD.toFixed(2)} credits added to your
-                  wallet.
+                  {creditedUSD === null
+                    ? "Your credits have been added to your wallet."
+                    : `$${creditedUSD.toFixed(2)} credits added to your wallet.`}
                 </p>
                 <div
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: 13,
+                    fontSize: "var(--t-3)",
                     color: "var(--fg)",
                     background: "var(--bg-elev-2)",
                     border: "1px solid var(--border)",
@@ -173,7 +191,7 @@ export function CheckoutModal({
                 >
                   New balance: ${balanceUSD.toFixed(2)}
                 </div>
-                <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+                <div style={{ display: "flex", gap: "var(--s-3)", marginTop: 8 }}>
                   <button
                     type="button"
                     onClick={() => router.push("/usage")}
@@ -184,7 +202,7 @@ export function CheckoutModal({
                       border: "1px solid var(--accent-line)",
                       background: "var(--accent)",
                       color: "var(--accent-fg)",
-                      fontSize: 13,
+                      fontSize: "var(--t-3)",
                       fontWeight: 600,
                       cursor: "pointer",
                     }}
@@ -201,7 +219,7 @@ export function CheckoutModal({
                       border: "1px solid var(--border-strong)",
                       background: "transparent",
                       color: "var(--fg-muted)",
-                      fontSize: 13,
+                      fontSize: "var(--t-3)",
                       fontWeight: 500,
                       cursor: "pointer",
                     }}
@@ -224,7 +242,7 @@ export function CheckoutModal({
                   <div>
                     <h2
                       style={{
-                        fontSize: 19,
+                        fontSize: "var(--t-5)",
                         fontWeight: 700,
                         color: "var(--fg)",
                         margin: 0,
@@ -236,7 +254,7 @@ export function CheckoutModal({
                     <p
                       style={{
                         margin: "3px 0 0",
-                        fontSize: 12.5,
+                        fontSize: "var(--t-2)",
                         color: "var(--fg-muted)",
                       }}
                     >
@@ -277,7 +295,7 @@ export function CheckoutModal({
                     <div
                       style={{
                         paddingBottom: 4,
-                        fontSize: 12,
+                        fontSize: "var(--t-2)",
                         fontWeight: 600,
                         color: "var(--fg-muted)",
                       }}
@@ -288,7 +306,7 @@ export function CheckoutModal({
                       <CartItemRow key={item.id} item={item} />
                     ))}
                     <div style={{ marginTop: 8 }}>
-                      <OrderSummary totals={totals} />
+                      <OrderSummary totals={totals} usdPerINR={usdPerINR} />
                     </div>
                   </div>
 
@@ -310,6 +328,9 @@ export function CheckoutModal({
                       }}
                     >
                       <PaymentInfoPanel
+                        providers={providers}
+                        usdPerINR={usdPerINR}
+                        providersLoading={providersLoading}
                         method={method}
                         onMethodChange={setMethod}
                         amountINR={totals.total}

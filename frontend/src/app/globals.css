@@ -3,6 +3,10 @@
 
 /* ── Design tokens ────────────────────────────────────────────────────── */
 :root {
+  /* The app has one theme, and it is dark. Saying so lets the controls the
+     browser draws itself (select pop-ups, date pickers, autofill, scrollbars)
+     match, instead of rendering light. */
+  color-scheme: dark;
   --bg: #08070c;
   --bg-elev-1: #0f0e18;
   --bg-elev-2: #161526;
@@ -11,9 +15,28 @@
   --border-strong: #34324c;
   --border-soft: #1b1a2c;
 
+  /* Foreground ladder, raised to clear WCAG 1.4.3 AA. --fg-dim was #5c5970 =
+     2.98:1 on --bg, about half the 4.5:1 floor, on the token carrying every
+     eyebrow and caption. --fg-muted moved with it: raising --fg-dim alone
+     would have closed the gap to 1.3:1 and flattened three steps into two.
+
+     --fg-dim is measured against the MOST-RAISED surface it can land on, not
+     against --bg. At #7f7c9a it read 4.49 on elev-2 and 4.09 on elev-3 -- the
+     first pass excused those as small letter-spaced labels, which has it
+     backwards: 1.4.3 relaxes to 3:1 only for LARGE text (>=24px, or >=18.66px
+     bold), so a 10px type badge on elev-3 is the case needing the full 4.5,
+     and a 24px heading would have been the one with room to spare.
+
+     Ratios against --bg / elev-1 / elev-2 / elev-3:
+       --fg        17.8  17.0  15.9  14.5
+       --fg-muted   8.1   7.7   7.2   6.6
+       --fg-dim     5.6   5.3   5.0   4.5
+     Every cell clears 4.5, so the ladder holds on any surface. --fg-dim sits
+     1.46:1 from --fg-muted -- tighter than before, still well clear of the
+     1.3:1 that would flatten the two into one step. */
   --fg: #f2f0f7;
-  --fg-muted: #8e8aa3;
-  --fg-dim: #5c5970;
+  --fg-muted: #a5a2b8;
+  --fg-dim: #8783a3;
 
   --accent: #a78bfa;
   --accent-strong: #8b5cf6;
@@ -29,10 +52,70 @@
   --info: #6ea8ff;
   --info-soft: rgba(110, 168, 255, 0.14);
 
+  /* Status: one colour per MEANING — outcomes, never categories. The app had
+     none, so every file that needed "green" picked its own (#4ade80, #34d399
+     and #3ecf8e were all in the tree at once). */
+  --success: #34d399;
+  --success-soft: rgba(52, 211, 153, 0.14);
+  --warning: #ffb547;
+  --warning-soft: rgba(255, 181, 71, 0.14);
+  --danger-soft: rgba(255, 92, 92, 0.14);
+  /* Queued, idle, skipped. The muted foreground rather than a hue: a pending
+     row has no news. Tracks --fg-muted by value. */
+  --pending: #a5a2b8;
+
+  /* Categories: a different axis from status — a tool402 node is magenta
+     whether its last run passed or failed. The x402 magenta used to appear
+     23 times as a literal. */
+  --type-agent: #a78bfa;
+  --type-x402: #e879f9;
+  --type-x402-soft: rgba(232, 121, 249, 0.14);
+  /* Text ON the magenta, as --accent-fg is text on the accent. */
+  --type-x402-fg: #1a0a1a;
+  --type-llm: #6ea8ff;
+  --type-action: #fb923c;
+  --type-action-soft: rgba(251, 146, 60, 0.14);
+
+  /* Type scale. The app had twenty ad-hoc sizes with three quarters of all
+     text in the 10-12px band, so headings and captions rendered alike and
+     nothing read as more important than anything else.
+
+     --t-0 is mono uppercase eyebrows ONLY; body copy starts at --t-2. The old
+     14 and 16px rungs fold UP into --t-4, never down — the complaint this
+     answers is that everything is too quiet. */
+  --t-0: 10px;
+  --t-1: 11px;
+  --t-2: 12px;
+  --t-3: 13px;
+  --t-4: 15px;
+  --t-5: 18px;
+  --t-6: 24px;
+  --t-7: 32px;
+  --t-8: 40px;
+
+  /* Space ramp. gap: 2/4/5/6/7/8/10/12/14/16/20/24 were all in the tree and
+     the odd values carried no meaning. Eight rungs rather than plain 4px
+     multiples because 2px and 6px are load-bearing in a dense tool.
+
+     Every old value maps to its nearest rung AT OR BELOW itself — a gap that
+     only shrinks cannot push a row past its container, which is what made the
+     codemod safe across 200-odd call sites. */
+  --s-0: 2px;
+  --s-1: 4px;
+  --s-2: 6px;
+  --s-3: 8px;
+  --s-4: 12px;
+  --s-5: 16px;
+  --s-6: 24px;
+  --s-7: 32px;
+
   --r-1: 4px;
   --r-2: 8px;
   --r-3: 12px;
   --r-4: 18px;
+  /* Named so "is this a pill?" becomes a decision rather than a default.
+     Pills are for controls you press; a tag or status chip takes --r-1. */
+  --r-full: 999px;
 
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
@@ -70,7 +153,7 @@ body {
 }
 *::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 999px;
+  border-radius: var(--r-full);
 }
 *::-webkit-scrollbar-thumb:hover {
   background: var(--border-strong);
@@ -80,6 +163,35 @@ body {
 }
 .chat-transcript::-webkit-scrollbar {
   display: none;
+}
+
+/* No vertical scrollbar on a touchscreen.
+
+   The rules above are a mouse design -- an 8px pill with a :hover state, and a
+   hover state is meaningless under a finger. On a phone that pill sits
+   permanently down the page edge, which is one of the things that makes a
+   screen read as a web page in a WebView instead of an app. A touch user
+   scrolls by dragging the content, not by aiming at a thumb.
+
+   Vertical ONLY, and that is deliberate. A horizontal bar appears only inside a
+   table somebody is already scrolling, and in two places -- the workflows row
+   list and the Helixbox console -- it is the only sign there is more to the
+   side. .am-hscroll does not need it (its fade is measured and says so on its
+   own), but those two are not wrapped in it, so hiding both axes would leave
+   them scrolling with nothing to announce it.
+
+   Here and not in responsive.css's `pointer: coarse` block, even though that
+   block is where touch rules live. responsive.css is imported at the TOP of
+   this file, so at equal specificity it loses to the *::-webkit-scrollbar rule
+   above and would silently do nothing. A rule that has to beat a globals.css
+   declaration belongs beside it -- responsive.css's own header says so.
+
+   useScrollLock needs no change: it measures the gutter as offsetWidth minus
+   clientWidth rather than assuming 8px, so a hidden bar measures as zero. */
+@media (pointer: coarse) {
+  *::-webkit-scrollbar:vertical {
+    display: none;
+  }
 }
 
 /* ── Keyframes ────────────────────────────────────────────────────────── */
@@ -344,7 +456,7 @@ body {
 .profile-menu__trigger {
   width: 28px;
   height: 28px;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: var(--accent);
   color: var(--accent-fg);
   border: none;
@@ -353,7 +465,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: var(--t-1);
   font-weight: 700;
   font-family: var(--font-sans);
 }
@@ -398,19 +510,24 @@ body {
   border: none;
   color: var(--fg-muted);
   font-family: var(--font-sans);
-  font-size: 12.5px;
+  font-size: var(--t-2);
   font-weight: 500;
   cursor: pointer;
   transition:
     background 0.15s var(--ease),
     color 0.15s var(--ease);
 }
-.profile-menu__item:hover {
-  background: var(--bg-elev-3);
-  color: var(--fg);
-}
-.profile-menu__item--danger:hover {
-  color: var(--danger);
+/* Hover rules in this file sit under (hover: hover). On a touch screen a tap
+   also sets :hover, and it stays set after the finger lifts, so the control
+   looks selected until something else is tapped. */
+@media (hover: hover) {
+  .profile-menu__item:hover {
+    background: var(--bg-elev-3);
+    color: var(--fg);
+  }
+  .profile-menu__item--danger:hover {
+    color: var(--danger);
+  }
 }
 .profile-menu__divider {
   height: 1px;
@@ -427,7 +544,7 @@ body {
 .usage-split {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: var(--s-5);
 }
 @media (max-width: 1024px) {
   .usage-split {
@@ -450,15 +567,17 @@ body {
   cursor: pointer;
   transition: color 0.18s var(--ease);
 }
-.credit-topup:hover {
-  color: var(--accent);
-}
 .credit-topup svg {
   display: block;
   transition: transform 0.3s var(--ease);
 }
-.credit-topup:hover svg {
-  transform: rotate(90deg) scale(1.15);
+@media (hover: hover) {
+  .credit-topup:hover {
+    color: var(--accent);
+  }
+  .credit-topup:hover svg {
+    transform: rotate(90deg) scale(1.15);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .credit-topup,
@@ -491,7 +610,7 @@ body {
   border-radius: var(--r-2);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--t-0);
   color: var(--fg);
   white-space: nowrap;
   opacity: 0;
@@ -554,7 +673,7 @@ body {
   .lp-marquee-row {
     flex-direction: column;
     align-items: flex-start;
-    gap: 16px;
+    gap: var(--s-5);
   }
   .lp-marquee-row > * {
     width: 100%;
@@ -588,7 +707,7 @@ body {
    stop being an inline style before any media query could reach it. */
 .lp-waitlist {
   display: flex;
-  gap: 8px;
+  gap: var(--s-3);
 }
 @media (max-width: 520px) {
   .lp-waitlist {
@@ -637,8 +756,12 @@ body {
    padding-top outright. responsive.css says so in its own header: a rule that
    has to beat a globals.css declaration belongs next to it, not there. */
 .auth-form-col {
-  padding: calc(40px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 56px
-    calc(40px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  padding: calc(
+      40px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))
+    )
+    calc(56px + var(--safe-right))
+    calc(40px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))
+    calc(56px + var(--safe-left));
   overflow: auto;
 }
 /* The form's own width. It was an inline `maxWidth: 360` on the element, which
@@ -662,8 +785,14 @@ body {
      follows the collapse now, and the card is allowed to use the width it
      just gained. */
   .auth-form-col {
-    padding: calc(28px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 24px
-      calc(28px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+    padding: calc(
+        28px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))
+      )
+      calc(24px + var(--safe-right))
+      calc(
+        28px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))
+      )
+      calc(24px + var(--safe-left));
   }
   .auth-card {
     max-width: 420px;
@@ -671,8 +800,14 @@ body {
 }
 @media (max-width: 520px) {
   .auth-form-col {
-    padding: calc(20px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 20px
-      calc(24px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+    padding: calc(
+        20px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))
+      )
+      calc(20px + var(--safe-right))
+      calc(
+        24px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))
+      )
+      calc(20px + var(--safe-left));
   }
   /* On a phone the form IS the screen: no card, no centred column, just the
      full width inside the padding. */
@@ -687,27 +822,76 @@ body {
    custom property redefined at :root can. */
 :root {
   --wf-page-pad: 36px 24px 80px;
+  /* Hero figures. Overridden smaller on a phone; see the 768 block. */
+  --wf-row-pad: 14px 16px;
+  --wf-row-gap: var(--s-4);
+  --wf-balance-size: 28px;
+  --us-figure-size: 40px;
   --wf-h1: 36px;
   --wf-kpi-cols: repeat(4, 1fr);
   --wf-card-cols: repeat(3, 1fr);
   --wf-cardmeta-cols: repeat(3, 1fr);
   --wf-row-cols: minmax(180px, 240px) minmax(96px, 1fr) minmax(80px, 1fr)
-    minmax(96px, 1fr) minmax(110px, 1fr) minmax(120px, 1fr) 80px;
+    minmax(96px, 1fr) minmax(110px, 1fr) minmax(120px, 1fr) 200px;
 }
 .wf-header {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--s-5);
 }
 .wf-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--s-3);
+}
+/* ── Touch targets ─────────────────────────────────────────────────────────
+   Nearly every control in this app is sized for a mouse: 26px to 40px tall.
+   A fingertip needs 44px (WCAG 2.5.8, and Material and HIG agree within a
+   couple of pixels), so on a touch screen every control gets that as a floor.
+
+   !important because these heights are set inline, in the shared button
+   styles, and an inline style beats a stylesheet rule without it.
+
+   Not links in prose: growing one would break the line of text it sits in,
+   and the target-size rule exempts a link inside a sentence. The avatar and
+   the Usage "+" are also left alone -- they keep their drawn size and take
+   the tap through an invisible 44px square instead (see responsive.css), so
+   forcing a height here would only make the visible box bigger. So is the
+   Workflows header's balance, which is a line of text that happens to be
+   tappable; its own ::after gives it the 44px.
+
+   hover: none alongside pointer: coarse, so a touchscreen LAPTOP -- which has
+   a mouse as well -- keeps the compact layout it is drawn for. */
+@media (pointer: coarse) and (hover: none) {
+  button:not(.credit-topup):not(.profile-menu__trigger):not(.wfp-head__balance),
+  [role="button"],
+  select,
+  input:not(
+    [type="checkbox"],
+    [type="radio"],
+    [type="range"],
+    [type="file"],
+    [type="hidden"]
+  ) {
+    min-height: 44px !important;
+  }
+  /* A button that only grew because of the floor has to keep its label in the
+     middle. Several are inline-flex with no cross-axis alignment, where the
+     flex default would leave the text at the top of the taller box. A button
+     that sets its own alignment inline still wins over this. */
+  button,
+  [role="button"] {
+    align-items: center;
+  }
+}
+
+.wf-actions[data-readonly="true"] {
+  display: none;
 }
 .wf-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--s-3);
 }
 .wf-search {
   flex: 1;
@@ -731,7 +915,32 @@ body {
     --wf-kpi-cols: repeat(2, 1fr);
     --wf-card-cols: minmax(0, 1fr);
     /* Two even columns: the row stops being a table and becomes a card. */
-    --wf-row-cols: minmax(0, 1fr) minmax(0, 1fr);
+    /* Three, not two. Two columns left five stacked lines per card; three
+       fits (the widest value is the 85px status pill) and removes a whole
+       line from every row. */
+    --wf-row-cols: repeat(3, minmax(0, 1fr));
+
+    /* ── Density ───────────────────────────────────────────────────────────
+       The app used to shrink type in exactly two places, so a phone rendered
+       what is really desktop sizing: a workflow row came out ~246px tall and
+       three of them filled the screen. Spacing is supposed to scale DOWN with
+       the viewport, not stay put -- an 8pt-grid layout drops a 32px desktop
+       margin to 16px on a phone rather than keeping it.
+
+       This is the step that was missing: everything jumped straight from
+       desktop values to the ≤520 block. Padding and type only; nothing a thumb
+       aims at is touched, because density and tap-safety pull against each
+       other and tap-safety wins. */
+    --wf-page-pad: 20px 16px 56px;
+    --wf-h1: 26px;
+    /* The two loudest single elements on their screens. 28/40px is a desktop
+       hero figure; on a 343px column it is most of a card. */
+    --wf-row-pad: 10px 12px;
+    /* 10, not 8: eight read as clamped against the 9px captions once the
+       cells went to three columns. Still well under the 12 desktop uses. */
+    --wf-row-gap: var(--s-3);
+    --wf-balance-size: 22px;
+    --us-figure-size: 28px;
   }
   .wf-header {
     flex-direction: column;
@@ -756,7 +965,8 @@ body {
      !important); each metric grows a caption from its data-label. */
   .wf-row {
     align-items: start;
-    row-gap: 12px;
+    /* 12 -> 8: five gaps per card, so this alone is 20px off every row. */
+    row-gap: var(--s-3);
   }
   .wf-row > *:first-child,
   .wf-row > *:last-child {
@@ -765,12 +975,39 @@ body {
   .wf-row-actions {
     justify-content: flex-start;
   }
+  /* The caption has to sit ABOVE the value, which means the cell has to stack.
+     Most cells are blocks and did; the Status cell is a flex row (it centres a
+     Pill), so its ::before became a sibling flex item BESIDE the pill instead
+     of a line above it. That left Status 13px shorter than Agents beside it and
+     starting 6px lower -- the misalignment visible on the badge.
+
+     align-items matters as much as the direction: stretch is the flex default,
+     and it would run the Pill the full width of the column. */
+  .wf-row > [data-label] {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  /* And the cells have to hang from a common top edge.
+     `.wf-row { align-items: start }` above has never actually applied: the row
+     sets `alignItems: "center"` as an INLINE style, which beats any stylesheet
+     rule, so the cells were centred against each other and a taller cell (the
+     22px Pill vs 18px text) pushed its neighbour down by half the difference.
+     That is the last 2px of the badge misalignment.
+     `align-self` on the child wins where `align-items` on the parent cannot,
+     because the inline style does not set it -- and it needs no !important,
+     which the comment above resorts to for the header row. */
+  .wf-row > * {
+    align-self: start;
+  }
   .wf-row > [data-label]::before {
     content: attr(data-label);
     display: block;
-    margin-bottom: 3px;
+    /* 4, not 3: the caption is 9px and the value is 12-14px, so three pixels
+       between them let the two run together at a glance. */
+    margin-bottom: 4px;
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: var(--t-0);
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--fg-dim);
@@ -779,8 +1016,11 @@ body {
 
 @media (max-width: 520px) {
   :root {
-    --wf-page-pad: 24px 16px 64px;
-    --wf-h1: 28px;
+    /* Tighter again, not looser: this block sits AFTER the 768 one, so a
+       larger value here would silently undo it. */
+    --wf-page-pad: 16px 14px 48px;
+    /* Below the 768 step, not above it -- this block wins on a phone. */
+    --wf-h1: 24px;
     --wf-cardmeta-cols: repeat(2, 1fr);
   }
 }
@@ -792,10 +1032,48 @@ body {
    horizontal scroll — it is nine columns wide and already self-contained. */
 :root {
   --us-settle-cols: minmax(0, 1.9fr) minmax(0, 1.15fr) 140px 114px 108px;
+  /* The width below which the settlements table scrolls sideways rather than
+     squeezing, and the headspace above the page header. Both collapse on a
+     phone -- see the 768 block. */
+  --us-settle-minw: 720px;
+  --us-headspace: 60px;
 }
 @media (max-width: 768px) {
   :root {
-    --us-settle-cols: minmax(0, 1fr) minmax(0, 1fr);
+    /* The <=768 collapse that lived here has been REMOVED, and measuring is
+       why. It had never applied (UsagePage hardcoded the same string and won),
+       so wiring the property up was the first time anyone saw what it does:
+       five fields in two columns wrap to three lines, taking a settlement row
+       from ~36px to 101px. Six rows then cost 833px -- more than all eighteen
+       did while scrolling sideways.
+
+       So the rule was not merely dead, it was wrong. The compact table stays,
+       and the length is cut by showing six rows with a "Show all" instead.
+       Sideways scroll is the right pattern for dense comparison data; it is
+       the vertical length that was the actual complaint. */
+    --us-headspace: 0px;
+    /* 210 -> 150: a quarter of a phone screen back, and the chart still
+       reads because preserveAspectRatio has always been none. */
+    --us-chart-h: 150px;
+  }
+}
+/* The credits card had a 300px floor and no grow, so on a 360px screen it
+   stopped short of the right edge beside empty space. On a phone it and its
+   group take the whole row. */
+@media (max-width: 520px) {
+  :root {
+    --us-credits-group-flex: 1 1 100%;
+    --us-credits-flex: 1 1 auto;
+    --us-credits-minw: 0px;
+  }
+}
+
+/* Billing custom amount. The "≈ $x credits" hint beside the input kept its
+   full width and squeezed the "Custom amount" placeholder until it was cut
+   off. On a phone the "≈ $x" figure alone is enough. */
+@media (max-width: 520px) {
+  .bill-custom-unit {
+    display: none;
   }
 }
 
@@ -813,13 +1091,13 @@ body {
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: 14px;
+  gap: var(--s-4);
   padding: 32px 24px;
   background: var(--bg);
 }
 .canvas-narrow__title {
   margin: 0;
-  font-size: 22px;
+  font-size: var(--t-6);
   font-weight: 500;
   letter-spacing: -0.02em;
   color: var(--fg);
@@ -827,7 +1105,7 @@ body {
 .canvas-narrow__body {
   margin: 0;
   max-width: 34ch;
-  font-size: 14px;
+  font-size: var(--t-4);
   line-height: 1.55;
   color: var(--fg-muted);
 }
@@ -840,7 +1118,7 @@ body {
   border-radius: var(--r-2);
   color: var(--fg);
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: var(--t-3);
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
@@ -941,8 +1219,10 @@ body {
   flex-shrink: 0;
   transition: color var(--nav-rate-slow) var(--ease-nav);
 }
-.appnav__trigger:hover {
-  color: var(--fg);
+@media (hover: hover) {
+  .appnav__trigger:hover {
+    color: var(--fg);
+  }
 }
 
 /* ── Bottom navigation (handheld) ───────────────────────────────────────────
@@ -959,6 +1239,9 @@ body {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
+  /* In landscape a navigation bar or a cutout can sit on either side. */
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
   background: var(--bg-elev-1);
   border-top: 1px solid var(--border);
 }
@@ -972,7 +1255,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: var(--s-1);
   padding: 8px 4px;
   text-decoration: none;
   color: var(--fg-dim);
@@ -985,11 +1268,13 @@ body {
   color: var(--accent);
 }
 
-.bottomnav__item:hover {
-  color: var(--fg);
-}
-.bottomnav__item[data-active]:hover {
-  color: var(--accent);
+@media (hover: hover) {
+  .bottomnav__item:hover {
+    color: var(--fg);
+  }
+  .bottomnav__item[data-active]:hover {
+    color: var(--accent);
+  }
 }
 
 /* Physical acknowledgement of the press, per the app's motion rules. Scaling
@@ -999,7 +1284,7 @@ body {
 }
 
 .bottomnav__label {
-  font-size: 11px;
+  font-size: var(--t-1);
   letter-spacing: 0.01em;
   line-height: 1;
 }
@@ -1012,11 +1297,39 @@ body[data-bottomnav] .am-viewport-min {
   padding-bottom: calc(56px + var(--safe-bottom));
 }
 
+/* Short screens: a phone on its side is about 360px tall, and the keyboard
+   takes half of that. The bar keeps the 44px touch floor but puts the icon
+   and the label on one line, and the top bar gives up 8px. Together that is
+   20px of content back, on the screens with the least to spare. */
+@media (max-height: 480px) {
+  :root {
+    --nav-h: 48px;
+  }
+  .bottomnav__item {
+    min-height: 44px;
+    flex-direction: row;
+    gap: var(--s-2);
+    padding: 4px;
+  }
+  body[data-bottomnav] .am-viewport,
+  body[data-bottomnav] .am-viewport-min {
+    padding-bottom: calc(44px + var(--safe-bottom));
+  }
+}
+
 /* Two navigations for the same four routes is one too many. While the bottom
    bar is up, the hamburger goes away; on a detail screen the bottom bar hides
    and the hamburger comes back, so there is never a screen with no way out.
    Driven off the same attribute the bar sets, so the two cannot disagree. */
 body[data-bottomnav] .appnav__trigger {
+  display: none;
+}
+
+/* While the on-screen keyboard is up for a text field, the fixed bar would
+   ride up above it, over the field being typed in. BottomNav sets the
+   attribute only while the keyboard is actually showing, not merely while a
+   field has focus: closing the keyboard with Back keeps the focus. */
+body[data-typing] .bottomnav {
   display: none;
 }
 
@@ -1040,7 +1353,9 @@ body[data-bottomnav] .appnav__trigger {
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--bg-elev-1);
-  padding: 8px 16px 40px;
+  /* Clear of the gesture bar, and of a side navigation bar in landscape. */
+  padding: 8px calc(16px + var(--safe-right)) calc(40px + var(--safe-bottom))
+    calc(16px + var(--safe-left));
   opacity: 0;
   visibility: hidden;
   transform: translateY(-6px);
@@ -1154,12 +1469,24 @@ body[data-bottomnav] .appnav__trigger {
 .appnav--landing .appnav__trigger {
   color: rgba(242, 240, 247, 0.9);
 }
-.appnav--landing .appnav__link[aria-current="page"],
-.appnav--landing .appnav__trigger:hover {
+.appnav--landing .appnav__link[aria-current="page"] {
   color: #fff;
+}
+@media (hover: hover) {
+  .appnav--landing .appnav__trigger:hover {
+    color: #fff;
+  }
 }
 .appnav--landing .appnav__sheet-foot {
   border-top-color: rgba(242, 240, 247, 0.12);
+}
+/* Open Studio stays in the landing bar at every width. Its padding and arrow
+   are set here rather than inline so the 520px rung below can reach them. */
+.lp-open-studio {
+  padding: 8px 18px;
+}
+.lp-open-studio__arrow {
+  display: inline-flex;
 }
 @media (min-width: 769px) {
   .appnav--landing .appnav__inline {
@@ -1172,8 +1499,17 @@ body[data-bottomnav] .appnav__trigger {
   .appnav--landing {
     --nav-h: 66px;
   }
+  /* At 320px the logo, Open Studio and the menu button overran the bar by
+     28px. Tighter spacing, a narrower button and no arrow give that back. */
   .appnav--landing .appnav__bar {
-    padding: 0 20px;
+    padding: 0 16px;
+    gap: 8px;
+  }
+  .lp-open-studio {
+    padding: 8px 14px;
+  }
+  .lp-open-studio__arrow {
+    display: none;
   }
 }
 
@@ -1318,16 +1654,16 @@ body[data-bottomnav] .appnav__trigger {
   line-height: 1.35;
 }
 .chat-markdown h1 {
-  font-size: 15px;
+  font-size: var(--t-4);
 }
 .chat-markdown h2 {
-  font-size: 14px;
+  font-size: var(--t-4);
 }
 .chat-markdown h3,
 .chat-markdown h4,
 .chat-markdown h5,
 .chat-markdown h6 {
-  font-size: 13px;
+  font-size: var(--t-3);
 }
 .chat-markdown blockquote {
   margin: 0 0 8px;
@@ -1356,7 +1692,7 @@ body[data-bottomnav] .appnav__trigger {
    override in MarkdownContent. */
 .chat-markdown code {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--t-2);
   background: var(--bg-elev-3);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1368,7 +1704,7 @@ body[data-bottomnav] .appnav__trigger {
 }
 .chat-markdown table {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--t-2);
 }
 .chat-markdown th,
 .chat-markdown td {
@@ -1408,7 +1744,7 @@ body[data-bottomnav] .appnav__trigger {
 }
 .chat-code-block__lang {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--t-0);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--fg-dim);
@@ -1418,7 +1754,7 @@ body[data-bottomnav] .appnav__trigger {
   border: none;
   padding: 2px 4px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--t-0);
   color: var(--fg-dim);
   cursor: pointer;
   transition: color 0.12s var(--ease);
@@ -1438,7 +1774,7 @@ body[data-bottomnav] .appnav__trigger {
   margin: 0;
   padding: 10px 12px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--t-2);
   color: var(--fg);
   white-space: pre;
 }
@@ -1488,7 +1824,7 @@ body[data-bottomnav] .appnav__trigger {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: stretch;
   padding: 2px;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   border: 1px solid var(--border);
   /* Recessed against the rail's --bg-elev-1, so the track reads as a groove
      the thumb rides in rather than another raised pill. */
@@ -1512,7 +1848,7 @@ body[data-bottomnav] .appnav__trigger {
   bottom: 2px;
   left: 2px;
   width: calc(50% - 2px);
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: var(--accent-soft);
   border: 1px solid var(--accent-line);
   pointer-events: none;
@@ -1528,7 +1864,7 @@ body[data-bottomnav] .appnav__trigger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: var(--s-1);
   /* 26px matches this toolbar's existing dense pills and ghostBtnSm's 28px.
      The 44px touch minimum is not met here on purpose: in its own column the
      rail header is pointer-driven chrome, and a 44px control would double its
@@ -1538,11 +1874,11 @@ body[data-bottomnav] .appnav__trigger {
   padding: 0 9px;
   border: none;
   background: transparent;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   cursor: pointer;
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--t-0);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--fg-dim);
@@ -1590,4 +1926,1117 @@ body[data-bottomnav] .appnav__trigger {
   .rail-switch__seg {
     transition: none;
   }
+}
+
+/* ── Phone workflows list ─────────────────────────────────────────────────
+   The Workflows screen on a phone: flat, one line per fact, separated by
+   hairlines rather than boxed. Every control keeps the 44px touch floor;
+   "thin" comes from dropping chrome, not from shrinking targets. */
+.wfp-head {
+  padding-bottom: 2px;
+}
+.wfp-head__top {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+}
+.wfp-head__top .wfp-title {
+  flex: 1;
+  min-width: 0;
+}
+.wfp-head__facts {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-4);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-2);
+  line-height: 18px;
+}
+.wfp-head__summary {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The balance doubles as the way to top up. It stays plain text -- no box,
+   no fill -- and only the chevron says it can be tapped. The ::after takes the
+   tap through a 44px-tall area without making the line any taller. */
+.wfp-head__balance {
+  position: relative;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--fg);
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.wfp-head__balance::after {
+  content: "";
+  position: absolute;
+  inset: -13px -8px;
+}
+.wfp-head__balance:active {
+  opacity: 0.6;
+}
+.wfp-head__balance:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 3px;
+  border-radius: var(--r-1);
+}
+.wfp-head__balance-label {
+  color: var(--fg-muted);
+}
+.wfp-head__balance-chevron {
+  margin-left: 6px;
+  color: var(--fg-muted);
+}
+
+/* Search at four fifths, the filter at the last fifth. */
+.wfp-controls {
+  display: flex;
+  gap: var(--s-3);
+  padding: 10px 0;
+}
+.wfp-search {
+  position: relative;
+  flex: 4 1 0;
+  min-width: 0;
+}
+.wfp-search__icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--fg-dim);
+  pointer-events: none;
+  display: inline-flex;
+}
+.wfp-search__input {
+  width: 100%;
+  height: 44px;
+  padding: 0 12px 0 34px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-2);
+  background: var(--bg-elev-1);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--t-4); /* 16px keeps mobile browsers from zooming on focus */
+}
+.wfp-search__input::placeholder {
+  color: var(--fg-dim);
+}
+.wfp-search__input:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: -1px;
+}
+.wfp-filter {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 44px;
+}
+.wfp-filter__trigger {
+  position: relative;
+  width: 100%;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-2);
+  background: var(--bg-elev-1);
+  color: var(--fg-muted);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.12s var(--ease);
+}
+.wfp-filter__trigger[aria-expanded="true"] {
+  border-color: var(--accent-line);
+  color: var(--fg);
+}
+.wfp-filter__trigger:active {
+  transform: scale(0.97);
+}
+.wfp-filter__trigger:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 2px;
+}
+/* Marks a filter or sort that is not the default. */
+.wfp-filter__badge {
+  position: absolute;
+  top: 9px;
+  right: calc(50% - 14px);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.wfp-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  width: min(248px, calc(100vw - 32px));
+  padding: 4px 0;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  overscroll-behavior: contain;
+  animation: wfp-menu-in 0.15s var(--ease);
+}
+@keyframes wfp-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.wfp-menu__group {
+  padding: 8px 14px 4px;
+  font-size: var(--t-1);
+  color: var(--fg-dim);
+}
+.wfp-menu__divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+.wfp-menu__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font-family: var(--font-sans);
+  font-size: var(--t-4);
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.wfp-menu__item[aria-pressed="true"] {
+  color: var(--fg);
+}
+.wfp-menu__item:active {
+  background: var(--bg-elev-3);
+}
+.wfp-menu__item:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: -2px;
+}
+.wfp-menu__hint {
+  font-family: var(--font-mono);
+  font-size: var(--t-1);
+  color: var(--accent);
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  .wfp-menu__item:hover {
+    background: var(--bg-elev-3);
+    color: var(--fg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wfp-menu {
+    animation: none;
+  }
+  .wfp-filter__trigger {
+    transition: none;
+  }
+}
+
+/* One workflow per card: its name, then a line of figures ending in the one
+   thing worth knowing about its state. A rail down the left edge carries that
+   state as colour -- which is why the card also names it in its aria-label. */
+.wfp-list {
+  list-style: none;
+  display: grid;
+  /* minmax(0, …) so the column can be narrower than a card's content. An
+     auto column grows to the longest unbroken name, which at large system
+     text pushed every card past the screen edge instead of letting the name
+     end in an ellipsis. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+}
+.wfp-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  border-radius: var(--r-2);
+  background: var(--bg-elev-1);
+  overflow: hidden;
+  color: inherit;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s var(--ease);
+}
+.wfp-card__open,
+.wfp-card__usage {
+  color: inherit;
+  text-decoration: none;
+}
+.wfp-card__open {
+  min-width: 0;
+  padding: 12px 8px 12px 16px;
+}
+.wfp-card__usage {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 14px 0 10px;
+  border-left: 1px solid var(--border-soft);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.wfp-card__open:active,
+.wfp-card__usage:active {
+  background: var(--bg-elev-2);
+}
+.wfp-card__open:focus-visible,
+.wfp-card__usage:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: -2px;
+}
+@media (hover: hover) {
+  .wfp-card__open:hover,
+  .wfp-card__usage:hover {
+    background: var(--bg-elev-2);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wfp-card {
+    transition: none;
+  }
+}
+
+/* Full height, flush to the left edge: the screen's largest piece of colour. */
+.wfp-card__rail {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--border-strong);
+}
+.wfp-card[data-status="deployed"] .wfp-card__rail {
+  background: var(--accent);
+}
+.wfp-card[data-status="paused"] .wfp-card__rail {
+  background: var(--warm);
+}
+.wfp-card[data-status="error"] .wfp-card__rail {
+  background: var(--danger);
+}
+
+.wfp-card__name {
+  display: block;
+  font-size: var(--t-4);
+  line-height: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Nothing has run, so the whole card recedes behind the ones that have. */
+.wfp-card[data-status="draft"] .wfp-card__name {
+  color: var(--fg-muted);
+}
+.wfp-card__meta {
+  margin: 3px 0 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-2);
+  line-height: 17px;
+  color: var(--fg-muted);
+}
+/* The last part of the line is the only one that carries colour, and it is
+   keyed to the state rather than the status: a deployed workflow with nothing
+   queued has nothing to shout about.
+   These lines are --fg-muted rather than --fg-dim: on --bg-elev-1 the dim grey
+   measures 2.84:1, under the 4.5 a 12px line needs. */
+.wfp-card__state {
+  white-space: nowrap;
+}
+.wfp-card__state[data-tone="accent"] {
+  color: var(--accent);
+}
+.wfp-card__state[data-tone="warm"] {
+  color: var(--warm);
+}
+.wfp-card__state[data-tone="danger"] {
+  color: var(--danger);
+}
+
+/* The phone Workflows screen around those pieces. */
+.wfp-page {
+  --wfp-gutter: 16px;
+  padding: 12px var(--wfp-gutter) 48px;
+}
+.wfp-title {
+  margin: 0 0 2px;
+  font-size: var(--t-6);
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.wfp-error {
+  margin: 8px 0 0;
+  font-size: var(--t-3);
+  color: var(--danger);
+}
+.wfp-empty {
+  padding: 32px 0;
+  text-align: center;
+  font-size: var(--t-3);
+  color: var(--fg-muted);
+}
+.wfp-empty__clear {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-top: 4px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--font-sans);
+  font-size: var(--t-3);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.wfp-empty__clear:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 2px;
+}
+.wfp-skeleton {
+  display: grid;
+  align-content: center;
+  gap: var(--s-2);
+  height: 66px;
+  padding: 0 16px;
+  border-radius: var(--r-2);
+  background: var(--bg-elev-1);
+}
+.wfp-menu__check {
+  display: inline-flex;
+  color: var(--accent);
+}
+
+/* ── Credits on a phone ───────────────────────────────────────────────────
+   Balance and 30-day spend side by side, then one segmented control for the
+   amount, then the single filled button. Everything below that is a row you
+   can open, so the page stays one screen tall whatever the history holds. */
+.bilp-page {
+  padding: 14px 16px 48px;
+}
+.bilp-title {
+  margin: 0;
+  font-size: var(--t-6);
+  line-height: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.bilp-sub {
+  margin: 4px 0 0;
+  font-size: var(--t-3);
+  line-height: 18px;
+  color: var(--fg-muted);
+}
+
+/* Two equal columns with the rule as a border on the second.
+   A `1fr auto 1fr` grid with a ::before for the rule looked tidier and was
+   wrong: the pseudo-element is the first grid item, so auto-placement pushed
+   BOTH stats into the third column and stacked them. Nothing overflowed, so
+   only measuring the boxes caught it. */
+.bilp-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: var(--s-5);
+  margin-top: 18px;
+}
+.bilp-stat + .bilp-stat {
+  padding-left: 16px;
+  border-left: 1px solid var(--border-soft);
+}
+.bilp-stat {
+  display: grid;
+  gap: var(--s-1);
+  min-width: 0;
+}
+.bilp-stat__label {
+  font-size: var(--t-2);
+  color: var(--fg-muted);
+}
+.bilp-stat__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.bilp-stat__value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-6);
+  line-height: 30px;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+
+.bilp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  background: var(--accent-soft);
+  font-size: var(--t-1);
+  color: var(--accent);
+}
+.bilp-pill__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+/* The one place on this screen a warm colour is earned. */
+.bilp-stats[data-state="low"] .bilp-pill {
+  background: var(--warm-soft);
+  color: var(--warm);
+}
+.bilp-stats[data-state="unknown"] .bilp-pill {
+  background: var(--bg-elev-2);
+  color: var(--fg-muted);
+}
+
+.bilp-section {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-soft);
+}
+.bilp-eyebrow {
+  margin: 0 0 10px;
+  font-size: var(--t-1);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.bilp-heading {
+  margin: 0 0 10px;
+  font-size: var(--t-3);
+  font-weight: 600;
+  color: var(--fg);
+}
+.bilp-note {
+  margin: 10px 0 0;
+  font-size: var(--t-2);
+  line-height: 18px;
+  color: var(--fg-muted);
+}
+.bilp-note[data-tone="error"] {
+  color: var(--danger);
+}
+.bilp-note[data-tone="ok"] {
+  color: var(--accent);
+}
+.bilp-note[data-tone="pending"] {
+  color: var(--warm);
+}
+
+/* One container, four segments, the chosen one lifted rather than filled. */
+.bilp-seg {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--s-1);
+  padding: 4px;
+  border-radius: var(--r-2);
+  background: var(--bg-elev-1);
+}
+.bilp-seg__item {
+  min-height: 40px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-4);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.bilp-seg__item[aria-checked="true"] {
+  background: var(--bg-elev-3);
+  border-color: var(--border);
+  color: var(--fg);
+}
+.bilp-seg__item:focus-visible,
+.bilp-amount__input:focus-visible,
+.bilp-link:focus-visible,
+.bilp-row:focus-visible,
+.bilp-pay:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 2px;
+}
+
+/* Underlined, not boxed: the segments above already carry the weight. */
+.bilp-amount {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.bilp-amount:focus-within {
+  border-bottom-color: var(--accent);
+}
+.bilp-amount__prefix {
+  font-family: var(--font-mono);
+  font-size: var(--t-4);
+  color: var(--fg-muted);
+}
+.bilp-amount__input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  /* 16px keeps mobile browsers from zooming on focus. */
+  font-size: var(--t-4);
+}
+.bilp-amount__input::placeholder {
+  color: var(--fg-dim);
+}
+/* The rupee figure only. This class is shared with the coupon field, which
+   must stay a 16px text input -- scope anything typographic to the modifier
+   or the coupon's "Code" placeholder grows with it.
+
+   `height`, not `min-height`: the app-wide touch floor is !important on
+   inputs too, so a min-height here would be overridden back to 44. */
+.bilp-amount__input--figure {
+  height: 52px;
+  font-size: var(--t-6);
+  letter-spacing: -0.01em;
+}
+.bilp-amount--figure .bilp-amount__prefix {
+  font-size: var(--t-5);
+}
+.bilp-amount__usd {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-3);
+  color: var(--fg-muted);
+}
+
+/* The one filled control on the screen. 44px, not more: the app-wide touch
+   floor under @media (pointer: coarse) is written with !important, so on a
+   touch screen it overrides any taller value here rather than acting as a
+   floor. Asking for 48 and measuring 44 would only mislead the next reader.
+
+   The gradient, hairline and halo are the website checkout CTA's, copied
+   rather than reinvented so the two payment buttons read as one control --
+   see `.bill-cta` in app/billing/page.tsx. box-sizing is border-box globally,
+   so the 1px border costs no height. */
+.bilp-pay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-3);
+  width: 100%;
+  min-height: 44px;
+  margin-top: 18px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-2);
+  background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+  box-shadow: 0 8px 24px var(--accent-glow);
+  color: var(--accent-fg);
+  font-family: var(--font-sans);
+  font-size: var(--t-4);
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    transform 0.12s var(--ease),
+    box-shadow 0.2s var(--ease);
+}
+/* Gated on a real pointer: a tap leaves :hover set on a touch screen, so the
+   button would stay lifted after it was pressed. */
+@media (hover: hover) {
+  .bilp-pay:not(:disabled):hover {
+    box-shadow: 0 12px 34px var(--accent-glow);
+  }
+}
+.bilp-pay:active {
+  transform: scale(0.99);
+}
+.bilp-pay:disabled {
+  background: var(--bg-elev-2);
+  border-color: var(--border);
+  box-shadow: none;
+  color: var(--fg-dim);
+  cursor: default;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bilp-pay {
+    transition: none;
+  }
+}
+
+/* A whole-width row that opens something. Keeps the page one screen tall. */
+.bilp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--t-4);
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.bilp-row__action {
+  color: var(--accent);
+}
+/* Points right while closed, down while open -- IconArrow already points
+   right, so the closed state needs no rotation at all. */
+.bilp-row__chevron {
+  display: inline-flex;
+  color: var(--fg-muted);
+  transition: transform 0.15s var(--ease);
+}
+.bilp-row__chevron[data-open="true"] {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bilp-row__chevron {
+    transition: none;
+  }
+}
+
+.bilp-link {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-family: var(--font-sans);
+  font-size: var(--t-4);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.bilp-link:disabled {
+  color: var(--fg-dim);
+  cursor: default;
+}
+.bilp-link--block {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  text-align: left;
+}
+
+.bilp-facts {
+  margin: 10px 0 0;
+  padding-left: 16px;
+  display: grid;
+  gap: var(--s-3);
+  font-size: var(--t-2);
+  line-height: 18px;
+  color: var(--fg-muted);
+}
+
+/* Credits is not a tab root, so it carries its own way back. */
+.bilp-back {
+  margin-bottom: 14px;
+}
+
+/* ── Usage on a phone ─────────────────────────────────────────────────────
+   Built on the Credits blocks above (.bilp-stats, -section, -seg, -heading,
+   -note), so the two money screens read as one family. What is new here is
+   the row: the desktop page's 984px endpoints table and 720px settlements
+   table become lists with the one figure that matters on the right. */
+.usgp-page[data-loading="true"]
+  > :not(.bilp-title):not(.bilp-sub):not(.usgp-seg) {
+  opacity: 0.6;
+  transition: opacity 0.15s var(--ease);
+}
+.usgp-scope {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 0 10px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-2);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.usgp-scope > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.usgp-scope > button {
+  flex: 0 0 auto;
+}
+/* Three ranges, not the four amounts .bilp-seg was written for. */
+.usgp-seg {
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 18px;
+}
+.usgp-delta {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-2);
+  color: var(--fg-muted);
+}
+/* More spend is not good news on a spend screen, so it gets the warm colour. */
+.usgp-delta[data-up="true"] {
+  color: var(--warm);
+}
+.usgp-legend {
+  display: flex;
+  gap: var(--s-4);
+  margin-bottom: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--t-1);
+  color: var(--fg-muted);
+}
+.usgp-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.usgp-legend i,
+.usgp-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-full);
+  flex-shrink: 0;
+}
+.usgp-chart {
+  --us-chart-h: 150px;
+}
+.usgp-cats {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  align-items: center;
+  gap: var(--s-5);
+}
+.usgp-donut {
+  width: 120px;
+}
+.usgp-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.usgp-list > li + li {
+  border-top: 1px solid var(--border-soft);
+}
+.usgp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  min-height: 44px;
+  padding: 8px 0;
+  color: var(--fg);
+  text-decoration: none;
+}
+.usgp-row__main {
+  display: grid;
+  gap: var(--s-0);
+  min-width: 0;
+}
+.usgp-row__main--inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  font-size: var(--t-4);
+}
+.usgp-row__name {
+  overflow: hidden;
+  font-size: var(--t-4);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usgp-row__sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  font-size: var(--t-2);
+  color: var(--fg-muted);
+}
+.usgp-row__fig {
+  flex-shrink: 0;
+  display: grid;
+  justify-items: end;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-4);
+  color: var(--fg);
+}
+.usgp-row__fig small {
+  font-size: var(--t-1);
+  color: var(--fg-muted);
+}
+.usgp-pill {
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: var(--r-full);
+  font-family: var(--font-mono);
+  font-size: var(--t-1);
+  line-height: 16px;
+}
+/* Credits left, above the range: a balance is not a range figure. */
+.usgp-credit {
+  margin-top: 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+.usgp-credit__label {
+  font-size: var(--t-4);
+  color: var(--fg-muted);
+}
+.usgp-credit__value {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-4);
+  color: var(--fg);
+}
+.usgp-credit__chevron {
+  font-family: var(--font-sans);
+  color: var(--fg-muted);
+}
+.usgp-credit[data-state="low"] .bilp-pill {
+  background: var(--warm-soft);
+  color: var(--warm);
+}
+
+/* A transaction hash, cut short and underlined as on the website's
+   settlements table. The colour is the x402 magenta, set inline from
+   TYPE_PILL so the two cannot drift. */
+.usgp-hash {
+  font-family: var(--font-mono);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.usgp-empty {
+  margin-top: 24px;
+}
+.usgp-foot {
+  margin-top: 20px;
+}
+.usgp-skeleton {
+  display: grid;
+  gap: var(--s-5);
+  margin-top: 20px;
+}
+
+/* ── Upcoming runs ───────────────────────────────────────────────────────
+   What the scheduler will start next. Shared by Activity, a workflow's own
+   screen and the desktop Workflows page, so it keeps to the phone list's
+   rules: hairlines, small sentence-case labels, tabular times. */
+.upc__title {
+  margin: 0 0 4px;
+  font-size: var(--t-3);
+  font-weight: 600;
+  color: var(--fg);
+}
+.upc__day {
+  padding: 8px 0 2px;
+  font-size: var(--t-1);
+  color: var(--fg-dim);
+}
+.upc__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.upc__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  min-height: 44px;
+  border-bottom: 1px solid var(--border-soft);
+  color: inherit;
+  text-decoration: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+a.upc__row:active {
+  background: var(--bg-elev-1);
+}
+a.upc__row:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: -2px;
+}
+@media (hover: hover) {
+  a.upc__row:hover {
+    background: var(--bg-elev-1);
+  }
+}
+.upc__time {
+  flex-shrink: 0;
+  min-width: 64px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-3);
+  color: var(--fg);
+}
+.upc__name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--t-4);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upc__until {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-2);
+  color: var(--fg-muted);
+}
+.upc__empty {
+  margin: 4px 0 0;
+  font-size: var(--t-3);
+  color: var(--fg-muted);
+}
+.upc__retry {
+  min-height: 44px;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* ── A workflow's own screen on the phone ─────────────────────────────── */
+.wfd-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-shrink: 0;
+  font-size: var(--t-2);
+  color: var(--fg-muted);
+}
+.wfd-status__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.wfd-desc {
+  margin: 0;
+  font-size: var(--t-4);
+  line-height: 1.55;
+  color: var(--fg);
+  text-wrap: pretty;
+}
+.wfd-note {
+  margin: 4px 0 0;
+  font-size: var(--t-1);
+  color: var(--fg-dim);
+}
+.wfd-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-4) 16px;
+  margin: 16px 0 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+.wfd-stats dt {
+  font-size: var(--t-1);
+  line-height: 14px;
+  color: var(--fg-dim);
+}
+.wfd-stats dd {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-4);
+  color: var(--fg);
+}
+.wfd-agents {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.wfd-agent {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-4);
+  min-height: 44px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.wfd-agent__name {
+  min-width: 0;
+  font-size: var(--t-4);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The model is stored text and can be one long unbroken id, so it may shrink
+   and wraps anywhere rather than pushing the row past the screen edge. Capped
+   so the agent's name keeps room beside it. */
+.wfd-agent__meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 60%;
+  overflow-wrap: anywhere;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: var(--t-2);
+  color: var(--fg-muted);
 }

@@ -391,3 +391,37 @@ func TestValidateEdgeAllowsMarkdownAfterAnAgent(t *testing.T) {
 		t.Errorf("agent -> markdown is what that node is for: %v", err)
 	}
 }
+
+// The invented-id failure, from a real build: two add_node calls failed, and
+// the model then emitted four add_edge calls against ids it had made up for
+// nodes that were never created. Naming the id it missed says nothing it can
+// act on; naming the ids that DO exist lets it correct in one round.
+func TestAddEdgeListsTheNodeIDsThatExist(t *testing.T) {
+	graph := &models.WorkflowGraph{Nodes: []models.WorkflowNode{
+		{ID: "n_real1", Type: models.NodeTypeTrigger, Template: "manual", Name: "Manual Trigger"},
+		{ID: "n_real2", Type: models.NodeTypeAgent, Template: "agent", Name: "Reporter"},
+	}}
+	_, err := addGraphEdge(graph, map[string]any{
+		"from": "n_invented", "to": "n_real2", "kind": "flow",
+	})
+	if err == nil {
+		t.Fatal("add_edge accepted an id that is not on the graph")
+	}
+	for _, want := range []string{"n_invented", "n_real1", "n_real2", "Manual Trigger", "Reporter"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not mention %q, got: %v", want, err)
+		}
+	}
+}
+
+// An empty graph has nothing to list and must not print a bare "".
+func TestAddEdgeOnAnEmptyGraphSaysSo(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := addGraphEdge(graph, map[string]any{"from": "a", "to": "b", "kind": "flow"})
+	if err == nil {
+		t.Fatal("add_edge accepted an edge on an empty graph")
+	}
+	if !strings.Contains(err.Error(), "no nodes") {
+		t.Errorf("want the empty-graph wording, got: %v", err)
+	}
+}

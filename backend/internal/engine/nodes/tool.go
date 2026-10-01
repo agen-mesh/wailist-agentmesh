@@ -154,19 +154,27 @@ func executeTool(ctx context.Context, node models.WorkflowNode, rc RunContexter,
 	case "quickchart":
 		return executeQuickChart(node, rc)
 	case "websearch":
-		return webSearch(ctx, websearchQuery(args, rc), platformGeminiKey())
+		return webSearch(ctx, websearchQuery(node, args, rc), platformGeminiKey())
 	default:
 		return rc.Message(), nil
 	}
 }
 
-// websearchQuery prefers the LLM's own "query" argument -- the whole point
-// of an agent choosing to call this tool -- and falls back to the run's
-// current message for a standalone (non-agent-attached) websearch node,
-// same fallback convention "http" already uses for its request body.
-func websearchQuery(args map[string]any, rc RunContexter) string {
+// websearchQuery decides what this node searches for, in priority order.
+//
+// An agent's function-call argument wins: that is the question actually being
+// asked. Then the node's own searchQuery, which is what makes a standalone
+// flow node possible at all -- the catalog used to give this template no
+// fields, so a node wired into the flow had nothing to search for and failed
+// with "query is required" whenever the step before it produced no text, as a
+// manual trigger always does. The upstream message is the last resort and the
+// original behaviour.
+func websearchQuery(node models.WorkflowNode, args map[string]any, rc RunContexter) string {
 	if q, ok := args["query"].(string); ok && strings.TrimSpace(q) != "" {
 		return q
+	}
+	if q := configVal(node, "searchQuery", ""); strings.TrimSpace(q) != "" {
+		return resolveTemplate(q, rc)
 	}
 	return rc.Message()
 }

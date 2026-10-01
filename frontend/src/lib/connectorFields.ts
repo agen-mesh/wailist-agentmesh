@@ -959,6 +959,54 @@ export const CONNECTOR_CONFIG_FIELDS: Record<
       },
     ],
   },
+  algorand_account: {
+    label: "Algorand Account config",
+    fields: [
+      {
+        kind: "config",
+        key: "algoAddress",
+        label: "Address",
+        placeholder: "58-character Algorand address",
+      },
+    ],
+  },
+  algorand_transactions: {
+    label: "Algorand History config",
+    fields: [
+      {
+        kind: "config",
+        key: "algoAddress",
+        label: "Address",
+        placeholder: "58-character Algorand address",
+      },
+      {
+        kind: "config",
+        key: "algoTxLimit",
+        label: "How many",
+        hint: "newest first; 10 by default, 50 at most",
+        placeholder: "10",
+      },
+      {
+        kind: "config",
+        key: "algoTxType",
+        label: "Only this type",
+        hint: "blank for every type; pay, axfer, appl, acfg, afrz, keyreg, stpf, hb",
+        placeholder: "axfer",
+      },
+    ],
+  },
+  algorand_asset: {
+    label: "Algorand Asset config",
+    fields: [
+      {
+        kind: "config",
+        key: "algoAssetId",
+        label: "Asset id",
+        hint: "the ASA's number, not its ticker",
+        placeholder: "31566704",
+      },
+    ],
+  },
   hackernews: {
     label: "Hacker News config",
     fields: [
@@ -999,6 +1047,31 @@ export const CONNECTOR_CONFIG_FIELDS: Record<
         label: "Currencies",
         hint: "optional, default usd",
         placeholder: "usd,eur",
+      },
+    ],
+  },
+  coingecko_history: {
+    label: "CoinGecko History config",
+    fields: [
+      {
+        kind: "config",
+        key: "cgID",
+        label: "Coin ID",
+        placeholder: "bitcoin",
+      },
+      {
+        kind: "config",
+        key: "cgDays",
+        label: "Days",
+        hint: "optional, default 30",
+        placeholder: "28",
+      },
+      {
+        kind: "config",
+        key: "cgCurrency",
+        label: "Currency",
+        hint: "optional, default usd",
+        placeholder: "usd",
       },
     ],
   },

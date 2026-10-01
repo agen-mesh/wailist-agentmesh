@@ -26,6 +26,12 @@ func TestBlocksWrite(t *testing.T) {
 		{"set schedule", http.MethodPut, "/workflows/wf_123/schedule", true},
 		{"clear schedule", http.MethodDelete, "/workflows/wf_123/schedule", true},
 
+		// Variables are values the workflow's nodes read, so writing one is
+		// authoring too. Reading the list stays open.
+		{"set variable", http.MethodPut, "/workflows/wf_123/variables/API_KEY", true},
+		{"delete variable", http.MethodDelete, "/workflows/wf_123/variables/API_KEY", true},
+		{"list variables", http.MethodGet, "/workflows/wf_123/variables", false},
+
 		// Geofence configuration is the deliberate exception, and these two
 		// cases exist to make removing it from the list a decision rather than
 		// an accident: a fence is chosen from the place it describes, so the
@@ -45,6 +51,9 @@ func TestBlocksWrite(t *testing.T) {
 		// The Prism console's pair behaves identically, for the same reasons.
 		{"prism console", http.MethodGet, "/prism/console", true},
 		{"prism console exists", http.MethodGet, "/prism/console/exists", false},
+		// And the HelixBox pair.
+		{"helixbox console", http.MethodGet, "/helixbox/console", true},
+		{"helixbox console exists", http.MethodGet, "/helixbox/console/exists", false},
 		// Running a paid Prism call is operating, not authoring -- the same
 		// line /tendril/run and /tendril/topup already sit on. A viewer who
 		// can spend their own credit on a Tendril job can spend it here too.

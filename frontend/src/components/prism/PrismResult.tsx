@@ -15,9 +15,9 @@ import { useMemo, useState } from "react";
 // stop, and swapping one unreadable dump for a prettier unreadable dump would
 // miss the point.
 
-const MAGENTA = "#E879F9";
-const GREEN = "#34D399";
-const AMBER = "#FFB547";
+const MAGENTA = "var(--type-x402)";
+const GREEN = "var(--success)";
+const AMBER = "var(--warning)";
 
 // Fields the engine merges into the response for its own bookkeeping, plus
 // Prism's echo of what it charged. All of them are already shown in the
@@ -68,11 +68,11 @@ function Chip({ children, tone }: { children: React.ReactNode; tone?: string }) 
     <span
       style={{
         padding: "2px 8px",
-        borderRadius: 999,
+        borderRadius: "var(--r-full)",
         border: `1px solid ${tone ?? "var(--border-strong)"}`,
         background: tone ? "rgba(232,121,249,0.08)" : "var(--bg)",
         color: tone ?? "var(--fg-muted)",
-        fontSize: 11,
+        fontSize: "var(--t-1)",
         fontFamily: "var(--font-sans)",
         whiteSpace: "nowrap",
       }}
@@ -87,7 +87,7 @@ function Label({ children }: { children: React.ReactNode }) {
     <div
       style={{
         fontFamily: "var(--font-mono)",
-        fontSize: 9.5,
+        fontSize: "var(--t-0)",
         textTransform: "uppercase",
         letterSpacing: "0.09em",
         color: "var(--fg-dim)",
@@ -138,14 +138,14 @@ function CandidateCard({ c, rank }: { c: Record<string, unknown>; rank: number }
         padding: 16,
         display: "flex",
         flexDirection: "column",
-        gap: 12,
+        gap: "var(--s-4)",
       }}
     >
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--s-4)" }}>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 14.5, fontWeight: 600, color: "var(--fg)" }}>{name}</div>
+          <div style={{ fontSize: "var(--t-4)", fontWeight: 600, color: "var(--fg)" }}>{name}</div>
           {(role || domain) && (
-            <div style={{ fontSize: 12, color: "var(--fg-muted)", marginTop: 2 }}>
+            <div style={{ fontSize: "var(--t-2)", color: "var(--fg-muted)", marginTop: 2 }}>
               {[role, domain].filter(Boolean).join(" · ")}
             </div>
           )}
@@ -155,7 +155,7 @@ function CandidateCard({ c, rank }: { c: Record<string, unknown>; rank: number }
             <div
               style={{
                 fontFamily: "var(--font-mono)",
-                fontSize: 22,
+                fontSize: "var(--t-6)",
                 fontWeight: 600,
                 color: scoreColor(score),
                 lineHeight: 1.1,
@@ -163,7 +163,7 @@ function CandidateCard({ c, rank }: { c: Record<string, unknown>; rank: number }
             >
               {formatScore(score)}
             </div>
-            <div style={{ fontSize: 10, color: "var(--fg-dim)" }}>match</div>
+            <div style={{ fontSize: "var(--t-0)", color: "var(--fg-dim)" }}>match</div>
           </div>
         )}
       </div>
@@ -174,7 +174,7 @@ function CandidateCard({ c, rank }: { c: Record<string, unknown>; rank: number }
           aria-label={`Match score ${formatScore(score)}`}
           style={{
             height: 4,
-            borderRadius: 999,
+            borderRadius: "var(--r-full)",
             background: "var(--bg-elev-3)",
             overflow: "hidden",
           }}
@@ -192,7 +192,7 @@ function CandidateCard({ c, rank }: { c: Record<string, unknown>; rank: number }
       {skills.length > 0 && (
         <div>
           <Label>Key skills</Label>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s-1)" }}>
             {skills.map((s) => (
               <Chip key={s} tone={MAGENTA}>
                 {s}
@@ -205,7 +205,7 @@ function CandidateCard({ c, rank }: { c: Record<string, unknown>; rank: number }
       {altRoles.length > 0 && (
         <div>
           <Label>Also suits</Label>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s-1)" }}>
             {altRoles.map((s) => (
               <Chip key={s}>{s}</Chip>
             ))}
@@ -219,7 +219,7 @@ function CandidateCard({ c, rank }: { c: Record<string, unknown>; rank: number }
           <p
             style={{
               margin: 0,
-              fontSize: 12.5,
+              fontSize: "var(--t-2)",
               lineHeight: 1.6,
               color: "var(--fg-muted)",
             }}
@@ -230,7 +230,7 @@ function CandidateCard({ c, rank }: { c: Record<string, unknown>; rank: number }
       )}
 
       {extra.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
           {extra.map(([k, v]) => (
             <FieldRow key={k} name={k} value={v} />
           ))}
@@ -255,7 +255,7 @@ function FieldRow({ name, value }: { name: string; value: unknown }) {
       return (
         <div>
           <Label>{label}</Label>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s-1)" }}>
             {scalars.map((v, i) => (
               <Chip key={`${String(v)}-${i}`}>{String(v)}</Chip>
             ))}
@@ -268,7 +268,7 @@ function FieldRow({ name, value }: { name: string; value: unknown }) {
         <Label>
           {label} · {value.length}
         </Label>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
           {value.map((v, i) => (
             <ValueBlock key={i} value={v} />
           ))}
@@ -290,7 +290,7 @@ function FieldRow({ name, value }: { name: string; value: unknown }) {
     return (
       <div>
         <Label>{label}</Label>
-        <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.6, color: "var(--fg-muted)" }}>
+        <p style={{ margin: 0, fontSize: "var(--t-2)", lineHeight: 1.6, color: "var(--fg-muted)" }}>
           {value}
         </p>
       </div>
@@ -298,18 +298,18 @@ function FieldRow({ name, value }: { name: string; value: unknown }) {
   }
 
   return (
-    <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+    <div style={{ display: "flex", gap: "var(--s-3)", alignItems: "baseline", flexWrap: "wrap" }}>
       <span
         style={{
           fontFamily: "var(--font-mono)",
-          fontSize: 11,
+          fontSize: "var(--t-1)",
           color: "var(--fg-dim)",
           minWidth: 130,
         }}
       >
         {label}
       </span>
-      <span style={{ fontSize: 12.5, color: "var(--fg)", overflowWrap: "anywhere" }}>
+      <span style={{ fontSize: "var(--t-2)", color: "var(--fg)", overflowWrap: "anywhere" }}>
         {typeof value === "number" && value >= 0 && value <= 1 && !Number.isInteger(value)
           ? formatScore(value)
           : String(value)}
@@ -330,7 +330,7 @@ function ValueBlock({ value }: { value: unknown }) {
           padding: 12,
           display: "flex",
           flexDirection: "column",
-          gap: 8,
+          gap: "var(--s-3)",
         }}
       >
         {entries.map(([k, v]) => (
@@ -340,7 +340,7 @@ function ValueBlock({ value }: { value: unknown }) {
     );
   }
   return (
-    <div style={{ fontSize: 12.5, color: "var(--fg-muted)", lineHeight: 1.6 }}>
+    <div style={{ fontSize: "var(--t-2)", color: "var(--fg-muted)", lineHeight: 1.6 }}>
       {String(value)}
     </div>
   );
@@ -363,7 +363,7 @@ function RawJSON({ value }: { value: unknown }) {
         border: "1px solid var(--border)",
         borderRadius: "var(--r-1)",
         fontFamily: "var(--font-mono)",
-        fontSize: 11.5,
+        fontSize: "var(--t-1)",
         lineHeight: 1.6,
         color: "var(--fg-muted)",
         whiteSpace: "pre-wrap",
@@ -398,7 +398,7 @@ export function PrismResult({ response }: { response: unknown }) {
   const structured = body !== null || topArray !== null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
       {structured && (
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <button
@@ -410,7 +410,7 @@ export function PrismResult({ response }: { response: unknown }) {
               padding: 0,
               color: "var(--fg-dim)",
               fontFamily: "var(--font-mono)",
-              fontSize: 10.5,
+              fontSize: "var(--t-0)",
               cursor: "pointer",
               textDecoration: "underline",
             }}
@@ -425,7 +425,7 @@ export function PrismResult({ response }: { response: unknown }) {
       ) : (
         <>
           {candidates && candidates.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
               {candidates.map((c, i) =>
                 isRecord(c) ? (
                   <CandidateCard key={i} c={c} rank={i + 1} />
@@ -441,7 +441,7 @@ export function PrismResult({ response }: { response: unknown }) {
               style={{
                 display: "flex",
                 flexDirection: "column",
-                gap: 10,
+                gap: "var(--s-3)",
                 border: candidates ? "1px solid var(--border)" : "none",
                 borderRadius: candidates ? "var(--r-2)" : 0,
                 padding: candidates ? 14 : 0,
@@ -460,7 +460,7 @@ export function PrismResult({ response }: { response: unknown }) {
               {"candidates": []} skipped both the list above and this fallback
               and rendered the exact blank panel this exists to prevent. */}
           {!candidates?.length && rest.length === 0 && (
-            <div style={{ fontSize: 12.5, color: "var(--fg-dim)" }}>
+            <div style={{ fontSize: "var(--t-2)", color: "var(--fg-dim)" }}>
               Prism sent nothing back. Open the full response to see exactly
               what arrived.
             </div>

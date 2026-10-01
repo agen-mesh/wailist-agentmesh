@@ -26,6 +26,10 @@ import (
 // toggling it per-test.
 func TestMain(m *testing.M) {
 	nodes.SetURLValidatorForTest(func(string) error { return nil })
+	// A CoinGecko error in any test falls through to the price backups.
+	// Pointed at a closed local port so no test reaches the real Coinbase
+	// or CoinPaprika unless it sets them up itself.
+	nodes.SetPriceFallbackBasesForTest(nodes.OfflinePriceBackup, nodes.OfflinePriceBackup, nodes.OfflinePriceBackup)
 	os.Exit(m.Run())
 }
 

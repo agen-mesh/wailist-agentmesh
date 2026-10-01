@@ -50,7 +50,7 @@ export function CodeBlock({ code, language }: CodeBlockProps) {
               margin: 0,
               padding: "10px 12px",
               background: "transparent",
-              fontSize: 12,
+              fontSize: "var(--t-2)",
             }}
             codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
           >

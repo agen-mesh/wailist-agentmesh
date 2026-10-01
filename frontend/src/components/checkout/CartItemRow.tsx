@@ -14,7 +14,7 @@ export function CartItemRow({ item }: { item: CartItem }) {
         display: "grid",
         gridTemplateColumns: "44px 1fr auto",
         alignItems: "center",
-        gap: 12,
+        gap: "var(--s-4)",
         padding: "16px 0",
         borderTop: "1px solid var(--border-soft)",
       }}
@@ -40,7 +40,7 @@ export function CartItemRow({ item }: { item: CartItem }) {
       <div style={{ minWidth: 0 }}>
         <div
           style={{
-            fontSize: 13,
+            fontSize: "var(--t-3)",
             fontWeight: 500,
             color: "var(--fg)",
             whiteSpace: "nowrap",
@@ -50,14 +50,14 @@ export function CartItemRow({ item }: { item: CartItem }) {
         >
           {item.title}
         </div>
-        <div style={{ fontSize: 12, color: "var(--fg-dim)", marginTop: 2 }}>
+        <div style={{ fontSize: "var(--t-2)", color: "var(--fg-dim)", marginTop: 2 }}>
           {item.detail}
         </div>
       </div>
 
       <div
         style={{
-          fontSize: 14,
+          fontSize: "var(--t-4)",
           fontWeight: 600,
           color: "var(--fg)",
           fontFamily: "var(--font-mono)",

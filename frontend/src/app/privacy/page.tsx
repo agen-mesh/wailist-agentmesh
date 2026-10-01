@@ -35,9 +35,9 @@ export default function PrivacyPage() {
       }}
     >
       <div
+        className="am-legal-bar"
         style={{
           borderBottom: "1px solid var(--border)",
-          padding: "16px 32px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -47,7 +47,7 @@ export default function PrivacyPage() {
           href="/"
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 14,
+            fontSize: "var(--t-4)",
             fontWeight: 700,
             color: "var(--fg)",
             textDecoration: "none",
@@ -59,7 +59,7 @@ export default function PrivacyPage() {
         <span
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             color: "var(--fg-dim)",
           }}
         >
@@ -67,15 +67,13 @@ export default function PrivacyPage() {
         </span>
       </div>
 
-      <main
-        style={{ maxWidth: 740, margin: "0 auto", padding: "64px 32px 96px" }}
-      >
+      <main className="am-legal-main">
         <div style={{ marginBottom: 56 }}>
           <div style={badge}>Legal</div>
           <h1
             style={{
               margin: 0,
-              fontSize: 40,
+              fontSize: "var(--t-8)",
               fontWeight: 600,
               letterSpacing: "-0.025em",
               lineHeight: 1.15,
@@ -87,7 +85,7 @@ export default function PrivacyPage() {
             style={{
               margin: "12px 0 0",
               color: "var(--fg-muted)",
-              fontSize: 15,
+              fontSize: "var(--t-4)",
               lineHeight: 1.6,
             }}
           >
@@ -239,9 +237,9 @@ export default function PrivacyPage() {
             paddingTop: 32,
             borderTop: "1px solid var(--border)",
             display: "flex",
-            gap: 24,
+            gap: "var(--s-6)",
             fontFamily: "var(--font-mono)",
-            fontSize: 12,
+            fontSize: "var(--t-2)",
           }}
         >
           <Link href="/terms" style={inlineLink}>
@@ -259,13 +257,13 @@ export default function PrivacyPage() {
 const badge: React.CSSProperties = {
   display: "inline-block",
   fontFamily: "var(--font-mono)",
-  fontSize: 11,
+  fontSize: "var(--t-1)",
   letterSpacing: "0.1em",
   textTransform: "uppercase",
   color: "var(--accent)",
   background: "var(--accent-soft)",
   border: "1px solid var(--accent-line)",
-  borderRadius: 999,
+  borderRadius: "var(--r-full)",
   padding: "3px 12px",
   marginBottom: 20,
 };
@@ -289,18 +287,18 @@ function Section({
       <h2
         style={{
           margin: "0 0 12px",
-          fontSize: 18,
+          fontSize: "var(--t-5)",
           fontWeight: 600,
           letterSpacing: "-0.01em",
           display: "flex",
-          gap: 12,
+          gap: "var(--s-4)",
           alignItems: "baseline",
         }}
       >
         <span
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 12,
+            fontSize: "var(--t-2)",
             color: "var(--fg-dim)",
           }}
         >
@@ -319,7 +317,7 @@ function P({ children }: { children: React.ReactNode }) {
       style={{
         margin: "0 0 12px",
         color: "var(--fg-muted)",
-        fontSize: 14,
+        fontSize: "var(--t-4)",
         lineHeight: 1.7,
         maxWidth: "68ch",
       }}
@@ -339,7 +337,7 @@ function Notice({ children }: { children: React.ReactNode }) {
         padding: "14px 16px",
         margin: "0 0 12px",
         color: "var(--fg)",
-        fontSize: 14,
+        fontSize: "var(--t-4)",
         lineHeight: 1.7,
         maxWidth: "68ch",
       }}

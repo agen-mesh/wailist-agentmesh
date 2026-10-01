@@ -200,21 +200,34 @@ export async function refreshPurchases(): Promise<void> {
 // yet" — without it a real empty balance and an unloaded one look identical,
 // and the UI would flash $0.00 on every page load.
 let balanceKnown = false;
+let balanceLoading = false;
+let balanceFailed = false;
+let balanceRequest = 0;
 
 // refreshBalance re-reads the authoritative balance. Call it on mount and
 // after anything that moves money (a completed run, a verified top-up).
 export async function refreshBalance(): Promise<void> {
   const started = epoch;
+  const request = ++balanceRequest;
+  const current = () => started === epoch && request === balanceRequest;
+  balanceLoading = true;
+  listeners.forEach((l) => l());
   try {
     const balanceUSD = await creditsApi.balance();
     // See refreshPurchases: a balance that arrives after a sign-out belongs to
     // the account that just left.
-    if (started !== epoch) return;
+    if (!current()) return;
     balanceKnown = true;
+    balanceFailed = false;
     commit((prev) => ({ ...prev, balanceUSD }));
   } catch {
-    // Leave the last known value in place; a failed poll is not evidence the
-    // balance changed, and blanking it would look like funds vanished.
+    // Retain the last amount, but distinguish a failed refresh from loading.
+    if (current()) balanceFailed = true;
+  } finally {
+    if (current()) {
+      balanceLoading = false;
+      listeners.forEach((l) => l());
+    }
   }
 }
 
@@ -231,6 +244,8 @@ export function resetCredits(): void {
   // its result back after this returns.
   epoch++;
   balanceKnown = false;
+  balanceLoading = false;
+  balanceFailed = false;
   purchasesKnown = false;
   purchasesFailed = false;
   commit(() => DEFAULT_STATE);
@@ -242,10 +257,12 @@ export function resetCredits(): void {
 // otherwise cannot tell a real reset from one that forgot to clear them.
 export function readCreditsFlags(): {
   balanceKnown: boolean;
+  balanceLoading: boolean;
+  balanceFailed: boolean;
   purchasesKnown: boolean;
   purchasesFailed: boolean;
 } {
-  return { balanceKnown, purchasesKnown, purchasesFailed };
+  return { balanceKnown, balanceLoading, balanceFailed, purchasesKnown, purchasesFailed };
 }
 
 // recordPurchase is called after a payment the client believes succeeded. It
@@ -262,6 +279,8 @@ export async function recordPurchase(): Promise<void> {
 
 export interface CreditsSnapshot extends CreditsState {
   balanceKnown: boolean;
+  balanceLoading: boolean;
+  balanceFailed: boolean;
   purchasesKnown: boolean;
   purchasesFailed: boolean;
   refreshBalance: typeof refreshBalance;
@@ -281,6 +300,8 @@ export function useCredits(): CreditsSnapshot {
     () => balanceKnown,
     () => false,
   );
+  const loading = useSyncExternalStore(subscribe, () => balanceLoading, () => false);
+  const failed = useSyncExternalStore(subscribe, () => balanceFailed, () => false);
   const purchasesLoaded = useSyncExternalStore(
     subscribe,
     () => purchasesKnown,
@@ -294,6 +315,8 @@ export function useCredits(): CreditsSnapshot {
   return {
     ...snapshot,
     balanceKnown: known,
+    balanceLoading: loading,
+    balanceFailed: failed,
     purchasesKnown: purchasesLoaded,
     purchasesFailed: purchasesErrored,
     refreshBalance,

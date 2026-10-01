@@ -7,12 +7,13 @@ import {
   type BazaarResource,
 } from "@/lib/bazaar";
 import { can } from "@/lib/readonly";
+import { workflowHref } from "@/lib/routes";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import { TENDRIL_DEMO_WORKFLOW, PRISM_DEMO_WORKFLOW } from "@/lib/data";
 import { loadTemplateWorkflow } from "@/lib/templateWorkflow";
 import type { Workflow } from "@/lib/types";
 
-const MAGENTA = "#E879F9";
+const MAGENTA = "var(--type-x402)";
 const MAGENTA_SOFT = "rgba(232, 121, 249, 0.14)";
 
 // What each console is FOR, in the user's terms rather than the catalog's. A
@@ -39,9 +40,8 @@ const CONSOLE_COPY: Record<string, { verb: string; blurb: string }> = {
 
 // TRY_WORKFLOW_TEMPLATES backs the card's "try a workflow" icon: a real,
 // multi-node pipeline that actually calls this partner, as opposed to the
-// console's single-endpoint form. Lives in lib/data.ts next to DEMO_WORKFLOW
-// -- same shape, same reason (real endpoints and correct billing math, not
-// an invented example).
+// console's single-endpoint form. Both live in lib/data.ts, built on real
+// endpoints with correct billing math, not an invented example.
 const TRY_WORKFLOW_TEMPLATES: Record<string, Workflow> = {
   tendril: TENDRIL_DEMO_WORKFLOW,
   prism: PRISM_DEMO_WORKFLOW,
@@ -108,12 +108,16 @@ export function capabilityLabels(urls: string[]): string[] {
       continue;
     }
     const words = seg.split(/[-_]/).filter(Boolean);
-    if (words.length > 1 && TIER_SUFFIXES.includes(words[words.length - 1].toLowerCase())) {
+    if (
+      words.length > 1 &&
+      TIER_SUFFIXES.includes(words[words.length - 1].toLowerCase())
+    ) {
       words.pop();
     }
     if (words.length === 0) continue;
     const label =
-      words.join(" ").charAt(0).toUpperCase() + words.join(" ").slice(1).toLowerCase();
+      words.join(" ").charAt(0).toUpperCase() +
+      words.join(" ").slice(1).toLowerCase();
     if (!out.includes(label)) out.push(label);
   }
   return out;
@@ -169,7 +173,8 @@ export function ConsoleCard({
 
   const provider = resources[0].provider ?? resources[0].host;
   const capabilities =
-    CAPABILITY_OVERRIDES[consoleKey] ?? capabilityLabels(resources.map((r) => r.url));
+    CAPABILITY_OVERRIDES[consoleKey] ??
+    capabilityLabels(resources.map((r) => r.url));
   const copy = CONSOLE_COPY[consoleKey];
   const path = CONSOLE_PATHS[consoleKey];
   const template = TRY_WORKFLOW_TEMPLATES[consoleKey];
@@ -199,9 +204,13 @@ export function ConsoleCard({
     setError(null);
     try {
       const id = await loadTemplateWorkflow(template);
-      router.push(`/workflows/${id}`);
+      router.push(workflowHref(id));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load this workflow. Try again.");
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Could not load this workflow. Try again.",
+      );
       setTrying(false);
     }
   };
@@ -215,7 +224,7 @@ export function ConsoleCard({
         padding: 18,
         display: "flex",
         flexDirection: "column",
-        gap: 12,
+        gap: "var(--s-4)",
         minWidth: 0,
         // Grow into whatever the row has left, so the last card in a wrapped
         // row is never marooned beside empty space. 320px is the basis at
@@ -224,7 +233,7 @@ export function ConsoleCard({
         boxSizing: "border-box",
       }}
     >
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--s-3)" }}>
         <span
           aria-hidden
           style={{
@@ -236,7 +245,7 @@ export function ConsoleCard({
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: 14,
+            fontSize: "var(--t-4)",
             flexShrink: 0,
           }}
         >
@@ -245,7 +254,7 @@ export function ConsoleCard({
         <div style={{ minWidth: 0, flex: 1 }}>
           <div
             style={{
-              fontSize: 15,
+              fontSize: "var(--t-4)",
               fontWeight: 600,
               color: "var(--fg)",
               letterSpacing: "-0.01em",
@@ -253,7 +262,7 @@ export function ConsoleCard({
           >
             {provider}
           </div>
-          <div style={{ fontSize: 12, color: "var(--fg-muted)", marginTop: 1 }}>
+          <div style={{ fontSize: "var(--t-2)", color: "var(--fg-muted)", marginTop: 1 }}>
             {copy?.verb ?? "Open console"}
           </div>
         </div>
@@ -280,7 +289,7 @@ export function ConsoleCard({
               background: "var(--bg)",
               color: trying || !available ? "var(--fg-dim)" : MAGENTA,
               cursor: trying || !available ? "default" : "pointer",
-              fontSize: 11,
+              fontSize: "var(--t-1)",
               padding: 0,
             }}
           >
@@ -292,7 +301,7 @@ export function ConsoleCard({
       <p
         style={{
           margin: 0,
-          fontSize: 12.5,
+          fontSize: "var(--t-2)",
           lineHeight: 1.6,
           color: "var(--fg-muted)",
           flex: 1,
@@ -309,16 +318,16 @@ export function ConsoleCard({
           one — but humanised, because a raw path ("code-review-accurate") is a
           route name, not a capability. */}
       {capabilities.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s-1)" }}>
           {capabilities.map((c) => (
             <span
               key={c}
               style={{
                 padding: "2px 8px",
-                borderRadius: 999,
+                borderRadius: "var(--r-1)",
                 border: "1px solid var(--border-strong)",
                 background: "var(--bg)",
-                fontSize: 11,
+                fontSize: "var(--t-1)",
                 color: "var(--fg-muted)",
               }}
             >
@@ -333,7 +342,7 @@ export function ConsoleCard({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: 10,
+          gap: "var(--s-3)",
           flexWrap: "wrap",
           paddingTop: 12,
           borderTop: "1px solid var(--border)",
@@ -342,7 +351,7 @@ export function ConsoleCard({
         <span
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 11.5,
+            fontSize: "var(--t-1)",
             color: "var(--fg)",
             fontWeight: 600,
           }}
@@ -353,7 +362,9 @@ export function ConsoleCard({
           type="button"
           onClick={open}
           disabled={!available}
-          title={available ? undefined : "This preview has no backend connected."}
+          title={
+            available ? undefined : "This preview has no backend connected."
+          }
           style={{
             height: 32,
             padding: "0 16px",
@@ -361,7 +372,7 @@ export function ConsoleCard({
             background: !available ? "transparent" : "var(--accent)",
             color: !available ? "var(--fg-dim)" : "var(--accent-fg)",
             borderRadius: "var(--r-2)",
-            fontSize: 12,
+            fontSize: "var(--t-2)",
             fontWeight: 500,
             cursor: !available ? "default" : "pointer",
             fontFamily: "var(--font-sans)",
@@ -372,7 +383,9 @@ export function ConsoleCard({
       </div>
 
       {error && (
-        <div style={{ fontSize: 11.5, color: "var(--danger)", lineHeight: 1.5 }}>
+        <div
+          style={{ fontSize: "var(--t-1)", color: "var(--danger)", lineHeight: 1.5 }}
+        >
           {error}
         </div>
       )}

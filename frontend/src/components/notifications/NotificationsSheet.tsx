@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useCloseOnBack } from "@/hooks/useCloseOnBack";
 import { IS_NATIVE } from "@/lib/nativeAuth";
 import { useScrollLock } from "@/hooks/useScrollLock";
 import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
@@ -58,7 +59,9 @@ const SHEET_CSS = `
   position: relative;
   width: 100%; max-width: min(520px, 100vw);
   max-height: 88dvh; overflow-y: auto;
-  padding: 20px 20px calc(20px + var(--safe-bottom, 0px));
+  /* Reaching the end of the panel does not scroll the page behind the scrim. */
+  overscroll-behavior: contain;
+  padding: 20px calc(20px + var(--safe-right, 0px)) calc(20px + var(--safe-bottom, 0px)) calc(20px + var(--safe-left, 0px));
   border: 1px solid var(--border-strong);
   border-radius: var(--r-4) var(--r-4) 0 0;
   background: var(--bg-elev-1);
@@ -181,7 +184,7 @@ export function NotificationsSheet({
   // React's StrictMode double-invokes effects, so that cleanup ran once while
   // the sheet was still open and pulled focus straight back out of it.
   // Measured, not reasoned about.
-  const close = () => {
+  const close = useCloseOnBack(() => {
     onClose();
     // The caller's control first, then whatever had focus on mount, and only
     // if that is still attached -- isConnected is the whole point, since the
@@ -190,7 +193,7 @@ export function NotificationsSheet({
     const fallback =
       opener instanceof HTMLElement && opener.isConnected ? opener : null;
     (returnFocusTo?.current ?? fallback)?.focus();
-  };
+  });
   // Read through a ref by the Escape listener, so that listener registers once
   // instead of on every render. Assigned in an effect rather than during
   // render, which React forbids -- a ref written while rendering can be read
@@ -430,6 +433,6 @@ const touchTarget: React.CSSProperties = { minHeight: 44 };
 const actions: React.CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
-  gap: 10,
+  gap: "var(--s-3)",
   marginTop: 16,
 };

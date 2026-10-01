@@ -1,10 +1,11 @@
 "use client";
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Logo, IconArrow, Tag } from "@/components/ui";
 import { SessionPersistError, useAuth } from "@/hooks/useAuth";
 import { auth } from "@/lib/api";
 import { IS_NATIVE } from "@/lib/nativeAuth";
+import { safeNextPath } from "@/lib/routes";
 import { authBtn } from "@/components/ui/buttons";
 
 const OAUTH_ERRORS: Record<string, string> = {
@@ -57,14 +58,7 @@ const DEFAULT_DEST = "/workflows";
 // http(s) URLs, so "/\evil.com" resolves exactly like "//evil.com" and would
 // otherwise slip past the checks above.
 function safeNext(raw: string | null): string {
-  if (
-    !raw ||
-    !raw.startsWith("/") ||
-    raw.startsWith("//") ||
-    raw.includes("\\")
-  )
-    return DEFAULT_DEST;
-  return raw;
+  return safeNextPath(raw) ?? DEFAULT_DEST;
 }
 
 function nextPath(): string {
@@ -89,8 +83,12 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
   const [showPassword, setShowPassword] = useState(false);
 
   // Surface OAuth failures the backend redirected back with (?error=...).
+  //
+  // Keyed on the query rather than read once on mount: in the app a failed
+  // sign-in comes back to this screen while it is still open (lib/nativeNav.ts
+  // routes it in place), so the reason arrives after mount.
+  const code = useSearchParams().get("error");
   useEffect(() => {
-    const code = new URLSearchParams(window.location.search).get("error");
     if (code) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- post-mount URL read; a lazy initializer would render the error on the server and break hydration
       setError(OAUTH_ERRORS[code] ?? "Something went wrong. Please try again.");
@@ -101,7 +99,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
       url.searchParams.delete("error");
       window.history.replaceState({}, "", url.pathname + url.search + url.hash);
     }
-  }, []);
+  }, [code]);
 
   const handleOAuth = (provider: "github" | "google") => {
     const url = auth.oauthURL(provider);
@@ -117,7 +115,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
     // deep link that boot()'s listener handles, so nothing resumes here.
     if (IS_NATIVE) {
       void import("@/native/oauth")
-        .then(({ start }) => start(provider))
+        .then(({ start }) => start(provider, nextPath()))
         .catch((err) =>
           setError(
             err instanceof Error ? err.message : "Could not open sign in.",
@@ -195,7 +193,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
           <div
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 11,
+              fontSize: "var(--t-1)",
               color: "var(--fg-dim)",
               whiteSpace: "nowrap",
               flexShrink: 0,
@@ -230,7 +228,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
             >
               {mode === "signin" ? "Welcome back." : "Create your account."}
             </h1>
-            <p style={{ marginTop: 8, color: "var(--fg-muted)", fontSize: 14 }}>
+            <p style={{ marginTop: 8, color: "var(--fg-muted)", fontSize: "var(--t-4)" }}>
               {mode === "signin"
                 ? "Sign in to your AgentMesh workspace."
                 : "Free testnet access. Mainnet by invite."}
@@ -242,7 +240,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                 marginTop: 32,
                 display: "flex",
                 flexDirection: "column",
-                gap: 12,
+                gap: "var(--s-4)",
               }}
             >
               {mode === "signup" && (
@@ -290,7 +288,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                       style={{
                         color: "var(--fg-dim)",
                         fontFamily: "var(--font-mono)",
-                        fontSize: 10,
+                        fontSize: "var(--t-1)",
                       }}
                     >
                       min 12 chars
@@ -329,7 +327,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                       background: "transparent",
                       border: "none",
                       color: "var(--fg-muted)",
-                      fontSize: 11,
+                      fontSize: "var(--t-1)",
                       fontFamily: "var(--font-mono)",
                       textTransform: "uppercase",
                       letterSpacing: "0.06em",
@@ -345,7 +343,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                 <div
                   style={{
                     color: "var(--danger)",
-                    fontSize: 12,
+                    fontSize: "var(--t-2)",
                     fontFamily: "var(--font-mono)",
                   }}
                 >
@@ -364,12 +362,12 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  gap: 6,
+                  gap: "var(--s-2)",
                   background: "var(--accent)",
                   color: "var(--accent-fg)",
                   border: "none",
                   borderRadius: "var(--r-2)",
-                  fontSize: 14,
+                  fontSize: "var(--t-4)",
                   fontWeight: 600,
                   fontFamily: "var(--font-sans)",
                   cursor: loading ? "not-allowed" : "pointer",
@@ -388,10 +386,10 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 10,
+                  gap: "var(--s-3)",
                   margin: "8px 0",
                   fontFamily: "var(--font-mono)",
-                  fontSize: 11,
+                  fontSize: "var(--t-1)",
                   color: "var(--fg-dim)",
                 }}
               >
@@ -425,7 +423,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
             <div
               style={{
                 marginTop: 32,
-                fontSize: 13,
+                fontSize: "var(--t-3)",
                 color: "var(--fg-muted)",
                 textAlign: "center",
               }}
@@ -440,7 +438,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                       border: "none",
                       color: "var(--accent)",
                       cursor: "pointer",
-                      fontSize: 13,
+                      fontSize: "var(--t-3)",
                       fontFamily: "var(--font-sans)",
                       padding: 0,
                     }}
@@ -458,7 +456,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                       border: "none",
                       color: "var(--accent)",
                       cursor: "pointer",
-                      fontSize: 13,
+                      fontSize: "var(--t-3)",
                       fontFamily: "var(--font-sans)",
                       padding: 0,
                     }}
@@ -474,7 +472,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
         <div
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             color: "var(--fg-dim)",
             display: "flex",
             justifyContent: "space-between",
@@ -544,14 +542,14 @@ function AuthVisual() {
         style={{
           display: "flex",
           flexDirection: "column",
-          gap: 14,
+          gap: "var(--s-4)",
           alignItems: "flex-end",
         }}
       >
         {cards.map((c, i) => {
           const accent =
             c.tone === "magenta"
-              ? "#E879F9"
+              ? "var(--type-x402)"
               : c.tone === "accent"
                 ? "var(--accent)"
                 : "var(--fg-muted)";
@@ -576,7 +574,7 @@ function AuthVisual() {
               <div
                 style={{
                   fontFamily: "var(--font-mono)",
-                  fontSize: 9.5,
+                  fontSize: "var(--t-1)",
                   color: accent,
                   textTransform: "uppercase",
                   letterSpacing: "0.08em",
@@ -584,14 +582,14 @@ function AuthVisual() {
               >
                 {c.kicker}
               </div>
-              <div style={{ marginTop: 4, fontSize: 14, fontWeight: 500 }}>
+              <div style={{ marginTop: 4, fontSize: "var(--t-4)", fontWeight: 500 }}>
                 {c.name}
               </div>
               <div
                 style={{
                   marginTop: 2,
                   fontFamily: "var(--font-mono)",
-                  fontSize: 11,
+                  fontSize: "var(--t-1)",
                   color: "var(--fg-muted)",
                 }}
               >
@@ -607,7 +605,7 @@ function AuthVisual() {
         <div
           style={{
             marginTop: 14,
-            fontSize: 30,
+            fontSize: "var(--t-7)",
             fontWeight: 500,
             letterSpacing: "-0.025em",
             lineHeight: 1.15,
@@ -623,7 +621,7 @@ function AuthVisual() {
           style={{
             marginTop: 16,
             fontFamily: "var(--font-mono)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             color: "var(--fg-dim)",
           }}
         >
@@ -644,14 +642,14 @@ function FormField({
   children: React.ReactNode;
 }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <label style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
       <div
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           fontFamily: "var(--font-mono)",
-          fontSize: 10,
+          fontSize: "var(--t-1)",
           color: "var(--fg-muted)",
           textTransform: "uppercase",
           letterSpacing: "0.08em",
@@ -690,7 +688,7 @@ const inputStyle: React.CSSProperties = {
   // to extend -- `lib/device.ts` uses that query from JavaScript, which is a
   // different thing. Making it conditional would mean either a dead CSS rule
   // or a JS round trip, to keep a 3px difference nobody asked for.
-  fontSize: 16,
+  fontSize: "var(--t-4)",
   fontFamily: "var(--font-sans)",
   outline: "none",
 };

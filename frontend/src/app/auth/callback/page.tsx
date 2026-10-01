@@ -22,7 +22,7 @@ export default function AuthCallbackPage() {
         background: "var(--bg)",
         color: "var(--fg-muted)",
         fontFamily: "var(--font-mono)",
-        fontSize: 13,
+        fontSize: "var(--t-3)",
       }}
     >
       Signing you in…

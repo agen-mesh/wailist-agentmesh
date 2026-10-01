@@ -117,3 +117,36 @@ func TestBuildGraphSkipsATurnThatClipsToNothing(t *testing.T) {
 		t.Error("an empty part was replayed to the model")
 	}
 }
+
+// "A user turn is short" holds until someone pastes a log into the chat, and
+// then that paste is replayed on every round of every later build.
+func TestClipHistoryTextBoundsALongUserTurn(t *testing.T) {
+	paste := "here is the log, fix it:\n" + strings.Repeat("x", 8000)
+	got := clipHistoryText("user", paste)
+
+	if len([]rune(got)) > maxReplayedUserChars {
+		t.Errorf("replayed user turn is %d chars, want at most %d", len([]rune(got)), maxReplayedUserChars)
+	}
+	// The ask comes first and must survive: clipping the tail is what makes
+	// this safe to do at all.
+	if !strings.HasPrefix(got, "here is the log, fix it:") {
+		t.Errorf("clipped away the start of the user's message: %.60q", got)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Error("a clipped turn must show it was clipped")
+	}
+}
+
+// An ordinary request is far under the bound and must come back untouched,
+// including the ones a later turn refers back to.
+func TestClipHistoryTextLeavesAnOrdinaryUserTurnAlone(t *testing.T) {
+	for _, msg := range []string{
+		"build me a workflow that posts the BTC price to slack every morning",
+		"use the specs I gave you earlier",
+		strings.Repeat("a", maxReplayedUserChars),
+	} {
+		if got := clipHistoryText("user", msg); got != msg {
+			t.Errorf("clipHistoryText changed a %d-char user turn: %.40q -> %.40q", len(msg), msg, got)
+		}
+	}
+}

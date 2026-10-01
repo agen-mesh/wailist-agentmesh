@@ -17,14 +17,14 @@ export function LowBalanceBanner({ onTopUp }: { onTopUp: () => void }) {
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        gap: 12,
+        gap: "var(--s-4)",
         padding: "10px 14px",
         marginBottom: 16,
         borderRadius: "var(--r-2)",
         border: "1px solid rgba(255,181,71,0.35)",
         background: "var(--warm-soft)",
         color: "var(--warm)",
-        fontSize: 13,
+        fontSize: "var(--t-3)",
       }}
     >
       <span>
@@ -42,7 +42,7 @@ export function LowBalanceBanner({ onTopUp }: { onTopUp: () => void }) {
           border: "1px solid rgba(255,181,71,0.45)",
           background: "transparent",
           color: "var(--warm)",
-          fontSize: 12,
+          fontSize: "var(--t-2)",
           fontWeight: 600,
           cursor: "pointer",
         }}

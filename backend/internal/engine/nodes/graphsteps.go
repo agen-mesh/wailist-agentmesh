@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/agentmesh/backend/internal/models"
 )
@@ -94,8 +95,8 @@ type testTracker struct {
 	runs   int
 }
 
-func runBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFuncCall, apiKey string, x402 *x402Session, probed map[string]string, tester *testTracker) map[string]any {
-	response := dispatchBuildCall(ctx, graph, c, apiKey, x402, probed, tester)
+func runBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFuncCall, apiKey string, x402 *x402Session, probed map[string]string, resolved map[string]bool, schedule *builderSchedule, tester *testTracker) map[string]any {
+	response := dispatchBuildCall(ctx, graph, c, apiKey, x402, probed, resolved, schedule, tester)
 	if graphMutations[c.name] {
 		if text, _ := response["result"].(string); !strings.HasPrefix(text, "error: ") {
 			tester.dirty = true
@@ -104,8 +105,20 @@ func runBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFunc
 	return response
 }
 
-func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFuncCall, apiKey string, x402 *x402Session, probed map[string]string, tester *testTracker) map[string]any {
+// resolved is the build's set of CoinGecko ids that resolve_coin returned;
+// resolve_coin adds to it and add_node / update_node are checked against it.
+func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c geminiFuncCall, apiKey string, x402 *x402Session, probed map[string]string, resolved map[string]bool, schedule *builderSchedule, tester *testTracker) map[string]any {
 	switch c.name {
+	case "set_schedule":
+		if schedule == nil {
+			return map[string]any{"result": "error: schedules cannot be set here"}
+		}
+		out, err := schedule.set(c.args, time.Now())
+		if err != nil {
+			return map[string]any{"result": "error: " + err.Error()}
+		}
+		return map[string]any{"result": out}
+
 	case "test_run":
 		if tester.run == nil {
 			return map[string]any{"result": "error: test runs are not available here"}
@@ -127,6 +140,14 @@ func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c gemin
 		out, _ := json.Marshal(res)
 		note := manualNote + " -- Steps marked simulated were not performed (they would send, pay or write). "
 		switch {
+		// Before the plain Failed case, which this one is also in: a degraded
+		// read sets both. The distinction matters to the model. A hard
+		// failure means the workflow produced nothing; a degraded read means
+		// it answered, without that source. Told only "the run FAILED", the
+		// model rebuilt steps that were fine, or replied as though there were
+		// no answer to quote.
+		case res.Degraded:
+			note += "A step that READS a source failed, and the run carried on past it the way a real run does -- so this workflow DOES answer, but with that source missing. Check that step's own settings first: at build time a wrong id, a wrong path or a dead endpoint is the usual cause, and shipping it unfixed means answering \"the source failed\" on every run from now on. If the source really is just unavailable, leave the workflow alone and tell the user which source was missing."
 		case res.Failed:
 			note += "The run FAILED: fix the step that failed and test again."
 		case res.Empty:
@@ -151,6 +172,24 @@ func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c gemin
 			return map[string]any{"error": "web search is unavailable right now"}
 		}
 		return map[string]any{"result": out}
+
+	case "resolve_coin":
+		matches, err := resolveCoin(ctx, argString(c.args, "query"))
+		if err != nil {
+			return map[string]any{"result": "error: " + SanitizeRunError(err.Error())}
+		}
+		if len(matches) == 0 {
+			return map[string]any{"result": fmt.Sprintf(
+				"not_listed: CoinGecko has no coin matching %q. It cannot be tracked with a coingecko node. Tell the user plainly that this token is not listed, and do not use a different asset with a similar name or fall back to a web search for its price.",
+				argString(c.args, "query"))}
+		}
+		if resolved != nil {
+			for _, m := range matches {
+				resolved[m.ID] = true
+			}
+		}
+		out, _ := json.Marshal(matches)
+		return map[string]any{"result": string(out) + " -- use the id field, not the name or the symbol."}
 
 	case "search_x402", "add_x402_node":
 		// These need the request's catalog loader. add_x402_node edits the
@@ -203,7 +242,7 @@ func dispatchBuildCall(ctx context.Context, graph *models.WorkflowGraph, c gemin
 		}
 		probeNote = note
 	}
-	result, err := applyGraphOp(graph, c.name, c.args)
+	result, err := applyGraphOpResolved(graph, c.name, c.args, resolved)
 	if err != nil {
 		return map[string]any{"result": "error: " + err.Error() + noNodeCreatedNote(c.name, err)}
 	}
@@ -233,6 +272,10 @@ func runningLabel(graph *models.WorkflowGraph, name string, args map[string]any)
 		return fmt.Sprintf("Searching the web for “%s”", clip(argString(args, "query"), 80))
 	case "fetch_url":
 		return "Checking " + shortURL(argString(args, "url"))
+	case "resolve_coin":
+		return fmt.Sprintf("Looking up “%s” on CoinGecko", clip(argString(args, "query"), 60))
+	case "set_schedule":
+		return "Setting the schedule"
 	case "search_x402":
 		return fmt.Sprintf("Searching the x402 Bazaar for “%s”", clip(argString(args, "query"), 60))
 	case "add_x402_node":
@@ -282,6 +325,19 @@ func finishedStep(graph *models.WorkflowGraph, name string, args map[string]any,
 			step.Label = fmt.Sprintf("Web search for “%s” failed", clip(argString(args, "query"), 80))
 			// Never the error text: it can carry a raw upstream body.
 			step.Detail = "the search service returned an error"
+		}
+	case "set_schedule":
+		step.Kind = "edit"
+		step.Label = scheduleLabel(args)
+		if failed {
+			step.Label = "Couldn't set the schedule"
+		}
+	case "resolve_coin":
+		step.Kind = "search"
+		step.Label = fmt.Sprintf("Looked up “%s” on CoinGecko", clip(argString(args, "query"), 60))
+		if strings.HasPrefix(text, "not_listed:") {
+			step.Status = "error"
+			step.Label = fmt.Sprintf("“%s” is not listed on CoinGecko", clip(argString(args, "query"), 60))
 		}
 	case "fetch_url":
 		step.Kind = "check"
@@ -500,4 +556,21 @@ func noNodeCreatedNote(toolName string, err error) string {
 		return ""
 	}
 	return " -- no node was created, so there is no id for it yet; fix the call and add it again"
+}
+
+// scheduleLabel says what set_schedule did, in the user's terms.
+func scheduleLabel(args map[string]any) string {
+	cadence := strings.ToLower(argString(args, "cadence"))
+	at := argString(args, "time")
+	switch cadence {
+	case "off":
+		return "Removed the schedule"
+	case "weekly":
+		return fmt.Sprintf("Scheduled every %s at %s", argString(args, "day"), at)
+	case "monthly":
+		n, _ := argInt(args, "dayOfMonth")
+		return fmt.Sprintf("Scheduled on day %d of every month at %s", n, at)
+	default:
+		return "Scheduled every day at " + at
+	}
 }

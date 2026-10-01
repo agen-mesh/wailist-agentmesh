@@ -239,13 +239,13 @@ function HeroSection({
                   border: "none",
                   cursor: "pointer",
                   color: "rgba(242, 240, 247, 0.9)",
-                  fontSize: 14,
+                  fontSize: "var(--t-4)",
                   fontWeight: 400,
                   fontFamily: "var(--font-sans)",
                   padding: "8px 14px",
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: 6,
+                  gap: "var(--s-2)",
                   whiteSpace: "nowrap",
                   transition: "color .15s",
                 }}
@@ -268,10 +268,10 @@ function HeroSection({
                     className="liquid-glass hide-md"
                     style={{
                       padding: "8px 18px",
-                      borderRadius: 999,
+                      borderRadius: "var(--r-full)",
                       background: "rgba(255,255,255,0.04)",
                       color: "rgba(242, 240, 247, 0.92)",
-                      fontSize: 13,
+                      fontSize: "var(--t-3)",
                       fontWeight: 500,
                       border: "none",
                       cursor: "pointer",
@@ -285,12 +285,12 @@ function HeroSection({
                 )}
                 <button
                   onClick={openStudio}
+                  className="lp-open-studio"
                   style={{
-                    padding: "8px 18px",
-                    borderRadius: 999,
+                    borderRadius: "var(--r-full)",
                     background: "var(--accent)",
                     color: "var(--accent-fg)",
-                    fontSize: 13,
+                    fontSize: "var(--t-3)",
                     fontWeight: 600,
                     border: "none",
                     cursor: "pointer",
@@ -299,10 +299,13 @@ function HeroSection({
                     flexShrink: 0,
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: 6,
+                    gap: "var(--s-2)",
                   }}
                 >
-                  Open Studio <IconArrow size={11} />
+                  Open Studio
+                  <span className="lp-open-studio__arrow">
+                    <IconArrow size={11} />
+                  </span>
                 </button>
               </>
             }
@@ -369,7 +372,7 @@ function HeroSection({
                 margin: 0,
                 marginTop: 9,
                 maxWidth: 460,
-                fontSize: 18,
+                fontSize: "var(--t-5)",
                 lineHeight: 1.55,
                 color: "rgba(242, 240, 247, 0.82)",
                 opacity: 0.85,
@@ -385,23 +388,23 @@ function HeroSection({
               <br className="hide-sm" />
               agent networks.
             </p>
-            <div style={{ display: "flex", gap: 12, marginTop: 25 }}>
+            <div style={{ display: "flex", gap: "var(--s-4)", marginTop: 25 }}>
               <button
                 onClick={openStudio}
                 className="liquid-glass"
                 style={{
                   padding: "24px 29px",
-                  borderRadius: 999,
+                  borderRadius: "var(--r-full)",
                   background: "rgba(255,255,255,0.04)",
                   color: "#fff",
-                  fontSize: 15,
+                  fontSize: "var(--t-4)",
                   fontWeight: 500,
                   border: "none",
                   cursor: "pointer",
                   fontFamily: "var(--font-sans)",
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: 8,
+                  gap: "var(--s-3)",
                 }}
               >
                 Open Studio <IconArrow size={13} />
@@ -442,7 +445,7 @@ function LogoMarquee() {
           style={{
             flex: "0 0 auto",
             color: "rgba(242, 240, 247, 0.5)",
-            fontSize: 13,
+            fontSize: "var(--t-3)",
             lineHeight: 1.4,
             fontFamily: "var(--font-sans)",
           }}
@@ -459,7 +462,7 @@ function LogoMarquee() {
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: 10,
+                  gap: "var(--s-3)",
                   flexShrink: 0,
                 }}
               >
@@ -468,7 +471,7 @@ function LogoMarquee() {
                   style={{
                     width: 24,
                     height: 24,
-                    borderRadius: 8,
+                    borderRadius: "var(--r-2)",
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -480,7 +483,7 @@ function LogoMarquee() {
                 <span
                   style={{
                     fontFamily: "var(--font-sans)",
-                    fontSize: 16,
+                    fontSize: "var(--t-4)",
                     fontWeight: 600,
                     color: "rgba(242, 240, 247, 0.95)",
                     letterSpacing: "-0.01em",
@@ -562,7 +565,7 @@ function LandingPillars() {
           style={{
             display: "grid",
             gridTemplateColumns: "var(--lp-pillars-cols)",
-            gap: 20,
+            gap: "var(--s-5)",
           }}
         >
           {pillars.map((p, i) => (
@@ -577,7 +580,7 @@ function LandingPillars() {
                   padding: "36px 36px 40px",
                   background: "rgba(255,255,255,0.035)",
                   border: "1px solid rgba(255,255,255,0.08)",
-                  borderRadius: 16,
+                  borderRadius: "var(--r-4)",
                   backdropFilter: "blur(8px)",
                   position: "relative",
                   overflow: "hidden",
@@ -611,18 +614,18 @@ function LandingPillars() {
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 10,
+                    gap: "var(--s-3)",
                     marginBottom: 28,
                   }}
                 >
                   <span
                     style={{
                       fontFamily: "var(--font-mono)",
-                      fontSize: 11,
+                      fontSize: "var(--t-1)",
                       color: "var(--accent)",
                       padding: "3px 9px",
                       border: "1px solid var(--accent-line)",
-                      borderRadius: 999,
+                      borderRadius: "var(--r-full)",
                       background: "var(--accent-soft)",
                       letterSpacing: "0.06em",
                     }}
@@ -632,7 +635,7 @@ function LandingPillars() {
                   <span
                     style={{
                       fontFamily: "var(--font-mono)",
-                      fontSize: 11,
+                      fontSize: "var(--t-1)",
                       color: "var(--fg-dim)",
                       letterSpacing: "0.08em",
                       textTransform: "uppercase",
@@ -644,7 +647,7 @@ function LandingPillars() {
                 <h3
                   style={{
                     margin: 0,
-                    fontSize: 22,
+                    fontSize: "var(--t-6)",
                     fontWeight: 500,
                     letterSpacing: "-0.022em",
                     lineHeight: 1.25,
@@ -656,7 +659,7 @@ function LandingPillars() {
                   style={{
                     margin: "14px 0 0",
                     color: "var(--fg-muted)",
-                    fontSize: 14.5,
+                    fontSize: "var(--t-4)",
                     lineHeight: 1.65,
                   }}
                 >
@@ -736,7 +739,7 @@ function LandingFlow() {
           style={{
             display: "grid",
             gridTemplateColumns: "var(--lp-steps-cols)",
-            gap: 14,
+            gap: "var(--s-4)",
           }}
         >
           {steps.map((s, i) => (
@@ -749,7 +752,7 @@ function LandingFlow() {
                     right: -10,
                     zIndex: 2,
                     color: "var(--fg-dim)",
-                    fontSize: 16,
+                    fontSize: "var(--t-4)",
                     pointerEvents: "none",
                   }}
                 >
@@ -762,7 +765,7 @@ function LandingFlow() {
                   padding: "28px 24px 32px",
                   background: "rgba(255,255,255,0.03)",
                   border: "1px solid rgba(255,255,255,0.07)",
-                  borderRadius: 14,
+                  borderRadius: "var(--r-3)",
                   backdropFilter: "blur(6px)",
                   transition: "border-color .2s, background .2s",
                 }}
@@ -791,13 +794,13 @@ function LandingFlow() {
                     style={{
                       width: 36,
                       height: 36,
-                      borderRadius: 10,
+                      borderRadius: "var(--r-3)",
                       background: "var(--accent-soft)",
                       border: "1px solid var(--accent-line)",
                       display: "inline-flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      fontSize: 15,
+                      fontSize: "var(--t-4)",
                       color: "var(--accent)",
                     }}
                   >
@@ -806,7 +809,7 @@ function LandingFlow() {
                   <span
                     style={{
                       fontFamily: "var(--font-mono)",
-                      fontSize: 10,
+                      fontSize: "var(--t-0)",
                       color: "var(--fg-dim)",
                       letterSpacing: "0.1em",
                     }}
@@ -816,7 +819,7 @@ function LandingFlow() {
                 </div>
                 <div
                   style={{
-                    fontSize: 17,
+                    fontSize: "var(--t-5)",
                     fontWeight: 600,
                     letterSpacing: "-0.018em",
                     marginBottom: 10,
@@ -827,7 +830,7 @@ function LandingFlow() {
                 <div
                   style={{
                     color: "var(--fg-muted)",
-                    fontSize: 13,
+                    fontSize: "var(--t-3)",
                     lineHeight: 1.6,
                   }}
                 >
@@ -888,7 +891,7 @@ function LandingWaitlist() {
         <p
           style={{
             color: "var(--fg-muted)",
-            fontSize: 15,
+            fontSize: "var(--t-4)",
             lineHeight: 1.6,
             marginBottom: 40,
           }}
@@ -901,7 +904,7 @@ function LandingWaitlist() {
             padding: "32px 32px 28px",
             background: "rgba(255,255,255,0.04)",
             border: "1px solid rgba(255,255,255,0.09)",
-            borderRadius: 18,
+            borderRadius: "var(--r-4)",
             backdropFilter: "blur(12px)",
             boxShadow:
               "0 0 60px rgba(167,140,250,0.07), inset 0 1px 0 rgba(255,255,255,0.06)",
@@ -924,7 +927,7 @@ function LandingWaitlist() {
                 // 16px for the same reason as the sign-in fields: under 16,
                 // Safari on iOS zooms the page on focus and maximumScale is
                 // deliberately unset, so nothing else can refuse it.
-                fontSize: 16,
+                fontSize: "var(--t-4)",
                 padding: "0 12px",
                 outline: "none",
               }}
@@ -934,7 +937,7 @@ function LandingWaitlist() {
               style={{
                 height: 46,
                 padding: "0 22px",
-                fontSize: 13,
+                fontSize: "var(--t-3)",
                 fontWeight: 600,
                 background: "var(--accent)",
                 color: "var(--accent-fg)",
@@ -953,7 +956,7 @@ function LandingWaitlist() {
             style={{
               display: "flex",
               justifyContent: "center",
-              gap: 32,
+              gap: "var(--s-7)",
               marginTop: 24,
               paddingTop: 20,
               borderTop: "1px solid rgba(255,255,255,0.06)",
@@ -967,7 +970,7 @@ function LandingWaitlist() {
                 <div
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: 15,
+                    fontSize: "var(--t-4)",
                     fontWeight: 600,
                     color: "var(--accent)",
                   }}
@@ -977,7 +980,7 @@ function LandingWaitlist() {
                 <div
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: 10,
+                    fontSize: "var(--t-0)",
                     color: "var(--fg-dim)",
                     marginTop: 3,
                     textTransform: "uppercase",
@@ -994,7 +997,7 @@ function LandingWaitlist() {
           style={{
             marginTop: 18,
             fontFamily: "var(--font-mono)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             color: "var(--fg-dim)",
           }}
         >
@@ -1029,19 +1032,19 @@ function LandingFooter() {
           alignItems: "center",
           justifyContent: "space-between",
           flexWrap: "wrap",
-          gap: 12,
+          gap: "var(--s-4)",
           fontFamily: "var(--font-mono)",
-          fontSize: 11,
+          fontSize: "var(--t-1)",
           color: "var(--fg-dim)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--s-5)" }}>
           <Logo size={14} />
           <span>
             © {new Date().getFullYear()} AgentMesh · SOUBHAGYA SADHUKHAN
           </span>
         </div>
-        <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "var(--s-5)", flexWrap: "wrap" }}>
           <a href="/terms" style={linkStyle}>
             Terms &amp; Conditions
           </a>

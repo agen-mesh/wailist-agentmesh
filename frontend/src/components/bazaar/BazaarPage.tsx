@@ -12,6 +12,8 @@ import { ConsoleCard } from "./ConsoleCard";
 import { EndpointRow } from "./EndpointRow";
 import { ProviderGroupCard } from "./ProviderGroupCard";
 import { AddToWorkflowDialog } from "./AddToWorkflowDialog";
+import { useReadOnly } from "@/hooks/useReadOnly";
+import { can } from "@/lib/readonly";
 
 // Real pagination, not infinite scroll: a fixed page is fetched and shown at
 // a time, with Prev/Next and a page-size picker -- a long, unbounded list
@@ -112,13 +114,21 @@ const BAZAAR_CSS = `
    a plain row is just as much a target (its own Add button) and reading a
    long list is easier when the row under the pointer is visually obvious,
    not only the ones that happen to expand. */
-.bz-row:hover,
 .bz-row:focus-within {
   background: var(--bg-elev-2);
 }
-.bz-row:hover::before,
 .bz-row:focus-within::before {
   transform: scaleY(1);
+}
+/* Pointer hover only where a pointer hovers. On a touch screen a tap sets
+   :hover and leaves it set, so the tapped row would stay highlighted. */
+@media (hover: hover) {
+  .bz-row:hover {
+    background: var(--bg-elev-2);
+  }
+  .bz-row:hover::before {
+    transform: scaleY(1);
+  }
 }
 .bz-row__icon {
   width: 26px;
@@ -205,10 +215,12 @@ const BAZAAR_CSS = `
     border-color 0.15s var(--ease),
     color 0.15s var(--ease);
 }
-.bz-row__add:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-fg);
+@media (hover: hover) {
+  .bz-row__add:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-fg);
+  }
 }
 .bz-group-body {
   display: grid;
@@ -261,6 +273,26 @@ const BAZAAR_CSS = `
     flex: 1 1 100%;
   }
 }
+/* Below 520px a row cannot hold the name, the price and the stats side by
+   side: the stats kept their width and the name shrank to a few characters.
+   The meta wraps onto its own line, indented to the text column (the 26px
+   icon plus the 12px gap), and Add stays on the first line. */
+@media (max-width: 520px) {
+  .bz-row {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .bz-row__add {
+    order: 2;
+  }
+  .bz-row__meta {
+    order: 3;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    row-gap: 2px;
+    padding-left: 38px;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .bz-row,
   .bz-row::before,
@@ -273,12 +305,18 @@ const BAZAAR_CSS = `
 
 export function BazaarPage() {
   const [supported, setSupported] = useState<BazaarResource[]>([]);
+  const [supportedSettled, setSupportedSettled] = useState(false);
+  const [supportedError, setSupportedError] = useState(false);
   const [items, setItems] = useState<BazaarResource[]>([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState<BazaarResource | null>(null);
+  // Adding an endpoint edits a workflow graph, so where the graph cannot be
+  // edited the endpoints are listed without Add (see lib/readonly.ts).
+  const readOnly = useReadOnly();
+  const onAdd = can("workflow.editGraph", readOnly) ? setAdding : undefined;
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
   const [page, setPage] = useState(0); // 0-indexed
 
@@ -358,7 +396,10 @@ export function BazaarPage() {
         if (!cancelled) setSupported(page.items);
       })
       .catch(() => {
-        /* the main list surfaces the error; a missing pinned row is not fatal */
+        if (!cancelled) setSupportedError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setSupportedSettled(true);
       });
     return () => {
       cancelled = true;
@@ -488,12 +529,28 @@ export function BazaarPage() {
           can drop straight onto a canvas.
         </p>
 
-        {supported.length > 0 && (
-          <section style={{ marginTop: 28 }}>
-            <SectionHeading
-              title="Partners"
-              note="Set up and tested by us. Open one and start using it right away."
-            />
+        <section style={{ marginTop: 28 }}>
+          <SectionHeading
+            title="Partners"
+            note="Set up and tested by us. Open one and start using it right away."
+          />
+          <div
+            role="region"
+            aria-label="Partner services"
+            aria-busy={!supportedSettled}
+            tabIndex={0}
+            // Late partner results must never displace the independent catalogue.
+            style={{ height: 320, overflowY: "auto", scrollbarGutter: "stable" }}
+          >
+            {(!supportedSettled || supported.length === 0) && (
+              <p role="status" style={{ fontSize: 12.5, color: "var(--fg-dim)" }}>
+                {!supportedSettled
+                  ? "Loading partners…"
+                  : supportedError
+                    ? "Could not load partners."
+                    : "No partners available."}
+              </p>
+            )}
             {consoles.length > 0 && (
               <div style={CONSOLE_GRID}>
                 {consoles.map(([key, resources]) => (
@@ -509,13 +566,13 @@ export function BazaarPage() {
               <div style={{ ...GRID, marginTop: consoles.length > 0 ? 12 : 0 }}>
                 {plainSupported.map((r) => (
                   <div key={r.id} className="bz-supported-card">
-                    <ResourceCard resource={r} onAdd={setAdding} />
+                    <ResourceCard resource={r} onAdd={onAdd} />
                   </div>
                 ))}
               </div>
             )}
-          </section>
-        )}
+          </div>
+        </section>
 
         <section style={{ marginTop: 28 }}>
           <div
@@ -586,7 +643,7 @@ export function BazaarPage() {
                 <EndpointRow
                   key={resources[0].id}
                   resource={resources[0]}
-                  onAdd={setAdding}
+                  onAdd={onAdd}
                 />
               ) : (
                 <ProviderGroupCard
@@ -595,7 +652,7 @@ export function BazaarPage() {
                   resources={resources}
                   expanded={expandedHosts.has(host)}
                   onToggle={() => toggleHost(host)}
-                  onAdd={setAdding}
+                  onAdd={onAdd}
                   partial={false}
                 />
               ),
@@ -604,7 +661,11 @@ export function BazaarPage() {
 
           {error && (
             <p
-              style={{ marginTop: 16, fontSize: 12.5, color: "var(--danger)" }}
+              style={{
+                marginTop: 16,
+                fontSize: 12.5,
+                color: "var(--danger)",
+              }}
             >
               {error}{" "}
               <button
@@ -627,7 +688,11 @@ export function BazaarPage() {
 
           {loading && (
             <p
-              style={{ marginTop: 16, fontSize: 12.5, color: "var(--fg-dim)" }}
+              style={{
+                marginTop: 16,
+                fontSize: 12.5,
+                color: "var(--fg-dim)",
+              }}
             >
               Loading…
             </p>
@@ -635,7 +700,11 @@ export function BazaarPage() {
 
           {!loading && !error && items.length === 0 && activeQuery && (
             <p
-              style={{ marginTop: 16, fontSize: 12.5, color: "var(--fg-dim)" }}
+              style={{
+                marginTop: 16,
+                fontSize: 12.5,
+                color: "var(--fg-dim)",
+              }}
             >
               Nothing matches “{activeQuery}”.
             </p>
@@ -715,7 +784,7 @@ export function BazaarPage() {
         </section>
       </div>
 
-      {adding && (
+      {adding && onAdd && (
         <AddToWorkflowDialog
           resource={adding}
           onClose={() => setAdding(null)}

@@ -14,12 +14,12 @@
          and a future target bump should have to argue with a line that says so
          instead of silently flipping it.
 
-         Deliberately NOT paired with an App.addListener("backButton") handler.
-         Capacitor already navigates the WebView's history on back and finishes
-         the activity at the root, which is the behaviour we want, and
-         registering a listener REPLACES that default rather than extending it.
-         Hand-rolling what the bridge already gets right is a regression waiting
-         to happen. -->
+         Back itself is handled in frontend/src/native/back.ts. @capacitor/app
+         claims the back press whether or not anything listens, and on its own
+         it only steps back through the WebView's history. On the first
+         screen it did nothing, rather than finishing the activity as this
+         comment used to claim. The listener keeps the history walk and sends
+         the app to the background once there is nothing left to go back to. -->
     <application
         android:allowBackup="false"
         android:enableOnBackInvokedCallback="true"
@@ -30,7 +30,7 @@
         android:theme="@style/AppTheme">
 
         <activity
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density|fontScale"
             android:name=".MainActivity"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"

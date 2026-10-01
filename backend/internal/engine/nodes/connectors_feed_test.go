@@ -2,6 +2,8 @@ package nodes_test
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -196,6 +198,172 @@ func TestCoinGeckoAction_SkipsWithoutIDs(t *testing.T) {
 	got, _ := nodes.ExecuteAction(context.Background(), node, rc)
 	if got != "coingecko_skipped_no_ids" {
 		t.Errorf("want skip sentinel, got %v", got)
+	}
+}
+
+func TestCoinGeckoHistorySummarisesThePoints(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/coins/bitcoin/market_chart") {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("days"); got != "28" {
+			t.Errorf("days = %q", got)
+		}
+		if got := r.URL.Query().Get("vs_currency"); got != "usd" {
+			t.Errorf("vs_currency = %q", got)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"prices": [][]float64{
+			{1700000000000, 100},
+			{1700003600000, 250},
+			{1700007200000, 50},
+			{1700010800000, 200},
+		}})
+	}))
+	defer srv.Close()
+	nodes.SetCoinGeckoAPIBaseForTest(srv.URL)
+	defer nodes.SetCoinGeckoAPIBaseForTest("")
+
+	node := models.WorkflowNode{Type: models.NodeTypeAction, Template: "coingecko_history",
+		Config: map[string]string{"cgID": "bitcoin", "cgDays": "28"}}
+	out, err := nodes.ExecuteAction(context.Background(), node, engine.NewRunContext("r1", nil))
+	if err != nil {
+		t.Fatalf("coingecko_history: %v", err)
+	}
+	m, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("output is %T, want map", out)
+	}
+	if m["high"] != 250.0 {
+		t.Errorf("high = %v, want 250", m["high"])
+	}
+	if m["low"] != 50.0 {
+		t.Errorf("low = %v, want 50", m["low"])
+	}
+	if m["first"] != 100.0 || m["last"] != 200.0 {
+		t.Errorf("first/last = %v/%v, want 100/200", m["first"], m["last"])
+	}
+	// (200-100)/100 = 100%
+	if m["changePct"] != 100.0 {
+		t.Errorf("changePct = %v, want 100", m["changePct"])
+	}
+	points, ok := m["points"].([]map[string]any)
+	if !ok || len(points) != 4 {
+		t.Fatalf("points = %#v", m["points"])
+	}
+	if points[0]["time"] != "2023-11-14T22:13:20Z" || points[0]["price"] != 100.0 {
+		t.Errorf("first point = %#v", points[0])
+	}
+}
+
+func TestCoinGeckoHistorySkipsWithoutAnID(t *testing.T) {
+	node := models.WorkflowNode{Type: models.NodeTypeAction, Template: "coingecko_history"}
+	out, err := nodes.ExecuteAction(context.Background(), node, engine.NewRunContext("r1", nil))
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("err = %v, want ErrActionSkipped", err)
+	}
+	if out != "coingecko_history_skipped_no_id" {
+		t.Errorf("skip code = %v", out)
+	}
+}
+
+// A first price of zero must not divide by zero.
+func TestCoinGeckoHistoryHandlesAZeroFirstPrice(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"prices": [][]float64{{1700000000000, 0}, {1700003600000, 5}}})
+	}))
+	defer srv.Close()
+	nodes.SetCoinGeckoAPIBaseForTest(srv.URL)
+	defer nodes.SetCoinGeckoAPIBaseForTest("")
+
+	node := models.WorkflowNode{Type: models.NodeTypeAction, Template: "coingecko_history",
+		Config: map[string]string{"cgID": "x", "cgDays": "1"}}
+	out, err := nodes.ExecuteAction(context.Background(), node, engine.NewRunContext("r1", nil))
+	if err != nil {
+		t.Fatalf("coingecko_history: %v", err)
+	}
+	m := out.(map[string]any)
+	if _, present := m["changePct"]; present {
+		t.Errorf("changePct = %v, want it absent when the first price is zero", m["changePct"])
+	}
+}
+
+// One point is a series too: high, low, first and last are all that point,
+// and the change is zero.
+func TestCoinGeckoHistoryWithASinglePoint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"prices": [][]float64{{1700000000000, 42}}})
+	}))
+	defer srv.Close()
+	nodes.SetCoinGeckoAPIBaseForTest(srv.URL)
+	defer nodes.SetCoinGeckoAPIBaseForTest("")
+
+	node := models.WorkflowNode{Type: models.NodeTypeAction, Template: "coingecko_history",
+		Config: map[string]string{"cgID": "x"}}
+	out, err := nodes.ExecuteAction(context.Background(), node, engine.NewRunContext("r1", nil))
+	if err != nil {
+		t.Fatalf("coingecko_history: %v", err)
+	}
+	m := out.(map[string]any)
+	for _, k := range []string{"first", "last", "high", "low"} {
+		if m[k] != 42.0 {
+			t.Errorf("%s = %v, want 42", k, m[k])
+		}
+	}
+	if m["changePct"] != 0.0 {
+		t.Errorf("changePct = %v, want 0", m["changePct"])
+	}
+}
+
+// No points is not a series to summarise: skipped, not a row of zeros.
+func TestCoinGeckoHistoryWithNoPointsSkips(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"prices": [][]float64{}})
+	}))
+	defer srv.Close()
+	nodes.SetCoinGeckoAPIBaseForTest(srv.URL)
+	defer nodes.SetCoinGeckoAPIBaseForTest("")
+
+	node := models.WorkflowNode{Type: models.NodeTypeAction, Template: "coingecko_history",
+		Config: map[string]string{"cgID": "x"}}
+	out, err := nodes.ExecuteAction(context.Background(), node, engine.NewRunContext("r1", nil))
+	if !errors.Is(err, nodes.ErrActionSkipped) {
+		t.Fatalf("err = %v, want ErrActionSkipped", err)
+	}
+	if out != "coingecko_history_skipped_no_data" {
+		t.Errorf("skip code = %v", out)
+	}
+}
+
+// 28 days is 672 hourly points. The points passed on are thinned, but the
+// summary is computed from every one of them: a spike that falls between
+// two kept points is still the high.
+func TestCoinGeckoHistoryThinsThePointsButNotTheSummary(t *testing.T) {
+	prices := make([][]float64, 672)
+	for i := range prices {
+		prices[i] = []float64{float64(1700000000000 + int64(i)*3600000), 10}
+	}
+	prices[1][1] = 999 // not on any sampling step
+	prices[2][1] = 1
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"prices": prices})
+	}))
+	defer srv.Close()
+	nodes.SetCoinGeckoAPIBaseForTest(srv.URL)
+	defer nodes.SetCoinGeckoAPIBaseForTest("")
+
+	node := models.WorkflowNode{Type: models.NodeTypeAction, Template: "coingecko_history",
+		Config: map[string]string{"cgID": "bitcoin", "cgDays": "28"}}
+	out, err := nodes.ExecuteAction(context.Background(), node, engine.NewRunContext("r1", nil))
+	if err != nil {
+		t.Fatalf("coingecko_history: %v", err)
+	}
+	m := out.(map[string]any)
+	points := m["points"].([]map[string]any)
+	if len(points) == 0 || len(points) > 200 {
+		t.Errorf("got %d points, want between 1 and 200", len(points))
+	}
+	if m["high"] != 999.0 || m["low"] != 1.0 {
+		t.Errorf("high/low = %v/%v, want 999/1 from the unsampled points", m["high"], m["low"])
 	}
 }
 

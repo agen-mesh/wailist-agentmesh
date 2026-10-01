@@ -4,7 +4,7 @@
 // background, outside any page, when the OS wakes us for a geofence crossing.
 // There may be no WebView document alive at all at that moment, so it cannot
 // rely on anything the page set up.
-import { clearToken, loadToken } from "./auth";
+import { clearTokenIf, loadToken } from "./auth";
 import type { Fix } from "./queue";
 
 // lib/readonly.ts's WRITE_RULES/assertWritable pattern does NOT belong here,
@@ -34,8 +34,10 @@ async function call(path: string, init: RequestInit = {}): Promise<Response> {
     },
   });
   if (res.status === 401) {
-    // Drop the dead token rather than retrying with it forever.
-    await clearToken();
+    // Drop the dead token rather than retrying with it forever -- the one this
+    // request sent, not whatever is stored by the time the answer arrives,
+    // which may be a newer sign-in's.
+    await clearTokenIf(token);
     // A plain Error, not a dedicated type: flush()'s catch in geofence.ts
     // used to branch on a 401 specifically, but both branches took the same
     // action (stop the flush, keep the queue), so nothing left in the

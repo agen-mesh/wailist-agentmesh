@@ -3,6 +3,7 @@ package bazaar
 import (
 	"sort"
 	"strings"
+	"time"
 )
 
 // BestFieldScore reports whether q fuzzy-matches r in AT LEAST ONE of its own
@@ -36,20 +37,40 @@ var searchNoise = map[string]bool{
 	"www": true, "com": true, "endpoint": true, "x402": true, "any": true, "some": true,
 }
 
-// Search ranks canvas-addable resources against a natural-language query and
-// returns at most limit of them, best first.
+// Search ranks canvas-addable resources against a natural-language query as
+// of now. See SearchAt.
+func Search(items []Resource, query string, limit int) []Resource {
+	return SearchAt(items, query, limit, time.Now())
+}
+
+// SearchAt ranks canvas-addable resources against a natural-language query
+// and returns at most limit of them, best first, grading trust as of now.
 //
 // Word by word, unlike the Bazaar page's single-string match: a person types
 // "tendril" into a search box, but the chat builder asks things like "live
 // NSE stock index prices", and a whole sentence essentially never fuzzy-
 // matches as one subsequence. Each meaningful word is scored with
-// BestFieldScore; an entry matching more of the words ranks first, then by
-// total score, then by how often it has actually been paid for.
+// BestFieldScore.
+//
+// The ordering is: how many of the query's words matched, then whether the
+// entry is still being paid at all, then how well it matched, then its trust
+// tier, then its settle count.
+//
+// Relevance deliberately outranks trust, with one exception. A stale entry
+// (see TrustStale) sinks below every live entry that matched as many words,
+// however well it is worded, because the Bazaar is permissionless and
+// nothing removes an entry when the service behind it dies -- picking one is
+// not a 404, it is a real payment for nothing. Everywhere else trust is only
+// a tie-break, so a heavily-paid endpoint can never answer a question it
+// does not actually answer.
+//
+// Stale entries are demoted, never dropped: if every match is stale that is
+// itself the answer, and the builder needs to see them to say so.
 //
 // Console-backed entries (Prism, HelixBox) are skipped: they open a dedicated
 // page rather than becoming a canvas node, so they are never something the
 // builder can add.
-func Search(items []Resource, query string, limit int) []Resource {
+func SearchAt(items []Resource, query string, limit int, now time.Time) []Resource {
 	var words []string
 	for _, w := range strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
 		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
@@ -64,6 +85,7 @@ func Search(items []Resource, query string, limit int) []Resource {
 	type scored struct {
 		r            Resource
 		words, total int
+		trust        Trust
 	}
 	var hits []scored
 	for _, r := range items {
@@ -86,6 +108,7 @@ func Search(items []Resource, query string, limit int) []Resource {
 			}
 		}
 		if s.words > 0 {
+			s.trust = TrustOf(r, now)
 			hits = append(hits, s)
 		}
 	}
@@ -93,8 +116,16 @@ func Search(items []Resource, query string, limit int) []Resource {
 		if hits[i].words != hits[j].words {
 			return hits[i].words > hits[j].words
 		}
+		// One boolean, not the full tier: only the stale/live split is
+		// allowed to override how well an entry matched.
+		if iStale, jStale := hits[i].trust == TrustStale, hits[j].trust == TrustStale; iStale != jStale {
+			return jStale
+		}
 		if hits[i].total != hits[j].total {
 			return hits[i].total > hits[j].total
+		}
+		if hits[i].trust != hits[j].trust {
+			return hits[i].trust > hits[j].trust
 		}
 		return hits[i].r.SettleCount > hits[j].r.SettleCount
 	})

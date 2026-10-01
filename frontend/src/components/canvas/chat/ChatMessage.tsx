@@ -45,7 +45,7 @@ const stepLineStyle: React.CSSProperties = {
   columnGap: 6,
   alignItems: "baseline",
   fontFamily: "var(--font-mono)",
-  fontSize: 11,
+  fontSize: "var(--t-1)",
   lineHeight: 1.5,
   minWidth: 0,
 };
@@ -59,7 +59,7 @@ const stepLineStyle: React.CSSProperties = {
 function StepList({ steps }: { steps: BuildStep[] }) {
   return (
     <div
-      style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}
+      style={{ display: "flex", flexDirection: "column", gap: "var(--s-0)", minWidth: 0 }}
     >
       {steps.map((st, i) => {
         const failed = st.status === "error";
@@ -109,7 +109,7 @@ function LiveProgress({
       style={{
         display: "flex",
         flexDirection: "column",
-        gap: 2,
+        gap: "var(--s-0)",
         padding: "4px 0",
         minWidth: 0,
       }}
@@ -149,7 +149,7 @@ function SettledSteps({ steps }: { steps: BuildStep[] }) {
           background: "none",
           border: "none",
           fontFamily: "var(--font-mono)",
-          fontSize: 10,
+          fontSize: "var(--t-0)",
           letterSpacing: "0.02em",
           color: "var(--fg-dim)",
           cursor: "pointer",
@@ -187,7 +187,7 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
             background: "var(--bg-elev-3)",
             border: "1px solid var(--border)",
             color: "var(--fg)",
-            fontSize: 13,
+            fontSize: "var(--t-3)",
             lineHeight: 1.55,
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
@@ -219,10 +219,10 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 7,
+            gap: "var(--s-2)",
             color: "var(--fg-dim)",
             fontFamily: "var(--font-mono)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             padding: "4px 0",
           }}
         >
@@ -240,7 +240,7 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
               : message.interrupted
                 ? "var(--fg-muted)"
                 : "var(--fg)",
-            fontSize: 13,
+            fontSize: "var(--t-3)",
             lineHeight: 1.6,
             overflowWrap: "anywhere",
           }}
@@ -252,7 +252,7 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
             <span
               style={{
                 fontFamily: "var(--font-mono)",
-                fontSize: 10,
+                fontSize: "var(--t-0)",
                 textTransform: "uppercase",
                 letterSpacing: "0.08em",
                 display: "block",
@@ -280,7 +280,7 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
             marginTop: 5,
             display: "flex",
             alignItems: "center",
-            gap: 10,
+            gap: "var(--s-3)",
           }}
         >
           {canSpeak && playback.supported && (
@@ -317,7 +317,7 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
                 background: "none",
                 border: "none",
                 fontFamily: "var(--font-mono)",
-                fontSize: 10,
+                fontSize: "var(--t-0)",
                 fontVariantNumeric: "tabular-nums",
                 color: "var(--fg-dim)",
                 cursor: canShowLogs ? "pointer" : "default",

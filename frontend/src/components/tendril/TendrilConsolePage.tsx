@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Topbar } from "@/components/Topbar";
 import { Tag, ghostBtnSm } from "@/components/ui";
+import { ExternalLink } from "@/components/ExternalLink";
 import { TerminalTab } from "@/components/canvas/TerminalTab";
 import {
   tendril as tendrilApi,
@@ -17,9 +18,9 @@ import {
 // Tendril's own accent, shared with the canvas node type (PalettePanel /
 // Inspector) so this reads as the same feature rather than a disconnected
 // sub-app.
-const MAGENTA = "#E879F9";
-const MAGENTA_DIM = "rgba(232, 121, 249, 0.08)";
-const GREEN = "#34D399";
+const MAGENTA = "var(--type-x402)";
+const MAGENTA_DIM = "var(--type-x402-soft)";
+const GREEN = "var(--success)";
 
 function formatDuration(totalSeconds: number): string {
   const s = Math.max(0, Math.round(totalSeconds));
@@ -76,7 +77,7 @@ function PanelLabel({ children }: { children: React.ReactNode }) {
     <div
       style={{
         fontFamily: "var(--font-mono)",
-        fontSize: 10,
+        fontSize: "var(--t-0)",
         textTransform: "uppercase",
         letterSpacing: "0.1em",
         color: "var(--fg-dim)",
@@ -94,7 +95,7 @@ function Dot({ color }: { color: string }) {
       style={{
         width: 7,
         height: 7,
-        borderRadius: 999,
+        borderRadius: "var(--r-full)",
         background: color,
         boxShadow: `0 0 6px ${color}`,
         flexShrink: 0,
@@ -110,7 +111,7 @@ const monoInput: React.CSSProperties = {
   border: "1px solid var(--border-strong)",
   borderRadius: "var(--r-1)",
   color: "var(--fg)",
-  fontSize: 13,
+  fontSize: "var(--t-3)",
   fontFamily: "var(--font-mono)",
   outline: "none",
 };
@@ -119,7 +120,7 @@ function nameplateButton(disabled: boolean): React.CSSProperties {
   return {
     height: 32,
     padding: "0 16px",
-    fontSize: 11,
+    fontSize: "var(--t-1)",
     fontWeight: 700,
     letterSpacing: "0.08em",
     textTransform: "uppercase",
@@ -127,7 +128,7 @@ function nameplateButton(disabled: boolean): React.CSSProperties {
     background: disabled ? "var(--bg-elev-2)" : MAGENTA,
     border: `1px solid ${disabled ? "var(--border-strong)" : MAGENTA}`,
     borderRadius: "var(--r-1)",
-    color: disabled ? "var(--fg-dim)" : "#1a0a1a",
+    color: disabled ? "var(--fg-dim)" : "var(--type-x402-fg)",
     cursor: disabled ? "default" : "pointer",
     whiteSpace: "nowrap",
   };
@@ -139,7 +140,7 @@ const txLinkStyle: React.CSSProperties = {
   color: MAGENTA,
   textDecoration: "underline",
   fontFamily: "var(--font-mono)",
-  fontSize: 11,
+  fontSize: "var(--t-1)",
   whiteSpace: "nowrap",
 };
 
@@ -147,7 +148,7 @@ function quietButton(danger = false): React.CSSProperties {
   return {
     height: 32,
     padding: "0 14px",
-    fontSize: 11,
+    fontSize: "var(--t-1)",
     fontWeight: 600,
     letterSpacing: "0.04em",
     textTransform: "uppercase",
@@ -180,7 +181,9 @@ export function TendrilConsolePage() {
   const [topupAmount, setTopupAmount] = useState("10");
   const [topupBusy, setTopupBusy] = useState(false);
   const [topupMsg, setTopupMsg] = useState<string | null>(null);
-  const [topupResult, setTopupResult] = useState<TendrilTopupResult | null>(null);
+  const [topupResult, setTopupResult] = useState<TendrilTopupResult | null>(
+    null,
+  );
 
   const [rentHours, setRentHours] = useState("1");
   const [rentBusy, setRentBusy] = useState<string | null>(null);
@@ -192,7 +195,8 @@ export function TendrilConsolePage() {
   const [runOutput, setRunOutput] = useState<string | null>(null);
 
   const [releaseBusy, setReleaseBusy] = useState(false);
-  const [releaseResult, setReleaseResult] = useState<TendrilReleaseResult | null>(null);
+  const [releaseResult, setReleaseResult] =
+    useState<TendrilReleaseResult | null>(null);
 
   const refresh = useCallback(async () => {
     const [c, m, l] = await Promise.allSettled([
@@ -246,7 +250,9 @@ export function TendrilConsolePage() {
       await tendrilApi.rent(machineId, rentHours);
       await refresh();
     } catch (e) {
-      setRentMsg(e instanceof Error ? e.message : "Could not rent that machine.");
+      setRentMsg(
+        e instanceof Error ? e.message : "Could not rent that machine.",
+      );
     } finally {
       setRentBusy(null);
     }
@@ -293,41 +299,41 @@ export function TendrilConsolePage() {
     >
       <Topbar />
       <div style={{ flex: 1, overflow: "auto" }}>
-        <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 24px 96px" }}>
+        <div className="am-console-page">
           {/* ghostBtnSm and Tag are both inline-flex; with no block-level
               element between them the button's marginBottom did nothing and
               the two sat on one crowded line (see PrismConsolePage's same
               fix). A wrapping block gives the margin somewhere real to
               apply. */}
           <div style={{ marginBottom: 18 }}>
-            <button onClick={() => router.push("/workflows")} style={ghostBtnSm}>
+            <button
+              onClick={() => router.push("/workflows")}
+              style={ghostBtnSm}
+            >
               ← Workflows
             </button>
           </div>
 
           <Tag>tendril · compute</Tag>
-          <h1
+          <h1 className="am-console-title">Rent a machine</h1>
+          <p
             style={{
-              margin: "14px 0 6px",
-              fontSize: 34,
-              fontWeight: 500,
-              letterSpacing: "-0.02em",
-              color: "var(--fg)",
+              margin: "0 0 14px",
+              color: "var(--fg-muted)",
+              fontSize: "var(--t-4)",
+              maxWidth: 520,
             }}
           >
-            Rent a machine
-          </h1>
-          <p style={{ margin: "0 0 14px", color: "var(--fg-muted)", fontSize: 14, maxWidth: 520 }}>
-            A real Linux box, by the hour, paid from your AgentMesh wallet.
-            Pick one below, get a terminal, release it when you&rsquo;re done.
+            A real Linux box, by the hour, paid from your AgentMesh wallet. Pick
+            one below, get a terminal, release it when you&rsquo;re done.
           </p>
           <div
             style={{
               display: "flex",
               alignItems: "baseline",
-              gap: 8,
+              gap: "var(--s-3)",
               marginBottom: 32,
-              fontSize: 12,
+              fontSize: "var(--t-2)",
               color: "var(--fg-dim)",
               maxWidth: 560,
             }}
@@ -335,20 +341,28 @@ export function TendrilConsolePage() {
             <span style={{ color: MAGENTA, flexShrink: 0 }}>ⓘ</span>
             <span>
               Renting reserves the hours you pick up front. Release early and
-              you&rsquo;re billed only for the seconds you actually used —
-              the rest comes straight back to your Tendril credit.
+              you&rsquo;re billed only for the seconds you actually used — the
+              rest comes straight back to your Tendril credit.
             </span>
           </div>
 
           {/* ── Balance ledger ─────────────────────────────────────────── */}
           <Panel style={{ padding: "18px 20px", marginBottom: 20 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: "var(--s-4)",
+              }}
+            >
               <div>
                 <PanelLabel>Tendril credit</PanelLabel>
                 <div
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: 32,
+                    fontSize: "var(--t-7)",
                     fontWeight: 600,
                     color: "var(--fg)",
                     marginTop: 4,
@@ -360,7 +374,13 @@ export function TendrilConsolePage() {
                     _
                   </span>
                 </div>
-                <div style={{ fontSize: 11.5, color: "var(--fg-dim)", marginTop: 4 }}>
+                <div
+                  style={{
+                    fontSize: "var(--t-1)",
+                    color: "var(--fg-dim)",
+                    marginTop: 4,
+                  }}
+                >
                   Separate from your AgentMesh credits — spendable only on
                   machine time.
                 </div>
@@ -377,8 +397,22 @@ export function TendrilConsolePage() {
                   + Add credit
                 </button>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
-                  <div style={{ display: "flex", gap: 6 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "var(--s-2)",
+                    alignItems: "flex-end",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      justifyContent: "flex-end",
+                      gap: "var(--s-2)",
+                    }}
+                  >
                     <span
                       style={{
                         ...monoInput,
@@ -415,7 +449,10 @@ export function TendrilConsolePage() {
                     >
                       {topupBusy ? "Adding…" : "Add"}
                     </button>
-                    <button style={quietButton()} onClick={() => setAddingCredit(false)}>
+                    <button
+                      style={quietButton()}
+                      onClick={() => setAddingCredit(false)}
+                    >
                       cancel
                     </button>
                   </div>
@@ -423,7 +460,9 @@ export function TendrilConsolePage() {
               )}
             </div>
             {topupMsg && (
-              <div style={{ fontSize: 12, marginTop: 10, color: "var(--danger)" }}>
+              <div
+                style={{ fontSize: "var(--t-2)", marginTop: 10, color: "var(--danger)" }}
+              >
                 {topupMsg}
               </div>
             )}
@@ -435,46 +474,67 @@ export function TendrilConsolePage() {
                   borderTop: "1px solid var(--border)",
                   display: "flex",
                   flexDirection: "column",
-                  gap: 4,
+                  gap: "var(--s-1)",
                 }}
               >
-                <div style={{ fontSize: 12, color: "var(--fg-muted)" }}>
+                <div style={{ fontSize: "var(--t-2)", color: "var(--fg-muted)" }}>
                   Added {topupResult.toppedUp} USDC.
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "var(--s-4)",
+                    fontSize: "var(--t-1)",
+                  }}
+                >
                   {topupResult.txId && (
-                    <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                      <span style={{ color: "var(--fg-dim)" }}>Wallet 1 → Wallet 2</span>
+                    <span
+                      style={{ display: "flex", alignItems: "center", gap: "var(--s-1)" }}
+                    >
+                      <span style={{ color: "var(--fg-dim)" }}>
+                        Wallet 1 → Wallet 2
+                      </span>
                       {topupResult.explorerURL ? (
-                        <a
+                        <ExternalLink
                           href={topupResult.explorerURL}
-                          target="_blank"
-                          rel="noopener noreferrer"
                           style={txLinkStyle}
                         >
                           {topupResult.txId.slice(0, 10)}…
-                        </a>
+                        </ExternalLink>
                       ) : (
-                        <code style={{ fontFamily: "var(--font-mono)", color: "var(--fg-muted)" }}>
+                        <code
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            color: "var(--fg-muted)",
+                          }}
+                        >
                           {topupResult.txId.slice(0, 10)}…
                         </code>
                       )}
                     </span>
                   )}
                   {topupResult.outboundTxId && (
-                    <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                      <span style={{ color: "var(--fg-dim)" }}>Wallet 2 → Tendril</span>
+                    <span
+                      style={{ display: "flex", alignItems: "center", gap: "var(--s-1)" }}
+                    >
+                      <span style={{ color: "var(--fg-dim)" }}>
+                        Wallet 2 → Tendril
+                      </span>
                       {topupResult.outboundExplorerURL ? (
-                        <a
+                        <ExternalLink
                           href={topupResult.outboundExplorerURL}
-                          target="_blank"
-                          rel="noopener noreferrer"
                           style={txLinkStyle}
                         >
                           {topupResult.outboundTxId.slice(0, 10)}…
-                        </a>
+                        </ExternalLink>
                       ) : (
-                        <code style={{ fontFamily: "var(--font-mono)", color: "var(--fg-muted)" }}>
+                        <code
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            color: "var(--fg-muted)",
+                          }}
+                        >
                           {topupResult.outboundTxId.slice(0, 10)}…
                         </code>
                       )}
@@ -489,13 +549,23 @@ export function TendrilConsolePage() {
           <div
             style={{
               display: "flex",
+              flexWrap: "wrap",
               justifyContent: "space-between",
               alignItems: "baseline",
+              gap: "6px 12px",
               marginBottom: 10,
             }}
           >
             <PanelLabel>Online machines</PanelLabel>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--fg-dim)" }}>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--s-2)",
+                fontSize: "var(--t-1)",
+                color: "var(--fg-dim)",
+              }}
+            >
               rent for
               <input
                 style={{ ...monoInput, width: 50, height: 26 }}
@@ -510,9 +580,23 @@ export function TendrilConsolePage() {
             </label>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--s-3)",
+              marginBottom: 24,
+            }}
+          >
             {machines.length === 0 && !loading && (
-              <Panel style={{ padding: 16, textAlign: "center", color: "var(--fg-dim)", fontSize: 13 }}>
+              <Panel
+                style={{
+                  padding: 16,
+                  textAlign: "center",
+                  color: "var(--fg-dim)",
+                  fontSize: "var(--t-3)",
+                }}
+              >
                 No machines online right now.
               </Panel>
             )}
@@ -533,16 +617,19 @@ export function TendrilConsolePage() {
                   style={{
                     padding: "14px 18px",
                     display: "flex",
+                    flexWrap: "wrap",
                     alignItems: "center",
-                    gap: 16,
+                    gap: "10px 16px",
                   }}
                 >
                   <Dot color={GREEN} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  {/* The 180px basis moves the price and Rent onto their own
+                      line on a phone rather than squeezing the name. */}
+                  <div style={{ flex: "1 1 180px", minWidth: 0 }}>
                     <div
                       style={{
                         fontFamily: "var(--font-mono)",
-                        fontSize: 13,
+                        fontSize: "var(--t-3)",
                         fontWeight: 600,
                         color: "var(--fg)",
                         overflow: "hidden",
@@ -555,10 +642,11 @@ export function TendrilConsolePage() {
                     <div
                       style={{
                         display: "flex",
-                        gap: 10,
+                        flexWrap: "wrap",
+                        gap: "2px 10px",
                         marginTop: 2,
                         fontFamily: "var(--font-mono)",
-                        fontSize: 11,
+                        fontSize: "var(--t-1)",
                         color: "var(--fg-dim)",
                       }}
                     >
@@ -566,7 +654,9 @@ export function TendrilConsolePage() {
                       <span style={{ opacity: 0.4 }}>│</span>
                       <span>{Math.round(m.ramMb / 1024)} GB</span>
                       <span style={{ opacity: 0.4 }}>│</span>
-                      <span style={{ color: MAGENTA }}>${m.pricePerHourUsd.toFixed(2)}/hr</span>
+                      <span style={{ color: MAGENTA }}>
+                        ${m.pricePerHourUsd.toFixed(2)}/hr
+                      </span>
                       {m.gpu && (
                         <>
                           <span style={{ opacity: 0.4 }}>│</span>
@@ -575,7 +665,15 @@ export function TendrilConsolePage() {
                       )}
                     </div>
                   </div>
-                  <div style={{ textAlign: "right", fontSize: 11, color: overBudget ? "var(--danger)" : "var(--fg-dim)", fontFamily: "var(--font-mono)" }}>
+                  <div
+                    style={{
+                      marginLeft: "auto",
+                      textAlign: "right",
+                      fontSize: "var(--t-1)",
+                      color: overBudget ? "var(--danger)" : "var(--fg-dim)",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
                     ${cost.toFixed(2)}
                   </div>
                   <button
@@ -590,7 +688,14 @@ export function TendrilConsolePage() {
             })}
           </div>
           {rentMsg && (
-            <div style={{ fontSize: 12, marginTop: -14, marginBottom: 20, color: "var(--danger)" }}>
+            <div
+              style={{
+                fontSize: "var(--t-2)",
+                marginTop: -14,
+                marginBottom: 20,
+                color: "var(--danger)",
+              }}
+            >
               {rentMsg}
             </div>
           )}
@@ -603,21 +708,37 @@ export function TendrilConsolePage() {
                   padding: "14px 18px",
                   display: "flex",
                   alignItems: "center",
-                  gap: 10,
+                  gap: "var(--s-3)",
                   borderBottom: "1px solid var(--border)",
                   background: MAGENTA_DIM,
                 }}
               >
                 <Dot color={GREEN} />
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, color: "var(--fg)" }}>
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "var(--t-2)",
+                    fontWeight: 600,
+                    color: "var(--fg)",
+                  }}
+                >
                   {activeLease.tendrilNodeLabel || activeLease.tendrilNodeId}
                 </span>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-dim)" }}>
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "var(--t-1)",
+                    color: "var(--fg-dim)",
+                  }}
+                >
                   ${(activeLease.rateUsdMicrosPerHour / 1e6).toFixed(2)}/hr
                 </span>
                 <div style={{ flex: 1 }} />
                 <button
-                  style={{ ...quietButton(true), opacity: releaseBusy ? 0.6 : 1 }}
+                  style={{
+                    ...quietButton(true),
+                    opacity: releaseBusy ? 0.6 : 1,
+                  }}
                   disabled={releaseBusy}
                   onClick={handleRelease}
                 >
@@ -646,7 +767,7 @@ export function TendrilConsolePage() {
                       <div
                         style={{
                           height: 4,
-                          borderRadius: 999,
+                          borderRadius: "var(--r-full)",
                           background: "var(--bg)",
                           border: "1px solid var(--border)",
                           overflow: "hidden",
@@ -667,12 +788,18 @@ export function TendrilConsolePage() {
                           justifyContent: "space-between",
                           marginTop: 6,
                           fontFamily: "var(--font-mono)",
-                          fontSize: 10.5,
+                          fontSize: "var(--t-0)",
                           color: "var(--fg-dim)",
                         }}
                       >
                         <span>{formatDuration(elapsedMs / 1000)} used</span>
-                        <span style={{ color: pastReserved ? "var(--warm)" : "var(--fg-dim)" }}>
+                        <span
+                          style={{
+                            color: pastReserved
+                              ? "var(--warm)"
+                              : "var(--fg-dim)",
+                          }}
+                        >
                           {formatRemaining(reservedUntilMs, now)}
                         </span>
                       </div>
@@ -682,15 +809,23 @@ export function TendrilConsolePage() {
               </div>
 
               <div style={{ padding: 18 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    gap: "var(--s-3)",
+                  }}
+                >
                   <code
                     style={{
-                      flex: 1,
+                      flex: "1 1 220px",
+                      minWidth: 0,
                       background: "var(--bg)",
                       border: "1px solid var(--border)",
                       borderRadius: "var(--r-1)",
                       padding: "8px 12px",
-                      fontSize: 12,
+                      fontSize: "var(--t-2)",
                       fontFamily: "var(--font-mono)",
                       color: "var(--fg-muted)",
                       overflow: "auto",
@@ -701,11 +836,21 @@ export function TendrilConsolePage() {
                   </code>
                   <button
                     style={quietButton()}
-                    onClick={() => navigator.clipboard?.writeText(activeLease.sshCommand)}
+                    // Clipboard access can be refused (no permission, or a
+                    // WebView without it). The command stays selectable in
+                    // the box beside the button, so the failure is ignored.
+                    onClick={() => {
+                      navigator.clipboard
+                        ?.writeText(activeLease.sshCommand)
+                        .catch(() => {});
+                    }}
                   >
                     copy
                   </button>
-                  <button style={quietButton()} onClick={() => setShowTerminal((s) => !s)}>
+                  <button
+                    style={quietButton()}
+                    onClick={() => setShowTerminal((s) => !s)}
+                  >
                     {showTerminal ? "hide terminal" : "open terminal"}
                   </button>
                 </div>
@@ -713,14 +858,19 @@ export function TendrilConsolePage() {
                 {showTerminal && (
                   <div
                     style={{
-                      height: 320,
+                      // 60dvh keeps the terminal and its keyboard row in
+                      // view on a landscape phone.
+                      height: "min(320px, 60dvh)",
                       marginTop: 14,
                       border: "1px solid var(--border)",
                       borderRadius: "var(--r-2)",
                       overflow: "hidden",
                     }}
                   >
-                    <TerminalTab leaseId={activeLease.id} onClose={() => setShowTerminal(false)} />
+                    <TerminalTab
+                      leaseId={activeLease.id}
+                      onClose={() => setShowTerminal(false)}
+                    />
                   </div>
                 )}
 
@@ -739,13 +889,25 @@ export function TendrilConsolePage() {
                     value={payload}
                     onChange={(e) => setPayload(e.target.value)}
                   />
-                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                    <button style={nameplateButton(runBusy)} disabled={runBusy} onClick={handleRun}>
+                  <div style={{ display: "flex", gap: "var(--s-3)", marginTop: 8 }}>
+                    <button
+                      style={nameplateButton(runBusy)}
+                      disabled={runBusy}
+                      onClick={handleRun}
+                    >
                       {runBusy ? "Running…" : "Run"}
                     </button>
                   </div>
                   {runMsg && (
-                    <div style={{ fontSize: 12, marginTop: 8, color: "var(--danger)" }}>{runMsg}</div>
+                    <div
+                      style={{
+                        fontSize: "var(--t-2)",
+                        marginTop: 8,
+                        color: "var(--danger)",
+                      }}
+                    >
+                      {runMsg}
+                    </div>
                   )}
                   {runOutput && (
                     <pre
@@ -755,7 +917,7 @@ export function TendrilConsolePage() {
                         background: "var(--bg)",
                         border: "1px solid var(--border)",
                         borderRadius: "var(--r-2)",
-                        fontSize: 11,
+                        fontSize: "var(--t-1)",
                         fontFamily: "var(--font-mono)",
                         color: "var(--fg-muted)",
                         overflow: "auto",
@@ -776,36 +938,46 @@ export function TendrilConsolePage() {
                 padding: "14px 18px",
                 display: "flex",
                 alignItems: "center",
-                gap: 10,
+                gap: "var(--s-3)",
                 borderColor: "rgba(52, 211, 153, 0.35)",
                 background: "rgba(52, 211, 153, 0.06)",
               }}
             >
               <Dot color={GREEN} />
-              <div style={{ fontSize: 12.5, color: "var(--fg)" }}>
+              <div style={{ fontSize: "var(--t-2)", color: "var(--fg)" }}>
                 Released after {formatDuration(releaseResult.usedSeconds)} —
                 charged{" "}
                 <strong style={{ fontFamily: "var(--font-mono)" }}>
                   ${(releaseResult.charged / 1e6).toFixed(2)}
                 </strong>
                 , refunded{" "}
-                <strong style={{ fontFamily: "var(--font-mono)", color: GREEN }}>
+                <strong
+                  style={{ fontFamily: "var(--font-mono)", color: GREEN }}
+                >
                   ${(releaseResult.refunded / 1e6).toFixed(2)}
                 </strong>{" "}
                 back to your Tendril credit.
               </div>
               <div style={{ flex: 1 }} />
-              <button style={quietButton()} onClick={() => setReleaseResult(null)}>
+              <button
+                style={quietButton()}
+                onClick={() => setReleaseResult(null)}
+              >
                 dismiss
               </button>
             </Panel>
           )}
 
-          {!activeLease && !releaseResult && machines.length > 0 && !loading && (
-            <div style={{ fontSize: 12, color: "var(--fg-dim)", marginTop: -4 }}>
-              Rent one to get a terminal.
-            </div>
-          )}
+          {!activeLease &&
+            !releaseResult &&
+            machines.length > 0 &&
+            !loading && (
+              <div
+                style={{ fontSize: "var(--t-2)", color: "var(--fg-dim)", marginTop: -4 }}
+              >
+                Rent one to get a terminal.
+              </div>
+            )}
         </div>
       </div>
     </div>

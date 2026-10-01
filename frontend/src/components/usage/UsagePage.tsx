@@ -1,11 +1,13 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCredits } from "@/lib/credits/store";
 import { LowBalanceBanner } from "@/components/billing/LowBalanceBanner";
 import { IconSearch, Card, ghostBtnSm } from "@/components/ui";
 import { Topbar } from "@/components/Topbar";
+import { workflowHref } from "@/lib/routes";
 import { usage as usageApi } from "@/lib/api";
+import { scopedWorkflowLabel } from "@/lib/usageScope";
 import {
   UsageRange,
   UsagePayload,
@@ -15,35 +17,34 @@ import {
 } from "@/lib/types";
 import { AreaChart } from "./AreaChart";
 import { Donut, DonutSegment } from "./Donut";
+import { useIsHandheld } from "@/hooks/useIsHandheld";
+import { useReadOnly } from "@/hooks/useReadOnly";
+import { UsagePhonePage } from "./phone/UsagePhonePage";
+import {
+  ALGO_USD,
+  CAT_COLOR,
+  CAT_LABEL,
+  TYPE_PILL,
+  compactUsd,
+  relTime,
+  usd,
+} from "./format";
 
 const RANGES: UsageRange[] = ["24h", "7d", "30d"];
 
-// x402 = accent, LLM = info, action = the orange already used in LogDrawer.
-const CAT_COLOR: Record<UsageCategory, string> = {
-  x402: "var(--accent)",
-  llm: "var(--info)",
-  action: "#FB923C",
-};
-// Endpoint type pill keeps the x402 magenta used elsewhere (tx links / tool402).
-const TYPE_PILL: Record<UsageCategory, string> = {
-  x402: "#E879F9",
-  llm: "#6EA8FF", // hex (matches --info) so the `${c}55`/`${c}1A` alpha suffixes stay valid
-  action: "#FB923C",
-};
-const CAT_LABEL: Record<UsageCategory, string> = {
-  x402: "x402",
-  llm: "LLM",
-  action: "Actions",
-};
-
 export function UsagePage() {
   const router = useRouter();
+  const readOnly = useReadOnly();
 
   const [range, setRange] = useState<UsageRange>("30d");
   const [data, setData] = useState<UsagePayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
+  // Callers waiting for a reload to land -- pull to refresh keeps spinning
+  // until its promise settles. Released when the newest batch finishes; a
+  // batch a newer one replaced keeps them waiting for that one instead.
+  const reloadWaiters = useRef<Array<() => void>>([]);
   const [scopedWf, setScopedWf] = useState<string | null>(null);
 
   // ?workflow=<id> deep-link filter (read without useSearchParams to avoid a
@@ -60,26 +61,35 @@ export function UsagePage() {
   // already starts as loading. Sync setState in effects cascades renders.
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
+    const requests = [
       usageApi.summary(range),
       usageApi.timeseries(range),
       usageApi.byWorkflow(range),
       usageApi.byEndpoint(range),
       usageApi.settlements(18),
-    ])
+    ] as const;
+    Promise.all(requests)
       .then(([summary, timeseries, byWorkflow, byEndpoint, settlements]) => {
         if (cancelled) return;
         setData({ summary, timeseries, byWorkflow, byEndpoint, settlements });
       })
-      .catch((e) => {
+      .catch(async (e) => {
         if (cancelled) return;
         // Surface the failure but keep the last good payload -- a transient error
         // on a range switch shouldn't blank a page that was already working.
         console.error("usage load failed", e);
         setLoadError(e instanceof Error ? e : new Error(String(e)));
+        // Promise.all gives up at the first failure with the rest still out.
+        // The reload is not over until they have answered too, so a pull keeps
+        // spinning until then rather than stopping on a half-finished load.
+        await Promise.allSettled(requests);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (cancelled) return;
+        setLoading(false);
+        const waiters = reloadWaiters.current;
+        reloadWaiters.current = [];
+        for (const done of waiters) done();
       });
     return () => {
       cancelled = true;
@@ -94,12 +104,16 @@ export function UsagePage() {
 
   // Retry must bust the mock-mode cache, otherwise the refetch resolves from
   // the memoized payload and the figures visibly never change.
-  const retry = () => {
-    usageApi.invalidate();
-    setLoading(true);
-    setLoadError(null);
-    setReloadNonce((n) => n + 1);
-  };
+  // Resolves once the reload it starts has landed (or failed), so pull to
+  // refresh spins for as long as the requests do.
+  const retry = () =>
+    new Promise<void>((resolve) => {
+      reloadWaiters.current.push(resolve);
+      usageApi.invalidate();
+      setLoading(true);
+      setLoadError(null);
+      setReloadNonce((n) => n + 1);
+    });
 
   // Clearing the scope must also drop ?workflow= from the URL, otherwise a
   // refresh or back-navigation silently reapplies the filter the user just cleared.
@@ -110,6 +124,36 @@ export function UsagePage() {
     url.searchParams.delete("workflow");
     window.history.replaceState(null, "", url.pathname + url.search + url.hash);
   };
+
+  // A phone gets its own screen: the desktop page is two wide tables that
+  // only scroll sideways there. Every hook above has already run, so this
+  // return is safe, and the desktop JSX below is untouched.
+  if (readOnly) {
+    return (
+      <div
+        className="am-viewport"
+        style={{
+          height: "100dvh",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          background: "var(--bg)",
+        }}
+      >
+        <Topbar />
+        <UsagePhonePage
+          range={range}
+          onRange={changeRange}
+          data={data}
+          loading={loading}
+          error={loadError}
+          onRetry={retry}
+          scopedWorkflowId={scopedWf}
+          onClearScope={clearScope}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -149,7 +193,8 @@ export function UsagePage() {
                 color: "var(--accent)",
               }}
             >
-              Workflows by spend · filtered to {scopedWf}
+              Workflows by spend · filtered to{" "}
+              {scopedWorkflowLabel(scopedWf, data?.byWorkflow)}
               <button
                 onClick={clearScope}
                 style={{
@@ -257,7 +302,7 @@ export function UsagePage() {
               range={range}
               onRangeChange={changeRange}
               scopedWf={scopedWf}
-              onOpenWorkflow={(id) => router.push(`/workflows/${id}`)}
+              onOpenWorkflow={(id) => router.push(workflowHref(id))}
               onTopUp={() => router.push("/billing")}
               loading={loading}
             />
@@ -298,6 +343,37 @@ function UsageBody({
   // sign-out and did not follow the user to another device, even though the
   // receipts were in the database the whole time.
   const [settlements, setSettlements] = useState<Settlement[]>([]);
+  // How many settlements are shown before "Show all".
+  //
+  // On a phone the table stacks into cards rather than scrolling sideways, and
+  // 18 stacked cards is roughly a screen and a half of a list nobody scrolls to
+  // the end of. Six is enough to see the shape of recent activity, which is
+  // what this card is for; the rest are one tap away. Progressive disclosure is
+  // the standard answer to a long table on a small screen.
+  //
+  // Desktop is unaffected: it keeps its five-column table and shows all 18.
+  const handheld = useIsHandheld();
+  const [showAllSettlements, setShowAllSettlements] = useState(false);
+
+  // Collapse again when the range changes, because the expansion was a decision
+  // about a particular set of rows and those rows are now different ones. Left
+  // alone, "show all 18" silently became "show all" of whatever the next range
+  // returned -- nobody asked for that, and on a wider range it is a long table
+  // they did not open.
+  //
+  // Adjusted during render rather than in an effect: this is the pattern React
+  // documents for resetting state when a value changes, it avoids the extra
+  // commit an effect would cost, and this repo lints against setState in
+  // effects (AuthPage carries a disable comment for exactly that rule).
+  const [rangeShown, setRangeShown] = useState(range);
+  if (rangeShown !== range) {
+    setRangeShown(range);
+    setShowAllSettlements(false);
+  }
+
+  const settlementCap =
+    handheld && !showAllSettlements ? 6 : settlements.length;
+  const visibleSettlements = settlements.slice(0, settlementCap);
   useEffect(() => {
     let stale = false;
     usageApi
@@ -352,7 +428,9 @@ function UsageBody({
           alignItems: "flex-end",
           gap: 16,
           flexWrap: "wrap",
-          paddingTop: 60,
+          // Unconditional 60px of headspace, which on a 812px phone is 7% of
+          // the screen spent on nothing. Tokenised so the phone step drops it.
+          paddingTop: "var(--us-headspace)",
           marginBottom: 12,
         }}
       >
@@ -362,6 +440,9 @@ function UsageBody({
             alignItems: "flex-end",
             gap: 14,
             flexWrap: "wrap",
+            // Tokens, defaulting to what this was: see the 520 block beside
+            // --us-headspace in globals.css.
+            flex: "var(--us-credits-group-flex, 0 1 auto)",
           }}
         >
           {(() => {
@@ -388,8 +469,8 @@ function UsageBody({
             return (
               <div
                 style={{
-                  flex: "0 0 auto",
-                  minWidth: 300,
+                  flex: "var(--us-credits-flex, 0 0 auto)",
+                  minWidth: "var(--us-credits-minw, 300px)",
                   maxWidth: "100%",
                   background: "var(--bg-elev-1)",
                   border: "1px solid var(--border)",
@@ -439,7 +520,8 @@ function UsageBody({
                 >
                   <span
                     style={{
-                      fontSize: 40,
+                      // Token, not a literal: see the 768 block in globals.css.
+                      fontSize: "var(--us-figure-size)",
                       fontWeight: 500,
                       lineHeight: 1,
                       letterSpacing: "-0.02em",
@@ -693,10 +775,10 @@ function UsageBody({
             </span>
           }
         />
-        <div className="am-usage-table">
+        <HScroll>
           <div
             style={{
-              minWidth: 720,
+              minWidth: "var(--us-settle-minw)",
               display: "grid",
               gridTemplateColumns: SETTLE_GRID,
               gap: 14,
@@ -713,8 +795,8 @@ function UsageBody({
             <span style={{ ...hcell, textAlign: "right" }}>Amount</span>
             <span style={{ ...hcell, textAlign: "right" }}>Time</span>
           </div>
-          <div style={{ minWidth: 720, padding: "2px 0" }}>
-            {settlements.map((s, i) => (
+          <div style={{ minWidth: "var(--us-settle-minw)", padding: "2px 0" }}>
+            {visibleSettlements.map((s, i) => (
               <div
                 key={s.txId}
                 style={{
@@ -724,7 +806,7 @@ function UsageBody({
                   alignItems: "center",
                   padding: "11px 10px",
                   borderBottom:
-                    i < settlements.length - 1
+                    i < visibleSettlements.length - 1
                       ? "1px solid var(--border-soft)"
                       : "none",
                   fontFamily: "var(--font-mono)",
@@ -775,7 +857,37 @@ function UsageBody({
               </div>
             ))}
           </div>
-        </div>
+        </HScroll>
+        {/* Only when there is something hidden, and only where it was hidden.
+            Says how many rather than just "more", so the tap is an informed
+            one.
+
+            OUTSIDE the HScroll, and that placement is the whole point. The rows
+            above are held open by --us-settle-minw (720px) against a card about
+            343px wide on a phone, so the pane scrolls sideways. A block box in
+            normal flow does not grow to its overflowing children, so `width:
+            100%` resolved against the pane's own ~343px content box rather than
+            the 720px canvas: the button was laid out at the left edge of a
+            surface that scrolls, and scrolling right to read Amount and Time
+            carried the one CTA off screen with it -- exactly when somebody has
+            scrolled far enough to want it. The fade this PR adds makes that
+            scroll likelier, which is what turned a latent bug into a real one. */}
+        {settlements.length > visibleSettlements.length && (
+          <button
+            type="button"
+            onClick={() => setShowAllSettlements(true)}
+            style={{
+              ...ghostBtnSm,
+              width: "100%",
+              // ghostBtnSm is 28px, which is a pointer size. This one is
+              // tapped, so it takes the 44px floor.
+              minHeight: 44,
+              marginTop: 8,
+            }}
+          >
+            Show all {settlements.length} settlements
+          </button>
+        )}
       </Card>
 
       {/* ⑥ Footer note */}
@@ -818,7 +930,11 @@ const ASC_FIRST: readonly SortKey[] = ["endpoint", "type"];
 
 // Unit price gets 120px so "26*/1M" fits on one line (cell is nowrap).
 const EP_GRID = "1.9fr 1.15fr 66px 66px 120px 108px 116px 78px 92px";
-const SETTLE_GRID = "minmax(0,1.9fr) minmax(0,1.15fr) 140px 114px 108px"; // Endpoint · Hash · Workflow · Amount · Time
+// Reads the custom property rather than repeating its value. globals.css has
+// carried a <=768px collapse for --us-settle-cols since it was written, and it
+// has never once applied, because this constant hardcoded the same string and
+// won. Endpoint · Hash · Workflow · Amount · Time.
+const SETTLE_GRID = "var(--us-settle-cols)";
 
 function EndpointTable({
   rows,
@@ -953,7 +1069,7 @@ function EndpointTable({
         </div>
       </div>
 
-      <div style={{ overflowX: "auto" }}>
+      <HScroll>
         <div style={{ minWidth: 984 }}>
           <div
             style={{
@@ -1023,7 +1139,7 @@ function EndpointTable({
                   <div
                     style={{
                       fontFamily: "var(--font-mono)",
-                      fontSize: 9,
+                      fontSize: 11,
                       color: "var(--fg-dim)",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
@@ -1138,7 +1254,7 @@ function EndpointTable({
             ))
           )}
         </div>
-      </div>
+      </HScroll>
     </Card>
   );
 }
@@ -1172,6 +1288,11 @@ function Th({
         textTransform: "uppercase",
         letterSpacing: "0.08em",
         display: "inline-flex",
+        // Centred, not the flex default of stretch: on a touch screen the
+        // button is given a 44px floor, and without this the label would sit
+        // at the top of it while the plain header cells beside it stay
+        // centred.
+        alignItems: "center",
         gap: 3,
         justifyContent: align === "right" ? "flex-end" : "flex-start",
       }}
@@ -1297,6 +1418,54 @@ function Legend({ items }: { items: { c: string; label: string }[] }) {
   );
 }
 
+// A sideways-scrolling table that says so.
+//
+// Both usage tables are wider than a phone and always were: the settlements
+// card was measured as a two-up stack and came out worse (833px against 18
+// rows that scrolled), and the endpoints table is nine sortable columns. The
+// problem was never the scrolling, it was that nothing announced it -- at
+// 375px the endpoints table shows 305 of its 984 pixels and reads as broken,
+// with a type pill sliced in half at the edge.
+//
+// So this adds the one thing that was missing: a fade at the right edge while
+// there is more to reach, gone once there is not. See .am-hscroll.
+function HScroll({ children }: { children: React.ReactNode }) {
+  const paneRef = useRef<HTMLDivElement>(null);
+  // Starts true so nothing flashes a fade over a table that fits. The first
+  // measurement arrives from the observer below, before paint in practice.
+  const [atEnd, setAtEnd] = useState(true);
+
+  const measure = useCallback(() => {
+    const el = paneRef.current;
+    if (!el) return;
+    // 1px of slack: with fractional column widths scrollLeft never lands
+    // exactly on the end, and an off-by-a-fraction leaves the fade up forever.
+    setAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 1);
+  }, []);
+
+  // A ResizeObserver rather than a resize listener, and deliberately: this has
+  // to re-measure when the CONTENT changes width too -- filtering the endpoint
+  // list or switching the range does that without the window moving at all.
+  // Its callback is also asynchronous, which is what keeps the first
+  // measurement out of the effect body.
+  useEffect(() => {
+    const el = paneRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+  }, [measure]);
+
+  return (
+    <div className="am-hscroll" data-at-end={atEnd ? "" : undefined}>
+      <div className="am-hscroll__pane" ref={paneRef} onScroll={measure}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function Empty({ text }: { text: string }) {
   return (
     <div
@@ -1314,25 +1483,6 @@ function Empty({ text }: { text: string }) {
 }
 
 // ── formatting helpers ──────────────────────────────────────────────────────
-// Spend figures arrive from /usage/* already denominated in USD — they come
-// from debit_ledger.amount_usd_micros, the same units credits are sold and
-// billed in. The multiplier is retained (as 1) rather than deleted so the call
-// sites stay honest about doing no conversion; applying the old 0.17 ALGO rate
-// to USD figures would under-report every number on this page by ~6x.
-const ALGO_USD = 1;
-function usd(algoAmount: number, dp = 2) {
-  return (algoAmount * ALGO_USD).toLocaleString("en", {
-    minimumFractionDigits: dp,
-    maximumFractionDigits: dp,
-  });
-}
-// Compact USD for the credit balance -- keeps large figures small (100K, 50, 2.3M).
-function compactUsd(algoAmount: number) {
-  return Intl.NumberFormat("en", {
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(algoAmount * ALGO_USD);
-}
 // Per-unit prices are often sub-cent ($0.00034/quote), so unlike usd() this
 // keeps up to 5 fraction digits instead of rounding everything to 2.
 function usdPrice(algoAmount: number) {
@@ -1345,15 +1495,6 @@ function trim(n: number) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 4,
   });
-}
-function relTime(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
 }
 
 const hcell: React.CSSProperties = {

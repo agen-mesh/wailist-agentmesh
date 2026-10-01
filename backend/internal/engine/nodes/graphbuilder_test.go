@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -763,10 +764,19 @@ func TestBuildGraphSearchesAndAddsX402Node(t *testing.T) {
 	SetGeminiBaseURL(srv.URL)
 	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
 
+	// add_x402_node probes the endpoint before wiring it in, so the entry
+	// has to point at something that answers a real payment challenge.
+	endpoint := httptest.NewServer(challenge402("5000"))
+	defer endpoint.Close()
+	SetURLValidatorForTest(func(string) error { return nil })
+	defer SetURLValidatorForTest(func(string) error { return nil })
+	entry := sampleX402()
+	entry.URL = endpoint.URL + "/v1/index"
+
 	res, err := BuildGraph(context.Background(), BuildRequest{
 		APIKey: "k", Message: "fetch NSE index prices",
 		X402Catalog: func(context.Context) ([]bazaar.Resource, error) {
-			return []bazaar.Resource{sampleX402()}, nil
+			return []bazaar.Resource{entry}, nil
 		},
 	})
 	if err != nil {
@@ -783,8 +793,51 @@ func TestBuildGraphSearchesAndAddsX402Node(t *testing.T) {
 			x402 = &res.Graph.Nodes[i]
 		}
 	}
-	if x402 == nil || x402.Endpoint != "https://stocks.example.com/v1/index" {
+	if x402 == nil || x402.Endpoint != entry.URL {
 		t.Fatalf("want a tool402 node on the catalog endpoint, got %+v", res.Graph.Nodes)
+	}
+}
+
+// The same build, against an endpoint that is no longer there: the node must
+// not reach the canvas, because adding it means a real payment for nothing.
+func TestBuildGraphWillNotAddADeadX402Endpoint(t *testing.T) {
+	turn := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		turn++
+		w.Header().Set("Content-Type", "application/json")
+		switch turn {
+		case 1:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_x402_node","args":{"id":"res-stocks-1"}}}]}}]}`)
+		default:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"That endpoint is gone."}]}}]}`)
+		}
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer dead.Close()
+	SetURLValidatorForTest(func(string) error { return nil })
+	defer SetURLValidatorForTest(func(string) error { return nil })
+	entry := sampleX402()
+	entry.URL = dead.URL + "/v1/index"
+
+	res, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "fetch NSE index prices",
+		X402Catalog: func(context.Context) ([]bazaar.Resource, error) {
+			return []bazaar.Resource{entry}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, n := range res.Graph.Nodes {
+		if n.Type == models.NodeTypeTool402 {
+			t.Fatalf("a dead endpoint reached the canvas: %+v", n)
+		}
 	}
 }
 
@@ -875,6 +928,20 @@ func TestJSONPathToDotPath(t *testing.T) {
 		if got := toDotPath(in); got != want {
 			t.Errorf("toDotPath(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestThePromptSaysWhatToDoWithAnUnlistedToken(t *testing.T) {
+	// Checked on the standing instructions alone: the catalog section below
+	// them also mentions resolve_coin, in a template note, and must not be
+	// what makes this pass.
+	for _, want := range []string{"resolve_coin", "not listed"} {
+		if !strings.Contains(builderPromptTemplate, want) {
+			t.Errorf("the prompt never mentions %q", want)
+		}
+	}
+	if !strings.Contains(buildSystemPrompt, "not listed on CoinGecko") {
+		t.Error("the built prompt lost the unlisted-token instruction")
 	}
 }
 
@@ -974,6 +1041,16 @@ func TestFetchURLReportsStatusAndBody(t *testing.T) {
 	}
 	if got := fetchURL(context.Background(), "file:///etc/passwd"); !strings.Contains(got, "error") {
 		t.Fatalf("a non-http URL must be refused, got: %s", got)
+	}
+}
+
+func TestResolveCoinIsDeclaredToTheModel(t *testing.T) {
+	var names []string
+	for _, d := range graphToolDecls() {
+		names = append(names, d.Name)
+	}
+	if !slices.Contains(names, "resolve_coin") {
+		t.Fatalf("resolve_coin is not declared; tools are %v", names)
 	}
 }
 
@@ -2105,10 +2182,29 @@ func TestTemplateRefRejectsDotResultOnEngineShapedOutput(t *testing.T) {
 // A reset peer 77s into a live build returned an error, so the save was
 // never reached and every node built went with it.
 func TestBuildGraphKeepsItsWorkWhenTheConnectionDrops(t *testing.T) {
+	// The coin id has to be looked up before the node carrying it is accepted.
+	cg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"coins": []map[string]any{
+			{"id": "bitcoin", "symbol": "btc", "name": "Bitcoin", "market_cap_rank": 1},
+		}})
+	}))
+	defer cg.Close()
+	SetCoinGeckoAPIBaseForTest(cg.URL)
+	defer SetCoinGeckoAPIBaseForTest("")
+
 	var round int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		round++
 		if round == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"candidates": []map[string]any{
+				{"content": map[string]any{"parts": []map[string]any{
+					{"functionCall": map[string]any{"name": "resolve_coin", "args": map[string]any{"query": "bitcoin"}}},
+				}}},
+			}})
+			return
+		}
+		if round == 2 {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]any{"candidates": []map[string]any{
 				{"content": map[string]any{"parts": []map[string]any{
@@ -2204,15 +2300,16 @@ func TestBuildGraphDropsStaleHeavyToolResults(t *testing.T) {
 
 // The fixed cost of every round: the instructions and the tool declarations
 // are resent on each model call, so growth here is paid for on every round of
-// every build. These ceilings are a little above today's sizes; crossing one
-// means the growth was deliberate, and the number should move with it.
+// every build. The ceilings sit a little above the sizes at the last measured
+// baseline; crossing one means the growth was deliberate, and the number
+// should move with it.
 func TestBuilderRequestStaysSmall(t *testing.T) {
-	if n := len(buildSystemPrompt); n > 22000 {
-		t.Errorf("system prompt is %d bytes, over the 22000 ceiling", n)
+	if n := len(buildSystemPrompt); n > 27500 {
+		t.Errorf("system prompt is %d bytes, over the 27500 ceiling", n)
 	}
 	decls, _ := json.Marshal(graphToolDecls())
-	if n := len(decls); n > 14000 {
-		t.Errorf("tool declarations are %d bytes, over the 14000 ceiling", n)
+	if n := len(decls); n > 17500 {
+		t.Errorf("tool declarations are %d bytes, over the 17500 ceiling", n)
 	}
 }
 
@@ -2240,7 +2337,7 @@ func TestRejectedAddNodeSaysNoNodeExists(t *testing.T) {
 	resp := runBuildCall(context.Background(), graph, geminiFuncCall{
 		name: "add_node",
 		args: map[string]any{"type": "trigger", "template": "cron"},
-	}, "k", newX402Session(nil), map[string]string{}, tester)
+	}, "k", newX402Session(nil), map[string]string{}, map[string]bool{}, newBuilderSchedule(""), tester)
 	out, _ := resp["result"].(string)
 	if !strings.Contains(out, "no node was created") {
 		t.Fatalf("want the result to say nothing was created, got %q", out)
@@ -2555,7 +2652,7 @@ func TestAddNodeRejectionsThatPointAtAnExistingNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp := runBuildCall(context.Background(), graph, geminiFuncCall{name: "add_node", args: args},
-		"k", newX402Session(nil), map[string]string{}, tester)
+		"k", newX402Session(nil), map[string]string{}, map[string]bool{}, newBuilderSchedule(""), tester)
 	out, _ := resp["result"].(string)
 	if !strings.Contains(out, "update_node") {
 		t.Fatalf("setup: want the duplicate rejection, got %q", out)
@@ -2580,7 +2677,7 @@ func TestRefusedURLProbeSaysNoNodeExists(t *testing.T) {
 	resp := runBuildCall(context.Background(), graph, geminiFuncCall{
 		name: "add_node",
 		args: map[string]any{"type": "tool", "template": "http", "fields": map[string]any{"url": srv.URL + "/missing"}},
-	}, "k", newX402Session(nil), map[string]string{}, tester)
+	}, "k", newX402Session(nil), map[string]string{}, map[string]bool{}, newBuilderSchedule(""), tester)
 	out, _ := resp["result"].(string)
 	if !strings.Contains(out, "no node was created") {
 		t.Fatalf("a refused url leaves no node either, got %q", out)
@@ -2621,5 +2718,389 @@ func TestExampleConfigKeysAllHavePlaceholders(t *testing.T) {
 		if !exampleConfigKeys[k] {
 			t.Errorf("%q has a placeholder that prevents a run-time failure and should keep it", k)
 		}
+	}
+}
+
+// A real build called add_node with type="http" and type="json_extract",
+// putting a template name where the type goes. The old error listed the ten
+// valid types and never said which one owns "http", so the model guessed --
+// and the failed adds then produced edges against node ids it invented.
+func TestAddNodeSaysWhichTypeOwnsATemplateNameUsedAsAType(t *testing.T) {
+	tests := []struct {
+		name     string
+		nodeType string
+		want     []string
+	}{
+		{"a tool template", "json_extract", []string{"type=tool", "template=json_extract"}},
+		// "http" is a template of BOTH tool and end, so both must be offered.
+		{"a template two types share", "http", []string{"type=tool", "type=end", "template=http"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			graph := &models.WorkflowGraph{}
+			_, err := addGraphNode(graph, map[string]any{"type": tt.nodeType, "name": "X"})
+			if err == nil {
+				t.Fatalf("add_node accepted %q as a type", tt.nodeType)
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error does not suggest %q, got: %v", want, err)
+				}
+			}
+		})
+	}
+}
+
+// A name that is neither a type nor a template still gets the plain list.
+func TestAddNodeStillListsTypesForAnUnrecognisedType(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	_, err := addGraphNode(graph, map[string]any{"type": "banana", "name": "X"})
+	if err == nil {
+		t.Fatal("add_node accepted an unknown type")
+	}
+	if !strings.Contains(err.Error(), "valid types:") {
+		t.Errorf("want the list of valid types, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "template=") {
+		t.Errorf("suggested a template for a name that is not one: %v", err)
+	}
+}
+
+// The budget has to stay clear of the frontend proxy window, and the loop
+// only gets three quarters of it, so the usable figure is what matters. At
+// 100s the usable figure was 75s, and a build that searches twice and
+// test-runs once does not fit in it.
+func TestBuildTimeBudgetLeavesRoomForARealBuild(t *testing.T) {
+	const proxyWindow = 300 * time.Second // next.config.ts proxyTimeout
+	if defaultBuildTimeBudget >= proxyWindow {
+		t.Fatalf("budget %s is not inside the %s proxy window", defaultBuildTimeBudget, proxyWindow)
+	}
+	usable := defaultBuildTimeBudget * 3 / 4
+	if usable < 150*time.Second {
+		t.Errorf("a build really gets %s (three quarters of %s); a dozen rounds at ~6s each needs at least 150s", usable, defaultBuildTimeBudget)
+	}
+}
+
+// Production failure (2026-09-14): a build that had already added nodes and
+// edges returned 502 and saved nothing, because one bad model response ends
+// the whole loop. Nine good steps were thrown away. A model call that fails
+// must leave the user with what was built, exactly as running out of time
+// does.
+func TestBuildGraphKeepsWhatItBuiltWhenTheModelCallFails(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"trigger","template":"manual","name":"Daily Weather Check"}}}]}}]}`)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, `{"error":{"message":"backend overloaded"}}`)
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "daily weather to telegram", Graph: models.WorkflowGraph{}})
+	if err != nil {
+		t.Fatalf("a failed model call must not discard the build: %v", err)
+	}
+	if len(res.Graph.Nodes) != 1 {
+		t.Fatalf("want the node it added kept, got %+v", res.Graph.Nodes)
+	}
+	if res.Reply == "" {
+		t.Fatal("an unfinished build still needs a reply saying so")
+	}
+	if strings.Contains(res.Reply, "backend overloaded") {
+		t.Fatalf("the upstream body must not reach the user: %q", res.Reply)
+	}
+}
+
+// The other fatal branch: Gemini answers with neither a tool call nor text
+// (a malformed function call, a safety stop). Same rule -- keep the work.
+func TestBuildGraphKeepsWhatItBuiltWhenTheModelAnswersWithNothing(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		if calls == 1 {
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"trigger","template":"manual","name":"Daily Weather Check"}}}]}}]}`)
+			return
+		}
+		io.WriteString(w, `{"candidates":[{"finishReason":"MALFORMED_FUNCTION_CALL","content":{"role":"model"}}]}`)
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "daily weather to telegram", Graph: models.WorkflowGraph{}})
+	if err != nil {
+		t.Fatalf("an empty model answer must not discard the build: %v", err)
+	}
+	if len(res.Graph.Nodes) != 1 || res.Reply == "" {
+		t.Fatalf("want the build kept with a reply, got %d nodes, reply %q", len(res.Graph.Nodes), res.Reply)
+	}
+}
+
+// A transient 429 is worth one more try before giving up: the build has
+// already spent real time and the next call usually succeeds.
+func TestBuildGraphRetriesATransientModelError(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		switch calls {
+		case 1:
+			w.WriteHeader(http.StatusTooManyRequests)
+			io.WriteString(w, `{"error":{"message":"rate limited"}}`)
+		default:
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"Built it."}]}}]}`)
+		}
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "hi", Graph: models.WorkflowGraph{}, TimeBudget: 10 * time.Second})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calls < 2 {
+		t.Fatalf("want a retry after a 429, got %d calls", calls)
+	}
+	if res.Reply != "Built it." {
+		t.Fatalf("want the reply from the successful retry, got %q", res.Reply)
+	}
+}
+
+// Review finding: only "LLM API <status>" errors were retried, so the most
+// common failure -- the connection dropping -- got no retry at all.
+func TestBuildGraphRetriesADroppedConnection(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 2 {
+			// Drop the connection mid-request: the client sees EOF, not a status.
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				t.Error("test server cannot hijack")
+				return
+			}
+			conn, _, err := hj.Hijack()
+			if err != nil {
+				t.Errorf("hijack: %v", err)
+				return
+			}
+			conn.Close()
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if calls == 1 {
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"trigger","template":"manual","name":"Start"}}}]}}]}`)
+			return
+		}
+		io.WriteString(w, text("Built it."))
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "hi", Graph: models.WorkflowGraph{}, TimeBudget: 10 * time.Second})
+	if err != nil {
+		t.Fatalf("a dropped connection must be retried, not fatal: %v", err)
+	}
+	if calls < 3 {
+		t.Fatalf("want a retry after the dropped connection, got %d calls", calls)
+	}
+	if res.Reply != "Built it." {
+		t.Fatalf("want the reply from the successful retry, got %q", res.Reply)
+	}
+}
+
+// Review finding: when the audit repair round is what failed, the model's
+// earlier reply was returned unchanged -- so a graph with known unfixed
+// problems was reported to the user as finished.
+func TestBuildGraphDoesNotClaimSuccessWhenTheRepairRoundFails(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		switch calls {
+		case 1:
+			// One unconnected node: the audit will want it repaired.
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"trigger","template":"manual","name":"Start"}}}]}}]}`)
+		case 2:
+			io.WriteString(w, text("All done, your workflow is ready."))
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, `{"error":{"message":"overloaded"}}`)
+		}
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "build it", Graph: models.WorkflowGraph{}, TimeBudget: 10 * time.Second})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Reply == "All done, your workflow is ready." {
+		t.Fatal("the repair round failed, so the reply must not claim the workflow is finished")
+	}
+}
+
+// Review finding: a revoked key or exhausted quota should still say which it
+// was, rather than a flat "could not be reached" for every failure.
+func TestBuildGraphNamesAQuotaFailure(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		if calls == 1 {
+			io.WriteString(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"add_node","args":{"type":"trigger","template":"manual","name":"Start"}}}]}}]}`)
+			return
+		}
+		w.WriteHeader(http.StatusTooManyRequests)
+		io.WriteString(w, `{"error":{"message":"quota exceeded"}}`)
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	res, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "hi", Graph: models.WorkflowGraph{}, TimeBudget: 10 * time.Second})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(res.Reply, "busy") && !strings.Contains(res.Reply, "rate") {
+		t.Fatalf("want a reply naming the rate limit, got %q", res.Reply)
+	}
+	if strings.Contains(res.Reply, "quota exceeded") {
+		t.Fatalf("the upstream body must not reach the user: %q", res.Reply)
+	}
+}
+
+// The invariant this commit relies on: with nothing built there is nothing to
+// save, so the request must still fail and surface the real error.
+func TestBuildGraphStillFailsWhenItBuiltNothing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, `{"error":{"message":"overloaded"}}`)
+	}))
+	defer srv.Close()
+	SetGeminiBaseURL(srv.URL)
+	defer SetGeminiBaseURL("https://generativelanguage.googleapis.com")
+
+	if _, err := BuildGraph(context.Background(), BuildRequest{APIKey: "k", Message: "hi", Graph: models.WorkflowGraph{}, TimeBudget: 10 * time.Second}); err == nil {
+		t.Fatal("a build that produced nothing must report the failure")
+	}
+}
+
+func TestModelFailureReasonNamesTheKindNotTheBody(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"rate limit", fmt.Errorf("LLM API 429: quota exceeded for key sk-secret"), "rate limit"},
+		{"credentials refused", fmt.Errorf("LLM API 403: API key not valid"), "refused this platform's credentials"},
+		{"credentials missing", fmt.Errorf("LLM API 401: missing key"), "refused this platform's credentials"},
+		{"service trouble", fmt.Errorf("LLM API 503: overloaded"), "having trouble"},
+		{"rejected request", fmt.Errorf("LLM API 400: bad payload"), "rejected the request"},
+		{"transport failure", io.ErrUnexpectedEOF, "could not be reached"},
+		{"no answer", fmt.Errorf("%w (cut off)", ErrNoModelText), "stopped without an answer"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := modelFailureReason(tt.err)
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("modelFailureReason(%v) = %q, want it to contain %q", tt.err, got, tt.want)
+			}
+			if strings.Contains(got, "sk-secret") || strings.Contains(got, "quota exceeded") {
+				t.Errorf("the upstream body leaked into %q", got)
+			}
+		})
+	}
+}
+
+func TestCoinIDRefusalSaysNoNodeWasCreated(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	resp := runBuildCall(context.Background(), graph, geminiFuncCall{
+		name: "add_node",
+		args: map[string]any{"type": "action", "template": "coingecko", "config": map[string]any{"cgIDs": "myriad"}},
+	}, "k", newX402Session(nil), map[string]string{}, map[string]bool{}, newBuilderSchedule(""), &testTracker{})
+	out, _ := resp["result"].(string)
+	if !strings.Contains(out, "never looked up") {
+		t.Fatalf("setup: want the coin id refusal, got %q", out)
+	}
+	if !strings.Contains(out, "no node was created") {
+		t.Fatalf("a refused add_node created nothing and must say so, got %q", out)
+	}
+	if len(graph.Nodes) != 0 {
+		t.Fatalf("setup: no node should exist, got %+v", graph.Nodes)
+	}
+}
+
+// Gemini rejects a request in which a functionCall has no matching
+// functionResponse, so pruning must blank payloads and never drop a part.
+func TestPruningKeepsEveryFunctionCallPaired(t *testing.T) {
+	batch := `{"candidates":[{"content":{"parts":[` +
+		`{"functionCall":{"name":"describe_node","args":{"type":"action","template":"slack"}}},` +
+		`{"functionCall":{"name":"describe_node","args":{"type":"action","template":"telegram"}}},` +
+		`{"functionCall":{"name":"describe_node","args":{"type":"tool","template":"http"}}}` +
+		`]}}]}`
+	bodies := scriptedGemini(t, []string{batch, batch, batch, text("Done."), text("Done.")})
+	if _, err := BuildGraph(context.Background(), BuildRequest{
+		APIKey: "k", Message: "tell me about these", Graph: wiredAgentGraph(), TimeBudget: 20 * time.Second,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	last := (*bodies)[len(*bodies)-1]
+	if !strings.Contains(last, "left out to keep this conversation short") {
+		t.Fatal("setup: three rounds of describe_node should have pruned the oldest results")
+	}
+	var req struct {
+		Contents []struct {
+			Role  string `json:"role"`
+			Parts []struct {
+				FunctionCall *struct {
+					Name string `json:"name"`
+				} `json:"functionCall"`
+				FunctionResponse *struct {
+					Name string `json:"name"`
+				} `json:"functionResponse"`
+			} `json:"parts"`
+		} `json:"contents"`
+	}
+	if err := json.Unmarshal([]byte(last), &req); err != nil {
+		t.Fatal(err)
+	}
+	pairs := 0
+	for i, c := range req.Contents {
+		var calls []string
+		for _, p := range c.Parts {
+			if p.FunctionCall != nil {
+				calls = append(calls, p.FunctionCall.Name)
+			}
+		}
+		if len(calls) == 0 {
+			continue
+		}
+		if i+1 >= len(req.Contents) {
+			t.Fatalf("turn %d has function calls and no turn after it", i)
+		}
+		var resps []string
+		for _, p := range req.Contents[i+1].Parts {
+			if p.FunctionResponse != nil {
+				resps = append(resps, p.FunctionResponse.Name)
+			}
+		}
+		if strings.Join(calls, ",") != strings.Join(resps, ",") {
+			t.Fatalf("turn %d called %v but the next turn answers %v", i, calls, resps)
+		}
+		pairs++
+	}
+	if pairs < 3 {
+		t.Fatalf("setup: expected at least 3 call/response turns, got %d", pairs)
 	}
 }

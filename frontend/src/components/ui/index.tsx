@@ -13,7 +13,7 @@ import React from "react";
 // /logo.png itself ever changes.
 export function Logo({ size = 18 }: { size?: number }) {
   return (
-    <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+    <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--s-3)" }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src="/logo-mark.png"
@@ -83,16 +83,21 @@ export function Pill({
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 6,
+        gap: "var(--s-2)",
         height: 22,
         padding: "0 8px",
         whiteSpace: "nowrap",
         flexShrink: 0,
-        borderRadius: 999,
+        // A Pill is read, not pressed -- it is a <span> reporting a status.
+        // Fully rounded is the shape this app gives its BUTTONS, and when
+        // every element carries it the shape stops saying anything. The
+        // rectangle is what makes a tag legible as a label rather than as a
+        // control someone forgot to wire up. See --r-full in globals.css.
+        borderRadius: "var(--r-1)",
         border: `1px solid ${s.border}`,
         background: s.bg,
         color: s.fg,
-        fontSize: 11,
+        fontSize: "var(--t-1)",
         fontWeight: 500,
         fontFamily: mono ? "var(--font-mono)" : "var(--font-sans)",
         letterSpacing: mono ? "0.02em" : "-0.01em",
@@ -103,7 +108,7 @@ export function Pill({
           style={{
             width: 6,
             height: 6,
-            borderRadius: 999,
+            borderRadius: "var(--r-full)",
             background: s.fg,
             display: "inline-block",
           }}
@@ -144,9 +149,9 @@ export function Tag({ children }: { children: React.ReactNode }) {
       style={{
         display: "inline-flex",
         alignItems: "baseline",
-        gap: 6,
+        gap: "var(--s-2)",
         fontFamily: "var(--font-mono)",
-        fontSize: 11,
+        fontSize: "var(--t-1)",
         color: "var(--fg-muted)",
         letterSpacing: "0.04em",
         textTransform: "uppercase",
@@ -157,7 +162,7 @@ export function Tag({ children }: { children: React.ReactNode }) {
           width: 4,
           height: 4,
           background: "var(--accent)",
-          borderRadius: 999,
+          borderRadius: "var(--r-full)",
           display: "inline-block",
           alignSelf: "center",
         }}
@@ -214,7 +219,7 @@ export function StatusDot({
         display: "inline-block",
         width: size,
         height: size,
-        borderRadius: 999,
+        borderRadius: "var(--r-full)",
         background: c,
         boxShadow: tone === "ok" ? `0 0 8px ${c}` : "none",
       }}
@@ -263,6 +268,29 @@ export const IconClose = ({ size = 14 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
     <path
       d="M3 3 L13 13 M13 3 L3 13"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+export const IconPlus = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
+    <path
+      d="M8 3 L8 13 M3 8 L13 8"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+// Three narrowing lines: filter and sort.
+export const IconFilter = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
+    <path
+      d="M2.5 4.5 L13.5 4.5 M4.5 8 L11.5 8 M6.5 11.5 L9.5 11.5"
       stroke="currentColor"
       strokeWidth="1.5"
       strokeLinecap="round"
@@ -378,7 +406,15 @@ export const IconMic = ({ size = 12 }: { size?: number }) => (
     aria-hidden="true"
     style={{ display: "block" }}
   >
-    <rect x="5.5" y="1.5" width="5" height="8" rx="2.5" stroke="currentColor" strokeWidth="1.3" />
+    <rect
+      x="5.5"
+      y="1.5"
+      width="5"
+      height="8"
+      rx="2.5"
+      stroke="currentColor"
+      strokeWidth="1.3"
+    />
     <path
       d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5"
       stroke="currentColor"
@@ -439,12 +475,12 @@ export function Toast({
         padding: "10px 16px",
         borderRadius: "var(--r-2)",
         fontFamily: "var(--font-mono)",
-        fontSize: 12,
+        fontSize: "var(--t-2)",
         maxWidth: "min(520px, calc(100vw - 48px))",
         boxShadow: "0 10px 32px rgba(0,0,0,0.5)",
         display: "flex",
         alignItems: "center",
-        gap: 10,
+        gap: "var(--s-3)",
         animation: "fade-up 0.25s var(--ease)",
       }}
     >

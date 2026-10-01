@@ -1,0 +1,129 @@
+.overview {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.credit,
+.upcoming {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  background: var(--bg-elev-1);
+}
+.creditHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.creditLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.creditAdd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  min-height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--bg-elev-2);
+  color: var(--fg);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.creditAdd:focus-visible,
+.upcomingRow:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 3px;
+}
+.creditBalance {
+  margin: 0 0 4px;
+  font-family: var(--font-mono);
+  font-size: var(--wf-balance-size);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.creditHint {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+.upcoming :global(.upc__title) {
+  margin-bottom: 8px;
+}
+.upcomingRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 36px;
+  color: var(--fg);
+  text-decoration: none;
+  border-radius: var(--r-1);
+  touch-action: manipulation;
+}
+.upcoming li + li {
+  border-top: 1px solid var(--border-soft);
+}
+.upcomingName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.upcomingTime {
+  flex-shrink: 0;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+@media (hover: hover) {
+  .creditAdd:hover,
+  .upcomingRow:hover {
+    background: var(--bg-elev-2);
+  }
+}
+:global(.wfp-page) .overview {
+  margin: 16px 0 4px;
+}
+@media (pointer: coarse) and (hover: none) {
+  .creditAdd {
+    width: 44px;
+  }
+  .upcomingRow {
+    min-height: 44px;
+  }
+}
+@media (max-width: 600px) {
+  .overview {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .credit {
+    position: relative;
+    padding-right: 72px;
+  }
+  .creditAdd {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+  .creditBalance {
+    margin-top: 8px;
+  }
+}

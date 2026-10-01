@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { workflows } from "@/lib/api";
 import { IS_NATIVE } from "@/lib/nativeAuth";
 import { can } from "@/lib/readonly";
@@ -363,6 +364,19 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
   return (
     <Wrap>
       <header style={{ marginBottom: 20 }}>
+        {/* This screen has no top bar, so without this the only way back to
+            the list was the system back gesture. */}
+        <Link
+          href="/workflows"
+          style={{
+            ...ghostBtn,
+            minHeight: 44,
+            marginBottom: 16,
+            textDecoration: "none",
+          }}
+        >
+          ← Workflows
+        </Link>
         <h1 style={title}>Location trigger</h1>
         <p style={{ ...copy, marginTop: 6 }}>
           {workflow?.name
@@ -423,7 +437,9 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
 
       <Card style={{ marginBottom: 12 }}>
         <SectionLabel>How big</SectionLabel>
-        <p style={{ ...mono, fontSize: 22 }}>{formatDistance(radiusM)}</p>
+        <p style={{ ...mono, fontSize: "var(--t-6)" }}>
+          {formatDistance(radiusM)}
+        </p>
         <input
           type="range"
           min={0}
@@ -464,8 +480,8 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
 
       {!IS_NATIVE && (
         <Notice tone="info">
-          Crossings are noticed by the AgentMesh app on your Android phone.
-          Saving a zone here records it; the phone is what watches the edge.
+          Saving a zone here records it. The AgentMesh Android app is what
+          watches the edge.
         </Notice>
       )}
 
@@ -593,7 +609,7 @@ const scaleRow: React.CSSProperties = {
 
 const actionRow: React.CSSProperties = {
   display: "flex",
-  gap: 8,
+  gap: "var(--s-3)",
   flexWrap: "wrap",
   marginTop: 16,
 };
@@ -610,10 +626,14 @@ function Wrap({ children }: { children: React.ReactNode }) {
   );
 }
 
+// This screen has no top bar, so it clears the status bar itself: in the
+// Android app the page draws underneath it, and the back link and heading sat
+// behind the clock.
 const page: React.CSSProperties = {
   minHeight: "100dvh",
   background: "var(--bg)",
-  padding: "24px 16px 40px",
+  padding:
+    "calc(24px + var(--safe-top)) calc(16px + var(--safe-right)) calc(40px + var(--safe-bottom)) calc(16px + var(--safe-left))",
 };
 
 function SectionLabel({ children }: { children: React.ReactNode }) {

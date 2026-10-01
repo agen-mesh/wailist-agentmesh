@@ -113,7 +113,7 @@ const MOCK_RESOURCES: BazaarResource[] = [
     merchantId: "",
     network: "algorand-mainnet",
     testnet: false,
-    amountMicros: 10000,
+    amountMicros: 1500000,
     asset: "31566704",
     payTo: "ZIK7QQE7ZX446TW3PN7PQ5UDZNTY7JI5RYNTIU3LPEYBOSTVWI6PTNSWKI",
     params: [

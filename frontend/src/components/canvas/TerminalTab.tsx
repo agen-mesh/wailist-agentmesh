@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import { SURFACE } from "@/lib/tokens";
 
 // The SSE stream already bypasses Next's /api rewrite because that proxy does
 // not hold long-lived connections open (see useRunTranscript's SSE_BASE
@@ -11,9 +12,11 @@ import "@xterm/xterm/css/xterm.css";
 // exactly the same reason.
 const WS_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
-// xterm's theme takes literal colors, not CSS custom properties, so this has
-// to mirror --bg-elev-1 in globals.css by hand -- keep the two in step.
-const BG_ELEV_1 = "#0f0e18";
+// xterm's theme takes literal colours, not CSS custom properties. The value
+// now comes from lib/tokens.ts, where tokens.test.ts asserts it still equals
+// --bg-elev-1 -- it used to be a local copy with a comment asking the next
+// person to keep the two in step, which is not a mechanism.
+const BG_ELEV_1 = SURFACE.elev1;
 
 export function TerminalTab({
   leaseId,
@@ -30,6 +33,9 @@ export function TerminalTab({
 
     const term = new Terminal({
       convertEol: true,
+      // Not a --t-* token: xterm.js renders to a canvas and takes a number,
+      // so there is no stylesheet for a custom property to resolve against.
+      // 12 is --t-2, which is what the surrounding rail uses.
       fontSize: 12,
       fontFamily:
         "var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace",
@@ -122,11 +128,11 @@ export function TerminalTab({
           onClick={onClose}
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 9.5,
+            fontSize: "var(--t-0)",
             textTransform: "uppercase",
             letterSpacing: "0.06em",
             padding: "2px 8px",
-            borderRadius: 999,
+            borderRadius: "var(--r-full)",
             border: "1px solid var(--border)",
             color: "var(--fg-dim)",
             background: "transparent",

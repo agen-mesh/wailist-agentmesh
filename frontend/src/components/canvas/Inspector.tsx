@@ -103,29 +103,29 @@ export function Inspector({
           justifyContent: "space-between",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--s-3)" }}>
           <span
             style={{
               width: 24,
               height: 24,
-              borderRadius: 6,
+              borderRadius: "var(--r-2)",
               background: meta.bg,
               color: meta.fg,
               border: "1px solid var(--border-strong)",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 12,
+              fontSize: "var(--t-2)",
             }}
           >
             <BrandLogo template={selected.template} fallback={meta.icon} />
           </span>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 500 }}>{meta.title}</div>
+            <div style={{ fontSize: "var(--t-3)", fontWeight: 500 }}>{meta.title}</div>
             <div
               style={{
                 fontFamily: "var(--font-mono)",
-                fontSize: 10,
+                fontSize: "var(--t-0)",
                 color: "var(--fg-dim)",
               }}
             >
@@ -159,7 +159,7 @@ export function Inspector({
           padding: 16,
           display: "flex",
           flexDirection: "column",
-          gap: 18,
+          gap: "var(--s-5)",
         }}
       >
         {selected.type === "agent" && (
@@ -219,14 +219,14 @@ export function Inspector({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: 8,
+            gap: "var(--s-3)",
             background: "transparent",
             border: "1px solid var(--danger)",
             borderRadius: "var(--r-2)",
             color: "var(--danger)",
             cursor: "pointer",
             fontFamily: "var(--font-sans)",
-            fontSize: 13,
+            fontSize: "var(--t-3)",
             fontWeight: 500,
           }}
           onMouseEnter={(e) => {
@@ -301,6 +301,8 @@ function readOnlyRows(n: WorkflowNode): ReadOnlyRow[] {
   push("Action", n.tendrilAction);
   push("Hours", n.tendrilHours);
   push("Amount", n.tendrilAmount);
+  push("Only below", n.tendrilMinBalance);
+  push("Cover rent (h)", n.tendrilCoverHours);
 
   for (const [k, v] of Object.entries(n.config ?? {})) push(k, v);
   // Keys only: that a credential is configured is part of understanding the
@@ -343,14 +345,14 @@ function ReadOnlyInspector({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: 10,
+          gap: "var(--s-3)",
         }}
       >
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 10,
+            gap: "var(--s-3)",
             minWidth: 0,
           }}
         >
@@ -358,14 +360,14 @@ function ReadOnlyInspector({
             style={{
               width: 24,
               height: 24,
-              borderRadius: 6,
+              borderRadius: "var(--r-2)",
               background: meta.bg,
               color: meta.fg,
               border: "1px solid var(--border-strong)",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 12,
+              fontSize: "var(--t-2)",
               flexShrink: 0,
             }}
           >
@@ -374,7 +376,7 @@ function ReadOnlyInspector({
           <div style={{ minWidth: 0 }}>
             <div
               style={{
-                fontSize: 13,
+                fontSize: "var(--t-3)",
                 fontWeight: 500,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -386,7 +388,7 @@ function ReadOnlyInspector({
             <div
               style={{
                 fontFamily: "var(--font-mono)",
-                fontSize: 10,
+                fontSize: "var(--t-0)",
                 color: "var(--fg-dim)",
               }}
             >
@@ -421,7 +423,7 @@ function ReadOnlyInspector({
           padding: 16,
           display: "flex",
           flexDirection: "column",
-          gap: 18,
+          gap: "var(--s-5)",
         }}
       >
         {rows.length > 0 ? (
@@ -429,12 +431,12 @@ function ReadOnlyInspector({
             {rows.map((r) => (
               <div
                 key={r.label}
-                style={{ display: "flex", flexDirection: "column", gap: 4 }}
+                style={{ display: "flex", flexDirection: "column", gap: "var(--s-1)" }}
               >
                 <div
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: 10,
+                    fontSize: "var(--t-0)",
                     textTransform: "uppercase",
                     letterSpacing: "0.06em",
                     color: "var(--fg-dim)",
@@ -444,7 +446,7 @@ function ReadOnlyInspector({
                 </div>
                 <div
                   style={{
-                    fontSize: 12.5,
+                    fontSize: "var(--t-2)",
                     lineHeight: 1.55,
                     color: "var(--fg)",
                     fontFamily: r.multiline
@@ -463,7 +465,7 @@ function ReadOnlyInspector({
           </Section>
         ) : (
           <div
-            style={{ fontSize: 12, lineHeight: 1.6, color: "var(--fg-dim)" }}
+            style={{ fontSize: "var(--t-2)", lineHeight: 1.6, color: "var(--fg-dim)" }}
           >
             This node has no configuration of its own.
           </div>
@@ -471,7 +473,7 @@ function ReadOnlyInspector({
 
         <div
           style={{
-            fontSize: 11.5,
+            fontSize: "var(--t-1)",
             lineHeight: 1.6,
             color: "var(--fg-dim)",
             borderTop: "1px solid var(--border-soft)",
@@ -513,7 +515,7 @@ function EmptyInspector({
         <div
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 10,
+            fontSize: "var(--t-0)",
             textTransform: "uppercase",
             letterSpacing: "0.08em",
             color: "var(--fg-dim)",
@@ -533,7 +535,7 @@ function EmptyInspector({
           color: "var(--fg-dim)",
           textAlign: "center",
           padding: 24,
-          fontSize: 12,
+          fontSize: "var(--t-2)",
           lineHeight: 1.6,
         }}
       >
@@ -541,7 +543,7 @@ function EmptyInspector({
           style={{
             width: 40,
             height: 40,
-            borderRadius: 999,
+            borderRadius: "var(--r-full)",
             border: "1px dashed var(--border-strong)",
             display: "inline-flex",
             alignItems: "center",
@@ -589,7 +591,7 @@ function nodeMeta(n: WorkflowNode) {
     tool402: {
       list: [],
       bg: "rgba(232, 121, 249, 0.14)",
-      fg: "#E879F9",
+      fg: "var(--type-x402)",
     },
     action: { list: ACTION_TEMPLATES, bg: "var(--bg-elev-3)", fg: "var(--fg)" },
     state: {
@@ -601,7 +603,7 @@ function nodeMeta(n: WorkflowNode) {
     tendril: {
       list: TENDRIL_TEMPLATES,
       bg: "rgba(232, 121, 249, 0.14)",
-      fg: "#E879F9",
+      fg: "var(--type-x402)",
     },
   };
   const L = tpls[n.type] ?? tpls.action;
@@ -627,7 +629,7 @@ function Section({
       <div
         style={{
           fontFamily: "var(--font-mono)",
-          fontSize: 10,
+          fontSize: "var(--t-0)",
           textTransform: "uppercase",
           letterSpacing: "0.08em",
           color: "var(--fg-dim)",
@@ -636,7 +638,7 @@ function Section({
       >
         {label}
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
         {children}
       </div>
     </div>
@@ -653,13 +655,13 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+    <label style={{ display: "flex", flexDirection: "column", gap: "var(--s-1)" }}>
       <div
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          fontSize: 11,
+          fontSize: "var(--t-1)",
           color: "var(--fg-muted)",
         }}
       >
@@ -668,7 +670,7 @@ function Field({
           <span
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 10,
+              fontSize: "var(--t-0)",
               color: "var(--fg-dim)",
             }}
           >
@@ -779,7 +781,7 @@ const inputStyle: React.CSSProperties = {
   border: "1px solid var(--border)",
   borderRadius: "var(--r-2)",
   color: "var(--fg)",
-  fontSize: 12,
+  fontSize: "var(--t-2)",
   fontFamily: "var(--font-sans)",
   outline: "none",
 };
@@ -787,7 +789,7 @@ const inputStyle: React.CSSProperties = {
 const monoInputStyle: React.CSSProperties = {
   ...inputStyle,
   fontFamily: "var(--font-mono)",
-  fontSize: 11,
+  fontSize: "var(--t-1)",
 };
 
 // Add/remove key-value row editor for the HTTP tool node's custom headers,
@@ -885,15 +887,15 @@ function HttpHeadersField({
   return (
     <Field label="Custom headers" hint="encrypted at rest">
       {isEncrypted && (
-        <div style={{ fontSize: 11, color: "var(--fg-dim)", marginBottom: 6 }}>
+        <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)", marginBottom: 6 }}>
           Headers set. Add a row below to replace them.
         </div>
       )}
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
         {rows.map((r, i) => (
           <div
             key={i}
-            style={{ display: "flex", gap: 6, alignItems: "center" }}
+            style={{ display: "flex", gap: "var(--s-2)", alignItems: "center" }}
           >
             <input
               style={monoInputStyle}
@@ -969,7 +971,7 @@ function AgentInspector({
             background: "var(--bg)",
             border: "1px solid var(--border)",
             borderRadius: "var(--r-2)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             color: "var(--fg-muted)",
             lineHeight: 1.5,
           }}
@@ -997,7 +999,7 @@ function AgentInspector({
 
       <Section label="Limits">
         <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--s-3)" }}
         >
           <Field label="Max spend / run">
             <input style={monoInputStyle} defaultValue="0.50 USDC" />
@@ -1110,7 +1112,7 @@ function ProviderInspector({
       <Section label="Credentials">
         {!node.custom && (
           <Field label="Key source">
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: "var(--s-3)" }}>
               <button
                 type="button"
                 style={{
@@ -1179,7 +1181,7 @@ function ProviderInspector({
       </Section>
       <Section label="Parameters">
         <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--s-3)" }}
         >
           <Field label="Temperature">
             <input style={monoInputStyle} defaultValue="0.4" />
@@ -1283,7 +1285,7 @@ function ToolInspector({
                 resize: "vertical",
                 lineHeight: 1.5,
                 fontFamily: "var(--font-mono)",
-                fontSize: 11,
+                fontSize: "var(--t-1)",
               }}
               rows={3}
               value={node.config?.httpBodyTemplate ?? ""}
@@ -1417,7 +1419,7 @@ function Tool402Inspector({
   const [probing, setProbing] = useState(false);
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [probeError, setProbeError] = useState<string | null>(null);
-  const magenta = "#E879F9";
+  const magenta = "var(--type-x402)";
 
   const discover = async () => {
     if (!draft.trim()) return;
@@ -1588,13 +1590,13 @@ function Tool402Inspector({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: 6,
+            gap: "var(--s-2)",
             width: "100%",
             border: `1px solid ${magenta}`,
             background: "transparent",
             color: probing ? "var(--fg-dim)" : magenta,
             borderRadius: "var(--r-2)",
-            fontSize: 12,
+            fontSize: "var(--t-2)",
             cursor: "pointer",
             fontFamily: "var(--font-sans)",
             fontWeight: 500,
@@ -1616,8 +1618,8 @@ function Tool402Inspector({
               border: "1px solid rgba(248,113,113,0.3)",
               borderRadius: "var(--r-2)",
               fontFamily: "var(--font-mono)",
-              fontSize: 11,
-              color: "#F87171",
+              fontSize: "var(--t-1)",
+              color: "var(--danger)",
             }}
           >
             {probeError}
@@ -1631,7 +1633,7 @@ function Tool402Inspector({
               border: "1px solid var(--border)",
               borderRadius: "var(--r-2)",
               fontFamily: "var(--font-mono)",
-              fontSize: 11,
+              fontSize: "var(--t-1)",
             }}
           >
             <div style={{ color: "var(--fg-muted)" }}>{node.provider}</div>
@@ -1639,11 +1641,11 @@ function Tool402Inspector({
               style={{
                 display: "flex",
                 alignItems: "baseline",
-                gap: 8,
+                gap: "var(--s-3)",
                 marginTop: 12,
               }}
             >
-              <span style={{ color: magenta, fontSize: 22, fontWeight: 500 }}>
+              <span style={{ color: magenta, fontSize: "var(--t-6)", fontWeight: 500 }}>
                 {node.price}
               </span>
               <span style={{ color: "var(--fg-muted)" }}>
@@ -1664,7 +1666,7 @@ function Tool402Inspector({
         )}
       </Section>
       <Section label="Endpoint params">
-        <div style={{ fontSize: 11, color: "var(--fg-dim)", marginBottom: 8 }}>
+        <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)", marginBottom: 8 }}>
           {hasDiscovered
             ? "Declared by this endpoint itself. "
             : "This endpoint declares no inputs, so add whatever fields it needs. "}
@@ -1679,7 +1681,7 @@ function Tool402Inspector({
         <div
           style={{
             display: "flex",
-            gap: 2,
+            gap: "var(--s-0)",
             padding: 2,
             marginBottom: 10,
             border: "1px solid var(--border)",
@@ -1716,7 +1718,7 @@ function Tool402Inspector({
                   borderRadius: "var(--r-1)",
                   cursor: "pointer",
                   fontFamily: "var(--font-mono)",
-                  fontSize: 10.5,
+                  fontSize: "var(--t-0)",
                   letterSpacing: 0.3,
                   background: active ? "rgba(232,121,249,0.12)" : "transparent",
                   color: active ? magenta : "var(--fg-dim)",
@@ -1733,7 +1735,7 @@ function Tool402Inspector({
             style={{
               display: "flex",
               flexDirection: "column",
-              gap: 10,
+              gap: "var(--s-3)",
               marginBottom: 12,
             }}
           >
@@ -1746,14 +1748,14 @@ function Tool402Inspector({
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      gap: 6,
+                      gap: "var(--s-2)",
                       marginBottom: 4,
                     }}
                   >
                     <span
                       style={{
                         fontFamily: "var(--font-mono)",
-                        fontSize: 11,
+                        fontSize: "var(--t-1)",
                         color: magenta,
                       }}
                     >
@@ -1762,11 +1764,11 @@ function Tool402Inspector({
                     <span
                       style={{
                         fontFamily: "var(--font-mono)",
-                        fontSize: 9,
+                        fontSize: "var(--t-0)",
                         color: "var(--fg-dim)",
                         background: "var(--bg-elev-2)",
                         padding: "1px 5px",
-                        borderRadius: 3,
+                        borderRadius: "var(--r-1)",
                       }}
                     >
                       {p.type}
@@ -1774,8 +1776,8 @@ function Tool402Inspector({
                     <span
                       style={{
                         fontFamily: "var(--font-mono)",
-                        fontSize: 9,
-                        color: missing ? "#F87171" : "var(--fg-dim)",
+                        fontSize: "var(--t-0)",
+                        color: missing ? "var(--danger)" : "var(--fg-dim)",
                       }}
                     >
                       {p.required ? "required" : "optional"}
@@ -1784,7 +1786,7 @@ function Tool402Inspector({
                   <input
                     style={{
                       ...monoInputStyle,
-                      borderColor: missing ? "#F87171" : undefined,
+                      borderColor: missing ? "var(--danger)" : undefined,
                     }}
                     value={value}
                     placeholder={p.required ? "required" : "optional"}
@@ -1801,7 +1803,7 @@ function Tool402Inspector({
                   {p.description && (
                     <div
                       style={{
-                        fontSize: 10,
+                        fontSize: "var(--t-0)",
                         color: "var(--fg-muted)",
                         lineHeight: 1.4,
                         marginTop: 3,
@@ -1816,21 +1818,21 @@ function Tool402Inspector({
           </div>
         )}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
           {custom.map((p, i) => (
             <div
               key={i}
               style={{
                 display: "flex",
                 flexDirection: "column",
-                gap: 6,
+                gap: "var(--s-2)",
                 padding: 8,
                 border: "1px solid var(--border)",
                 borderRadius: "var(--r-2)",
                 background: "var(--bg)",
               }}
             >
-              <div style={{ display: "flex", gap: 6 }}>
+              <div style={{ display: "flex", gap: "var(--s-2)" }}>
                 <input
                   style={{ ...monoInputStyle, flex: 1, minWidth: 0 }}
                   placeholder="field name"
@@ -1863,7 +1865,7 @@ function Tool402Inspector({
                     color: "var(--fg-dim)",
                     borderRadius: "var(--r-2)",
                     cursor: "pointer",
-                    fontSize: 12,
+                    fontSize: "var(--t-2)",
                   }}
                 >
                   ✕
@@ -1876,9 +1878,9 @@ function Tool402Inspector({
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      gap: 8,
+                      gap: "var(--s-3)",
                       fontFamily: "var(--font-mono)",
-                      fontSize: 10,
+                      fontSize: "var(--t-0)",
                     }}
                   >
                     <span style={{ color: magenta }}>
@@ -1897,7 +1899,7 @@ function Tool402Inspector({
                         background: "none",
                         color: "var(--fg-dim)",
                         cursor: "pointer",
-                        fontSize: 11,
+                        fontSize: "var(--t-1)",
                       }}
                     >
                       ✕
@@ -1910,7 +1912,7 @@ function Tool402Inspector({
                       const f = e.target.files?.[0];
                       if (f) pickFile(i, f);
                     }}
-                    style={{ fontSize: 11, color: "var(--fg-muted)" }}
+                    style={{ fontSize: "var(--t-1)", color: "var(--fg-muted)" }}
                   />
                 )
               ) : (
@@ -1927,7 +1929,7 @@ function Tool402Inspector({
                   cursor, since it has to match the field name character for
                   character to resolve. */}
               {bodyMode === "json" && referenceTokens(p).length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s-1)" }}>
                   {referenceTokens(p).map((token) => (
                     <button
                       key={token}
@@ -1944,7 +1946,7 @@ function Tool402Inspector({
                           ? magenta
                           : "var(--fg-dim)",
                         fontFamily: "var(--font-mono)",
-                        fontSize: 9.5,
+                        fontSize: "var(--t-0)",
                         cursor: "pointer",
                       }}
                     >
@@ -1966,8 +1968,8 @@ function Tool402Inspector({
               border: "1px solid rgba(248,113,113,0.3)",
               borderRadius: "var(--r-2)",
               fontFamily: "var(--font-mono)",
-              fontSize: 10,
-              color: "#F87171",
+              fontSize: "var(--t-0)",
+              color: "var(--danger)",
             }}
           >
             {fieldError}
@@ -1984,7 +1986,7 @@ function Tool402Inspector({
             background: "transparent",
             color: "var(--fg-muted)",
             borderRadius: "var(--r-2)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             cursor: "pointer",
             fontFamily: "var(--font-sans)",
           }}
@@ -2005,7 +2007,7 @@ function Tool402Inspector({
               <span
                 style={{
                   fontFamily: "var(--font-mono)",
-                  fontSize: 10,
+                  fontSize: "var(--t-0)",
                   letterSpacing: 0.4,
                   color: "var(--fg-muted)",
                   textTransform: "uppercase",
@@ -2013,7 +2015,7 @@ function Tool402Inspector({
               >
                 Request body
               </span>
-              <span style={{ fontSize: 10, color: "var(--fg-dim)" }}>
+              <span style={{ fontSize: "var(--t-0)", color: "var(--fg-dim)" }}>
                 paste the shape this endpoint documents
               </span>
             </div>
@@ -2047,8 +2049,8 @@ function Tool402Inspector({
                   border: "1px solid rgba(248,113,113,0.3)",
                   borderRadius: "var(--r-2)",
                   fontFamily: "var(--font-mono)",
-                  fontSize: 10,
-                  color: "#F87171",
+                  fontSize: "var(--t-0)",
+                  color: "var(--danger)",
                 }}
               >
                 {bodyError}
@@ -2057,7 +2059,7 @@ function Tool402Inspector({
               <div
                 style={{
                   marginTop: 6,
-                  fontSize: 10,
+                  fontSize: "var(--t-0)",
                   lineHeight: 1.5,
                   color: "var(--fg-dim)",
                 }}
@@ -2224,7 +2226,7 @@ function StateInspector({
 
         <div
           style={{
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             lineHeight: 1.5,
             color: "var(--fg-dim)",
           }}
@@ -2242,7 +2244,7 @@ function StateInspector({
       <Section label="Use anywhere">
         <div
           style={{
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             lineHeight: 1.6,
             color: "var(--fg-muted)",
           }}
@@ -2256,7 +2258,7 @@ function StateInspector({
               background: "var(--bg)",
               border: "1px solid var(--border)",
               fontFamily: "var(--font-mono)",
-              fontSize: 11,
+              fontSize: "var(--t-1)",
               color: "var(--info)",
               userSelect: "all",
             }}
@@ -2297,12 +2299,12 @@ function WebhookTriggerFields({
         {secret ? (
           <input style={monoInputStyle} value={secret} readOnly />
         ) : (
-          <div style={{ fontSize: 11.5, color: "var(--fg-muted)" }}>
+          <div style={{ fontSize: "var(--t-1)", color: "var(--fg-muted)" }}>
             Save this workflow once to generate a secret.
           </div>
         )}
       </Field>
-      <div style={{ fontSize: 11, color: "var(--fg-muted)", marginTop: 4 }}>
+      <div style={{ fontSize: "var(--t-1)", color: "var(--fg-muted)", marginTop: 4 }}>
         POST to the endpoint above with header{" "}
         <code>X-Webhook-Secret: {secret ? "<secret>" : "…"}</code> -- calls
         without it are rejected.
@@ -2367,9 +2369,9 @@ function SavedValues({
 
   return (
     <Section label="Saved values">
-      {err && <div style={{ fontSize: 11, color: "var(--danger)" }}>{err}</div>}
+      {err && <div style={{ fontSize: "var(--t-1)", color: "var(--danger)" }}>{err}</div>}
       {!err && vars && entries.length === 0 && (
-        <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+        <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)" }}>
           Nothing saved yet — a run has to write one first.
         </div>
       )}
@@ -2382,7 +2384,7 @@ function SavedValues({
               display: "flex",
               alignItems: "baseline",
               justifyContent: "space-between",
-              gap: 8,
+              gap: "var(--s-3)",
               padding: "6px 8px",
               borderRadius: "var(--r-2)",
               background: isMatch ? "var(--info-soft)" : "var(--bg)",
@@ -2392,7 +2394,7 @@ function SavedValues({
             <span
               style={{
                 fontFamily: "var(--font-mono)",
-                fontSize: 11,
+                fontSize: "var(--t-1)",
                 color: isMatch ? "var(--info)" : "var(--fg-muted)",
                 flexShrink: 0,
               }}
@@ -2402,7 +2404,7 @@ function SavedValues({
             <span
               style={{
                 fontFamily: "var(--font-mono)",
-                fontSize: 11,
+                fontSize: "var(--t-1)",
                 color: "var(--fg)",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -2425,7 +2427,7 @@ function SavedValues({
           border: "1px solid var(--border)",
           borderRadius: "var(--r-2)",
           color: "var(--fg-muted)",
-          fontSize: 11,
+          fontSize: "var(--t-1)",
           cursor: busy ? "default" : "pointer",
         }}
       >
@@ -2447,11 +2449,11 @@ function AuthDocLink({ href, label }: { href: string; label: string }) {
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 5,
+        gap: "var(--s-1)",
         alignSelf: "flex-start",
         padding: "4px 0",
         fontFamily: "var(--font-sans)",
-        fontSize: 11,
+        fontSize: "var(--t-1)",
         fontWeight: 600,
         color: "var(--accent)",
         textDecoration: "none",
@@ -2578,8 +2580,8 @@ function ConnectorConfigSection({
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 7,
-              fontSize: 11,
+              gap: "var(--s-2)",
+              fontSize: "var(--t-1)",
               color: "var(--fg-muted)",
             }}
           >
@@ -2812,13 +2814,13 @@ function GoogleInspector({
 
       <Section label="Connected account">
         {loadingCreds ? (
-          <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>Loading…</div>
+          <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)" }}>Loading…</div>
         ) : (
           <>
             {credentials.length === 0 ? (
               <div
                 style={{
-                  fontSize: 11,
+                  fontSize: "var(--t-1)",
                   color: "var(--fg-muted)",
                   marginBottom: 8,
                   lineHeight: 1.5,
@@ -2863,7 +2865,7 @@ function GoogleInspector({
                 background: "var(--accent-soft)",
                 color: "var(--accent)",
                 borderRadius: "var(--r-2)",
-                fontSize: 12,
+                fontSize: "var(--t-2)",
                 fontWeight: 500,
                 cursor: "pointer",
               }}
@@ -2872,7 +2874,7 @@ function GoogleInspector({
             </button>
             <div
               style={{
-                fontSize: 10,
+                fontSize: "var(--t-0)",
                 color: "var(--fg-dim)",
                 marginTop: 6,
                 lineHeight: 1.5,
@@ -3124,6 +3126,8 @@ function TendrilInspector({
     : null;
   const creditVal = credit ?? 0;
   const topupAmount = parseFloat(node.tendrilAmount || "0") || 0;
+  const minBalance = parseFloat(node.tendrilMinBalance || "0") || 0;
+  const coverHours = parseFloat(node.tendrilCoverHours || "0") || 0;
 
   const custom = node.customParams ?? [];
   const payloadValue = custom.find((p) => p.name === "payload")?.value ?? "";
@@ -3136,7 +3140,7 @@ function TendrilInspector({
 
   return (
     <>
-      <div style={{ fontSize: 12, opacity: 0.85 }}>
+      <div style={{ fontSize: "var(--t-2)", opacity: 0.85 }}>
         Tendril credit: <strong>${creditVal.toFixed(2)}</strong>
         {selectedMachine && (
           <>
@@ -3184,9 +3188,46 @@ function TendrilInspector({
               }
             />
           </Field>
-          <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
-            Converts ${topupAmount.toFixed(2)} of your AgentMesh credits into
-            Tendril credit.
+          <Field label="Cover rent of (hours)">
+            <input
+              style={monoInputStyle}
+              type="number"
+              min="0"
+              step="0.25"
+              placeholder="off"
+              value={node.tendrilCoverHours ?? ""}
+              onChange={(e) =>
+                onUpdate({ ...node, tendrilCoverHours: e.target.value })
+              }
+            />
+          </Field>
+          {coverHours <= 0 && (
+            <Field label="Only if credit below (USD)">
+              <input
+                style={monoInputStyle}
+                type="number"
+                min="0"
+                step="0.5"
+                placeholder="always top up"
+                value={node.tendrilMinBalance ?? ""}
+                onChange={(e) =>
+                  onUpdate({ ...node, tendrilMinBalance: e.target.value })
+                }
+              />
+            </Field>
+          )}
+          <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)" }}>
+            {coverHours > 0
+              ? `Buys only what your Tendril credit is short of renting the cheapest online machine for ${coverHours} h, at least $${topupAmount.toFixed(2)} at a time. Skips, with no charge, when you already have enough.`
+              : `Converts $${topupAmount.toFixed(2)} of your AgentMesh credits into Tendril credit${
+                  minBalance > 0
+                    ? `, only while your Tendril credit is below $${minBalance.toFixed(2)}${
+                        credit !== null
+                          ? ` (you have $${credit.toFixed(2)} as of opening this panel)`
+                          : ""
+                      }`
+                    : ""
+                }.`}
           </div>
         </Section>
       )}
@@ -3226,7 +3267,7 @@ function TendrilInspector({
           {cost != null && (
             <div
               style={{
-                fontSize: 11,
+                fontSize: "var(--t-1)",
                 color: cost > creditVal ? "var(--danger)" : "var(--fg-dim)",
               }}
             >
