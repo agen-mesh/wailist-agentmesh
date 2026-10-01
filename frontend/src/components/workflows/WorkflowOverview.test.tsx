@@ -20,10 +20,13 @@ afterEach(() => {
 });
 
 describe("WorkflowOverview", () => {
-  it("labels the balance and opens the credits page from the add button", () => {
+  it("labels the balance and opens the credits page from the compact plus button", () => {
     render(<WorkflowOverview />);
     expect(region().textContent).toContain("$12.50");
-    fireEvent.click(screen.getByRole("button", { name: /add credits/i }));
+    const add = screen.getByRole("button", { name: "Add credits" });
+    expect(add.textContent).toBe("");
+    expect(add.getAttribute("title")).toBe("Add credits");
+    fireEvent.click(add);
     expect(state.push).toHaveBeenCalledWith("/billing");
   });
 
@@ -32,17 +35,16 @@ describe("WorkflowOverview", () => {
     render(<WorkflowOverview />);
     expect(screen.queryByText("$0.00")).toBeNull();
     expect(region().textContent).not.toMatch(/\$/);
+    expect(screen.getByRole("status").textContent).toBe("Loading balance...");
   });
 
-  // The card shows a label and a figure, and nothing else. It used to carry
-  // a caption explaining what credits are, under a heading that said so.
-  it("renders the label and the figure and no caption", () => {
-    render(<WorkflowOverview />);
-    const text = region().textContent ?? "";
-    expect(text).toContain("Credit balance");
-    expect(text).toContain("$12.50");
-    expect(
-      text.replace("Credit balance", "").replace("Add credits", "").trim(),
-    ).toBe("$12.50");
+  it("replaces the loading status with the original credit helper when balance arrives", () => {
+    state.credits = { balanceUSD: 0, balanceKnown: false };
+    const { rerender } = render(<WorkflowOverview />);
+    state.credits = { balanceUSD: 12.5, balanceKnown: true };
+    rerender(<WorkflowOverview />);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByText("$12.50")).toBeTruthy();
+    expect(screen.getByText("Spent as your agents call paid tools and models.")).toBeTruthy();
   });
 });

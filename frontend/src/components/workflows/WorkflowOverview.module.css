@@ -4,31 +4,15 @@
   gap: var(--s-5);
   margin-bottom: var(--s-6);
 }
-/* Each card is its own container, so its contents respond to the CARD's
-   width. The grid caps this column at 320px, so the card is 320px wide at any
-   window size — the `@media (max-width: 380px)` rule that stacked the heading
-   could only fire on a phone, and so never reached the layout it existed
-   for. */
 .credit,
 .upcoming {
-  container-type: inline-size;
   min-width: 0;
   padding: var(--s-5);
   border: 1px solid var(--border);
   border-radius: var(--r-3);
   background: var(--bg-elev-1);
 }
-
-/* A column, so the figure sits hard under the heading rather than being
-   spread down a card the grid has stretched. */
-.credit {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--s-2);
-}
 .creditHeading {
-  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -43,59 +27,39 @@
   font-size: var(--t-0);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  white-space: nowrap;
 }
-
-/* A labelled control, not a glyph: "+" alone is a guess about what is added. */
 .creditAdd {
   display: inline-flex;
   align-items: center;
-  gap: var(--s-2);
+  justify-content: center;
   flex-shrink: 0;
-  height: 28px;
-  padding: 0 var(--s-4);
+  width: 32px;
+  min-height: 32px;
   border: 1px solid var(--border);
-  border-radius: var(--r-full);
+  border-radius: var(--r-2);
   background: var(--bg-elev-2);
   color: var(--fg);
-  font-family: var(--font-sans);
-  font-size: var(--t-2);
-  font-weight: 500;
-  white-space: nowrap;
   cursor: pointer;
   touch-action: manipulation;
-  transition:
-    background 0.12s var(--ease),
-    border-color 0.12s var(--ease);
 }
 .creditAdd:focus-visible,
 .upcomingRow:focus-visible {
   outline: 2px solid var(--accent-line);
   outline-offset: 3px;
 }
-
-/* --t-7 against the --t-0 label above it: this is the number the card exists
-   to show. tabular-nums so a balance ticking down mid-run does not jitter. */
 .creditBalance {
-  margin: 0;
+  margin: 0 0 var(--s-1);
   font-family: var(--font-mono);
-  font-size: var(--t-7);
+  font-size: var(--wf-balance-size);
   font-weight: 500;
-  line-height: 1.05;
-  letter-spacing: -0.03em;
-  color: var(--fg);
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
 }
-/* Before the balance arrives. The em dash this replaces was a real glyph in a
-   32px mono face and reserved the wrong width. */
-.creditPlaceholder {
-  display: inline-block;
-  width: 5ch;
-  height: 0.8em;
-  border-radius: var(--r-1);
-  background: var(--bg-elev-3);
+.creditHint {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--t-1);
 }
-
 .upcoming :global(.upc__title) {
   margin-bottom: var(--s-3);
 }
@@ -128,10 +92,7 @@
   font-variant-numeric: tabular-nums;
 }
 @media (hover: hover) {
-  .creditAdd:hover {
-    background: var(--bg-elev-3);
-    border-color: var(--border-strong);
-  }
+  .creditAdd:hover,
   .upcomingRow:hover {
     background: var(--bg-elev-2);
   }
@@ -141,27 +102,28 @@
 }
 @media (pointer: coarse) and (hover: none) {
   .creditAdd {
-    height: 44px;
+    width: 44px;
   }
   .upcomingRow {
     min-height: 44px;
   }
 }
-
-/* One column. The button is no longer absolutely positioned beside the
-   figure — it carries a word now, and would collide with a long balance. */
 @media (max-width: 600px) {
   .overview {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--s-3);
   }
-}
-/* Narrower than the label and button side by side (~250px): they stack rather
-   than the button's text wrapping mid-word. */
-@container (max-width: 250px) {
-  .creditHeading {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--s-3);
+  .credit {
+    position: relative;
+    padding-right: 72px;
+  }
+  .creditAdd {
+    position: absolute;
+    right: var(--s-5);
+    top: 50%;
+    transform: translateY(-50%);
+  }
+  .creditBalance {
+    margin-top: var(--s-3);
   }
 }
