@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { buildUsage } from "@/lib/data";
 
 const state = vi.hoisted(() => ({
@@ -12,6 +12,11 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/useReadOnly", () => ({ useReadOnly: () => state.readOnly }));
+vi.mock("@/hooks/useIsHandheld", () => ({ useIsHandheld: () => false }));
+vi.mock("@/lib/credits/store", () => {
+  const refreshBalance = async () => {};
+  return { useCredits: () => ({ balanceUSD: 10, balanceKnown: true, refreshBalance }) };
+});
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/components/Topbar", () => ({ Topbar: () => null }));
 vi.mock("./phone/UsagePhonePage", () => ({
@@ -34,8 +39,8 @@ vi.mock("@/lib/api", () => {
         return u.timeseries;
       },
       byWorkflow: async () => u.byWorkflow,
-      byEndpoint: async () => u.byEndpoint,
-      settlements: async () => u.settlements,
+      byEndpoint: async () => Array.from({ length: 12 }, (_, i) => ({ ...u.byEndpoint[0], endpoint: `endpoint-${i}` })),
+      settlements: async () => u.settlements.slice(0, 12),
     },
   };
 });
@@ -53,6 +58,15 @@ afterEach(() => {
 // The desktop page is two wide tables that only scroll sideways on a phone,
 // so a phone -- and the Android app -- gets its own screen.
 describe("UsagePage", () => {
+  it.each(["endpoints", "settlements"])("keeps the %s page-size control after selecting one page", async (noun) => {
+    render(<UsagePage />);
+    const size = await screen.findByLabelText(`${noun} per page`);
+    fireEvent.change(size, { target: { value: "20" } });
+    expect(screen.getByLabelText(`${noun} per page`)).toBe(size);
+    fireEvent.change(size, { target: { value: "5" } });
+    expect((size as HTMLSelectElement).value).toBe("5");
+  });
+
   it("gives a phone its own screen", () => {
     state.readOnly = true;
     render(<UsagePage />);

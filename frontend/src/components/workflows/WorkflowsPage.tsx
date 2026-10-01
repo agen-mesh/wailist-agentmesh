@@ -513,9 +513,8 @@ export function WorkflowsPage() {
             />
           )}
 
-          {/* Both views read the same slice, so switching keeps your place.
-              Hidden at one page: "Page 1 of 1" is chrome, not information. */}
-          {!loading && totalPages > 1 && (
+          {/* Keep a changed page size reachable even when every row fits. */}
+          {!loading && (totalPages > 1 || pageSize !== DEFAULT_PAGE_SIZE) && (
             <Pager
               page={safePage}
               totalPages={totalPages}

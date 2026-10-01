@@ -54,6 +54,18 @@ afterEach(() => {
 });
 
 describe("WorkflowsPage", () => {
+  it("keeps the page-size control available after all workflows fit on one page", async () => {
+    state.list.mockResolvedValue(Array.from({ length: 12 }, (_, i) => ({
+      id: `wf-${i}`, name: `Workflow ${i}`, nodes: [], edges: [], status: "draft",
+    })));
+    render(<WorkflowsPage />);
+    const size = await screen.findByLabelText("workflows per page");
+    fireEvent.change(size, { target: { value: "20" } });
+    expect(screen.getByLabelText("workflows per page")).toBe(size);
+    fireEvent.change(size, { target: { value: "5" } });
+    expect(screen.getByText("Page 1 of 3")).toBeTruthy();
+  });
+
   it("gives a phone the thin list, without the desktop chrome", async () => {
     state.readOnly = true;
     render(<WorkflowsPage />);

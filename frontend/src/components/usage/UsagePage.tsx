@@ -924,7 +924,7 @@ function UsageBody({
             Show all {settlements.length} settlements
           </button>
         )}
-        {!handheld && settlementSlice.totalPages > 1 && (
+        {!handheld && (settlementSlice.totalPages > 1 || settlementSize !== DEFAULT_PAGE_SIZE) && (
           <Pager
             page={settlementSlice.page}
             totalPages={settlementSlice.totalPages}
@@ -1330,7 +1330,7 @@ function EndpointTable({
       </HScroll>
       {/* Outside the HScroll: the pane is held open to 984px by the columns,
           so anything inside it scrolls sideways off screen with the rows. */}
-      {totalPages > 1 && (
+      {(totalPages > 1 || pageSize !== DEFAULT_PAGE_SIZE) && (
         <Pager
           page={safePage}
           totalPages={totalPages}
