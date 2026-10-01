@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/agentmesh/backend/internal/bazaar"
 	"github.com/agentmesh/backend/internal/models"
@@ -92,8 +93,15 @@ func (x *x402Session) search(ctx context.Context, args map[string]any) (string, 
 		Params        []bazaar.Param `json:"params"`
 		OutputExample string         `json:"outputExample,omitempty"`
 		TimesPaid     int            `json:"timesPaid"`
+		// Trust and LastPaidDaysAgo are the ranking's own evidence, handed
+		// to the model rather than kept to ourselves. The model does the
+		// picking, and "last paid 112 days ago" is a fact it can weigh
+		// against the description; a position in a list is not.
+		Trust           string `json:"trust"`
+		LastPaidDaysAgo int    `json:"lastPaidDaysAgo"`
 	}
-	hits := bazaar.Search(items, query, x402SearchLimit)
+	now := time.Now()
+	hits := bazaar.SearchAt(items, query, x402SearchLimit, now)
 	results := make([]result, 0, len(hits))
 	for _, r := range hits {
 		network := "algorand mainnet"
@@ -108,13 +116,19 @@ func (x *x402Session) search(ctx context.Context, args map[string]any) (string, 
 			ID: r.ID, Name: x402DisplayName(r), Method: r.Method, URL: r.URL,
 			Description: r.Description, Cost: x402CallCost(r), Network: network,
 			Params: r.Params, OutputExample: example, TimesPaid: r.SettleCount,
+			Trust: bazaar.TrustOf(r, now).String(), LastPaidDaysAgo: bazaar.DaysSinceLastPaid(r, now),
 		})
 	}
 	out := map[string]any{"results": results}
 	if len(results) == 0 {
 		out["note"] = "No x402 endpoint matched. Try different keywords, or build this with an http tool node, a connector or websearch."
 	} else {
-		out["note"] = "Every call costs the user the endpoint price plus the AgentMesh fee shown. timesPaid is how often real callers have paid it -- prefer proven endpoints. Add one with add_x402_node and the id."
+		out["note"] = "Every call costs the user the endpoint price plus the AgentMesh fee shown. " +
+			"Anyone can publish to this catalog and nothing removes an entry when the service behind it dies, so trust is the evidence that it still works: " +
+			"proven (paid often, paid in the last few days, and listed long enough for that to be a track record), active (paid by real callers recently), " +
+			"new (listed but barely paid), stale (nobody has paid it in over a month -- likely dead, and paying it costs real money for nothing). " +
+			"lastPaidDaysAgo is -1 when the catalog does not say. Prefer proven and active; pick a stale entry only if nothing else answers the question, and tell the user it may not work. " +
+			"Add one with add_x402_node and the id -- it is checked against the live endpoint before it reaches the canvas."
 	}
 	b, _ := json.Marshal(out)
 	return string(b), nil
@@ -130,6 +144,14 @@ func (x *x402Session) add(ctx context.Context, graph *models.WorkflowGraph, args
 		if r.ID != id || r.Console != "" {
 			continue
 		}
+		// Ask the endpoint whether it is still there before putting it in
+		// front of the user. See graphx402probe.go for why a paid node
+		// needs this more than an http node does.
+		refuse, note, price, asset := judgeX402Probe(r, x402Prober(ctx, r))
+		if refuse != "" {
+			return "", fmt.Errorf("%s", refuse)
+		}
+		r.AmountMicros, r.Asset = price, asset
 		node := x402NodeFromResource(r, newGraphID("n_"),
 			80+240*float64(len(graph.Nodes)%4), 120+160*float64(len(graph.Nodes)/4),
 			argString(args, "name"))
@@ -138,8 +160,11 @@ func (x *x402Session) add(ctx context.Context, graph *models.WorkflowGraph, args
 		for i, p := range r.Params {
 			params[i] = p.Name
 		}
-		msg := fmt.Sprintf("added x402 node %s: %s %s -- costs %s. Tell the user that cost in your reply.",
-			node.ID, r.Method, r.URL, x402CallCost(r))
+		if note == "" {
+			note = "."
+		}
+		msg := fmt.Sprintf("added x402 node %s: %s %s -- costs %s%s Tell the user that cost in your reply.",
+			node.ID, r.Method, r.URL, x402CallCost(r), note)
 		if len(params) > 0 {
 			msg += " Its inputs (" + strings.Join(params, ", ") + ") are filled per call by the agent it is attached to, so attach it to an agent's tools port."
 		}

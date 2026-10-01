@@ -270,6 +270,29 @@ export const IconClose = ({ size = 14 }: { size?: number }) => (
   </svg>
 );
 
+export const IconPlus = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
+    <path
+      d="M8 3 L8 13 M3 8 L13 8"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+// Three narrowing lines: filter and sort.
+export const IconFilter = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
+    <path
+      d="M2.5 4.5 L13.5 4.5 M4.5 8 L11.5 8 M6.5 11.5 L9.5 11.5"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
 export const IconBackspace = ({ size = 12 }: { size?: number }) => (
   <svg
     width={size}
@@ -378,7 +401,15 @@ export const IconMic = ({ size = 12 }: { size?: number }) => (
     aria-hidden="true"
     style={{ display: "block" }}
   >
-    <rect x="5.5" y="1.5" width="5" height="8" rx="2.5" stroke="currentColor" strokeWidth="1.3" />
+    <rect
+      x="5.5"
+      y="1.5"
+      width="5"
+      height="8"
+      rx="2.5"
+      stroke="currentColor"
+      strokeWidth="1.3"
+    />
     <path
       d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5"
       stroke="currentColor"

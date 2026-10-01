@@ -49,37 +49,52 @@ describe("cadenceToCron", () => {
     ).toBe("0 14 15 * *");
   });
 
-  it("keeps day 29 when the rollover stays within the same (31-day) month", () => {
-    // day 28, 21:00 EST rolls to day 29 UTC, but NOW is January -- day 29
-    // always exists in January, so no fallback is needed here at all. Only
-    // a rollover that actually crosses INTO a shorter next month (see the
-    // February test below) needs the originally-picked day preserved.
-    expect(
-      cadenceToCron({ cadence: "monthly", time: "21:00", dayOfMonth: 28 }, NOW),
-    ).toBe("0 2 29 * *");
-  });
-
-  it("preserves the exact day picked for a non-edge rollover, not just the 1-28 range", () => {
-    // day 15, 21:00 EST rolls to day 16 UTC -- must stay 16. The clamp above
-    // exists ONLY to stop day 28 rolling into the nonexistent Feb 29; every
-    // other day's rollover must round-trip to the day it actually landed on,
-    // not silently snap back to the originally-picked day.
+  it("keeps a day that moves to the next UTC day, when that day exists in every month", () => {
+    // Day 15 at 21:00 EST is 02:00 UTC on the 16th, every month.
     expect(
       cadenceToCron({ cadence: "monthly", time: "21:00", dayOfMonth: 15 }, NOW),
     ).toBe("0 2 16 * *");
+    // Day 27 at 21:00 EST is the 28th in UTC, which every month has.
+    expect(
+      cadenceToCron({ cadence: "monthly", time: "21:00", dayOfMonth: 27 }, NOW),
+    ).toBe("0 2 28 * *");
   });
 
-  it("falls back to the picked day when a rollover crosses into a different month, not just past day 28", () => {
-    // day 28, 21:00 EST, in a non-leap February (2026) -- rolls into March 1
-    // UTC, not day 29. A fallback that only recognized "landed on 29" would
-    // miss this and silently emit day 1, firing on the wrong day every month.
+  // Day 28 at 21:00 EST is 02:00 UTC on the 29th. The old conversion saved
+  // "0 2 29 * *", which never fires in a non-leap February, and in February
+  // itself fell back to the 28th in UTC, which fires on the 27th locally.
+  // A standard cron cannot say "the day after the 28th", so it is refused.
+  it("refuses a monthly time that lands on UTC day 29 or later", () => {
+    expect(() =>
+      cadenceToCron({ cadence: "monthly", time: "21:00", dayOfMonth: 28 }, NOW),
+    ).toThrow(/different time or day/);
     const febNow = new Date(2026, 1, 10, 12, 0, 0);
-    expect(
+    expect(() =>
+      cadenceToCron({ cadence: "monthly", time: "21:00", dayOfMonth: 28 }, febNow),
+    ).toThrow(/different time or day/);
+  });
+
+  // 19:30 in New York is 00:30 UTC the next day in winter (EST) but 23:30
+  // UTC the same day in summer (EDT). No single UTC day-of-month is right
+  // all year, and the answer must not depend on the month it was saved in.
+  it("refuses a monthly time whose UTC day changes with daylight saving", () => {
+    expect(() =>
+      cadenceToCron({ cadence: "monthly", time: "19:30", dayOfMonth: 10 }, NOW),
+    ).toThrow(/different time or day/);
+    const julyNow = new Date(2026, 6, 10, 12, 0, 0);
+    expect(() =>
+      cadenceToCron({ cadence: "monthly", time: "19:30", dayOfMonth: 10 }, julyNow),
+    ).toThrow(/different time or day/);
+  });
+
+  it("gives the same day whatever month it is saved in", () => {
+    const days = Array.from({ length: 12 }, (_, m) =>
       cadenceToCron(
-        { cadence: "monthly", time: "21:00", dayOfMonth: 28 },
-        febNow,
-      ),
-    ).toBe("0 2 28 * *");
+        { cadence: "monthly", time: "09:00", dayOfMonth: 20 },
+        new Date(2026, m, 5, 12, 0, 0),
+      ).split(" ")[2],
+    );
+    expect(new Set(days)).toEqual(new Set(["20"]));
   });
 });
 

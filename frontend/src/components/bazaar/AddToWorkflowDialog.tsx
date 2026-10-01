@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { workflows } from "@/lib/api";
 import { useModalDismissal } from "@/hooks/useModalDismissal";
+import { workflowHref } from "@/lib/routes";
 import {
   encodePendingNode,
   resourceToNode,
@@ -50,7 +51,7 @@ export function AddToWorkflowDialog({
 
   const choose = (id: string) => {
     const encoded = encodePendingNode(resourceToNode(resource));
-    router.push(`/workflows/${id}?add=${encoded}`);
+    router.push(workflowHref(id, { query: { add: encoded } }));
   };
 
   return (
@@ -66,15 +67,20 @@ export function AddToWorkflowDialog({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        zIndex: 50,
-        padding: 20,
+        // Above the top and bottom bars (60), level with the app's other
+        // dialogs, so the scrim covers the bottom tabs on a phone.
+        zIndex: 1000,
+        padding:
+          "calc(20px + var(--safe-top)) calc(20px + var(--safe-right)) calc(20px + var(--safe-bottom)) calc(20px + var(--safe-left))",
       }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "min(440px, 100%)",
-          maxHeight: "70vh",
+          // dvh: the visible height, so the list's end is not under the
+          // browser toolbar.
+          maxHeight: "70dvh",
           overflowY: "auto",
           background: "var(--bg-elev-1)",
           border: "1px solid var(--border)",
@@ -103,7 +109,9 @@ export function AddToWorkflowDialog({
         </div>
 
         {error && (
-          <p style={{ margin: 0, fontSize: 12, color: "var(--danger)" }}>{error}</p>
+          <p style={{ margin: 0, fontSize: 12, color: "var(--danger)" }}>
+            {error}
+          </p>
         )}
         {!list && !error && (
           <p style={{ margin: 0, fontSize: 12, color: "var(--fg-dim)" }}>

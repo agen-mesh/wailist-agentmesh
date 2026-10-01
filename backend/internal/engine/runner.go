@@ -422,6 +422,11 @@ func nodeConfigHash(n models.WorkflowNode) string {
 		StateOp          string
 		StateKey         string
 		StateValue       string
+
+		// omitempty keeps every existing node's hash unchanged, so a Resume
+		// of a run from before this field existed doesn't re-execute it.
+		TendrilMinBal string `json:",omitempty"`
+		TendrilCover  string `json:",omitempty"`
 	}{
 		Type: n.Type, Template: n.Template, SystemPrompt: n.SystemPrompt,
 		Wallet: n.Wallet, Balance: n.Balance, Model: n.Model, KeyMode: n.KeyMode,
@@ -432,8 +437,8 @@ func nodeConfigHash(n models.WorkflowNode) string {
 		DiscoveredParams: n.DiscoveredParams, ParamDefaults: n.ParamDefaults,
 		CustomParams: n.CustomParams, BodyMode: n.BodyMode, BodyTemplate: n.BodyTemplate,
 		Config: n.Config, TendrilAction: n.TendrilAction, TendrilNodeID: n.TendrilNodeID,
-		TendrilHours: n.TendrilHours, TendrilAmount: n.TendrilAmount,
-		StateOp: n.StateOp, StateKey: n.StateKey, StateValue: n.StateValue,
+		TendrilHours: n.TendrilHours, TendrilAmount: n.TendrilAmount, TendrilMinBal: n.TendrilMinBalance,
+		TendrilCover: n.TendrilCoverHours, StateOp: n.StateOp, StateKey: n.StateKey, StateValue: n.StateValue,
 	}
 	b, err := json.Marshal(relevant)
 	if err != nil {
@@ -1029,6 +1034,26 @@ func (r *Runner) finishRun(wf models.Workflow, run models.Run, status models.Run
 	// worth notifying about, and does nothing at all until a Firebase service
 	// account is configured.
 	go push.NotifyRunFinished(context.Background(), r.store, wf.UserID, wf.ID, wf.Name, run.ID, run.TriggeredBy, status)
+
+	// A run's own debits have just landed (CommitReservedDebit/DebitCredits,
+	// during execution above), so right after it finishes is the natural
+	// point to notice a balance that has crossed low -- same fire-and-forget
+	// shape, same reason: this must never hold a run open.
+	go r.notifyIfBalanceLow(context.Background(), wf.UserID)
+}
+
+// notifyIfBalanceLow checks the crossing and delivers the push if it just
+// happened. Split out so the crossing decision (store-side, atomic) and the
+// delivery (push package) each stay testable on their own terms.
+func (r *Runner) notifyIfBalanceLow(ctx context.Context, userID string) {
+	notify, balance, err := r.store.CheckAndMarkLowBalance(ctx, userID, models.LowBalanceThresholdUSDMicros)
+	if err != nil {
+		log.Printf("low balance check: %v", err)
+		return
+	}
+	if notify {
+		push.NotifyLowBalance(ctx, r.store, userID, balance)
+	}
 }
 
 // Run executes a workflow from scratch. Call via Start rather than directly.
@@ -1059,6 +1084,8 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run, ge
 		r.settleRunTotal(sctx, wf, run, runTotal)
 		r.runBilling.Delete(run.ID)
 	}()
+
+	defer r.releaseRunLeases(ctx, wf, run)
 
 	go alert.Notify(context.Background(), alert.ChannelWorkflows, fmt.Sprintf("workflow %q run %s started", wf.Name, run.ID))
 
@@ -1153,6 +1180,13 @@ func (r *Runner) Resume(ctx context.Context, wf models.Workflow, run models.Run,
 	// MarkRunRunning claim before this goroutine was ever spawned -- that
 	// claim is Resume's actual admission gate (see StartResume's doc
 	// comment for why it has to happen there and not here).
+
+	if err := reopenReleasedRentsWith(ctx, wf, run.ID, states, r.store); err != nil {
+		log.Printf("resume: checking run %s's Tendril leases failed: %v", run.ID, err)
+		r.finishRun(wf, run, models.RunStatusFailed)
+		return
+	}
+	defer r.releaseRunLeases(ctx, wf, run)
 
 	go alert.Notify(context.Background(), alert.ChannelWorkflows, fmt.Sprintf("workflow %q run %s resumed", wf.Name, run.ID))
 

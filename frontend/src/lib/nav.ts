@@ -21,14 +21,38 @@ export type NavItem = {
    * wrong for any route that is a prefix of another — pass this when it is.
    */
   match?: (pathname: string) => boolean;
+
+  /**
+   * Hidden from the top bar's menu on a handheld. The Bazaar is a browsing
+   * and shopping surface for building workflows, which happens on a
+   * computer. Desktop navigation is unaffected.
+   */
+  desktopOnly?: boolean;
 };
 
 /** Primary routes for the authed application shell. */
 export const APP_NAV_ITEMS: readonly NavItem[] = [
   { label: "Workflows", href: "/workflows" },
-  { label: "Bazaar", href: "/bazaar" },
+  { label: "Bazaar", href: "/bazaar", desktopOnly: true },
   { label: "Usage", href: "/usage" },
   { label: "Credits", href: "/billing" },
+];
+
+/**
+ * Tabs for the bottom bar on a phone or tablet. A handheld is mostly used to
+ * check on workflows, so Activity and Usage take tabs: both are things you
+ * look at. Credits is not a tab: the app pays on the website, so it is a place
+ * you go to top up, reached from the Workflows "+", Account's Credits row and
+ * low-balance notifications. It is not a tab root, so it has no bottom bar and
+ * carries its own Back link instead. The Bazaar is deliberately absent: it is
+ * for building, which happens on a computer.
+ * APP_NAV_ITEMS stays the desktop and top bar navigation.
+ */
+export const HANDHELD_TAB_ITEMS: readonly NavItem[] = [
+  { label: "Workflows", href: "/workflows" },
+  { label: "Activity", href: "/activity" },
+  { label: "Usage", href: "/usage" },
+  { label: "Account", href: "/account" },
 ];
 
 /** In-page sections for the marketing landing page. */
@@ -37,6 +61,15 @@ export const LANDING_NAV_ITEMS: readonly NavItem[] = [
   { label: "How it works", sectionId: "flow" },
   { label: "Waitlist", sectionId: "waitlist" },
 ];
+
+/**
+ * Whether `pathname` is the root of a handheld tab, as opposed to a screen
+ * pushed on top of one. The bottom bar only shows at these routes, and the top
+ * bar's hamburger only hides at them, so both ask this one question.
+ */
+export function isTabRoot(pathname: string): boolean {
+  return HANDHELD_TAB_ITEMS.some((item) => item.href === pathname);
+}
 
 /** Whether `item` represents the currently open page. */
 export function isNavItemActive(item: NavItem, pathname: string): boolean {

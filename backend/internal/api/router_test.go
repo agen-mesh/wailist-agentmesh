@@ -32,6 +32,21 @@ func TestHealthCheck(t *testing.T) {
 // NewRouter, the 404s below turn into 401s and this test fails loudly. That is
 // the moment the defensive normalisation starts earning its keep, and the
 // failure is the signal to go re-read it.
+// The run history routes list what a user's workflows did and spent, so they
+// must sit behind the session like every other workflow route.
+func TestRunHistoryRoutesRequireASession(t *testing.T) {
+	r := api.NewRouter(&handlers.Deps{})
+	for _, path := range []string{"/runs", "/workflows/wf_1/runs"} {
+		t.Run(path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+			if w.Code != http.StatusUnauthorized {
+				t.Fatalf("GET %s without a session = %d, want 401", path, w.Code)
+			}
+		})
+	}
+}
+
 func TestTrailingSlashNeverReachesTheAuthedGroup(t *testing.T) {
 	r := api.NewRouter(&handlers.Deps{})
 
@@ -60,5 +75,31 @@ func TestTrailingSlashNeverReachesTheAuthedGroup(t *testing.T) {
 				t.Fatalf("%s %s = %d, want %d (%s)", tc.method, tc.path, w.Code, tc.want, tc.why)
 			}
 		})
+	}
+}
+
+// Read-only mode judges the path the way chi routes it. An escaped separator in
+// a variable key used to reach the handler because the middleware looked only
+// at the decoded path, which has one segment more and matched no rule.
+func TestReadOnlyBlocksEscapedVariableKeys(t *testing.T) {
+	t.Setenv("WEB_READONLY_MODE", "1")
+	const secret = "test-secret"
+	r := api.NewRouter(&handlers.Deps{JWTSecret: secret})
+	token := api.TestMakeToken(secret, "user-1")
+	for _, method := range []string{http.MethodPut, http.MethodDelete} {
+		for _, path := range []string{
+			"/workflows/wf_1/variables/API_KEY",
+			"/workflows/wf_1/variables/API%2FKEY",
+		} {
+			t.Run(method+" "+path, func(t *testing.T) {
+				req := httptest.NewRequest(method, path, nil)
+				req.Header.Set("Authorization", "Bearer "+token)
+				w := httptest.NewRecorder()
+				r.ServeHTTP(w, req)
+				if w.Code != http.StatusForbidden {
+					t.Fatalf("%s %s = %d, want %d", method, path, w.Code, http.StatusForbidden)
+				}
+			})
+		}
 	}
 }

@@ -1,10 +1,11 @@
 "use client";
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Logo, IconArrow, Tag } from "@/components/ui";
 import { SessionPersistError, useAuth } from "@/hooks/useAuth";
 import { auth } from "@/lib/api";
 import { IS_NATIVE } from "@/lib/nativeAuth";
+import { safeNextPath } from "@/lib/routes";
 import { authBtn } from "@/components/ui/buttons";
 
 const OAUTH_ERRORS: Record<string, string> = {
@@ -57,14 +58,7 @@ const DEFAULT_DEST = "/workflows";
 // http(s) URLs, so "/\evil.com" resolves exactly like "//evil.com" and would
 // otherwise slip past the checks above.
 function safeNext(raw: string | null): string {
-  if (
-    !raw ||
-    !raw.startsWith("/") ||
-    raw.startsWith("//") ||
-    raw.includes("\\")
-  )
-    return DEFAULT_DEST;
-  return raw;
+  return safeNextPath(raw) ?? DEFAULT_DEST;
 }
 
 function nextPath(): string {
@@ -89,8 +83,12 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
   const [showPassword, setShowPassword] = useState(false);
 
   // Surface OAuth failures the backend redirected back with (?error=...).
+  //
+  // Keyed on the query rather than read once on mount: in the app a failed
+  // sign-in comes back to this screen while it is still open (lib/nativeNav.ts
+  // routes it in place), so the reason arrives after mount.
+  const code = useSearchParams().get("error");
   useEffect(() => {
-    const code = new URLSearchParams(window.location.search).get("error");
     if (code) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- post-mount URL read; a lazy initializer would render the error on the server and break hydration
       setError(OAUTH_ERRORS[code] ?? "Something went wrong. Please try again.");
@@ -101,7 +99,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
       url.searchParams.delete("error");
       window.history.replaceState({}, "", url.pathname + url.search + url.hash);
     }
-  }, []);
+  }, [code]);
 
   const handleOAuth = (provider: "github" | "google") => {
     const url = auth.oauthURL(provider);
@@ -117,7 +115,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
     // deep link that boot()'s listener handles, so nothing resumes here.
     if (IS_NATIVE) {
       void import("@/native/oauth")
-        .then(({ start }) => start(provider))
+        .then(({ start }) => start(provider, nextPath()))
         .catch((err) =>
           setError(
             err instanceof Error ? err.message : "Could not open sign in.",
@@ -290,7 +288,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                       style={{
                         color: "var(--fg-dim)",
                         fontFamily: "var(--font-mono)",
-                        fontSize: 10,
+                        fontSize: 11,
                       }}
                     >
                       min 12 chars
@@ -576,7 +574,7 @@ function AuthVisual() {
               <div
                 style={{
                   fontFamily: "var(--font-mono)",
-                  fontSize: 9.5,
+                  fontSize: 11,
                   color: accent,
                   textTransform: "uppercase",
                   letterSpacing: "0.08em",
@@ -651,7 +649,7 @@ function FormField({
           alignItems: "center",
           justifyContent: "space-between",
           fontFamily: "var(--font-mono)",
-          fontSize: 10,
+          fontSize: 11,
           color: "var(--fg-muted)",
           textTransform: "uppercase",
           letterSpacing: "0.08em",

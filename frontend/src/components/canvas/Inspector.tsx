@@ -301,6 +301,8 @@ function readOnlyRows(n: WorkflowNode): ReadOnlyRow[] {
   push("Action", n.tendrilAction);
   push("Hours", n.tendrilHours);
   push("Amount", n.tendrilAmount);
+  push("Only below", n.tendrilMinBalance);
+  push("Cover rent (h)", n.tendrilCoverHours);
 
   for (const [k, v] of Object.entries(n.config ?? {})) push(k, v);
   // Keys only: that a credential is configured is part of understanding the
@@ -3124,6 +3126,8 @@ function TendrilInspector({
     : null;
   const creditVal = credit ?? 0;
   const topupAmount = parseFloat(node.tendrilAmount || "0") || 0;
+  const minBalance = parseFloat(node.tendrilMinBalance || "0") || 0;
+  const coverHours = parseFloat(node.tendrilCoverHours || "0") || 0;
 
   const custom = node.customParams ?? [];
   const payloadValue = custom.find((p) => p.name === "payload")?.value ?? "";
@@ -3184,9 +3188,46 @@ function TendrilInspector({
               }
             />
           </Field>
+          <Field label="Cover rent of (hours)">
+            <input
+              style={monoInputStyle}
+              type="number"
+              min="0"
+              step="0.25"
+              placeholder="off"
+              value={node.tendrilCoverHours ?? ""}
+              onChange={(e) =>
+                onUpdate({ ...node, tendrilCoverHours: e.target.value })
+              }
+            />
+          </Field>
+          {coverHours <= 0 && (
+            <Field label="Only if credit below (USD)">
+              <input
+                style={monoInputStyle}
+                type="number"
+                min="0"
+                step="0.5"
+                placeholder="always top up"
+                value={node.tendrilMinBalance ?? ""}
+                onChange={(e) =>
+                  onUpdate({ ...node, tendrilMinBalance: e.target.value })
+                }
+              />
+            </Field>
+          )}
           <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
-            Converts ${topupAmount.toFixed(2)} of your AgentMesh credits into
-            Tendril credit.
+            {coverHours > 0
+              ? `Buys only what your Tendril credit is short of renting the cheapest online machine for ${coverHours} h, at least $${topupAmount.toFixed(2)} at a time. Skips, with no charge, when you already have enough.`
+              : `Converts $${topupAmount.toFixed(2)} of your AgentMesh credits into Tendril credit${
+                  minBalance > 0
+                    ? `, only while your Tendril credit is below $${minBalance.toFixed(2)}${
+                        credit !== null
+                          ? ` (you have $${credit.toFixed(2)} as of opening this panel)`
+                          : ""
+                      }`
+                    : ""
+                }.`}
           </div>
         </Section>
       )}

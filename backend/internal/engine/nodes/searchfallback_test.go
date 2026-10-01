@@ -198,3 +198,24 @@ func TestEnsureSearchFallbackAttachesForANewlyAddedSource(t *testing.T) {
 		t.Fatal("no websearch tool attached to the agent's tools port")
 	}
 }
+
+// The fallback node must be indistinguishable from one the model added: it
+// goes through addGraphNode, so it picks up the same defaults, including the
+// read retry every other read node gets. websearch is a read.
+func TestTheSearchFallbackNodeGetsTheSameDefaultsAsAnyOtherNode(t *testing.T) {
+	g := liveDataGraph()
+	if !ensureSearchFallback(g, nil) {
+		t.Fatal("no fallback attached")
+	}
+	tool, ok := searchToolAttachedTo(g, "a")
+	if !ok {
+		t.Fatal("no websearch tool attached to the agent's tools port")
+	}
+	if tool.MaxRetries != readRetryAttempts || tool.RetryBackoffMs != readRetryBackoffMs {
+		t.Errorf("retry policy = %d/%dms, want %d/%dms -- a hand-built node misses addGraphNode's defaults",
+			tool.MaxRetries, tool.RetryBackoffMs, readRetryAttempts, readRetryBackoffMs)
+	}
+	if tool.X == 0 && tool.Y == 0 {
+		t.Error("node placed at the origin rather than on the grid beside the others")
+	}
+}

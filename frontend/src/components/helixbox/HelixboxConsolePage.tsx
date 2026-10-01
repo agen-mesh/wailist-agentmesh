@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Topbar } from "@/components/Topbar";
 import { Tag, ghostBtnSm } from "@/components/ui";
+import { ExternalLink } from "@/components/ExternalLink";
 import {
   helixbox as helixboxApi,
   formatUsd,
@@ -123,7 +124,14 @@ function CopyField({ value }: { value: string }) {
   };
 
   return (
-    <div style={{ display: "flex", gap: 8, alignItems: "stretch", flexWrap: "wrap" }}>
+    <div
+      style={{
+        display: "flex",
+        gap: 8,
+        alignItems: "stretch",
+        flexWrap: "wrap",
+      }}
+    >
       <code
         style={{
           flex: "1 1 240px",
@@ -142,7 +150,11 @@ function CopyField({ value }: { value: string }) {
       >
         {value}
       </code>
-      <button type="button" onClick={copy} style={{ ...ghostBtnSm, height: "auto", minHeight: 38 }}>
+      <button
+        type="button"
+        onClick={copy}
+        style={{ ...ghostBtnSm, height: "auto", minHeight: 38 }}
+      >
         {copied ? "Copied" : "Copy"}
       </button>
     </div>
@@ -259,7 +271,8 @@ function PlanOption({
         color: "var(--fg)",
         cursor: "pointer",
         fontFamily: "var(--font-sans)",
-        transition: "border-color 0.15s var(--ease), background 0.15s var(--ease)",
+        transition:
+          "border-color 0.15s var(--ease), background 0.15s var(--ease)",
       }}
     >
       <div
@@ -291,7 +304,8 @@ function PlanOption({
           marginTop: 3,
         }}
       >
-        {formatDuration(endpoint.durationSeconds)} · {endpoint.accessLevel} access
+        {formatDuration(endpoint.durationSeconds)} · {endpoint.accessLevel}{" "}
+        access
       </div>
       <p
         style={{
@@ -535,25 +549,18 @@ export function HelixboxConsolePage() {
     >
       <Topbar />
       <div style={{ flex: 1, overflow: "auto" }}>
-        <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 24px 96px" }}>
+        <div className="am-console-page">
           <div style={{ marginBottom: 18 }}>
-            <button onClick={() => router.push("/workflows")} style={ghostBtnSm}>
+            <button
+              onClick={() => router.push("/workflows")}
+              style={ghostBtnSm}
+            >
               ← Workflows
             </button>
           </div>
 
           <Tag>helixbox · mobile ide</Tag>
-          <h1
-            style={{
-              margin: "14px 0 6px",
-              fontSize: 34,
-              fontWeight: 500,
-              letterSpacing: "-0.02em",
-              color: "var(--fg)",
-            }}
-          >
-            Buy a HelixBox session
-          </h1>
+          <h1 className="am-console-title">Buy a HelixBox session</h1>
           <p
             style={{
               margin: "0 0 14px",
@@ -564,13 +571,15 @@ export function HelixboxConsolePage() {
             }}
           >
             HelixBox puts your development machine on your phone — files, logs,
-            Git and a terminal. Buy a session here and you get a token to sign in
-            with. No subscription, and it stops when the time runs out.
+            Git and a terminal. Buy a session here and you get a token to sign
+            in with. No subscription, and it stops when the time runs out.
           </p>
 
           {loadError && (
             <Panel style={{ padding: 16, borderColor: "var(--danger)" }}>
-              <div style={{ fontSize: 13, color: "var(--danger)" }}>{loadError}</div>
+              <div style={{ fontSize: 13, color: "var(--danger)" }}>
+                {loadError}
+              </div>
             </Panel>
           )}
 
@@ -618,7 +627,6 @@ export function HelixboxConsolePage() {
                     />
                   ))}
                 </div>
-
               </Panel>
 
               {/* ── Which session ───────────────────────────────────── */}
@@ -879,9 +887,9 @@ export function HelixboxConsolePage() {
                       }}
                     >
                       The payment went through, but HelixBox did not say how
-                      long your session is now paid for. The full reply is
-                      below — keep the transaction link as your receipt and
-                      contact HelixBox with it.
+                      long your session is now paid for. The full reply is below
+                      — keep the transaction link as your receipt and contact
+                      HelixBox with it.
                     </div>
                   )}
 
@@ -930,27 +938,23 @@ export function HelixboxConsolePage() {
                       {result.txId && (
                         <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
                           Paid to HelixBox{" "}
-                          <a
+                          <ExternalLink
                             href={result.explorerURL}
-                            target="_blank"
-                            rel="noopener noreferrer"
                             style={txLinkStyle}
                           >
                             {result.txId}
-                          </a>
+                          </ExternalLink>
                         </div>
                       )}
                       {result.platformFeeTxId && (
                         <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
                           AgentMesh fee{" "}
-                          <a
+                          <ExternalLink
                             href={result.platformFeeExplorerURL}
-                            target="_blank"
-                            rel="noopener noreferrer"
                             style={txLinkStyle}
                           >
                             {result.platformFeeTxId}
-                          </a>
+                          </ExternalLink>
                         </div>
                       )}
                     </div>

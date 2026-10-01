@@ -4,7 +4,7 @@
 // is to reconnect two halves that are otherwise unaware of each other: the
 // session the app persisted, and whatever the OS queued while the app was
 // closed.
-import { loadToken, saveToken, clearToken } from "./auth";
+import { loadToken, saveToken, clearTokenIf } from "./auth";
 import { flush, start, stop } from "./geofence";
 import { setGeofence, clearGeofence } from "./api";
 import { clearOptedIn } from "./pushPrefs";
@@ -18,10 +18,18 @@ import {
   type PushState,
 } from "./push";
 import { listenForCallback } from "./oauth";
+import { listenForBack } from "./back";
+import { navigateInApp } from "@/lib/nativeNav";
+import { safeNextPath } from "@/lib/routes";
 
 export interface NativeShell {
   onSignedIn(token: string): Promise<void>;
   onSignedOut(): Promise<void>;
+  /**
+   * Clears a session the server has refused. Given the token that was refused,
+   * so a check that failed before a newer sign-in cannot clear that sign-in.
+   */
+  onSessionRejected(token: string): Promise<void>;
   setGeofence(
     workflowId: string,
     fence: { lat: number; lng: number; radiusM: number },
@@ -74,6 +82,9 @@ export async function boot(): Promise<string | null> {
   // and a listener registered after that has already missed it -- the app
   // would open on its front page having been asked to open a specific run.
   void listenForTaps().catch(() => {});
+  // Back steps through the app's history and leaves the app on its first
+  // screen. See back.ts for why that needs a listener at all.
+  void listenForBack().catch(() => {});
   // Re-register with FCM if this device was already turned on for
   // notifications. Two reasons, and the second is the one that is easy to
   // miss:
@@ -106,19 +117,32 @@ export async function boot(): Promise<string | null> {
   // The token goes in through the same seam password sign-in uses rather than
   // through saveToken directly -- see persistNativeSession -- so a failed write
   // rolls the session back instead of leaving the app half signed in.
+  //
+  // The result is routed inside the app, not by a page load, which would
+  // reopen the launch page and drop the error reason (see lib/nativeNav.ts).
+  // Replacing the entry keeps Back from returning to the sign-in screen.
+  //
+  // Where sign-in was headed (a tapped notification's workflow, say) comes back
+  // with the result: success goes there, and a failure keeps it on the sign-in
+  // screen so the next attempt still does -- as password sign-in's ?next= does.
   void listenForCallback(async (result) => {
-    if (!result.ok) {
-      window.location.assign(
-        `/signin?error=${encodeURIComponent(result.reason)}`,
+    const next = safeNextPath(result.next);
+    const retryWithNext = (reason: string) =>
+      navigateInApp(
+        `/signin?error=${encodeURIComponent(reason)}` +
+          (next ? `&next=${encodeURIComponent(next)}` : ""),
+        { replace: true },
       );
+    if (!result.ok) {
+      retryWithNext(result.reason);
       return;
     }
     const { persistNativeSession } = await import("@/hooks/useAuth");
     try {
       await persistNativeSession(result.token);
-      window.location.assign("/workflows");
+      navigateInApp(next ?? "/workflows", { replace: true });
     } catch {
-      window.location.assign("/signin?error=session_persist");
+      retryWithNext("session_persist");
     }
   }).catch(() => {});
   return token;
@@ -132,6 +156,10 @@ export const shell: NativeShell = {
   },
 
   async onSignedOut() {
+    // The session being signed out, read before anything slow: if someone
+    // signs in while the notification work below is still running, their new
+    // token is not this one and must survive the clear at the end.
+    const token = await loadToken();
     // Notifications first, and only then the token: unregistering is an
     // authenticated call, so clearing the session first would guarantee it
     // fails and leave this device receiving the next user's run results.
@@ -142,7 +170,20 @@ export const shell: NativeShell = {
     // the NEXT person to sign in on this phone is registered for
     // notifications they were never asked about.
     await clearOptedIn();
-    await clearToken();
+    await clearTokenIf(token);
+  },
+
+  async onSessionRejected(token: string) {
+    // The reverse of onSignedOut's order. The server has already refused this
+    // token, so an authenticated unregister cannot succeed with it and there
+    // is nothing to wait for: the token goes first, before anything slow.
+    // Only this token -- a sign-in may already have replaced it, and then
+    // the device belongs to the new session and is left alone entirely.
+    if (!(await clearTokenIf(token))) return;
+    await disablePush().catch(() => {});
+    // Checked again after the slow part, for the same reason.
+    if ((await loadToken()) !== null) return;
+    await clearOptedIn();
   },
 
   async enableNotifications() {

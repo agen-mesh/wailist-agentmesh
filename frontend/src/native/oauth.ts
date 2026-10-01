@@ -35,6 +35,10 @@ const APP_SCHEME = "ai.agentmesh.app";
 
 // Persist through process death while the external browser is open.
 const VERIFIER_KEY = "agentmesh.oauth.verifier";
+// Where sign-in was headed, kept beside the verifier for the same reason: the
+// app can be killed while the Custom Tab is in front, and the callback then
+// arrives in a fresh process that has to know where to go.
+const NEXT_KEY = "agentmesh.oauth.next";
 
 // 32 bytes, hex. Long enough that guessing it is not a strategy, and printable
 // so it survives storage with no encoding questions.
@@ -62,12 +66,17 @@ async function challengeOf(verifier: string): Promise<string> {
 // Throws when the app has no backend configured, because there is nothing
 // useful to open and a Custom Tab showing an error page is worse than a
 // sentence on the sign-in screen.
-export async function start(provider: "github" | "google"): Promise<void> {
+export async function start(
+  provider: "github" | "google",
+  next?: string,
+): Promise<void> {
   const base = await auth.nativeOAuthURL(provider);
   if (!base) throw new Error("Social sign in is not configured.");
 
   const verifier = newVerifier();
   await SecureStore.set({ key: VERIFIER_KEY, value: verifier });
+  if (next) await SecureStore.set({ key: NEXT_KEY, value: next });
+  else await SecureStore.remove({ key: NEXT_KEY });
   lastCallbackURL = null;
 
   const url = `${base}?client=android&challenge=${encodeURIComponent(
@@ -79,6 +88,7 @@ export async function start(provider: "github" | "google"): Promise<void> {
     await Browser.open({ url });
   } catch (error) {
     await SecureStore.remove({ key: VERIFIER_KEY });
+    await SecureStore.remove({ key: NEXT_KEY });
     throw error;
   }
 }
@@ -86,8 +96,11 @@ export async function start(provider: "github" | "google"): Promise<void> {
 // The outcome of one callback, so the caller decides what to show. A thrown
 // error would be indistinguishable from a bug in the listener, and this runs
 // where nobody is awaiting a promise.
+// `next` is where sign-in was headed when it started, if anywhere; the caller
+// decides whether it is safe to follow.
 export type OAuthResult =
-  { ok: true; token: string } | { ok: false; reason: string };
+  | { ok: true; token: string; next?: string }
+  | { ok: false; reason: string; next?: string };
 
 // handleCallbackUrl turns a deep link into a session, or into a reason.
 //
@@ -103,21 +116,24 @@ export async function handleCallbackUrl(url: string): Promise<OAuthResult> {
 
   if (!isCallbackURL(parsed)) return { ok: false, reason: "bad_callback" };
 
+  let next: string | undefined;
   try {
     const { value: verifier } = await SecureStore.get({ key: VERIFIER_KEY });
     await SecureStore.remove({ key: VERIFIER_KEY });
+    next = (await SecureStore.get({ key: NEXT_KEY })).value ?? undefined;
+    await SecureStore.remove({ key: NEXT_KEY });
     const error = parsed.searchParams.get("error");
-    if (error) return { ok: false, reason: error };
+    if (error) return { ok: false, reason: error, next };
     const code = parsed.searchParams.get("code");
-    if (!code) return { ok: false, reason: "no_code" };
-    if (!verifier) return { ok: false, reason: "no_verifier" };
+    if (!code) return { ok: false, reason: "no_code", next };
+    if (!verifier) return { ok: false, reason: "no_verifier", next };
 
     const token = await auth.oauthExchange(code, verifier);
     return token
-      ? { ok: true, token }
-      : { ok: false, reason: "exchange_failed" };
+      ? { ok: true, token, next }
+      : { ok: false, reason: "exchange_failed", next };
   } catch {
-    return { ok: false, reason: "exchange_failed" };
+    return { ok: false, reason: "exchange_failed", next };
   }
 }
 

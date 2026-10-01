@@ -102,8 +102,13 @@ beforeEach(async () => {
   ({ NotificationsSheet } = await import("./NotificationsSheet"));
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  // The sheet removes its history entry with history.back(), which dispatches
+  // popstate in a later task. cleanup() has already taken the listeners off;
+  // this lets that task run before the next test mounts a sheet of its own.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  window.history.replaceState({}, "");
 });
 
 describe("the state the sheet opens on", () => {

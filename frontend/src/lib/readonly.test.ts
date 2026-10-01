@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { can, isWriteBlocked } from "./readonly";
 
 // The two modes the app ships in: a desktop editor and a small-screen viewer.
@@ -76,9 +76,9 @@ describe("isWriteBlocked", () => {
     expect(isWriteBlocked("PUT", "/workflows/wf_123/schedule", VIEWER)).toBe(
       true,
     );
-    expect(
-      isWriteBlocked("DELETE", "/workflows/wf_123/schedule", VIEWER),
-    ).toBe(true);
+    expect(isWriteBlocked("DELETE", "/workflows/wf_123/schedule", VIEWER)).toBe(
+      true,
+    );
     // GET, not a write verb -- listed because the backend handler behind it
     // creates a workflow row on first call (get-or-create), so it is a write
     // in effect. See lib/tendril.ts's console().
@@ -92,6 +92,25 @@ describe("isWriteBlocked", () => {
     expect(isWriteBlocked("GET", "/prism/endpoints", VIEWER)).toBe(false);
   });
 
+  // The two lists had drifted: the backend blocked GET /helixbox/console and
+  // neither blocked variable writes, though lib/api.ts guards them. Pinned so
+  // they stay in step with backend/internal/api/readonly.go.
+  it("blocks variable writes and the helixbox console for a viewer", () => {
+    expect(
+      isWriteBlocked("PUT", "/workflows/wf_123/variables/API_KEY", VIEWER),
+    ).toBe(true);
+    expect(
+      isWriteBlocked("DELETE", "/workflows/wf_123/variables/API_KEY", VIEWER),
+    ).toBe(true);
+    expect(isWriteBlocked("GET", "/workflows/wf_123/variables", VIEWER)).toBe(
+      false,
+    );
+    expect(isWriteBlocked("GET", "/helixbox/console", VIEWER)).toBe(true);
+    expect(isWriteBlocked("GET", "/helixbox/console/exists", VIEWER)).toBe(
+      false,
+    );
+  });
+
   // The geofence exception, pinned from the guard's side.
   //
   // This is the half that actually ships the decision: the capability above
@@ -103,9 +122,9 @@ describe("isWriteBlocked", () => {
     expect(isWriteBlocked("PUT", "/workflows/wf_123/geofence", VIEWER)).toBe(
       false,
     );
-    expect(
-      isWriteBlocked("DELETE", "/workflows/wf_123/geofence", VIEWER),
-    ).toBe(false);
+    expect(isWriteBlocked("DELETE", "/workflows/wf_123/geofence", VIEWER)).toBe(
+      false,
+    );
   });
 
   // Guards the blast radius rather than the feature: the geofence rules were
@@ -169,5 +188,31 @@ describe("isWriteBlocked", () => {
     expect(
       isWriteBlocked("POST", "/workflows/wf_1/agents/a_1/fund", VIEWER),
     ).toBe(false);
+  });
+});
+
+// IS_NATIVE is read from the environment when lib/nativeAuth.ts loads, so each
+// case sets the variable and then imports a fresh copy of the module.
+describe("isReadOnlyNow", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  // jsdom has no matchMedia, so lib/device.ts reads this test environment as a
+  // desktop. The native app must be read-only anyway: it is never an editor,
+  // whatever device it runs on.
+  it("treats the native app as read-only on a desktop-shaped device", async () => {
+    vi.stubEnv("NEXT_PUBLIC_NATIVE_CLIENT", "1");
+    vi.resetModules();
+    const { isReadOnlyNow } = await import("./readonly");
+    expect(isReadOnlyNow()).toBe(true);
+  });
+
+  it("leaves a desktop web client writable", async () => {
+    vi.stubEnv("NEXT_PUBLIC_NATIVE_CLIENT", "");
+    vi.resetModules();
+    const { isReadOnlyNow } = await import("./readonly");
+    expect(isReadOnlyNow()).toBe(false);
   });
 });

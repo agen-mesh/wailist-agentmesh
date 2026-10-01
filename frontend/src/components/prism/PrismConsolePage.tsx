@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Topbar } from "@/components/Topbar";
 import { Tag, ghostBtnSm } from "@/components/ui";
+import { ExternalLink } from "@/components/ExternalLink";
 import {
   prism as prismApi,
   formatUsd,
@@ -149,7 +150,8 @@ function Segmented<T extends string>({
               color: "var(--fg)",
               cursor: "pointer",
               fontFamily: "var(--font-sans)",
-              transition: "border-color 0.15s var(--ease), background 0.15s var(--ease)",
+              transition:
+                "border-color 0.15s var(--ease), background 0.15s var(--ease)",
             }}
           >
             <div style={{ fontSize: 13, fontWeight: 600 }}>{o.label}</div>
@@ -207,7 +209,9 @@ function FieldControl({
       // swapped out, and they would pay for that mistake.
       setFileSize(null);
       onChange(undefined);
-      setFileError(e instanceof Error ? e.message : `Could not read ${file.name}.`);
+      setFileError(
+        e instanceof Error ? e.message : `Could not read ${file.name}.`,
+      );
     }
   };
 
@@ -226,7 +230,9 @@ function FieldControl({
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {label}
       {field.description && (
-        <div style={{ fontSize: 11.5, color: "var(--fg-muted)", lineHeight: 1.5 }}>
+        <div
+          style={{ fontSize: 11.5, color: "var(--fg-muted)", lineHeight: 1.5 }}
+        >
           {field.description}
         </div>
       )}
@@ -330,7 +336,9 @@ function FieldControl({
             </button>
           )}
           {fileError && (
-            <div style={{ fontSize: 11.5, color: "var(--danger)" }}>{fileError}</div>
+            <div style={{ fontSize: 11.5, color: "var(--danger)" }}>
+              {fileError}
+            </div>
           )}
         </div>
       ) : field.kind === "textarea" ? (
@@ -411,7 +419,9 @@ export function PrismConsolePage() {
       .catch((e: unknown) => {
         if (!stale) {
           setLoadError(
-            e instanceof Error ? e.message : "Could not load Prism's endpoints.",
+            e instanceof Error
+              ? e.message
+              : "Could not load Prism's endpoints.",
           );
         }
       });
@@ -492,7 +502,7 @@ export function PrismConsolePage() {
     >
       <Topbar />
       <div style={{ flex: 1, overflow: "auto" }}>
-        <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 24px 96px" }}>
+        <div className="am-console-page">
           {/* ghostBtnSm is inline-flex (so its own icon+label stay aligned),
               and Tag is inline-flex too -- with no block-level element
               between them, the button's marginBottom did nothing and the
@@ -500,23 +510,16 @@ export function PrismConsolePage() {
               like a separator glued to "Workflows". A wrapping block gives
               the margin somewhere real to apply. */}
           <div style={{ marginBottom: 18 }}>
-            <button onClick={() => router.push("/workflows")} style={ghostBtnSm}>
+            <button
+              onClick={() => router.push("/workflows")}
+              style={ghostBtnSm}
+            >
               ← Workflows
             </button>
           </div>
 
           <Tag>prism · ai routing</Tag>
-          <h1
-            style={{
-              margin: "14px 0 6px",
-              fontSize: 34,
-              fontWeight: 500,
-              letterSpacing: "-0.02em",
-              color: "var(--fg)",
-            }}
-          >
-            Run an AI task
-          </h1>
+          <h1 className="am-console-title">Run an AI task</h1>
           <p
             style={{
               margin: "0 0 14px",
@@ -525,13 +528,15 @@ export function PrismConsolePage() {
               maxWidth: 540,
             }}
           >
-            Pick a task, fill it in, and pay for that one run. Nothing to set
-            up and no subscription.
+            Pick a task, fill it in, and pay for that one run. Nothing to set up
+            and no subscription.
           </p>
 
           {loadError && (
             <Panel style={{ padding: 16, borderColor: "var(--danger)" }}>
-              <div style={{ fontSize: 13, color: "var(--danger)" }}>{loadError}</div>
+              <div style={{ fontSize: 13, color: "var(--danger)" }}>
+                {loadError}
+              </div>
             </Panel>
           )}
 
@@ -653,8 +658,16 @@ export function PrismConsolePage() {
                         setRunError(null);
                       }}
                       options={[
-                        { key: "file" as const, label: "One file", note: "paste a link to a single file" },
-                        { key: "repo" as const, label: "Whole repo", note: "every source file, one pass each" },
+                        {
+                          key: "file" as const,
+                          label: "One file",
+                          note: "paste a link to a single file",
+                        },
+                        {
+                          key: "repo" as const,
+                          label: "Whole repo",
+                          note: "every source file, one pass each",
+                        },
                       ]}
                     />
                   </div>
@@ -685,7 +698,9 @@ export function PrismConsolePage() {
                         field={f}
                         value={fieldValues[f.name]}
                         disabled={running}
-                        onChange={(next) => setField(endpoint.task, f.name, next)}
+                        onChange={(next) =>
+                          setField(endpoint.task, f.name, next)
+                        }
                       />
                     ))}
                   </div>
@@ -721,7 +736,12 @@ export function PrismConsolePage() {
                     )}
                     <div
                       aria-hidden
-                      style={{ flex: 1, minWidth: 24, height: 1, background: "var(--border)" }}
+                      style={{
+                        flex: 1,
+                        minWidth: 24,
+                        height: 1,
+                        background: "var(--border)",
+                      }}
                     />
                     <button
                       type="button"
@@ -838,8 +858,8 @@ export function PrismConsolePage() {
                       }}
                     >
                       Prism answered without asking for payment, so this run was
-                      free. That is unusual, so double-check the result before you
-                      rely on it.
+                      free. That is unusual, so double-check the result before
+                      you rely on it.
                     </div>
                   )}
 
@@ -859,27 +879,23 @@ export function PrismConsolePage() {
                       {result.txId && (
                         <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
                           Paid to Prism{" "}
-                          <a
+                          <ExternalLink
                             href={result.explorerURL}
-                            target="_blank"
-                            rel="noopener noreferrer"
                             style={txLinkStyle}
                           >
                             {result.txId}
-                          </a>
+                          </ExternalLink>
                         </div>
                       )}
                       {result.platformFeeTxId && (
                         <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
                           AgentMesh fee{" "}
-                          <a
+                          <ExternalLink
                             href={result.platformFeeExplorerURL}
-                            target="_blank"
-                            rel="noopener noreferrer"
                             style={txLinkStyle}
                           >
                             {result.platformFeeTxId}
-                          </a>
+                          </ExternalLink>
                         </div>
                       )}
                     </div>

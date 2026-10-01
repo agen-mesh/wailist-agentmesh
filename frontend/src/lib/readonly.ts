@@ -1,12 +1,14 @@
 import { isHandheldNow } from "./device";
+import { IS_NATIVE } from "./nativeAuth";
 
-// The web app is an editor on a computer and a viewer on a handheld.
+// The web app is an editor on a computer and a viewer on a handheld; the
+// native app is a viewer on every device.
 //
-// This is the GitHub arrangement: browse anywhere, author where you have the
-// keyboard and pointer to do it with. The line is drawn by DEVICE, not by
-// window width -- a laptop dragged narrow is still a laptop, and taking its
-// editor away because of a window size was simply a bug. See lib/device.ts
-// for how a handheld is identified and why no single browser API suffices.
+// Browse anywhere, author where you have the keyboard and pointer to do it
+// with. The line is drawn by DEVICE, not by window width -- a laptop dragged
+// narrow is still a laptop, and taking its editor away because of a window
+// size was simply a bug. See lib/device.ts for how a handheld is identified
+// and why no single browser API suffices.
 
 // Named for what the user is trying to do, not for the endpoint behind it, so
 // a call site reads as intent: `can("workflow.deploy", readOnly)`.
@@ -78,6 +80,10 @@ const WRITE_RULES: ReadonlyArray<{ method: string; pattern: RegExp }> = [
   { method: "POST", pattern: /^\/workflows\/[^/]+\/build$/ },
   { method: "PUT", pattern: /^\/workflows\/[^/]+\/schedule$/ },
   { method: "DELETE", pattern: /^\/workflows\/[^/]+\/schedule$/ },
+  // Variables are values a workflow's nodes read, so writing one is authoring.
+  // Listing them stays open.
+  { method: "PUT", pattern: /^\/workflows\/[^/]+\/variables\/[^/]+$/ },
+  { method: "DELETE", pattern: /^\/workflows\/[^/]+\/variables\/[^/]+$/ },
   // PUT/DELETE .../geofence used to sit here. They were removed with the
   // capability above: leaving them would have made the guard contradict the
   // policy, so a viewer would see the control, press it, and get an exception
@@ -88,6 +94,8 @@ const WRITE_RULES: ReadonlyArray<{ method: string; pattern: RegExp }> = [
   // operating rather than authoring, so neither is listed -- exactly the line
   // /tendril/console/exists and /tendril/run already sit on.
   { method: "GET", pattern: /^\/prism\/console$/ },
+  // And the HelixBox console, which the backend list already carries.
+  { method: "GET", pattern: /^\/helixbox\/console$/ },
 ];
 
 // `path` is the API path as written at the call site (leading slash, no
@@ -110,14 +118,13 @@ export function isWriteBlocked(
 // out, right now", and nothing needs to re-render when the answer changes.
 // Components must use useReadOnly() instead.
 export function isReadOnlyNow(): boolean {
-  return isHandheldNow();
+  return IS_NATIVE || isHandheldNow();
 }
 
-// Defence in depth for the API layer, shared by every module that calls this
-// backend directly from the WEB bundle (lib/api.ts, lib/tendril.ts). Not for
-// native/api.ts: that file runs only inside the native Android shell, which
-// isHandheldNow() classifies as handheld unconditionally by design (see
-// lib/device.ts) -- gating it on this same check would block every native
+// Defence in depth for the API layer, called by lib/api.ts before each write it
+// sends from the WEB bundle. Not for native/api.ts: that file runs only inside
+// the native Android shell, which isReadOnlyNow() treats as read-only
+// unconditionally -- gating it on this same check would block every native
 // write permanently rather than just a web viewer's.
 export function assertWritable(method: string, path: string): void {
   if (isWriteBlocked(method, path, isReadOnlyNow())) {

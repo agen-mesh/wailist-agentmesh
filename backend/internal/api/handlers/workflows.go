@@ -7,8 +7,10 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/robfig/cron/v3"
 
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine"
@@ -79,10 +81,26 @@ func (d *Deps) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusNotFound, "workflow not found")
 		return
 	}
+	// The figures a workflow's own screen shows. Like the list, a failure
+	// here leaves them out rather than failing the whole response -- and
+	// says so, because the zero values it leaves behind are indistinguishable
+	// from a workflow that simply had no runs or spend in the window.
+	if err := d.loadWorkflowStats(r.Context(), userID, &wf); err != nil {
+		log.Printf("workflow %s stats: %v", wf.ID, err)
+		wf.StatsUnavailable = true
+	}
+	if n, err := d.Store.CountRuns(r.Context(), wf.ID); err != nil {
+		log.Printf("workflow %s run count: %v", wf.ID, err)
+	} else {
+		wf.TotalRuns = &n
+	}
 	decrypted := decryptNodes(wf.Nodes, d.EncryptionKey)
 	wf.Nodes = unmaskWebhookSecrets(maskNodes(wf.Nodes), decrypted)
 	respond.JSON(w, http.StatusOK, wf)
 }
+
+// maxDescriptionLen matches the CHECK on workflows.description.
+const maxDescriptionLen = 2000
 
 // EstimateWorkflowCost returns a static low/high USD-micros band for one
 // run of the workflow. It reads only non-secret node fields (node type,
@@ -111,8 +129,19 @@ func (d *Deps) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		Name  string                `json:"name"`
 		Nodes []models.WorkflowNode `json:"nodes"`
 		Edges []models.WorkflowEdge `json:"edges"`
+		// Optional. Absent leaves the description as it is, so a save
+		// that does not know about it (the editor's) never clears it.
+		Description *string `json:"description"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
+	var description string
+	if body.Description != nil {
+		description = strings.TrimSpace(*body.Description)
+		if len([]rune(description)) > maxDescriptionLen {
+			respond.Error(w, http.StatusBadRequest, "Description is too long. Keep it under 2000 characters.")
+			return
+		}
+	}
 	// is_system is the real identity guard (FindSystemWorkflow requires it,
 	// so a rename alone can no longer forge a console). This check exists so
 	// the collision shape can't arise at all: an ordinary workflow renamed to
@@ -128,7 +157,11 @@ func (d *Deps) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	encryptedNodes := encryptNodes(body.Nodes, d.EncryptionKey, existing.Nodes)
 	encryptedNodes = ensureWebhookSecrets(encryptedNodes, d.EncryptionKey)
 	graph := models.WorkflowGraph{Nodes: encryptedNodes, Edges: body.Edges}
-	wf, err := d.Store.UpdateWorkflow(r.Context(), id, body.Name, graph)
+	var newDescription *string
+	if body.Description != nil {
+		newDescription = &description
+	}
+	wf, err := d.Store.UpdateWorkflowAndDescription(r.Context(), id, body.Name, graph, newDescription)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -282,19 +315,32 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 		// BuildID, when the client supplies one, lets it poll
 		// BuildWorkflowProgress for this build's steps while it runs.
 		BuildID string `json:"buildId"`
+		// TimeZone is the browser's IANA zone, which set_schedule reads the
+		// user's "9 am" in.
+		TimeZone string `json:"timeZone"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 	if strings.TrimSpace(body.Message) == "" {
 		respond.Error(w, http.StatusBadRequest, "message required")
 		return
 	}
+	// What the chat will show once this build is done, read by the deferred
+	// finish below. See buildProgressEntry.reply for why the POST response is
+	// not enough on its own.
+	var finishedReply string
 	var onProgress func(nodes.BuildProgress)
 	if buildIDPattern.MatchString(body.BuildID) {
 		key := buildProgressKey(userID, id, body.BuildID)
 		onProgress = func(p nodes.BuildProgress) { buildProgress.set(key, p) }
 		// Deferred, so "done" is only reported once the workflow has been
 		// saved -- or the build has failed -- never while the save is pending.
-		defer buildProgress.finish(key)
+		//
+		// The reply is captured through a closure rather than passed in
+		// directly: this runs on every exit path, and on the ones that never
+		// produced a reply the empty string is the right answer. A build that
+		// ended without an answer is still finished, and the chat has to be
+		// able to tell that from one still running.
+		defer func() { buildProgress.finish(key, finishedReply) }()
 	}
 	if d.PlatformGeminiAPIKey == "" {
 		respond.Error(w, http.StatusServiceUnavailable, "workflow builder is not configured")
@@ -331,6 +377,7 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 		X402Catalog: d.catalog,
 		TraceID:     id,
 		OnProgress:  onProgress,
+		TimeZone:    body.TimeZone,
 		TestRun: func(ctx context.Context, g models.WorkflowGraph, input string) nodes.DryRunResult {
 			// The builder edits a redacted copy: credentials are the "__enc__"
 			// sentinel. Merge them back exactly as the save below does, then
@@ -424,6 +471,15 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The schedule is saved after the graph, never before: a schedule on a
+	// graph that failed to save would fire a workflow the user never saw.
+	reply := result.Reply
+	if result.Schedule != nil {
+		if note := d.applyBuildSchedule(buildCtx, &wf, *result.Schedule); note != "" {
+			reply += "\n\n" + note
+		}
+	}
+
 	// Recorded only once the graph is actually saved, and only as a pair.
 	// Before the build call, a model error would leave an unanswered question
 	// in the history; before the save, a save failure would leave the model
@@ -433,12 +489,52 @@ func (d *Deps) BuildWorkflow(w http.ResponseWriter, r *http.Request) {
 	// not worth failing a request whose work is already persisted.
 	if err := d.Store.AppendBuildMessage(buildCtx, id, "user", body.Message); err != nil {
 		log.Printf("build workflow %s: save user turn: %v", id, err)
-	} else if err := d.Store.AppendBuildMessage(buildCtx, id, "model", result.Reply); err != nil {
+	} else if err := d.Store.AppendBuildMessage(buildCtx, id, "model", reply); err != nil {
 		log.Printf("build workflow %s: save model turn: %v", id, err)
 	}
 	decrypted := decryptNodes(wf.Nodes, d.EncryptionKey)
 	wf.Nodes = unmaskWebhookSecrets(maskNodes(wf.Nodes), decrypted)
-	respond.JSON(w, http.StatusOK, map[string]any{"reply": result.Reply, "workflow": wf})
+	// Set before responding, so the deferred finish records it even if the
+	// client is already gone and this write goes nowhere.
+	finishedReply = reply
+	respond.JSON(w, http.StatusOK, map[string]any{"reply": reply, "workflow": wf})
+}
+
+// applyBuildSchedule saves the schedule a build set, onto wf as well as the
+// store, and returns a note for the reply when it could not be saved.
+//
+// Unlike SetSchedule, this saves onto a draft. The builder is where a
+// workflow is still being made, so it is nearly always a draft here, and
+// refusing would bring back the "go and set it yourself" chore this exists
+// to remove. It stays safe because the scheduler only claims deployed
+// workflows, and Deploy recomputes the next run from the moment of
+// deployment, so a schedule saved days before deploying cannot fire a
+// stale catch-up run the instant it goes live.
+//
+// The model has already told the user the schedule is set, so a failure
+// here must say otherwise in the same reply rather than only in a log.
+func (d *Deps) applyBuildSchedule(ctx context.Context, wf *models.Workflow, expr string) string {
+	const failed = "The schedule could not be saved, so this workflow will not run on its own yet. Set it from the Schedule option on the Workflows page."
+	if expr == "" {
+		if err := d.Store.ClearWorkflowSchedule(ctx, wf.ID); err != nil {
+			log.Printf("build workflow %s: clear schedule: %v", wf.ID, err)
+			return "The schedule could not be removed. Remove it from the Schedule option on the Workflows page."
+		}
+		wf.ScheduleCron, wf.ScheduleNextRunAt = nil, nil
+		return ""
+	}
+	sched, err := cron.ParseStandard(expr)
+	if err != nil {
+		log.Printf("build workflow %s: builder produced an invalid cron %q: %v", wf.ID, expr, err)
+		return failed
+	}
+	next := sched.Next(time.Now().UTC())
+	if err := d.Store.SetWorkflowSchedule(ctx, wf.ID, expr, next); err != nil {
+		log.Printf("build workflow %s: save schedule: %v", wf.ID, err)
+		return failed
+	}
+	wf.ScheduleCron, wf.ScheduleNextRunAt = &expr, &next
+	return ""
 }
 
 // graphFingerprint is a graph's nodes and edges with canvas positions left
