@@ -1,5 +1,7 @@
 "use client";
+import { useState } from "react";
 import { IconSpeaker, IconStop } from "@/components/ui";
+import { stepsSummary, type BuildStep } from "./buildProgress";
 import { toSpeechText } from "./speechText";
 import { useSpeechPlayback } from "./useSpeechPlayback";
 import type { ChatMessage as Message } from "./useChatSession";
@@ -32,6 +34,137 @@ function activityParts(m: Message): string[] {
     parts.push(`$${m.spendUSD.toFixed(4)}`);
   }
   return parts;
+}
+
+/** Steps shown while a build is still running; older ones fold into a count. */
+const LIVE_STEPS_SHOWN = 8;
+
+const stepLineStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "12px 1fr",
+  columnGap: 6,
+  alignItems: "baseline",
+  fontFamily: "var(--font-mono)",
+  fontSize: 11,
+  lineHeight: 1.5,
+  minWidth: 0,
+};
+
+/**
+ * A chat build's steps, one line each -- the builder's work shown the way a
+ * coding agent shows its tool calls, rather than a spinner. A failed step
+ * keeps its reason on the line beneath it, since "Couldn't add … (HTTP 404)"
+ * is exactly the kind of thing the user needs to see.
+ */
+function StepList({ steps }: { steps: BuildStep[] }) {
+  return (
+    <div
+      style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}
+    >
+      {steps.map((st, i) => {
+        const failed = st.status === "error";
+        return (
+          <div key={i} style={stepLineStyle}>
+            <span
+              aria-hidden
+              style={{
+                color: failed ? "var(--danger)" : "var(--fg-dim)",
+                textAlign: "center",
+              }}
+            >
+              {failed ? "✕" : "✓"}
+            </span>
+            <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+              <span
+                style={{ color: failed ? "var(--danger)" : "var(--fg-muted)" }}
+              >
+                {st.label}
+              </span>
+              {st.detail && (
+                <span style={{ display: "block", color: "var(--fg-dim)" }}>
+                  {st.detail}
+                </span>
+              )}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** While pending: the latest steps and what is running right now. */
+function LiveProgress({
+  steps,
+  current,
+}: {
+  steps: BuildStep[];
+  current?: string;
+}) {
+  const hidden = Math.max(0, steps.length - LIVE_STEPS_SHOWN);
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 2,
+        padding: "4px 0",
+        minWidth: 0,
+      }}
+    >
+      {hidden > 0 && (
+        <div style={{ ...stepLineStyle, color: "var(--fg-dim)" }}>
+          <span aria-hidden />
+          <span>
+            +{hidden} earlier step{hidden === 1 ? "" : "s"}
+          </span>
+        </div>
+      )}
+      <StepList steps={steps.slice(-LIVE_STEPS_SHOWN)} />
+      <div style={{ ...stepLineStyle, color: "var(--fg-dim)" }}>
+        <span style={{ display: "flex", justifyContent: "center" }}>
+          <span className="chat-thinking-dot" />
+        </span>
+        <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+          {current ? `${current}…` : "working…"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Once settled: the steps fold into one dim line that expands on click. */
+function SettledSteps({ steps }: { steps: BuildStep[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: 6, minWidth: 0 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        style={{
+          padding: "2px 0",
+          background: "none",
+          border: "none",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          letterSpacing: "0.02em",
+          color: "var(--fg-dim)",
+          cursor: "pointer",
+        }}
+      >
+        <span aria-hidden>{open ? "▾" : "▸"} </span>
+        {stepsSummary(steps)}
+      </button>
+      {open && (
+        <div style={{ marginTop: 4 }}>
+          <StepList steps={steps} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
@@ -67,6 +200,7 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
   }
 
   const parts = activityParts(message);
+  const steps = message.steps ?? [];
   const canShowLogs = !!onShowLogs;
   const canSpeak = !message.pending && message.text.trim() !== "";
 
@@ -75,7 +209,12 @@ export function ChatMessage({ message, onShowLogs }: ChatMessageProps) {
       className="chat-msg"
       style={{ display: "flex", flexDirection: "column" }}
     >
-      {message.pending ? (
+      {/* A settled build keeps its steps, folded above the answer. */}
+      {!message.pending && steps.length > 0 && <SettledSteps steps={steps} />}
+
+      {message.pending && (steps.length > 0 || message.current) ? (
+        <LiveProgress steps={steps} current={message.current} />
+      ) : message.pending ? (
         <div
           style={{
             display: "flex",

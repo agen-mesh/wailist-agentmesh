@@ -4,7 +4,10 @@ import path from "path";
 export default defineConfig({
   test: {
     environment: "jsdom",
-    include: ["src/**/*.test.ts"],
+    // .tsx as well as .ts: NotificationsSheet's bug was a state TRANSITION
+    // (turn off, then re-read), which is only reachable by driving the
+    // component. Pure-function tests could not have caught it.
+    include: ["src/**/*.test.{ts,tsx}"],
   },
   resolve: {
     alias: {

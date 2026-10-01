@@ -65,6 +65,7 @@ type Resource struct {
 	Params        []Param `json:"params"`
 	OutputExample string  `json:"outputExample,omitempty"`
 	SettleCount   int     `json:"settleCount"`
+	FirstSeen     string  `json:"firstSeen,omitempty"`
 	LastSeen      string  `json:"lastSeen,omitempty"`
 	Host          string  `json:"host"`
 
@@ -113,6 +114,7 @@ type rawResource struct {
 		} `json:"output"`
 	} `json:"discoveryInfo"`
 	SettleCount int    `json:"settleCount"`
+	FirstSeen   string `json:"firstSeen"`
 	LastSeen    string `json:"lastSeen"`
 }
 
@@ -209,6 +211,7 @@ func normalise(raw rawResource) (Resource, bool) {
 		Asset:        a.Asset,
 		PayTo:        a.PayTo,
 		SettleCount:  raw.SettleCount,
+		FirstSeen:    raw.FirstSeen,
 		LastSeen:     raw.LastSeen,
 		Host:         parsed.Hostname(),
 		Params:       paramsFrom(raw),

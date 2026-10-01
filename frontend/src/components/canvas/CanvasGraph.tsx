@@ -714,7 +714,9 @@ export function CanvasGraph({
           // origin, so without this it would eat the first node's mousedown
           // on nearly every workflow. The keycaps have no click behavior.
           pointerEvents: "none",
-          display: "flex",
+          // Every hint is an editing gesture (drag, connect, delete), so a
+          // client that cannot edit the graph is shown none of them.
+          display: editable ? "flex" : "none",
           flexWrap: "wrap",
           columnGap: 12,
           rowGap: 6,

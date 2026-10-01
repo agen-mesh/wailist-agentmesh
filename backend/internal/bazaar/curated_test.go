@@ -3,6 +3,7 @@ package bazaar
 import (
 	"testing"
 
+	"github.com/agentmesh/backend/internal/helixbox"
 	"github.com/agentmesh/backend/internal/prism"
 )
 
@@ -418,4 +419,58 @@ func TestMergeKeepsTestnetConsistentWithTheOverriddenNetwork(t *testing.T) {
 		return
 	}
 	t.Fatal("the matched entry vanished")
+}
+
+// The card and the console must quote the same number. They are derived from
+// one table precisely so they cannot drift, and this is the assertion that
+// keeps the derivation honest if somebody ever hardcodes an entry back in.
+func TestHelixboxCuratedEntriesMatchTheirSource(t *testing.T) {
+	byID := map[string]Resource{}
+	for _, c := range Curated() {
+		if c.Provider == helixbox.Provider {
+			byID[c.ID] = c
+		}
+	}
+	eps := helixbox.Endpoints()
+	if len(byID) != len(eps) {
+		t.Fatalf("want all %d HelixBox endpoints curated, got %d", len(eps), len(byID))
+	}
+	for _, e := range eps {
+		c, ok := byID["curated:helixbox-"+e.ID]
+		if !ok {
+			t.Errorf("HelixBox endpoint %s has no curated entry", e.ID)
+			continue
+		}
+		if c.AmountMicros != e.AmountMicros {
+			t.Errorf("%s: card quotes %d, console charges %d", e.ID, c.AmountMicros, e.AmountMicros)
+		}
+		if c.URL != e.URL() {
+			t.Errorf("%s: card URL %q, console calls %q", e.ID, c.URL, e.URL())
+		}
+		if c.PayTo != helixbox.PayTo || c.Asset != helixbox.AssetID {
+			t.Errorf("%s: payment details diverge from the probed quote", e.ID)
+		}
+		if c.Console != helixbox.ConsoleKey {
+			t.Errorf("%s: Console = %q, want %q", e.ID, c.Console, helixbox.ConsoleKey)
+		}
+		if c.Method != e.Method {
+			t.Errorf("%s: card says %s, console sends %s", e.ID, c.Method, e.Method)
+		}
+	}
+}
+
+// Every curated partner settles to its own address. A copy-paste that pointed
+// HelixBox's entries at Prism's PayTo would pay the wrong vendor on every
+// single call, and nothing else in the stack would notice.
+func TestCuratedProvidersDoNotShareASettlementAddress(t *testing.T) {
+	byAddr := map[string]string{}
+	for _, c := range Curated() {
+		if c.PayTo == "" {
+			continue
+		}
+		if prev, ok := byAddr[c.PayTo]; ok && prev != c.Provider {
+			t.Errorf("%s and %s both settle to %s", prev, c.Provider, c.PayTo)
+		}
+		byAddr[c.PayTo] = c.Provider
+	}
 }

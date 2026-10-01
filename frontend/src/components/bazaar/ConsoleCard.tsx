@@ -7,6 +7,7 @@ import {
   type BazaarResource,
 } from "@/lib/bazaar";
 import { can } from "@/lib/readonly";
+import { workflowHref } from "@/lib/routes";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import { TENDRIL_DEMO_WORKFLOW, PRISM_DEMO_WORKFLOW } from "@/lib/data";
 import { loadTemplateWorkflow } from "@/lib/templateWorkflow";
@@ -30,13 +31,17 @@ const CONSOLE_COPY: Record<string, { verb: string; blurb: string }> = {
     blurb:
       "Have a file reviewed for bugs and security holes, or score a resume against a role. Pick quick or thorough, and pay for that one run.",
   },
+  helixbox: {
+    verb: "Your dev machine, on your phone",
+    blurb:
+      "Pair your machine with the HelixBox app, then buy an hour or a week on it \u2014 files, logs, Git and a terminal from your phone. The app picks up the time on its own.",
+  },
 };
 
 // TRY_WORKFLOW_TEMPLATES backs the card's "try a workflow" icon: a real,
 // multi-node pipeline that actually calls this partner, as opposed to the
-// console's single-endpoint form. Lives in lib/data.ts next to DEMO_WORKFLOW
-// -- same shape, same reason (real endpoints and correct billing math, not
-// an invented example).
+// console's single-endpoint form. Both live in lib/data.ts, built on real
+// endpoints with correct billing math, not an invented example.
 const TRY_WORKFLOW_TEMPLATES: Record<string, Workflow> = {
   tendril: TENDRIL_DEMO_WORKFLOW,
   prism: PRISM_DEMO_WORKFLOW,
@@ -52,12 +57,37 @@ const TRY_WORKFLOW_TEMPLATES: Record<string, Workflow> = {
 const CONSOLE_PATHS: Record<string, string> = {
   tendril: "/bazaar/tendril",
   prism: "/bazaar/prism",
+  helixbox: "/bazaar/helixbox",
 };
 
 // TIER_SUFFIXES are quality tiers, not separate capabilities: "code-review-fast"
 // and "code-review-accurate" are one thing you can do, offered at two depths.
 // Listing both would make a console look twice as broad as it is.
 const TIER_SUFFIXES = ["fast", "accurate", "quick", "thorough"];
+
+// CAPABILITY_OVERRIDES name what a console does when its endpoint paths do not.
+//
+// capabilityLabels reads the last path segment, which works when a partner
+// names endpoints after the job ("code-review-accurate" -> "Code review"). It
+// does not work for HelixBox, whose paths end in the LENGTH of the session
+// ("/cli/hour", "/premium/week", "/agent-session-1hour"), producing chips that
+// read "Hour", "Week" and "Agent session 1hour" -- three durations dressed up
+// as three capabilities. A partner that names endpoints this way needs its
+// capabilities stated rather than parsed.
+const CAPABILITY_OVERRIDES: Record<string, string[]> = {
+  helixbox: ["Remote terminal", "Agent sessions"],
+  // "/x402/run" reduces to the single chip "Run", which says nothing and reads
+  // as a truncated label next to partners listing two real capabilities.
+  tendril: ["Python sandbox", "Rented compute"],
+};
+
+// What one purchase BUYS, for the price label. "a run" is right for Tendril
+// and Prism, where paying once gets you one answer. HelixBox sells a window of
+// access instead — "$1.75-$3.50 a run" would describe buying a week of a mobile
+// IDE as a single run of something.
+const CONSOLE_PRICE_UNIT: Record<string, string> = {
+  helixbox: "a session",
+};
 
 // capabilityLabels turns endpoint URLs into plain-language things-you-can-do.
 // Order-preserving and deduplicated, so a console lists each capability once in
@@ -78,12 +108,16 @@ export function capabilityLabels(urls: string[]): string[] {
       continue;
     }
     const words = seg.split(/[-_]/).filter(Boolean);
-    if (words.length > 1 && TIER_SUFFIXES.includes(words[words.length - 1].toLowerCase())) {
+    if (
+      words.length > 1 &&
+      TIER_SUFFIXES.includes(words[words.length - 1].toLowerCase())
+    ) {
       words.pop();
     }
     if (words.length === 0) continue;
     const label =
-      words.join(" ").charAt(0).toUpperCase() + words.join(" ").slice(1).toLowerCase();
+      words.join(" ").charAt(0).toUpperCase() +
+      words.join(" ").slice(1).toLowerCase();
     if (!out.includes(label)) out.push(label);
   }
   return out;
@@ -100,7 +134,10 @@ export function capabilityLabels(urls: string[]): string[] {
 // A card that quotes the vendor price alone is exactly the failure
 // prism.test.ts describes ("a user who reads 0.25 USDC and is billed $1.75 has
 // been misled"), and this card is the main way into the console.
-export function priceLabel(resources: BazaarResource[]): string {
+export function priceLabel(
+  resources: BazaarResource[],
+  unit: string = "a run",
+): string {
   const totals = resources
     .map((r) => r.amountMicros + X402_PLATFORM_FEE_USD_MICROS)
     .sort((a, b) => a - b);
@@ -111,8 +148,8 @@ export function priceLabel(resources: BazaarResource[]): string {
   if (totals.length === 0) return "";
   const low = totals[0];
   const high = totals[totals.length - 1];
-  if (low === high) return `${usd(low)} a run`;
-  return `${usd(low)}-${usd(high)} a run`;
+  if (low === high) return `${usd(low)} ${unit}`;
+  return `${usd(low)}-${usd(high)} ${unit}`;
 }
 
 // One partner console: several endpoints behind a single purpose-built page.
@@ -135,7 +172,9 @@ export function ConsoleCard({
   const [error, setError] = useState<string | null>(null);
 
   const provider = resources[0].provider ?? resources[0].host;
-  const capabilities = capabilityLabels(resources.map((r) => r.url));
+  const capabilities =
+    CAPABILITY_OVERRIDES[consoleKey] ??
+    capabilityLabels(resources.map((r) => r.url));
   const copy = CONSOLE_COPY[consoleKey];
   const path = CONSOLE_PATHS[consoleKey];
   const template = TRY_WORKFLOW_TEMPLATES[consoleKey];
@@ -165,9 +204,13 @@ export function ConsoleCard({
     setError(null);
     try {
       const id = await loadTemplateWorkflow(template);
-      router.push(`/workflows/${id}`);
+      router.push(workflowHref(id));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load this workflow. Try again.");
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Could not load this workflow. Try again.",
+      );
       setTrying(false);
     }
   };
@@ -183,7 +226,10 @@ export function ConsoleCard({
         flexDirection: "column",
         gap: 12,
         minWidth: 0,
-        height: "100%",
+        // Grow into whatever the row has left, so the last card in a wrapped
+        // row is never marooned beside empty space. 320px is the basis at
+        // which another card earns a place beside it.
+        flex: "1 1 320px",
         boxSizing: "border-box",
       }}
     >
@@ -310,13 +356,15 @@ export function ConsoleCard({
             fontWeight: 600,
           }}
         >
-          {priceLabel(resources)}
+          {priceLabel(resources, CONSOLE_PRICE_UNIT[consoleKey])}
         </span>
         <button
           type="button"
           onClick={open}
           disabled={!available}
-          title={available ? undefined : "This preview has no backend connected."}
+          title={
+            available ? undefined : "This preview has no backend connected."
+          }
           style={{
             height: 32,
             padding: "0 16px",
@@ -335,7 +383,9 @@ export function ConsoleCard({
       </div>
 
       {error && (
-        <div style={{ fontSize: 11.5, color: "var(--danger)", lineHeight: 1.5 }}>
+        <div
+          style={{ fontSize: 11.5, color: "var(--danger)", lineHeight: 1.5 }}
+        >
           {error}
         </div>
       )}

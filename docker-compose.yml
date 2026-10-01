@@ -35,6 +35,13 @@ services:
       ALGOD_URL: https://testnet-api.algonode.cloud
       ALGORAND_NETWORK: testnet
 
+      # Platform provider keys, taken from .env so the chat builder and any
+      # platform-key agent work in local dev. Without a Gemini key the
+      # builder answers 503 "workflow builder is not configured".
+      PLATFORM_GEMINI_API_KEY: ${PLATFORM_GEMINI_API_KEY:-}
+      PLATFORM_OPENAI_API_KEY: ${PLATFORM_OPENAI_API_KEY:-}
+      PLATFORM_ANTHROPIC_API_KEY: ${PLATFORM_ANTHROPIC_API_KEY:-}
+
       # Dev Algorand wallets (generated with walletgen -skip-opt-in, testnet only)
       PLATFORM_WALLET_ADDRESS: XJAS6HBWDZB4JW3SQB7GBP7BY3C2I43SGL5WI2KCZHLIUFW5HO4FPCVAW4
       PLATFORM_WALLET_ENC_MNEMONIC: "H5FK4E549nJY6jqwt7R60tXmEiTTC4ePh8/zreBlbwbhxbti7F9VlHqIQKMZMTqQrYQK9+wvG75g9rsT5rlWAGjdsfjG3pN/Of7SMcwqy1AnOb4koBmSN8kruBZX/zApzOs9LMKkgUJpcIwhdmT1xsT/i2YbuCpzDTeyfe+2NzOnODSlPHUN7gw0akRZHPdoLGkMLznrCEZ6gbl5sKEAvcJ68JwsBxGzO4FPjt8v2zXxZbE1kf0HIrUVrQ=="

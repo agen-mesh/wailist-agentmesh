@@ -23,7 +23,12 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	r.Post("/auth/signin", d.SignIn)
 	r.Post("/auth/signout", d.SignOut)
 	r.Get("/auth/oauth/{provider}", d.OAuthStart)
+	r.Get("/auth/oauth/{provider}/url", d.OAuthStartURL)
 	r.Get("/auth/oauth/{provider}/callback", d.OAuthCallback)
+	// Public because the caller has no session yet — that is the whole point of
+	// it. The one-time code it takes is the credential, and it is worthless
+	// without the verifier that never left the device. See oauth_native.go.
+	r.Post("/auth/oauth/exchange", d.OAuthExchange)
 	r.Post("/waitlist", d.JoinWaitlist)
 	r.Post("/run/{workflowId}", d.PublicTrigger)
 	// Called by Cashfree's servers, not the browser — authenticated via HMAC signature
@@ -62,6 +67,9 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Put("/workflows/{id}", d.UpdateWorkflow)
 		r.Delete("/workflows/{id}", d.DeleteWorkflow)
 
+		r.Get("/workflows/{id}/chat", d.GetChatSession)
+		r.Put("/workflows/{id}/chat", d.SaveChatSession)
+
 		r.Get("/workflows/{id}/variables", d.ListVariables)
 		r.Put("/workflows/{id}/variables/{key}", d.SetVariable)
 		r.Delete("/workflows/{id}/variables/{key}", d.DeleteVariable)
@@ -85,11 +93,17 @@ func NewRouter(d *handlers.Deps) http.Handler {
 
 		r.Post("/workflows/{id}/deploy", d.Deploy)
 		r.Post("/workflows/{id}/build", d.BuildWorkflow)
+		r.Get("/workflows/{id}/build/progress", d.BuildWorkflowProgress)
 		r.Get("/workflows/{id}/agents/{agentId}/balance", d.AgentBalance)
 		r.Post("/workflows/{id}/agents/{agentId}/fund", d.FundAgent)
 
 		r.Post("/workflows/{id}/run", d.TriggerRun)
 		r.Post("/workflows/{id}/stop", d.StopWorkflow)
+		// Run history, newest first, a page at a time (#205).
+		r.Get("/workflows/{id}/runs", d.ListWorkflowRuns)
+		r.Get("/runs", d.ListRecentRuns)
+		// What the scheduler will run next, soonest first.
+		r.Get("/schedules/upcoming", d.ListUpcomingRuns)
 		r.Get("/runs/{runId}", d.GetRun)
 		r.Get("/runs/{runId}/stream", d.StreamRun)
 		r.Post("/runs/{runId}/resume", d.ResumeRun)
@@ -125,6 +139,12 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Get("/prism/console", d.PrismConsoleWorkflow)
 		r.Get("/prism/console/exists", d.PrismConsoleWorkflowExists)
 		r.Post("/prism/run", d.PrismConsoleRun)
+		r.Post("/prism/repo/files", d.PrismRepoFiles)
+		r.Post("/prism/repo/review", d.PrismRepoReview)
+		r.Get("/helixbox/endpoints", d.HelixboxEndpoints)
+		r.Get("/helixbox/console", d.HelixboxConsoleWorkflow)
+		r.Get("/helixbox/console/exists", d.HelixboxConsoleWorkflowExists)
+		r.Post("/helixbox/run", d.HelixboxConsoleRun)
 		r.Get("/leases", d.ListLeases)
 		r.Post("/leases/{id}/release", d.ReleaseLease)
 		r.Get("/leases/{id}/key", d.DownloadLeaseKey)

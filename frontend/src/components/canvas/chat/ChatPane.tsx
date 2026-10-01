@@ -25,9 +25,22 @@ interface ChatPaneProps {
   /** True while a run is in flight — the composer waits rather than queueing. */
   busy: boolean;
   onShowLogs?: () => void;
+  /** Rendered directly above the composer when a run cannot start. Sits
+   *  here rather than in the transcript so it stays put as the
+   *  conversation scrolls -- it explains the composer, not a past turn. */
+  blockedNode?: React.ReactNode;
+  /** Replaces the composer: there is nothing to send a message to. */
+  composerNote?: string;
 }
 
-export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
+export function ChatPane({
+  session,
+  onSend,
+  busy,
+  onShowLogs,
+  blockedNode,
+  composerNote,
+}: ChatPaneProps) {
   const [draft, setDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   // What `draft` held before the current dictation session started, so a
@@ -164,6 +177,7 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
 
       {/* Composer */}
       <div style={{ flexShrink: 0, minWidth: 0 }}>
+        {blockedNode}
         {stt.error && (
           <div
             role="alert"
@@ -177,6 +191,20 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
             {stt.error}
           </div>
         )}
+        {composerNote ? (
+          <div
+            style={{
+              minWidth: 0,
+              borderTop: "1px solid var(--border)",
+              padding: "14px 12px",
+              fontSize: 11.5,
+              lineHeight: 1.5,
+              color: "var(--fg-dim)",
+            }}
+          >
+            {composerNote}
+          </div>
+        ) : (
         <div
           style={{
             minWidth: 0,
@@ -283,6 +311,7 @@ export function ChatPane({ session, onSend, busy, onShowLogs }: ChatPaneProps) {
           Send
         </button>
         </div>
+        )}
       </div>
     </div>
   );

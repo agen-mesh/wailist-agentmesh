@@ -100,10 +100,18 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return fetchHackerNews(ctx, node, rc)
 	case "coingecko":
 		return fetchCoinGecko(ctx, node, rc)
+	case "coingecko_history":
+		return fetchCoinGeckoHistory(ctx, node, rc)
 	case "intercom":
 		return sendIntercom(ctx, node, rc)
 	case "openweathermap":
 		return getOpenWeather(ctx, node, rc)
+	case "algorand_account":
+		return fetchAlgorandAccount(ctx, node, rc)
+	case "algorand_transactions":
+		return fetchAlgorandTransactions(ctx, node, rc)
+	case "algorand_asset":
+		return fetchAlgorandAsset(ctx, node, rc)
 	case "calendly":
 		return getCalendlyEvents(ctx, node, rc)
 	case "baserow":

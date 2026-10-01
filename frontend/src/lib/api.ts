@@ -1,6 +1,7 @@
 // TODO: Replace all stubs with real FastAPI calls when backend is ready.
 // Base URL will come from env: process.env.NEXT_PUBLIC_API_URL
 
+import type { BuildProgress } from "@/components/canvas/chat/buildProgress";
 import {
   Workflow,
   UsageRange,
@@ -10,8 +11,17 @@ import {
   EndpointUsage,
   Settlement,
   CostEstimate,
+  RunPage,
+  UpcomingRun,
 } from "./types";
 import { WORKFLOWS, SAMPLE_WORKFLOW, buildUsage } from "./data";
+import {
+  fixtureRunDetail,
+  fixtureRunPage,
+  fixtureUpcoming,
+  recordStartedRun,
+} from "./runFixtures";
+import { fixtureWorkflow } from "./workflowFixtures";
 import { assertWritable } from "./readonly";
 import { IS_NATIVE, authHeaders } from "./nativeAuth";
 import type { PaymentMethod } from "@/components/checkout/types";
@@ -79,6 +89,24 @@ export interface AuthUser {
   needsOnboarding: boolean;
 }
 
+// Thrown by auth.me() when the server answered without confirming a session.
+// The status is kept so a caller can tell being signed out (401, 403) from the
+// server failing (5xx), which says nothing about the session.
+export class AuthCheckError extends Error {
+  constructor(readonly status: number) {
+    super("unauthorized");
+    this.name = "AuthCheckError";
+  }
+}
+
+// Whether a failed session check is a connection problem rather than an
+// answer: the request never reached the server (fetch rejects with a
+// TypeError), or the server itself failed.
+export function isConnectionFailure(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  return err instanceof AuthCheckError && err.status >= 500;
+}
+
 export const auth = {
   // Returns the bearer token when the caller is a native client, null
   // otherwise. The web app authenticates with the HttpOnly cookie the same
@@ -130,7 +158,7 @@ export const auth = {
   me: async (): Promise<AuthUser> => {
     if (BASE) {
       const res = await apiFetch(`${BASE}/auth/me`, { credentials: "include" });
-      if (!res.ok) throw new Error("unauthorized");
+      if (!res.ok) throw new AuthCheckError(res.status);
       return res.json();
     }
     return {
@@ -181,6 +209,37 @@ export const auth = {
   // is configured (mock mode) -- callers should guard on the http prefix.
   oauthURL: (provider: "github" | "google"): string =>
     BASE ? `${BASE}/auth/oauth/${provider}` : "",
+
+  // The external browser must start on the frontend proxy's origin so its
+  // state cookie is also sent to the provider callback.
+  nativeOAuthURL: async (provider: "github" | "google"): Promise<string> => {
+    if (!BASE) throw new Error("Social sign in is not configured.");
+    const res = await apiFetch(`${BASE}/auth/oauth/${provider}/url`);
+    if (!res.ok) throw new Error("Social sign in is not configured.");
+    const data = (await res.json()) as { url: string };
+    return data.url;
+  },
+
+  // Swap the one-time code from an ai.agentmesh.app://auth deep link for a
+  // session token. Native only: the web flow ends in a cookie and never sees a
+  // code at all. Returns null when the backend refuses -- an expired code and a
+  // wrong verifier are deliberately indistinguishable there, so there is
+  // nothing more specific to hand back. See native/oauth.ts and the Go side's
+  // handlers/oauth_native.go.
+  oauthExchange: async (
+    code: string,
+    verifier: string,
+  ): Promise<string | null> => {
+    if (!BASE) return null;
+    const res = await apiFetch(`${BASE}/auth/oauth/exchange`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, verifier }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { token?: string };
+    return data.token ?? null;
+  },
 };
 
 // -- Workflows ------------------------------------------------------------
@@ -211,7 +270,9 @@ export const workflows = {
     await delay(150);
     if (id === "new")
       return { id: "wf-new", name: "Untitled workflow", nodes: [], edges: [] };
-    return JSON.parse(JSON.stringify(SAMPLE_WORKFLOW));
+    // Each workflow in the mock list opens its own graph; anything else (the
+    // canvas's sample) still gets the weather workflow.
+    return fixtureWorkflow(id) ?? JSON.parse(JSON.stringify(SAMPLE_WORKFLOW));
   },
 
   // GET /workflows/:id/estimate -- static low/high cost band for one run.
@@ -225,7 +286,12 @@ export const workflows = {
       return data;
     }
     await delay(80);
-    return { lowUsdMicros: 0, highUsdMicros: 0, lines: [], hasUnpricedX402: false };
+    return {
+      lowUsdMicros: 0,
+      highUsdMicros: 0,
+      lines: [],
+      hasUnpricedX402: false,
+    };
   },
 
   // TODO: POST /workflows
@@ -326,13 +392,16 @@ export const workflows = {
       return data;
     }
     await delay(200);
-    return { runId: `r-${Math.floor(1800 + Math.random() * 200)}` };
+    const runId = `r-${Math.floor(1800 + Math.random() * 100)}`;
+    recordStartedRun(runId, id);
+    return { runId };
   },
 
   // TODO: POST /workflows/:id/build
   build: async (
     id: string,
     message: string,
+    buildId?: string,
   ): Promise<{ reply: string; workflow: Workflow }> => {
     assertWritable("POST", `/workflows/${id}/build`);
     if (BASE) {
@@ -340,10 +409,21 @@ export const workflows = {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        // buildId lets the chat poll buildProgress for this build's steps.
+        // timeZone is what the builder reads "every morning at 9" in.
+        body: JSON.stringify({
+          message,
+          ...(buildId ? { buildId } : {}),
+          ...(browserTimeZone() ? { timeZone: browserTimeZone() } : {}),
+        }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "build failed");
+      if (!res.ok) {
+        throw new BuildRequestError(
+          data.error ?? "build failed",
+          typeof data.error === "string",
+        );
+      }
       return data;
     }
     await delay(300);
@@ -358,6 +438,17 @@ export const workflows = {
     };
   },
 
+  // The steps a chat build has taken so far -- see chat/buildProgress.ts.
+  buildProgress: async (id: string, buildId: string): Promise<BuildProgress> => {
+    if (!BASE) return { steps: [] };
+    const res = await apiFetch(
+      `${BASE}/workflows/${id}/build/progress?buildId=${encodeURIComponent(buildId)}`,
+      { credentials: "include" },
+    );
+    if (!res.ok) throw new Error(`build progress ${res.status}`);
+    return res.json();
+  },
+
   // TODO: POST /workflows/:id/stop
   stop: async (id: string): Promise<void> => {
     if (BASE) {
@@ -368,6 +459,40 @@ export const workflows = {
       return;
     }
     await delay(100);
+  },
+
+  // The console chat transcript, stored server-side so the conversation
+  // follows the user across browsers and devices. The client owns the whole
+  // transcript and replaces it on every change.
+  chat: {
+    load: async (
+      id: string,
+      mode: "build" | "run",
+    ): Promise<{ sessionId: string; messages: unknown[] } | null> => {
+      if (!BASE) return null;
+      const res = await apiFetch(`${BASE}/workflows/${id}/chat?mode=${mode}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`chat transcript ${res.status}`);
+      const data = await res.json().catch(() => null);
+      if (!data || !Array.isArray(data.messages)) return null;
+      return { sessionId: data.sessionId ?? "", messages: data.messages };
+    },
+    save: async (
+      id: string,
+      mode: "build" | "run",
+      session: { sessionId: string; messages: unknown[] },
+    ): Promise<void> => {
+      assertWritable("PUT", `/workflows/${id}/chat`);
+      if (!BASE) return;
+      const res = await apiFetch(`${BASE}/workflows/${id}/chat?mode=${mode}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(session),
+      });
+      if (!res.ok) throw new Error(`chat transcript save ${res.status}`);
+    },
   },
 
   // Persistent per-workflow key/value state, surviving across runs. Used
@@ -611,10 +736,37 @@ export interface RunLogRecord {
   stepIndex: number;
   nodeId: string;
   nodeType: string;
-  status: "pending" | "running" | "success" | "failed";
+  status: "pending" | "running" | "success" | "failed" | "degraded";
   output?: unknown;
   durationMs?: number;
   ts: string;
+}
+
+/**
+ * Which run-log statuses mean a step has finished and its result is final.
+ *
+ * Written as a Record over every status in RunLogRecord rather than as an
+ * inline `status === "success" || status === "failed"` test, so that adding a
+ * status to the union above fails to compile here instead of being silently
+ * dropped. That is not hypothetical: "degraded" was added to the union and to
+ * the live SSE path, while both readers of the stored rows kept their own
+ * two-value allowlist and discarded every degraded step -- so a run that lost
+ * a source was replayed from the database as a clean one.
+ */
+const SETTLED_LOG_STATUS: Record<RunLogRecord["status"], boolean> = {
+  pending: false,
+  running: false,
+  success: true,
+  failed: true,
+  degraded: true,
+};
+
+/**
+ * Whether a stored run-log row carries a final result. A row still marked
+ * pending or running is a step the engine had not finished writing.
+ */
+export function isSettledLogStatus(status: RunLogRecord["status"]): boolean {
+  return SETTLED_LOG_STATUS[status];
 }
 
 export interface DeadLetterRun {
@@ -625,6 +777,105 @@ export interface DeadLetterRun {
   attemptCount: number;
   createdAt: string;
 }
+
+// The run as GET /runs/{runId} returns it (models.Run, without its input).
+export interface RunDetail {
+  id: string;
+  workflowId: string;
+  triggeredBy: string;
+  status: string;
+  startedAt: string;
+  finishedAt?: string;
+  // Everything debit_ledger has charged for this run so far; grows while the
+  // run is still "running". Optional because a server older than this field
+  // omits it, and RunSheet then falls back to the list row's figure.
+  spendUsdMicros?: number;
+}
+
+// Thrown when the backend has no run history routes yet. An older server
+// answers them with chi's plain-text "404 page not found"; a workflow that is
+// missing or someone else's is a JSON 404 with an "error" field instead, and
+// stays an ordinary error.
+export class RunsUnavailableError extends Error {
+  constructor() {
+    super("Run history isn't available on this server yet.");
+    this.name = "RunsUnavailableError";
+  }
+}
+
+export interface RunHistoryOptions {
+  cursor?: string | null;
+  limit?: number;
+}
+
+function runHistoryQuery(options: RunHistoryOptions): string {
+  const q = new URLSearchParams();
+  if (options.limit) q.set("limit", String(options.limit));
+  if (options.cursor) q.set("cursor", options.cursor);
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
+async function readRunPage(res: Response, fallback: string): Promise<RunPage> {
+  const text = await res.text();
+  let data: unknown = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+  if (res.ok) return data as RunPage;
+  const error =
+    data !== null &&
+    typeof data === "object" &&
+    typeof (data as { error?: unknown }).error === "string"
+      ? (data as { error: string }).error
+      : null;
+  if (res.status === 404 && error === null) throw new RunsUnavailableError();
+  throw new Error(error ?? fallback);
+}
+
+// Thrown when the backend has no upcoming-runs route yet, told apart from a
+// real failure the same way RunsUnavailableError is: an older server answers
+// with chi's plain-text 404. Screens that show upcoming runs hide the section
+// rather than show an error.
+export class UpcomingUnavailableError extends Error {
+  constructor() {
+    super("Upcoming runs aren't available on this server yet.");
+    this.name = "UpcomingUnavailableError";
+  }
+}
+
+export const schedules = {
+  // What the scheduler will run next, soonest first: up to `per` occurrences
+  // of each schedule, `limit` in all (GET /schedules/upcoming). `workflowId`
+  // asks for that one workflow's schedule alone.
+  upcoming: async (
+    options: { limit?: number; per?: number; workflowId?: string } = {},
+  ): Promise<UpcomingRun[]> => {
+    if (BASE) {
+      const q = new URLSearchParams();
+      if (options.limit) q.set("limit", String(options.limit));
+      if (options.per) q.set("per", String(options.per));
+      if (options.workflowId) q.set("workflowId", options.workflowId);
+      const query = q.toString() ? `?${q}` : "";
+      const res = await apiFetch(`${BASE}/schedules/upcoming${query}`, {
+        credentials: "include",
+      });
+      const data = (await res.json().catch(() => null)) as {
+        upcoming?: UpcomingRun[];
+        error?: string;
+      } | null;
+      if (res.ok) return data?.upcoming ?? [];
+      if (res.status === 404 && typeof data?.error !== "string") {
+        throw new UpcomingUnavailableError();
+      }
+      throw new Error(data?.error ?? "failed to load upcoming runs");
+    }
+    await delay(150);
+    return fixtureUpcoming(options);
+  },
+};
 
 export const runs = {
   // The DB-backed source of truth for a run's logs — used as a reconciliation
@@ -639,7 +890,7 @@ export const runs = {
   get: async (
     runId: string,
   ): Promise<{
-    run: { status: string };
+    run: RunDetail;
     logs: RunLogRecord[];
     deadLetters: DeadLetterRun[];
   }> => {
@@ -652,8 +903,12 @@ export const runs = {
       return data;
     }
     await delay(150);
-    // Mock mode returns a realistic finished run rather than an empty one, so
-    // the console and the chat panel can be exercised with no backend
+    // A run from the mock history, or one started in this session, comes back
+    // as itself: its own status, steps, result and payments.
+    const fixture = fixtureRunDetail(runId);
+    if (fixture) return fixture;
+    // Anything else returns a realistic finished run rather than an empty one,
+    // so the console and the chat panel can be exercised with no backend
     // attached: an agent answer to render as prose, and a paid tool402 step
     // so the activity strip has a real tool count and settled amount. Mirrors
     // SAMPLE_WORKFLOW's node ids and its $0.065/call x402 weather endpoint.
@@ -664,7 +919,16 @@ export const runs = {
     const mockTxId =
       "7F2AC9D1E4B8A6350C1D9E2F4A7B8C3D5E6F1A2B3C4D5E6F7A8B9C0D1E2F3A4B";
     return {
-      run: { status: "success" },
+      run: {
+        id: runId,
+        workflowId: SAMPLE_WORKFLOW.id,
+        triggeredBy: "manual",
+        status: "success",
+        startedAt: iso(8200),
+        finishedAt: iso(0),
+        // Matches the $0.065/call x402 weather step below.
+        spendUsdMicros: 65_000,
+      },
       deadLetters: [],
       logs: [
         {
@@ -709,6 +973,34 @@ export const runs = {
         },
       ],
     };
+  },
+
+  // One workflow's runs, newest first (GET /workflows/{id}/runs).
+  listForWorkflow: async (
+    workflowId: string,
+    options: RunHistoryOptions = {},
+  ): Promise<RunPage> => {
+    if (BASE) {
+      const res = await apiFetch(
+        `${BASE}/workflows/${encodeURIComponent(workflowId)}/runs${runHistoryQuery(options)}`,
+        { credentials: "include" },
+      );
+      return readRunPage(res, "failed to load runs");
+    }
+    await delay(200);
+    return fixtureRunPage({ workflowId, ...options });
+  },
+
+  // The user's newest runs across their own workflows (GET /runs).
+  recent: async (options: RunHistoryOptions = {}): Promise<RunPage> => {
+    if (BASE) {
+      const res = await apiFetch(`${BASE}/runs${runHistoryQuery(options)}`, {
+        credentials: "include",
+      });
+      return readRunPage(res, "failed to load recent runs");
+    }
+    await delay(200);
+    return fixtureRunPage(options);
   },
 
   resume: async (runId: string): Promise<{ runId: string }> => {
@@ -931,7 +1223,18 @@ export const payments = {
     usd_per_inr: number;
     providers: { id: PaymentMethod; enabled: boolean; currency: string }[];
   }> => {
-    if (!BASE) throw new Error("payments require a configured backend");
+    // Mock mode has no server to ask, and a screen that quotes nothing
+    // cannot demonstrate the top-up flow. A plausible fixture rate keeps
+    // the mock build usable; nothing is ever charged against it.
+    if (!BASE) {
+      return {
+        usd_per_inr: 0.010423,
+        providers: [
+          { id: "cashfree", enabled: true, currency: "INR" },
+          { id: "nowpayments", enabled: true, currency: "USD" },
+        ],
+      };
+    }
     const res = await apiFetch(`${BASE}/payments/providers`, {
       credentials: "include",
     });
@@ -1045,4 +1348,29 @@ export const usage = {
 // mock-mode delay rather than a second copy that can drift out of sync.
 export function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** The browser's IANA timezone, or "" where the runtime cannot say. */
+export function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * A build request that did not succeed. `answered` is true when the backend
+ * itself replied with an error, which means the build is over. False means
+ * the reply never came from the backend at all (a proxy timeout, a dropped
+ * connection), and the build may well still be running.
+ */
+export class BuildRequestError extends Error {
+  constructor(
+    message: string,
+    readonly answered: boolean,
+  ) {
+    super(message);
+    this.name = "BuildRequestError";
+  }
 }

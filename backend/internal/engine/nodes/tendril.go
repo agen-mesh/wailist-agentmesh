@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -41,10 +42,6 @@ const tendrilRentGateFeeAtomic int64 = 10_000
 // maxTendrilHours caps a single rent. At $6/hr a fat-fingered "100" would
 // commit $600 of real mainnet USDC in one click.
 const maxTendrilHours = 24.0
-
-// autoRentDefaultBudgetUSD is what an "auto" node spends on its own to open
-// a lease when it doesn't already have an active one and node.TendrilAmount
-// wasn't set -- issue #173's "one dollar goes to renting it" default.
 const autoRentDefaultBudgetUSD = 1.0
 
 // RequiredCreditAtomic is how much of THIS USER's Tendril credit a rent
@@ -90,9 +87,41 @@ func parseTopupUSD(raw string) (float64, error) {
 	return v, nil
 }
 
-// parseAutoBudgetUSD is parseTopupUSD's counterpart for an "auto" node: an
-// empty amount is not an error there, it just means "use the default budget"
-// -- unlike a topup, which always needs an explicit amount from the user.
+// maxTendrilMinBalanceUSD bounds a topup's "only below" threshold so its
+// micros conversion can never overflow int64. Tendril's own maximum single
+// topup is $1,000, so any sane threshold sits far below this.
+const maxTendrilMinBalanceUSD = 1_000_000.0
+
+// parseMinBalanceUSD reads a topup node's optional "only top up below"
+// threshold. Empty means no threshold (always top up), reported as 0.
+func parseMinBalanceUSD(raw string) (float64, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return 0, nil
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0, fmt.Errorf("tendril: minimum balance %q is not a number", raw)
+	}
+	if v < 0 {
+		return 0, fmt.Errorf("tendril: minimum balance must not be negative, got %v", v)
+	}
+	if v > maxTendrilMinBalanceUSD {
+		return 0, fmt.Errorf("tendril: minimum balance must be at most %v, got %v", maxTendrilMinBalanceUSD, v)
+	}
+	return v, nil
+}
+
+// parseCoverHours reads a topup node's optional "cover this many hours of
+// rent" setting. Empty means off, reported as 0; otherwise it follows the
+// rent node's own hour bounds.
+func parseCoverHours(raw string) (float64, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 0, nil
+	}
+	return parseHours(raw)
+}
+
 func parseAutoBudgetUSD(raw string) (float64, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
@@ -102,8 +131,8 @@ func parseAutoBudgetUSD(raw string) (float64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("tendril: auto budget %q is not a number", raw)
 	}
-	if v <= 0 {
-		return 0, fmt.Errorf("tendril: auto budget must be positive, got %v", v)
+	if math.IsNaN(v) || math.IsInf(v, 0) || v <= 0 || v > maxTendrilMinBalanceUSD {
+		return 0, fmt.Errorf("tendril: auto budget must be finite and between 0 and 1000000 USD, got %v", v)
 	}
 	return v, nil
 }
@@ -150,10 +179,10 @@ func ExecuteTendril(ctx context.Context, node models.WorkflowNode, rc RunContext
 		return executeTendrilTopup(ctx, node, cfg)
 	case "run":
 		return executeTendrilRun(ctx, node, rc, cfg)
-	case "release":
-		return executeTendrilRelease(ctx, node, cfg)
 	case "auto":
 		return executeTendrilAuto(ctx, node, rc, cfg)
+	case "release":
+		return executeTendrilRelease(ctx, node, cfg)
 	default:
 		return nil, fmt.Errorf("tendril: unknown action %q", node.TendrilAction)
 	}
@@ -171,26 +200,86 @@ func executeTendrilTopup(ctx context.Context, node models.WorkflowNode, cfg Tend
 	if err != nil {
 		return nil, err
 	}
-	return performTopup(ctx, cfg, amountUSD)
-}
-
-// performTopup is executeTendrilTopup's body once an amount is known --
-// shared with executeTendrilAuto, which computes its own top-up amount
-// (the shortfall against a rent it's about to make) rather than reading one
-// off node.TendrilAmount.
-func performTopup(ctx context.Context, cfg TendrilConfig, amountUSD float64) (map[string]any, error) {
 	atomic := int64(amountUSD*1e6 + 0.5)
 
+	// Conditional topup: a workflow that runs on a schedule should only buy
+	// credit when it's actually running low, not every time it fires.
+	minBalanceUSD, err := parseMinBalanceUSD(node.TendrilMinBalance)
+	if err != nil {
+		return nil, err
+	}
+	balance, err := cfg.Store.TendrilCreditBalance(ctx, cfg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	coverHours, err := parseCoverHours(node.TendrilCoverHours)
+	if err != nil {
+		return nil, err
+	}
+	if coverHours > 0 {
+		// Sized to the rent that follows: machines[0] is the machine
+		// executeTendrilRent picks when no node id is set, and need is the
+		// exact reservation it will make.
+		machines, err := cfg.Client.OnlineNodes(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("tendril: market: %w", err)
+		}
+		if len(machines) == 0 {
+			return nil, fmt.Errorf("tendril: no machines are online right now")
+		}
+		need := RequiredCreditAtomic(machines[0].RateUSDMicrosPerHour(), coverHours)
+		if balance >= need {
+			return map[string]any{
+				"skipped":              true,
+				"toppedUp":             formatUSDCAmount(0),
+				"tendrilCreditBalance": formatUSDCAmount(balance),
+				"neededForRent":        formatUSDCAmount(need),
+				"machine":              machines[0].ID,
+				"note":                 fmt.Sprintf("Tendril credit already covers %v hour(s) on the cheapest online machine, so no topup was bought and nothing was charged.", coverHours),
+			}, nil
+		}
+		// Whole cents, rounded up so the purchase never lands a micro short.
+		if short := (need - balance + 9_999) / 10_000 * 10_000; short > atomic {
+			atomic = short
+		}
+	} else if minBalanceUSD > 0 {
+		// Rounded up, so a tiny positive threshold still means "top up at
+		// $0" rather than rounding to 0 and skipping forever.
+		minAtomic := int64(math.Ceil(minBalanceUSD * 1e6))
+		if balance >= minAtomic {
+			return map[string]any{
+				"skipped":              true,
+				"toppedUp":             formatUSDCAmount(0),
+				"tendrilCreditBalance": formatUSDCAmount(balance),
+				"minBalance":           formatUSDCAmount(minAtomic),
+				"note":                 "Tendril credit is already at or above the minimum, so no topup was bought and nothing was charged.",
+			}, nil
+		}
+	}
+
+	return performTopup(ctx, cfg, atomic, balance, coverHours > 0, 0)
+}
+
+func performTopup(ctx context.Context, cfg TendrilConfig, atomic, balance int64, allowMinimum bool, maxTopup int64) (map[string]any, error) {
 	// Tendril's own bounds, read live rather than hardcoded.
 	platform, err := cfg.Client.Platform(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("tendril: platform: %w", err)
 	}
 	if platform.MinTopUpAtomic > 0 && atomic < platform.MinTopUpAtomic {
-		return nil, fmt.Errorf("tendril: minimum topup is %s", formatUSDCAmount(platform.MinTopUpAtomic))
+		if !allowMinimum {
+			return nil, fmt.Errorf("tendril: minimum topup is %s", formatUSDCAmount(platform.MinTopUpAtomic))
+		}
+		// A computed shortfall can fall under Tendril's floor; buying the
+		// floor still covers it.
+		atomic = platform.MinTopUpAtomic
 	}
 	if platform.MaxTopUpAtomic > 0 && atomic > platform.MaxTopUpAtomic {
 		return nil, fmt.Errorf("tendril: maximum topup is %s", formatUSDCAmount(platform.MaxTopUpAtomic))
+	}
+
+	if maxTopup > 0 && atomic > maxTopup {
+		return nil, fmt.Errorf("tendril: automatic topup of %s exceeds the %s budget", formatUSDCAmount(atomic), formatUSDCAmount(maxTopup))
 	}
 
 	// Refuse before paying if the user cannot afford it. Settling first and
@@ -200,10 +289,6 @@ func performTopup(ctx context.Context, cfg TendrilConfig, amountUSD float64) (ma
 	// its `total :=` line), so the console path is billed the same markup
 	// as the main graph engine's standalone tool402 dispatch.
 	realCost := atomic + models.X402PlatformFeeUSDMicros
-	balance, err := cfg.Store.TendrilCreditBalance(ctx, cfg.UserID)
-	if err != nil {
-		return nil, err
-	}
 	agentMeshBalance, err := cfg.Store.CreditBalance(ctx, cfg.UserID)
 	if err != nil {
 		return nil, err
@@ -298,11 +383,6 @@ func pickMachine(ctx context.Context, cfg TendrilConfig, nodeID string) (tendril
 	return machine, nil
 }
 
-// performRent is executeTendrilRent's body once an hours figure and machine
-// are already decided -- shared with executeTendrilAuto, which computes
-// hours from a USD budget instead of reading node.TendrilHours. Returns the
-// persisted lease alongside the display map so a caller that immediately
-// needs to run a job on it (auto) doesn't have to re-resolve it.
 func performRent(ctx context.Context, node models.WorkflowNode, cfg TendrilConfig, machine tendril.Node, hours float64) (map[string]any, models.TendrilLease, error) {
 	// Reserve the hours against THIS user's Tendril credit. The shared Wallet 2
 	// pool is deliberately not consulted: it holds every user's topups at once,
@@ -778,18 +858,6 @@ func executeTendrilRun(ctx context.Context, node models.WorkflowNode, rc RunCont
 	return res.Response, nil
 }
 
-// executeTendrilAuto is issue #173's "just works" path: one node reuses
-// whatever lease this user already has open (across runs, same as
-// executeTendrilRun's fallback), or -- if there isn't one, or it has run out
-// of funded time -- auto-tops-up and rents a machine for a small default
-// budget (autoRentDefaultBudgetUSD, overridable via node.TendrilAmount)
-// before running the payload. It leaves the lease active afterwards so the
-// next auto (or run) node reuses it instead of renting again; the reaper and
-// the explicit release action are still what eventually stop the meter.
-//
-// The explicit topup/rent/run/release actions are untouched by this --
-// anyone who wants to pick a machine, hours, or when the meter stops by hand
-// still has them.
 func executeTendrilAuto(ctx context.Context, node models.WorkflowNode, rc RunContexter, cfg TendrilConfig) (any, error) {
 	payload := strings.TrimSpace(rc.Message())
 	for _, p := range node.CustomParams {
@@ -798,13 +866,16 @@ func executeTendrilAuto(ctx context.Context, node models.WorkflowNode, rc RunCon
 		}
 	}
 	if payload == "" {
-		return nil, fmt.Errorf("tendril: auto needs a payload — set one on the node or pass it as the run's input")
+		return nil, fmt.Errorf("tendril: auto needs a payload ,  set one on the node or pass it as the run's input")
 	}
 
 	var leaseToken string
 	var rented map[string]any
 
-	if lease, err := resolveLease(ctx, node, cfg); err == nil && lease.Status == "active" && lease.FundedUntil.After(time.Now()) {
+	// Auto's node ID selects a machine, while explicit Run uses a lease row ID.
+	leaseNode := node
+	leaseNode.TendrilNodeID = ""
+	if lease, err := resolveLease(ctx, leaseNode, cfg); err == nil && lease.Status == "active" && lease.FundedUntil.After(time.Now()) && (node.TendrilNodeID == "" || node.TendrilNodeID == lease.TendrilNodeID) {
 		if tok, derr := wallet.Decrypt(lease.LeaseTokenEnc, cfg.EncryptKey); derr == nil {
 			leaseToken = tok
 		}
@@ -819,7 +890,7 @@ func executeTendrilAuto(ctx context.Context, node models.WorkflowNode, rc RunCon
 		if err != nil {
 			return nil, err
 		}
-		if machine.PricePerHourUSD <= 0 {
+		if machine.PricePerHourUSD <= 0 || math.IsNaN(machine.PricePerHourUSD) || math.IsInf(machine.PricePerHourUSD, 0) {
 			return nil, fmt.Errorf("tendril: machine %s has no valid rate", machine.ID)
 		}
 		hours := budgetUSD / machine.PricePerHourUSD
@@ -833,11 +904,8 @@ func executeTendrilAuto(ctx context.Context, node models.WorkflowNode, rc RunCon
 			return nil, err
 		}
 		if userCredit < need {
-			// Fund exactly the shortfall, not the whole budget again -- the
-			// user may already be sitting on partial Tendril credit from an
-			// earlier auto or manual topup.
-			shortfallUSD := float64(need-userCredit) / 1e6
-			if _, err := performTopup(ctx, cfg, shortfallUSD); err != nil {
+			budgetAtomic := int64(budgetUSD*1e6 + 0.5)
+			if _, err := performTopup(ctx, cfg, need-userCredit, userCredit, true, budgetAtomic); err != nil {
 				return nil, fmt.Errorf("tendril: auto topup: %w", err)
 			}
 		}

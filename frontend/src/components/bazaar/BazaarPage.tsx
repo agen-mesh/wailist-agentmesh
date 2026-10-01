@@ -1,12 +1,19 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Topbar } from "@/components/Topbar";
-import { bazaar, BAZAAR_SORT_OPTIONS, type BazaarResource, type BazaarSort } from "@/lib/bazaar";
+import {
+  bazaar,
+  BAZAAR_SORT_OPTIONS,
+  type BazaarResource,
+  type BazaarSort,
+} from "@/lib/bazaar";
 import { ResourceCard } from "./ResourceCard";
 import { ConsoleCard } from "./ConsoleCard";
 import { EndpointRow } from "./EndpointRow";
 import { ProviderGroupCard } from "./ProviderGroupCard";
 import { AddToWorkflowDialog } from "./AddToWorkflowDialog";
+import { useReadOnly } from "@/hooks/useReadOnly";
+import { can } from "@/lib/readonly";
 
 // Real pagination, not infinite scroll: a fixed page is fetched and shown at
 // a time, with Prev/Next and a page-size picker -- a long, unbounded list
@@ -18,12 +25,19 @@ const DEFAULT_PAGE_SIZE: PageSize = 10;
 // The partner track is explicit, not auto-fill. There are two partners; an
 // auto-fill grid stretches to four columns on a wide screen and leaves them
 // adrift in it, which reads as "two things are missing" rather than "these are
-// the two". auto-fit with a max keeps each card at a readable width and lets a
-// third slot in cleanly when there is one.
+// the two".
+//
+// Flex rather than grid, and that is the whole point. A grid track count that
+// does not divide the partner count leaves the last card alone beside dead
+// space -- with three partners and room for two, the third sat in a half-empty
+// row looking like a loading failure. Flex lets that last card GROW into the
+// space instead (`flex: 1 1 <basis>` on the card itself), so a row is always
+// full whatever the count and the viewport. The basis sets the point at which
+// another card fits; nothing is ever stranded.
 const CONSOLE_GRID: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 460px))",
-  justifyContent: "start",
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "stretch",
   gap: 14,
 };
 
@@ -100,13 +114,21 @@ const BAZAAR_CSS = `
    a plain row is just as much a target (its own Add button) and reading a
    long list is easier when the row under the pointer is visually obvious,
    not only the ones that happen to expand. */
-.bz-row:hover,
 .bz-row:focus-within {
   background: var(--bg-elev-2);
 }
-.bz-row:hover::before,
 .bz-row:focus-within::before {
   transform: scaleY(1);
+}
+/* Pointer hover only where a pointer hovers. On a touch screen a tap sets
+   :hover and leaves it set, so the tapped row would stay highlighted. */
+@media (hover: hover) {
+  .bz-row:hover {
+    background: var(--bg-elev-2);
+  }
+  .bz-row:hover::before {
+    transform: scaleY(1);
+  }
 }
 .bz-row__icon {
   width: 26px;
@@ -193,10 +215,12 @@ const BAZAAR_CSS = `
     border-color 0.15s var(--ease),
     color 0.15s var(--ease);
 }
-.bz-row__add:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-fg);
+@media (hover: hover) {
+  .bz-row__add:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-fg);
+  }
 }
 .bz-group-body {
   display: grid;
@@ -249,6 +273,26 @@ const BAZAAR_CSS = `
     flex: 1 1 100%;
   }
 }
+/* Below 520px a row cannot hold the name, the price and the stats side by
+   side: the stats kept their width and the name shrank to a few characters.
+   The meta wraps onto its own line, indented to the text column (the 26px
+   icon plus the 12px gap), and Add stays on the first line. */
+@media (max-width: 520px) {
+  .bz-row {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .bz-row__add {
+    order: 2;
+  }
+  .bz-row__meta {
+    order: 3;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    row-gap: 2px;
+    padding-left: 38px;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .bz-row,
   .bz-row::before,
@@ -261,12 +305,18 @@ const BAZAAR_CSS = `
 
 export function BazaarPage() {
   const [supported, setSupported] = useState<BazaarResource[]>([]);
+  const [supportedSettled, setSupportedSettled] = useState(false);
+  const [supportedError, setSupportedError] = useState(false);
   const [items, setItems] = useState<BazaarResource[]>([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState<BazaarResource | null>(null);
+  // Adding an endpoint edits a workflow graph, so where the graph cannot be
+  // edited the endpoints are listed without Add (see lib/readonly.ts).
+  const readOnly = useReadOnly();
+  const onAdd = can("workflow.editGraph", readOnly) ? setAdding : undefined;
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
   const [page, setPage] = useState(0); // 0-indexed
 
@@ -346,7 +396,10 @@ export function BazaarPage() {
         if (!cancelled) setSupported(page.items);
       })
       .catch(() => {
-        /* the main list surfaces the error; a missing pinned row is not fatal */
+        if (!cancelled) setSupportedError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setSupportedSettled(true);
       });
     return () => {
       cancelled = true;
@@ -432,10 +485,25 @@ export function BazaarPage() {
   const canGoNext = page < totalPages - 1;
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+    // .am-viewport-min rather than a raw 100vh: on a phone browser 100vh
+    // measures the viewport with the toolbars retracted, so the page runs taller
+    // than the screen and its bottom sits behind the address bar. The class
+    // carries the vh -> dvh fallback pair, which an inline style cannot express.
+    // min-height, not height, because this list grows as it pages in.
+    <div
+      className="am-viewport-min"
+      style={{ display: "flex", flexDirection: "column" }}
+    >
       <style>{BAZAAR_CSS}</style>
       <Topbar />
-      <div style={{ padding: "24px 24px 64px", maxWidth: 1180, width: "100%", margin: "0 auto" }}>
+      <div
+        style={{
+          padding: "24px 24px 64px",
+          maxWidth: 1180,
+          width: "100%",
+          margin: "0 auto",
+        }}
+      >
         <h1
           style={{
             margin: 0,
@@ -461,16 +529,36 @@ export function BazaarPage() {
           can drop straight onto a canvas.
         </p>
 
-        {supported.length > 0 && (
-          <section style={{ marginTop: 28 }}>
-            <SectionHeading
-              title="Partners"
-              note="Set up and tested by us. Open one and start using it right away."
-            />
+        <section style={{ marginTop: 28 }}>
+          <SectionHeading
+            title="Partners"
+            note="Set up and tested by us. Open one and start using it right away."
+          />
+          <div
+            role="region"
+            aria-label="Partner services"
+            aria-busy={!supportedSettled}
+            tabIndex={0}
+            // Late partner results must never displace the independent catalogue.
+            style={{ height: 320, overflowY: "auto", scrollbarGutter: "stable" }}
+          >
+            {(!supportedSettled || supported.length === 0) && (
+              <p role="status" style={{ fontSize: 12.5, color: "var(--fg-dim)" }}>
+                {!supportedSettled
+                  ? "Loading partners…"
+                  : supportedError
+                    ? "Could not load partners."
+                    : "No partners available."}
+              </p>
+            )}
             {consoles.length > 0 && (
               <div style={CONSOLE_GRID}>
                 {consoles.map(([key, resources]) => (
-                  <ConsoleCard key={key} consoleKey={key} resources={resources} />
+                  <ConsoleCard
+                    key={key}
+                    consoleKey={key}
+                    resources={resources}
+                  />
                 ))}
               </div>
             )}
@@ -478,13 +566,13 @@ export function BazaarPage() {
               <div style={{ ...GRID, marginTop: consoles.length > 0 ? 12 : 0 }}>
                 {plainSupported.map((r) => (
                   <div key={r.id} className="bz-supported-card">
-                    <ResourceCard resource={r} onAdd={setAdding} />
+                    <ResourceCard resource={r} onAdd={onAdd} />
                   </div>
                 ))}
               </div>
             )}
-          </section>
-        )}
+          </div>
+        </section>
 
         <section style={{ marginTop: 28 }}>
           <div
@@ -552,7 +640,11 @@ export function BazaarPage() {
           <div className="bz-list">
             {groupedItems.map(([host, resources]) =>
               resources.length === 1 ? (
-                <EndpointRow key={resources[0].id} resource={resources[0]} onAdd={setAdding} />
+                <EndpointRow
+                  key={resources[0].id}
+                  resource={resources[0]}
+                  onAdd={onAdd}
+                />
               ) : (
                 <ProviderGroupCard
                   key={host}
@@ -560,7 +652,7 @@ export function BazaarPage() {
                   resources={resources}
                   expanded={expandedHosts.has(host)}
                   onToggle={() => toggleHost(host)}
-                  onAdd={setAdding}
+                  onAdd={onAdd}
                   partial={false}
                 />
               ),
@@ -568,7 +660,13 @@ export function BazaarPage() {
           </div>
 
           {error && (
-            <p style={{ marginTop: 16, fontSize: 12.5, color: "var(--danger)" }}>
+            <p
+              style={{
+                marginTop: 16,
+                fontSize: 12.5,
+                color: "var(--danger)",
+              }}
+            >
               {error}{" "}
               <button
                 type="button"
@@ -589,13 +687,25 @@ export function BazaarPage() {
           )}
 
           {loading && (
-            <p style={{ marginTop: 16, fontSize: 12.5, color: "var(--fg-dim)" }}>
+            <p
+              style={{
+                marginTop: 16,
+                fontSize: 12.5,
+                color: "var(--fg-dim)",
+              }}
+            >
               Loading…
             </p>
           )}
 
           {!loading && !error && items.length === 0 && activeQuery && (
-            <p style={{ marginTop: 16, fontSize: 12.5, color: "var(--fg-dim)" }}>
+            <p
+              style={{
+                marginTop: 16,
+                fontSize: 12.5,
+                color: "var(--fg-dim)",
+              }}
+            >
               Nothing matches “{activeQuery}”.
             </p>
           )}
@@ -623,7 +733,9 @@ export function BazaarPage() {
                 <span>Show</span>
                 <select
                   value={pageSize}
-                  onChange={(e) => setPageSize(Number(e.target.value) as PageSize)}
+                  onChange={(e) =>
+                    setPageSize(Number(e.target.value) as PageSize)
+                  }
                   aria-label="Results per page"
                   style={{
                     height: 28,
@@ -672,8 +784,11 @@ export function BazaarPage() {
         </section>
       </div>
 
-      {adding && (
-        <AddToWorkflowDialog resource={adding} onClose={() => setAdding(null)} />
+      {adding && onAdd && (
+        <AddToWorkflowDialog
+          resource={adding}
+          onClose={() => setAdding(null)}
+        />
       )}
     </div>
   );

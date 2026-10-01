@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/geo"
 	"github.com/agentmesh/backend/internal/models"
+	"github.com/agentmesh/backend/internal/push"
 	"github.com/agentmesh/backend/internal/respond"
 )
 
@@ -280,6 +282,10 @@ func (d *Deps) LocationPing(w http.ResponseWriter, r *http.Request) {
 	if crossing.Entered {
 		direction = "enter"
 	}
+	// Fires on the crossing itself, independent of whether a run actually
+	// starts below -- a cooldown or an already-running workflow can still
+	// no-op that separately, and the user still crossed the line either way.
+	go push.NotifyGeofenceCrossing(context.Background(), d.Store, wf.UserID, wf.ID, wf.Name, direction)
 	runID, err := d.startGeofenceRun(r, wf, direction, *body.Lat, *body.Lng, fixAt)
 	if err != nil {
 		var cooldownErr *db.ErrRunOnCooldown

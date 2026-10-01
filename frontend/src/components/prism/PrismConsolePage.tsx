@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Topbar } from "@/components/Topbar";
 import { Tag, ghostBtnSm } from "@/components/ui";
+import { ExternalLink } from "@/components/ExternalLink";
 import {
   prism as prismApi,
   formatUsd,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/prism";
 import { formatFileSize, readFileAsBase64 } from "@/lib/fileEncoding";
 import { PrismResult } from "./PrismResult";
+import { PrismRepoReview } from "./PrismRepoReview";
 
 // A stable identity for "this endpoint has no values yet". Without it the
 // `?? {}` fallback allocates a fresh object every render and the memo that
@@ -148,7 +150,8 @@ function Segmented<T extends string>({
               color: "var(--fg)",
               cursor: "pointer",
               fontFamily: "var(--font-sans)",
-              transition: "border-color 0.15s var(--ease), background 0.15s var(--ease)",
+              transition:
+                "border-color 0.15s var(--ease), background 0.15s var(--ease)",
             }}
           >
             <div style={{ fontSize: 13, fontWeight: 600 }}>{o.label}</div>
@@ -206,7 +209,9 @@ function FieldControl({
       // swapped out, and they would pay for that mistake.
       setFileSize(null);
       onChange(undefined);
-      setFileError(e instanceof Error ? e.message : `Could not read ${file.name}.`);
+      setFileError(
+        e instanceof Error ? e.message : `Could not read ${file.name}.`,
+      );
     }
   };
 
@@ -225,7 +230,9 @@ function FieldControl({
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {label}
       {field.description && (
-        <div style={{ fontSize: 11.5, color: "var(--fg-muted)", lineHeight: 1.5 }}>
+        <div
+          style={{ fontSize: 11.5, color: "var(--fg-muted)", lineHeight: 1.5 }}
+        >
           {field.description}
         </div>
       )}
@@ -329,7 +336,9 @@ function FieldControl({
             </button>
           )}
           {fileError && (
-            <div style={{ fontSize: 11.5, color: "var(--danger)" }}>{fileError}</div>
+            <div style={{ fontSize: 11.5, color: "var(--danger)" }}>
+              {fileError}
+            </div>
           )}
         </div>
       ) : field.kind === "textarea" ? (
@@ -385,6 +394,11 @@ export function PrismConsolePage() {
     Record<string, Record<string, PrismRunField>>
   >({});
 
+  // Code review comes in two shapes: one file, or a whole repository (one
+  // paid call per file). Only the code-review task has a repo mode — there is
+  // no such thing as screening a repository of resumes.
+  const [scope, setScope] = useState<"file" | "repo">("file");
+
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   // Set when the run was refused for want of credit (402). The error panel
@@ -405,7 +419,9 @@ export function PrismConsolePage() {
       .catch((e: unknown) => {
         if (!stale) {
           setLoadError(
-            e instanceof Error ? e.message : "Could not load Prism's endpoints.",
+            e instanceof Error
+              ? e.message
+              : "Could not load Prism's endpoints.",
           );
         }
       });
@@ -486,7 +502,7 @@ export function PrismConsolePage() {
     >
       <Topbar />
       <div style={{ flex: 1, overflow: "auto" }}>
-        <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 24px 96px" }}>
+        <div className="am-console-page">
           {/* ghostBtnSm is inline-flex (so its own icon+label stay aligned),
               and Tag is inline-flex too -- with no block-level element
               between them, the button's marginBottom did nothing and the
@@ -494,23 +510,16 @@ export function PrismConsolePage() {
               like a separator glued to "Workflows". A wrapping block gives
               the margin somewhere real to apply. */}
           <div style={{ marginBottom: 18 }}>
-            <button onClick={() => router.push("/workflows")} style={ghostBtnSm}>
+            <button
+              onClick={() => router.push("/workflows")}
+              style={ghostBtnSm}
+            >
               ← Workflows
             </button>
           </div>
 
           <Tag>prism · ai routing</Tag>
-          <h1
-            style={{
-              margin: "14px 0 6px",
-              fontSize: 34,
-              fontWeight: 500,
-              letterSpacing: "-0.02em",
-              color: "var(--fg)",
-            }}
-          >
-            Run an AI task
-          </h1>
+          <h1 className="am-console-title">Run an AI task</h1>
           <p
             style={{
               margin: "0 0 14px",
@@ -519,13 +528,15 @@ export function PrismConsolePage() {
               maxWidth: 540,
             }}
           >
-            Pick a task, fill it in, and pay for that one run. Nothing to set
-            up and no subscription.
+            Pick a task, fill it in, and pay for that one run. Nothing to set up
+            and no subscription.
           </p>
 
           {loadError && (
             <Panel style={{ padding: 16, borderColor: "var(--danger)" }}>
-              <div style={{ fontSize: 13, color: "var(--danger)" }}>{loadError}</div>
+              <div style={{ fontSize: 13, color: "var(--danger)" }}>
+                {loadError}
+              </div>
             </Panel>
           )}
 
@@ -552,6 +563,7 @@ export function PrismConsolePage() {
                     value={taskKey ?? ""}
                     onChange={(k) => {
                       setTaskKey(k);
+                      if (k !== "code-review") setScope("file");
                       setResult(null);
                       setRunError(null);
                     }}
@@ -581,10 +593,19 @@ export function PrismConsolePage() {
                       .map((e) => ({
                         key: e.tier,
                         label: e.tier === "fast" ? "Quick" : "Thorough",
-                        // The TOTAL, not Prism's share. Comparing tiers on the
-                        // vendor price alone understates both by $1.50 and
-                        // makes the cheaper one look 2x better than it is.
-                        note: `${formatUsd(totalCostMicros(e, fee))} a run`,
+                        // In repo mode the run covers N files with ONE fee, so
+                        // a single-run total here would contradict the real
+                        // total the repo panel works out. Quote per file
+                        // instead; the panel below owns the run total.
+                        //
+                        // For a single file it is the TOTAL, not Prism's share:
+                        // comparing tiers on the vendor price alone understates
+                        // both by $1.50 and makes the cheaper one look twice as
+                        // good as it is.
+                        note:
+                          scope === "repo"
+                            ? `${formatUsd(e.amountMicros)} a file`
+                            : `${formatUsd(totalCostMicros(e, fee))} a run`,
                       }))}
                   />
                 </div>
@@ -623,8 +644,44 @@ export function PrismConsolePage() {
                 )}
               </Panel>
 
+              {/* ── What to review ───────────────────────────────────── */}
+              {taskKey === "code-review" && (
+                <Panel style={{ padding: "18px 20px", marginBottom: 16 }}>
+                  <PanelLabel>What to review</PanelLabel>
+                  <div style={{ marginTop: 10 }}>
+                    <Segmented
+                      ariaLabel="What to review"
+                      value={scope}
+                      onChange={(v) => {
+                        setScope(v);
+                        setResult(null);
+                        setRunError(null);
+                      }}
+                      options={[
+                        {
+                          key: "file" as const,
+                          label: "One file",
+                          note: "paste a link to a single file",
+                        },
+                        {
+                          key: "repo" as const,
+                          label: "Whole repo",
+                          note: "every source file, one pass each",
+                        },
+                      ]}
+                    />
+                  </div>
+                </Panel>
+              )}
+
+              {taskKey === "code-review" && scope === "repo" && endpoint && (
+                <Panel style={{ padding: "18px 20px", marginBottom: 16 }}>
+                  <PrismRepoReview endpoint={endpoint} platformFee={fee} />
+                </Panel>
+              )}
+
               {/* ── Form ─────────────────────────────────────────────── */}
-              {endpoint && (
+              {endpoint && scope === "file" && (
                 <Panel style={{ padding: "18px 20px", marginBottom: 16 }}>
                   <PanelLabel>Input</PanelLabel>
                   <div
@@ -641,7 +698,9 @@ export function PrismConsolePage() {
                         field={f}
                         value={fieldValues[f.name]}
                         disabled={running}
-                        onChange={(next) => setField(endpoint.task, f.name, next)}
+                        onChange={(next) =>
+                          setField(endpoint.task, f.name, next)
+                        }
                       />
                     ))}
                   </div>
@@ -677,7 +736,12 @@ export function PrismConsolePage() {
                     )}
                     <div
                       aria-hidden
-                      style={{ flex: 1, minWidth: 24, height: 1, background: "var(--border)" }}
+                      style={{
+                        flex: 1,
+                        minWidth: 24,
+                        height: 1,
+                        background: "var(--border)",
+                      }}
                     />
                     <button
                       type="button"
@@ -691,7 +755,7 @@ export function PrismConsolePage() {
                 </Panel>
               )}
 
-              {runError && (
+              {runError && scope === "file" && (
                 <Panel
                   style={{
                     padding: "14px 16px",
@@ -751,7 +815,7 @@ export function PrismConsolePage() {
                 </Panel>
               )}
 
-              {result && (
+              {result && scope === "file" && (
                 <Panel style={{ padding: "18px 20px" }}>
                   <div
                     style={{
@@ -794,8 +858,8 @@ export function PrismConsolePage() {
                       }}
                     >
                       Prism answered without asking for payment, so this run was
-                      free. That is unusual, so double-check the result before you
-                      rely on it.
+                      free. That is unusual, so double-check the result before
+                      you rely on it.
                     </div>
                   )}
 
@@ -815,27 +879,23 @@ export function PrismConsolePage() {
                       {result.txId && (
                         <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
                           Paid to Prism{" "}
-                          <a
+                          <ExternalLink
                             href={result.explorerURL}
-                            target="_blank"
-                            rel="noopener noreferrer"
                             style={txLinkStyle}
                           >
                             {result.txId}
-                          </a>
+                          </ExternalLink>
                         </div>
                       )}
                       {result.platformFeeTxId && (
                         <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
                           AgentMesh fee{" "}
-                          <a
+                          <ExternalLink
                             href={result.platformFeeExplorerURL}
-                            target="_blank"
-                            rel="noopener noreferrer"
                             style={txLinkStyle}
                           >
                             {result.platformFeeTxId}
-                          </a>
+                          </ExternalLink>
                         </div>
                       )}
                     </div>

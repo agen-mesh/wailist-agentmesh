@@ -181,7 +181,7 @@ func executeGmail(ctx context.Context, node models.WorkflowNode, rc RunContexter
 		if node.Template == "gmail_reply" && !strings.HasPrefix(strings.ToLower(subject), "re:") {
 			subject = "Re: " + subject
 		}
-		body := resolveMessage(node, rc)
+		body, _, _ := googleOutgoingText(node, rc)
 		payload := map[string]any{"raw": buildRFC2822Message(to, subject, body)}
 		if node.Template == "gmail_reply" {
 			if threadID := resolveTemplate(configVal(node, "gmailThreadID", ""), rc); threadID != "" {
@@ -332,7 +332,7 @@ func executeSheets(ctx context.Context, node models.WorkflowNode, rc RunContexte
 
 	case "sheets_append":
 		target := sheetsAPIBase + "/" + url.PathEscape(spreadsheetID) + "/values/" + url.PathEscape(rangeA1) + ":append?valueInputOption=USER_ENTERED"
-		msg := resolveMessage(node, rc)
+		msg, _, _ := googleOutgoingText(node, rc)
 		// A row is an array of cell values. If the upstream message is
 		// already a JSON array (e.g. via a {{ result.someArrayField }}
 		// template), append it as one row of that many cells; otherwise
@@ -370,10 +370,7 @@ func executeCalendar(ctx context.Context, node models.WorkflowNode, rc RunContex
 		return googleGET(ctx, target, token, "Google Calendar")
 
 	case "calendar_create":
-		summary := resolveTemplate(configVal(node, "calendarSummary", ""), rc)
-		if summary == "" {
-			summary = resolveMessage(node, rc)
-		}
+		summary, _, _ := googleOutgoingText(node, rc)
 		startISO := resolveTemplate(configVal(node, "calendarStart", ""), rc)
 		endISO := resolveTemplate(configVal(node, "calendarEnd", ""), rc)
 		if startISO == "" || endISO == "" {
@@ -466,4 +463,30 @@ func executeDrive(ctx context.Context, node models.WorkflowNode, rc RunContexter
 		}, nil
 	}
 	return nil, fmt.Errorf("google: unknown drive template %q", node.Template)
+}
+
+// googleOutgoingText is the content a Google write step sends -- an email's
+// body, an appended row, an event's summary -- whether the template sends any
+// at all, and whether that content came from a template. The one place this
+// decision lives: the connector above sends it, and the builder's dry run
+// reports it as what a simulated step would have carried, so the two cannot
+// disagree. Read-only templates send nothing.
+func googleOutgoingText(node models.WorkflowNode, rc RunContexter) (text string, sends, templated bool) {
+	switch node.Template {
+	case "gmail_send", "gmail_reply", "sheets_append":
+		return resolveMessage(node, rc), true, configVal(node, messageTemplateKey, "") != ""
+	case "calendar_create":
+		// The event's own summary wins; the run's message only fills in for
+		// a summary that is unset or resolves to nothing.
+		if summary := resolveTemplate(configVal(node, "calendarSummary", ""), rc); summary != "" {
+			return summary, true, true
+		}
+		return resolveMessage(node, rc), true, configVal(node, messageTemplateKey, "") != ""
+	}
+	return "", false, false
+}
+
+// GoogleOutgoingForDryRun exports googleOutgoingText for the builder's dry run.
+func GoogleOutgoingForDryRun(node models.WorkflowNode, rc RunContexter) (text string, sends, templated bool) {
+	return googleOutgoingText(node, rc)
 }

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The literal value of the bg custom property in
+         frontend/src/app/globals.css, and of layout.tsx's themeColor. It has to
+         be a literal here: the launch window is painted by the OS before any web
+         content exists, so it cannot read a CSS custom property. If that token
+         ever changes, this changes with it, or the hand-off from the system
+         splash to the WebView shows a seam.
+
+         Named without its two leading hyphens on purpose. XML forbids a double
+         hyphen anywhere inside a comment, and Android reports it from the
+         resource merge rather than the parser, so the failure arrives as a line
+         and column with no hint that a comment is the cause. -->
+    <color name="splashBackground">#08070c</color>
+</resources>

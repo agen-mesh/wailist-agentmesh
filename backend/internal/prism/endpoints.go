@@ -211,7 +211,7 @@ func Tasks() []Task {
 		{
 			Key:         TaskCodeReview,
 			Title:       "Code review",
-			Description: "Check one file for bugs, security holes and rough edges.",
+			Description: "Check a file — or a whole repo — for bugs, security holes and rough edges.",
 		},
 		{
 			Key:         TaskResumeScreen,

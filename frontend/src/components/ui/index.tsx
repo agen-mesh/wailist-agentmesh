@@ -270,6 +270,29 @@ export const IconClose = ({ size = 14 }: { size?: number }) => (
   </svg>
 );
 
+export const IconPlus = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
+    <path
+      d="M8 3 L8 13 M3 8 L13 8"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+// Three narrowing lines: filter and sort.
+export const IconFilter = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
+    <path
+      d="M2.5 4.5 L13.5 4.5 M4.5 8 L11.5 8 M6.5 11.5 L9.5 11.5"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
 export const IconBackspace = ({ size = 12 }: { size?: number }) => (
   <svg
     width={size}
@@ -378,7 +401,15 @@ export const IconMic = ({ size = 12 }: { size?: number }) => (
     aria-hidden="true"
     style={{ display: "block" }}
   >
-    <rect x="5.5" y="1.5" width="5" height="8" rx="2.5" stroke="currentColor" strokeWidth="1.3" />
+    <rect
+      x="5.5"
+      y="1.5"
+      width="5"
+      height="8"
+      rx="2.5"
+      stroke="currentColor"
+      strokeWidth="1.3"
+    />
     <path
       d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5"
       stroke="currentColor"
@@ -405,9 +436,28 @@ export const IconWallet = ({ size = 14 }: { size?: number }) => (
 );
 
 // ── Toast ─────────────────────────────────────────────────────────────────
-export function Toast({ message }: { message: string }) {
+// `tone` is not cosmetic. This used to render StatusDot tone="ok" for every
+// message, so "Run failed", "Build failed" and "Deploy first to run" all
+// arrived under a green success dot -- the single most misleading thing a
+// status affordance can do. "error" maps to StatusDot's own "err" rather
+// than renaming that prop, which a dozen other call sites already pass.
+export function Toast({
+  message,
+  tone = "ok",
+}: {
+  message: string;
+  tone?: "ok" | "warn" | "error";
+}) {
+  const line =
+    tone === "error"
+      ? "var(--danger)"
+      : tone === "warn"
+        ? "var(--warm)"
+        : "var(--accent-line)";
   return (
     <div
+      role={tone === "error" ? "alert" : "status"}
+      aria-live={tone === "error" ? "assertive" : "polite"}
       style={{
         position: "fixed",
         bottom: 24,
@@ -415,12 +465,13 @@ export function Toast({ message }: { message: string }) {
         transform: "translateX(-50%)",
         zIndex: 9999,
         background: "var(--bg-elev-3)",
-        border: "1px solid var(--accent-line)",
+        border: `1px solid ${line}`,
         color: "var(--fg)",
         padding: "10px 16px",
         borderRadius: "var(--r-2)",
         fontFamily: "var(--font-mono)",
         fontSize: 12,
+        maxWidth: "min(520px, calc(100vw - 48px))",
         boxShadow: "0 10px 32px rgba(0,0,0,0.5)",
         display: "flex",
         alignItems: "center",
@@ -428,7 +479,7 @@ export function Toast({ message }: { message: string }) {
         animation: "fade-up 0.25s var(--ease)",
       }}
     >
-      <StatusDot tone="ok" /> {message}
+      <StatusDot tone={tone === "error" ? "err" : tone} /> {message}
     </div>
   );
 }

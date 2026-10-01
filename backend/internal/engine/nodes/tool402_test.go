@@ -26,6 +26,10 @@ import (
 // toggling it per-test.
 func TestMain(m *testing.M) {
 	nodes.SetURLValidatorForTest(func(string) error { return nil })
+	// A CoinGecko error in any test falls through to the price backups.
+	// Pointed at a closed local port so no test reaches the real Coinbase
+	// or CoinPaprika unless it sets them up itself.
+	nodes.SetPriceFallbackBasesForTest(nodes.OfflinePriceBackup, nodes.OfflinePriceBackup, nodes.OfflinePriceBackup)
 	os.Exit(m.Run())
 }
 
@@ -1431,5 +1435,20 @@ func TestTool402NonPaymentEndpointSendsMultipartContentType(t *testing.T) {
 	}
 	if m, ok := res.Response.(map[string]any); !ok || m["ok"] != true {
 		t.Fatalf("want the endpoint's real response, got %#v", res.Response)
+	}
+}
+
+// TestBatchPlatformFeeIsOffByDefault pins the safe default for the batched-fee
+// switch. Every existing caller leaves X402RelayConfig.BatchPlatformFee unset,
+// and unset must keep charging the flat markup per call — a zero value that
+// silently waived the platform's fee on every x402 call in the product would
+// be the most expensive possible default.
+func TestBatchPlatformFeeIsOffByDefault(t *testing.T) {
+	var cfg nodes.X402RelayConfig
+	if cfg.BatchPlatformFee {
+		t.Fatal("BatchPlatformFee must default to false: the zero value has to mean 'bill the fee normally'")
+	}
+	if models.X402PlatformFeeUSDMicros != 1_500_000 {
+		t.Fatalf("platform fee = %d; the repo-review batch pricing assumes $1.50", models.X402PlatformFeeUSDMicros)
 	}
 }

@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { NativeBoot } from "@/components/native/NativeBoot";
+import { AppSplash } from "@/components/native/AppSplash";
+import { BottomNav } from "@/components/nav/BottomNav";
+import { RouteTransition } from "@/components/nav/RouteTransition";
 import { IS_NATIVE } from "@/lib/nativeAuth";
 import { buildCsp } from "@/lib/csp";
 import localFont from "next/font/local";
@@ -64,9 +67,23 @@ export const metadata: Metadata = {
 // Next injects this by default, but the app is now explicitly responsive, so the
 // contract is stated rather than inherited. `maximumScale` is deliberately left
 // unset: capping zoom locks out anyone who needs to magnify text.
+//
+// `viewportFit: "cover"` is not decoration. mobile/android/variables.gradle sets
+// targetSdkVersion = 36, and edge-to-edge is enforced for anything targeting
+// Android 15 or later: the WebView draws behind the status and navigation bars
+// whether or not the page is ready for it. Without this opt-in the safe-area
+// insets read as zero, so the top nav sits underneath the status bar. At 36
+// (Android 16) the opt-out is gone entirely, so there is no version of this app
+// that goes back to the old behaviour. Anything touching a screen edge pairs
+// this with the .am-safe-* classes in responsive.css.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  viewportFit: "cover",
+  // The literal value of --bg. A theme colour has to be a colour, not a var():
+  // the browser reads this meta tag to paint chrome outside the document, where
+  // the page's custom properties do not exist. Keep in step with globals.css.
+  themeColor: "#08070c",
 };
 
 export default function RootLayout({
@@ -109,7 +126,18 @@ export default function RootLayout({
         }}
       >
         <NativeBoot />
-        {children}
+        {/* Above NativeBoot in the tree on purpose: NativeBoot renders null and
+            does the work, this covers the screen while it happens. Both are
+            mounted here rather than per-route so the launch frame is the same
+            whichever route the app opens on. */}
+        <AppSplash />
+        {/* Wraps the page so an arriving screen can be given a direction on a
+            phone. A no-op on desktop and under reduced motion. */}
+        <RouteTransition>{children}</RouteTransition>
+        {/* Renders itself only on a handheld, and only at a section root. One
+            mount point rather than one per page: it is app-wide chrome, and
+            every page that would have to opt in is a page that can forget to. */}
+        <BottomNav />
       </body>
     </html>
   );

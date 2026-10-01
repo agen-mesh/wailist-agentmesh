@@ -4,7 +4,7 @@
 // background, outside any page, when the OS wakes us for a geofence crossing.
 // There may be no WebView document alive at all at that moment, so it cannot
 // rely on anything the page set up.
-import { clearToken, loadToken } from "./auth";
+import { clearTokenIf, loadToken } from "./auth";
 import type { Fix } from "./queue";
 
 // lib/readonly.ts's WRITE_RULES/assertWritable pattern does NOT belong here,
@@ -34,8 +34,10 @@ async function call(path: string, init: RequestInit = {}): Promise<Response> {
     },
   });
   if (res.status === 401) {
-    // Drop the dead token rather than retrying with it forever.
-    await clearToken();
+    // Drop the dead token rather than retrying with it forever -- the one this
+    // request sent, not whatever is stored by the time the answer arrives,
+    // which may be a newer sign-in's.
+    await clearTokenIf(token);
     // A plain Error, not a dedicated type: flush()'s catch in geofence.ts
     // used to branch on a 401 specifically, but both branches took the same
     // action (stop the flush, keep the queue), so nothing left in the
@@ -86,11 +88,18 @@ export async function pushFix(fix: Fix): Promise<PingResult> {
 // whether it has done so before. That is the cheaper correctness: a flag on
 // the device can disagree with the server, a repeated call cannot.
 export async function registerDevice(token: string): Promise<void> {
-  const res = await call("/devices", {
-    method: "POST",
-    body: JSON.stringify({ token, platform: "android" }),
-  });
-  if (!res.ok) throw new Error("could not register this device");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await call("/devices", {
+      method: "POST",
+      body: JSON.stringify({ token, platform: "android" }),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error("could not register this device");
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // Called on sign-out, and allowed to fail quietly by its caller: a device that
@@ -98,10 +107,11 @@ export async function registerDevice(token: string): Promise<void> {
 // is not left dangling forever either way -- FCM rejects sends to a token the
 // app has unregistered, and Deliver drops it on that verdict.
 export async function unregisterDevice(token: string): Promise<void> {
-  await call("/devices", {
+  const res = await call("/devices", {
     method: "DELETE",
     body: JSON.stringify({ token }),
   });
+  if (!res.ok) throw new Error("could not unregister this device");
 }
 
 export interface Geofence {

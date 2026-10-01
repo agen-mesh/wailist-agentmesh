@@ -149,6 +149,16 @@ type WorkflowNode struct {
 	// TendrilAmount is USD of AgentMesh credit to convert into Tendril
 	// credit, on a topup node.
 	TendrilAmount string `json:"tendrilAmount,omitempty"`
+	// TendrilMinBalance, on a topup node, makes the topup conditional: when
+	// the user's Tendril credit is already at or above this many USD, the
+	// node skips without paying anything. Empty means always top up.
+	TendrilMinBalance string `json:"tendrilMinBalance,omitempty"`
+	// TendrilCoverHours, on a topup node, sizes the topup to the next rent:
+	// it buys whatever the user's Tendril credit is short of renting the
+	// cheapest online machine for this many hours (never less than
+	// TendrilAmount), and skips when nothing is short. Overrides
+	// TendrilMinBalance.
+	TendrilCoverHours string `json:"tendrilCoverHours,omitempty"`
 	// TendrilLeaseToken is a bearer the TARGET needs, carried to the relay
 	// out of band. Never persisted on a saved workflow — it is only ever set
 	// on the synthesized nodes payTendril builds at call time.
@@ -214,6 +224,24 @@ type Workflow struct {
 	Updated     string         `json:"updated,omitempty"`
 	CreatedAt   time.Time      `json:"createdAt"`
 	UpdatedAt   time.Time      `json:"updatedAt"`
+	// LastRunAt is when the newest run inside the same window as Runs
+	// started. Nil when nothing ran in that window.
+	LastRunAt *time.Time `json:"lastRunAt,omitempty"`
+	// Description says in a sentence or two what the workflow does. Empty
+	// until someone writes one; the app then summarises the graph instead.
+	Description string `json:"description,omitempty"`
+	// TotalRuns counts every run the workflow has ever had. Only the detail
+	// endpoint fills it; the list carries the 30-day Runs instead. A pointer
+	// so a real zero is sent: nil means the count could not be taken, and the
+	// app shows a dash for that, not for a workflow that has never run.
+	TotalRuns *int `json:"totalRuns,omitempty"`
+	// StatsUnavailable says the Runs/Spend/LastRunAt aggregation did not
+	// run, so their zero values mean "not known" rather than "none".
+	// Without it the three are indistinguishable from a genuine zero on the
+	// wire -- Runs is `omitempty`, so a real count of 0 is omitted too --
+	// and a client has no way to avoid presenting a failed aggregation as
+	// factual "0 runs, $0 spent".
+	StatsUnavailable bool `json:"statsUnavailable,omitempty"`
 	// ScheduleCron is a standard 5-field cron expression (UTC). Empty/nil
 	// means the workflow has no schedule -- set via SetWorkflowSchedule,
 	// never written directly through UpdateWorkflow's graph save.
@@ -263,6 +291,32 @@ type Run struct {
 	StartedAt    time.Time  `json:"startedAt"`
 	FinishedAt   *time.Time `json:"finishedAt,omitempty"`
 	InputContext any        `json:"inputContext,omitempty"`
+	// Everything debit_ledger has charged this user for the run so far, in
+	// USD micros. A run still in progress can grow.
+	SpendUSDMicros int64 `json:"spendUsdMicros"`
+}
+
+// RunSummary is one row of a run history list (GET /workflows/{id}/runs and
+// GET /runs). It is what a list needs to show and nothing more: the run's
+// input context stays out, since a list has no use for it and it can hold
+// whatever a caller posted to start the run.
+type RunSummary struct {
+	ID           string     `json:"id"`
+	WorkflowID   string     `json:"workflowId"`
+	WorkflowName string     `json:"workflowName"`
+	TriggeredBy  string     `json:"triggeredBy"`
+	Status       RunStatus  `json:"status"`
+	StartedAt    time.Time  `json:"startedAt"`
+	FinishedAt   *time.Time `json:"finishedAt,omitempty"`
+	// Everything debit_ledger has charged this user for the run so far, in
+	// USD micros. A run still in progress can grow.
+	SpendUSDMicros int64 `json:"spendUsdMicros"`
+}
+
+// RunPage is one page of run history. NextCursor is nil on the last page.
+type RunPage struct {
+	Runs       []RunSummary `json:"runs"`
+	NextCursor *string      `json:"nextCursor"`
 }
 
 // DeviceToken is one device registered to receive push notifications.
@@ -286,6 +340,11 @@ const (
 	LogStatusRunning LogStatus = "running"
 	LogStatusSuccess LogStatus = "success"
 	LogStatusFailed  LogStatus = "failed"
+	// LogStatusDegraded is a read node that failed every attempt and was
+	// allowed to pass an error payload downstream rather than fail the run.
+	// The run continues and can still answer; this row exists so the failure
+	// is never invisible. Which nodes qualify is nodes.IsDegradable.
+	LogStatusDegraded LogStatus = "degraded"
 )
 
 type RunLog struct {
@@ -407,6 +466,11 @@ const (
 	DebitKindX402RelayCost     = "x402_relay_cost"
 	DebitKindPlatformKeyLLMFee = "platform_key_llm_fee"
 	DebitKindTendrilLease      = "tendril_lease"
+	// DebitKindBuildTestLLMFee is a platform-key agent call made by a chat
+	// build's test run. It is the one kind with no run to point at: a test
+	// run persists nothing, but it spends the platform's model credits just
+	// as a real run does, so it is charged the same fee.
+	DebitKindBuildTestLLMFee = "build_test_llm_fee"
 )
 
 // TendrilLease is one rented Tendril machine. A lease deliberately outlives
@@ -506,6 +570,11 @@ const (
 	// adversarial or compromised target quoting near int64's range to
 	// force the running sum to overflow negative.
 	MaxSingleX402QuoteUSDMicros int64 = 1_000_000_000 // $1,000/call
+	// LowBalanceThresholdUSDMicros is where the low-balance push fires. Keep
+	// it equal to LOW_BALANCE_THRESHOLD_USD in frontend/src/lib/credits/fx.ts,
+	// or the in-app banner and the notification disagree about what "low"
+	// means; nothing enforces that, so change both together.
+	LowBalanceThresholdUSDMicros int64 = 5_000_000 // $5
 )
 
 type X402RelaySettlement struct {

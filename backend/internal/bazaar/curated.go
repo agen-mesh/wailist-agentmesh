@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/agentmesh/backend/internal/helixbox"
 	"github.com/agentmesh/backend/internal/prism"
 )
 
@@ -24,12 +25,22 @@ import (
 // coincidence of which entries happen to have hand-authored params:
 // TestEveryCuratedEntryIsConsoleBacked enforces it.
 //
-// The two members are Tendril and Prism. CANIX402 was removed from the tier
-// on 2026-09-05 — it has no console, and a badge promising more than an
-// endpoint URL was more than we were actually delivering for it. Removing it
+// The three members are Tendril, Prism and HelixBox. CANIX402 was removed from
+// the tier on 2026-09-05 — it has no console, and a badge promising more than
+// an endpoint URL was more than we were actually delivering for it. Removing it
 // from this registry does NOT remove it from the Bazaar: its 14 real catalog
 // entries flow through Merge untouched and stay browsable as community
 // listings, which TestCanixIsNotCuratedButSurvivesMerge pins.
+//
+// # HelixBox's entries
+//
+// Added 2026-09-08, all three probed live the same day (internal/helixbox
+// records the method). They are the first curated partner whose endpoints take
+// no input whatsoever — their own 402 challenge declares an empty request body
+// — so they carry no Params for a much simpler reason than Prism's, and what
+// they return is a session credential rather than an answer. That is what earns
+// them a console: a credential that scrolls past in a run log is a credential
+// the buyer has lost.
 //
 // # Prism's entries, and why they took until now
 //
@@ -69,9 +80,10 @@ func Curated() []Resource {
 			Network:     AlgorandMainnet,
 			Asset:       "31566704",
 			PayTo:       "ZIK7QQE7ZX446TW3PN7PQ5UDZNTY7JI5RYNTIU3LPEYBOSTVWI6PTNSWKI",
-			// Flat gate fee only. Execution time is billed separately from a
-			// Tendril-side credit balance keyed to the paying wallet address.
-			AmountMicros: 10000,
+			// Per-job price from the live 402 quote. Execution time is billed
+			// separately from a Tendril-side credit balance keyed to the
+			// paying wallet address.
+			AmountMicros: 1_500_000,
 			Supported:    true,
 			Console:      "tendril",
 			Params: []Param{{
@@ -82,7 +94,8 @@ func Curated() []Resource {
 			}},
 		},
 	}
-	return append(out, prismCurated()...)
+	out = append(out, prismCurated()...)
+	return append(out, helixboxCurated()...)
 }
 
 // prismCurated derives Prism's catalog entries from internal/prism, the same
@@ -111,6 +124,40 @@ func prismCurated() []Resource {
 			// grid. Empty is also the honest answer: Prism's inputs are not
 			// expressible as flat params, which is why it has a console at
 			// all. The console reads prism.Endpoints().Fields instead.
+			Params: []Param{},
+		})
+	}
+	return out
+}
+
+// helixboxCurated derives HelixBox's catalog entries from internal/helixbox,
+// the same table the console builds and pays its real requests from. Derived,
+// never retyped, for the reason prismCurated spells out: a copy drifts, and a
+// drifted price means the Bazaar quotes one number while the user is charged
+// another.
+func helixboxCurated() []Resource {
+	eps := helixbox.Endpoints()
+	out := make([]Resource, 0, len(eps))
+	for _, e := range eps {
+		out = append(out, Resource{
+			ID:           "curated:helixbox-" + e.ID,
+			URL:          e.URL(),
+			Method:       e.Method,
+			Provider:     helixbox.Provider,
+			Host:         helixbox.Host,
+			Description:  e.Description,
+			Network:      helixbox.Network,
+			Asset:        helixbox.AssetID,
+			PayTo:        helixbox.PayTo,
+			AmountMicros: e.AmountMicros,
+			Supported:    true,
+			Console:      helixbox.ConsoleKey,
+			// Empty for a different reason than Prism's, and a simpler one:
+			// HelixBox's endpoints take no input at all. Their own 402
+			// challenge declares the request body as {} with an empty schema,
+			// so there is no param to list. Explicitly []Param{} rather than
+			// the nil zero value, which marshals as JSON null and crashes the
+			// frontend grid.
 			Params: []Param{},
 		})
 	}

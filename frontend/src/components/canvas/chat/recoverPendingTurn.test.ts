@@ -41,6 +41,17 @@ describe("toLogEvents", () => {
     const events = toLogEvents([row({ durationMs: undefined })]);
     expect(events[0].durationMs).toBe(0);
   });
+
+  // A degraded step is settled: the engine finished with it and carried on.
+  // Dropping it here loses the only evidence the answer is partial, so the
+  // recovered turn would claim a clean run.
+  it("keeps degraded rows so the recovered turn still warns", () => {
+    const events = toLogEvents([
+      row({ stepIndex: 0, nodeId: "n1", nodeType: "action", status: "degraded" }),
+      row({ stepIndex: 1, nodeId: "n2", status: "success", output: "BTC is up." }),
+    ]);
+    expect(events.map((e) => e.status)).toEqual(["degraded", "success"]);
+  });
 });
 
 describe("recoverPendingTurn", () => {

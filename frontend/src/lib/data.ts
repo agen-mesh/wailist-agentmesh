@@ -63,7 +63,12 @@ export const PROVIDER_TEMPLATES = [
 // googleConnectorScopes, requested together in one consent screen.
 // "product" groups the palette's Google tab into sections the way
 // ACTION_CATEGORIES groups the Actions tab.
-export const GOOGLE_PRODUCTS = ["Gmail", "Sheets", "Calendar", "Drive"] as const;
+export const GOOGLE_PRODUCTS = [
+  "Gmail",
+  "Sheets",
+  "Calendar",
+  "Drive",
+] as const;
 
 // usesMessage marks the operations that actually send/write something and
 // so benefit from a {{ }} message template (see resolveMessage/
@@ -72,17 +77,87 @@ export const GOOGLE_PRODUCTS = ["Gmail", "Sheets", "Calendar", "Drive"] as const
 // sheets_append/calendar_create) so the Inspector's Message section can
 // derive from this table instead of keeping its own separate id list.
 export const GOOGLE_TEMPLATES = [
-  { id: "gmail_list", name: "Gmail: List Messages", desc: "Search/list inbox messages", icon: "✉", product: "Gmail" },
-  { id: "gmail_get", name: "Gmail: Get Message", desc: "Read one message's content", icon: "✉", product: "Gmail" },
-  { id: "gmail_send", name: "Gmail: Send Message", desc: "Send a new email", icon: "✉", product: "Gmail", usesMessage: true },
-  { id: "gmail_reply", name: "Gmail: Reply", desc: "Reply within a thread", icon: "✉", product: "Gmail", usesMessage: true },
-  { id: "sheets_read", name: "Sheets: Read Range", desc: "Read cell values", icon: "▦", product: "Sheets" },
-  { id: "sheets_append", name: "Sheets: Append Row", desc: "Add a row of data", icon: "▦", product: "Sheets", usesMessage: true },
-  { id: "calendar_list", name: "Calendar: List Events", desc: "List upcoming events", icon: "◔", product: "Calendar" },
-  { id: "calendar_create", name: "Calendar: Create Event", desc: "Schedule a new event", icon: "◔", product: "Calendar", usesMessage: true },
-  { id: "drive_list", name: "Drive: List Files", desc: "Search/list files", icon: "▤", product: "Drive" },
-  { id: "drive_get", name: "Drive: Get File Info", desc: "Read file metadata", icon: "▤", product: "Drive" },
-  { id: "drive_download", name: "Drive: Download File", desc: "Fetch file contents", icon: "▤", product: "Drive" },
+  {
+    id: "gmail_list",
+    name: "Gmail: List Messages",
+    desc: "Search/list inbox messages",
+    icon: "✉",
+    product: "Gmail",
+  },
+  {
+    id: "gmail_get",
+    name: "Gmail: Get Message",
+    desc: "Read one message's content",
+    icon: "✉",
+    product: "Gmail",
+  },
+  {
+    id: "gmail_send",
+    name: "Gmail: Send Message",
+    desc: "Send a new email",
+    icon: "✉",
+    product: "Gmail",
+    usesMessage: true,
+  },
+  {
+    id: "gmail_reply",
+    name: "Gmail: Reply",
+    desc: "Reply within a thread",
+    icon: "✉",
+    product: "Gmail",
+    usesMessage: true,
+  },
+  {
+    id: "sheets_read",
+    name: "Sheets: Read Range",
+    desc: "Read cell values",
+    icon: "▦",
+    product: "Sheets",
+  },
+  {
+    id: "sheets_append",
+    name: "Sheets: Append Row",
+    desc: "Add a row of data",
+    icon: "▦",
+    product: "Sheets",
+    usesMessage: true,
+  },
+  {
+    id: "calendar_list",
+    name: "Calendar: List Events",
+    desc: "List upcoming events",
+    icon: "◔",
+    product: "Calendar",
+  },
+  {
+    id: "calendar_create",
+    name: "Calendar: Create Event",
+    desc: "Schedule a new event",
+    icon: "◔",
+    product: "Calendar",
+    usesMessage: true,
+  },
+  {
+    id: "drive_list",
+    name: "Drive: List Files",
+    desc: "Search/list files",
+    icon: "▤",
+    product: "Drive",
+  },
+  {
+    id: "drive_get",
+    name: "Drive: Get File Info",
+    desc: "Read file metadata",
+    icon: "▤",
+    product: "Drive",
+  },
+  {
+    id: "drive_download",
+    name: "Drive: Download File",
+    desc: "Fetch file contents",
+    icon: "▤",
+    product: "Drive",
+  },
 ];
 
 // Display-only mirror of backend/internal/engine/nodes/tier.go's modelTiers
@@ -132,12 +207,11 @@ export const MODEL_TIERS: Record<
 // FrontierFeeUSDMicros -- same hand-sync caveat as MODEL_TIERS above: the
 // backend is billing-authoritative, this only drives the Inspector's fee
 // badge. Keep in sync by hand when the Go constants change.
-export const TIER_FEES: Record<"economy" | "standard" | "frontier", number> =
-  {
-    economy: 0.03,
-    standard: 0.09,
-    frontier: 0.15,
-  };
+export const TIER_FEES: Record<"economy" | "standard" | "frontier", number> = {
+  economy: 0.03,
+  standard: 0.09,
+  frontier: 0.15,
+};
 
 // modelTier mirrors nodes.ModelTier's default: unrecognized template/model
 // pairs are "standard", never "economy".
@@ -157,14 +231,44 @@ export function modelTier(
 export const TOOL_TEMPLATES = [
   { id: "http", name: "HTTP Request", desc: "GET/POST any URL", icon: "⟶" },
   { id: "calc", name: "Calculator", desc: "Math expressions", icon: "Σ" },
-  { id: "set", name: "Edit Fields", desc: "Build an object from refs", icon: "≔" },
-  { id: "json_extract", name: "JSON Extract", desc: "Pick a value by path", icon: "⌗" },
+  {
+    id: "set",
+    name: "Edit Fields",
+    desc: "Build an object from refs",
+    icon: "≔",
+  },
+  {
+    id: "json_extract",
+    name: "JSON Extract",
+    desc: "Pick a value by path",
+    icon: "⌗",
+  },
   { id: "crypto", name: "Crypto", desc: "Hash / HMAC / base64", icon: "⚿" },
-  { id: "datetime", name: "Date & Time", desc: "Now, offset, timezone", icon: "◔" },
+  {
+    id: "datetime",
+    name: "Date & Time",
+    desc: "Now, offset, timezone",
+    icon: "◔",
+  },
   { id: "xml", name: "XML → JSON", desc: "Parse XML payloads", icon: "⋔" },
-  { id: "template", name: "Text Template", desc: "Compose with {{ refs }}", icon: "¶" },
-  { id: "html_extract", name: "HTML Extract", desc: "CSS selector → text", icon: "⌸" },
-  { id: "markdown", name: "Markdown → HTML", desc: "Render agent output", icon: "⌘" },
+  {
+    id: "template",
+    name: "Text Template",
+    desc: "Compose with {{ refs }}",
+    icon: "¶",
+  },
+  {
+    id: "html_extract",
+    name: "HTML Extract",
+    desc: "CSS selector → text",
+    icon: "⌸",
+  },
+  {
+    id: "markdown",
+    name: "Markdown → HTML",
+    desc: "Render agent output",
+    icon: "⌘",
+  },
   { id: "quickchart", name: "QuickChart", desc: "Chart image URL", icon: "▦" },
   {
     id: "websearch",
@@ -482,6 +586,27 @@ export const ACTION_TEMPLATES = [
     category: "Developer Tools",
   },
   {
+    id: "algorand_account",
+    name: "Algorand Account",
+    desc: "Balance + ASA holdings",
+    icon: "al",
+    category: "Utilities",
+  },
+  {
+    id: "algorand_transactions",
+    name: "Algorand History",
+    desc: "Recent transactions for an address",
+    icon: "al",
+    category: "Utilities",
+  },
+  {
+    id: "algorand_asset",
+    name: "Algorand Asset",
+    desc: "Look up any ASA by id",
+    icon: "al",
+    category: "Utilities",
+  },
+  {
     id: "hackernews",
     name: "Hacker News",
     desc: "Search stories (no key)",
@@ -493,6 +618,13 @@ export const ACTION_TEMPLATES = [
     name: "CoinGecko Price",
     desc: "Spot prices (no key)",
     icon: "cg",
+    category: "Utilities",
+  },
+  {
+    id: "coingecko_history",
+    name: "CoinGecko History",
+    desc: "Price series + high/low (no key)",
+    icon: "ch",
     category: "Utilities",
   },
 ];
@@ -650,220 +782,12 @@ export const SAMPLE_WORKFLOW: Workflow = {
   ],
 };
 
-// DEMO_WORKFLOW mirrors the live workflow at /workflows/4b47fe4a-df79-4cf4-
-// a9d6-3abb0bcdda79 (pulled directly from the workflows.graph column) --
-// this is that workflow's actual node graph, node-for-node, including the
-// system-prompt edits and the freshly-added manual trigger made in the
-// canvas UI. One deliberate deviation: that row's two provider nodes were
-// saved as keyMode "byok" with `apiKey: "enc:…"` -- the workflow owner's own
-// real, encrypted Gemini key. Baking that into this shared, publicly-shipped
-// template would mean every user who clicks "Load demo workflow" runs
-// their agents on THAT PERSON'S personal Gemini key -- a credential leak
-// and a billing problem, not a demo. Both providers are switched to
-// keyMode "platform" here instead (no apiKey field at all) so a fresh copy
-// uses AgentMesh's own platform key path and bills the flat platform fee,
-// same as everyone else's copy of this template.
-// Real, verified billing math (backend/internal/engine/runner.go +
-// billing.go + models/types.go), not an invented number:
-//   - agent node, platform-key mode: flat fee by model tier
-//     (nodes.PlatformKeyFeeUSDMicros). gemini-2.5-flash is "economy" in
-//     MODEL_TIERS/tier.go = $0.03/call.
-//   - tool402/tendril node, real x402 relay: the merchant's live price PLUS
-//     a flat $1.50 platform markup (models.X402PlatformFeeUSDMicros) -- NOT
-//     $1.50 per node in general, only on an actual x402 relay call. Every
-//     x402 node here points at the same REAL, live Bazaar-listed merchant
-//     this repo's own backend already relays to (canix402-api.compx.io,
-//     see internal/engine/nodes/walletpay.go) -- confirmed live by a direct
-//     probe: GET /opportunities returned a real 402 challenge for 0.01 USDC
-//     on Algorand mainnet (asset 31566704), tagged x402-global-challenge.
-//   - action/google node, or an http-templated tool node, run standalone in
-//     the flow: flat $0.50 (models.ByokFlatFeeUSDMicros, gated by
-//     nodes.BillableFlatFee).
-//   2 economy-tier Gemini 2.5 Flash calls  0.03 + 0.03      = 0.06  guaranteed
-//   1 guaranteed CANIX402 x402 call (d8)   0.01 + 1.50      = 1.51  guaranteed
-//   1 standalone http tool ("Fetch Data")                   = 0.50  guaranteed
-//   -------------------------------------------------------------
-//   guaranteed floor                                          $2.07 per successful run
-//   + up to 2 more CANIX402 x402 calls (d4/d7, 0.01 + 1.50 = 1.51 each) --
-//     billed only if the agent's LLM opts into calling them, so NOT part of
-//     the guaranteed floor above. Not capped at one call each either:
-//     provider.go allows up to 15 tool-calling iterations per agent, so a
-//     run can bill for either tool more than once. $5.09 (both optional
-//     calls firing exactly once) is a realistic typical figure, not a ceiling.
-//   1 Telegram action ("Post Summary") -- unbilled, see below  = 0.00
-// address (both the tool402 paramDefaults and the address text the workflow
-// owner pasted into each system prompt) is the real Wallet 2 /
-// PLATFORM_WALLET address, same as before.
-// d10 ("Post Summary") ships with no telegramBotToken/telegramChatID --
-// a shared public template can't embed one user's real credential without
-// leaking it to everyone who clicks this button. ExecuteAction
-// (connectors_messaging.go) returns ErrActionSkipped when unconfigured,
-// which runner.go's NodeTypeAction case treats as a non-failure and never
-// bills (see debitOrLog only firing after a non-skip result) -- so this step
-// is a real, visible no-op until the user adds their own webhook, not a
-// silent failure and not part of the guaranteed cost above.
-// d8 (the third canixNode call) is deliberately NOT attached to either
-// agent's tools port, unlike d4/d7 -- it's a guaranteed flow step that runs
-// on every execution, not something the agent's LLM opts into. This is
-// intentional, not an oversight: attaching it to d5 alongside d7 would give
-// that agent two tool402 nodes with the identical name "CANIX402
-// Opportunities", and toolFuncName() (provider.go) derives the LLM function
-// name from Node.Name -- two identical declarations sent to the same model
-// would collide. So d4/d7 are the "agent decides" calls (billed only if the
-// agent's LLM actually invokes them), and d8 is the one guaranteed real
-// CANIX402 call baked into the total above.
-const CANIX_ADDRESS =
-  "M6JQNJVX32HEN2LS5W2WX2PMSXPDHHKADVUATIQ5KQIVVVHSVILQNOS62A";
-
-function canixNode(
-  id: string,
-  x: number,
-  y: number,
-  finalPull = false,
-): WorkflowNode {
-  return {
-    id,
-    type: "tool402",
-    x,
-    y,
-    // finalPull (d8) isn't attached to either agent's tools port -- it's a
-    // guaranteed flow step, not an agent-invoked one like d4/d7 -- so its
-    // name/description say so, both to keep it visually distinct from d4/d7
-    // on the canvas and because it can't reuse their exact name without
-    // risking a toolFuncName() collision if it's ever attached later.
-    name: finalPull
-      ? "CANIX402 Opportunities (final pull)"
-      : "CANIX402 Opportunities",
-    description: finalPull
-      ? "Real, live x402-paid DeFi opportunities feed on Algorand mainnet (canix402-api.compx.io). Runs unconditionally as a flow step after the Synthesis Agent finishes -- unlike the two tool402 nodes above, this one is not agent-invoked, so it's billed on every run. Accepts: address (Algorand address, required), limit (optional)."
-      : "Real, live x402-paid DeFi opportunities feed on Algorand mainnet (canix402-api.compx.io). Accepts: address (Algorand address, required), limit (optional).",
-    endpoint: "https://canix402-api.compx.io/opportunities",
-    provider: "canix402.compx.io",
-    price: "0.01",
-    unit: "call",
-    discoveredParams: [
-      {
-        name: "address",
-        type: "string",
-        required: true,
-        description: "Algorand address to look up opportunities for",
-      },
-      {
-        name: "limit",
-        type: "string",
-        required: false,
-        description: "Max results to return",
-      },
-    ],
-    paramDefaults: { address: CANIX_ADDRESS },
-  };
-}
-
-export const DEMO_WORKFLOW: Workflow = {
-  id: "wf-demo",
-  name: "Demo: Research & Report Pipeline",
-  nodes: [
-    {
-      id: "n_1787155279250",
-      type: "trigger",
-      template: "manual",
-      icon: "▶",
-      x: 51.57894736842107,
-      y: 266.8421052631579,
-      label: "Manual Trigger",
-    },
-    {
-      id: "d2",
-      type: "agent",
-      template: "agent",
-      x: 320,
-      y: 220,
-      name: "Research Agent",
-      systemPrompt:
-        "You are a research agent. Use the CANIX402 Opportunities tool to pull real DeFi opportunity data, then pass a structured research brief on to the next agent.\naddress M6JQNJVX32HEN2LS5W2WX2PMSXPDHHKADVUATIQ5KQIVVVHSVILQNOS62A",
-    },
-    {
-      id: "d3",
-      type: "provider",
-      template: "gemini",
-      x: 240,
-      y: 460,
-      name: "Gemini 2.5 Flash",
-      model: "gemini-2.5-flash",
-      keyMode: "platform",
-    },
-    canixNode("d4", 440, 460),
-    {
-      id: "d5",
-      type: "agent",
-      template: "agent",
-      x: 700,
-      y: 220,
-      name: "Synthesis Agent",
-      systemPrompt:
-        "You receive a research brief from the prior agent. Use the CANIX402 Opportunities tool for a second, independent data pull, then write a final report summarizing both.\naddress M6JQNJVX32HEN2LS5W2WX2PMSXPDHHKADVUATIQ5KQIVVVHSVILQNOS62A",
-    },
-    {
-      id: "d6",
-      type: "provider",
-      template: "gemini",
-      x: 618.9473684210526,
-      y: 461.05263157894734,
-      name: "Gemini 2.5 Flash",
-      model: "gemini-2.5-flash",
-      keyMode: "platform",
-    },
-    canixNode("d7", 820, 460),
-    canixNode("d8", 980, 220, true),
-    {
-      id: "d9",
-      type: "tool",
-      template: "http",
-      x: 1220,
-      y: 220,
-      name: "Fetch Data",
-      url: "https://httpbin.org/get",
-      method: "GET",
-    },
-    {
-      id: "d10",
-      type: "action",
-      template: "telegram",
-      x: 1460,
-      y: 220,
-      name: "Post Summary",
-      description:
-        "Posts the pipeline's report to Telegram -- add your own bot token (Secrets) and chat ID (Config) in this node's settings to enable it. Unconfigured, this step no-ops (green, unbilled) rather than failing.",
-    },
-    { id: "d11", type: "end", template: "done", x: 1700, y: 220 },
-  ],
-  edges: [
-    {
-      id: "e_1787155284330",
-      from: "n_1787155279250",
-      to: "d2",
-      kind: "flow",
-      toPort: "in",
-    },
-    { id: "de2", from: "d3", to: "d2", kind: "attach", toPort: "model" },
-    { id: "de3", from: "d4", to: "d2", kind: "attach", toPort: "tools" },
-    { id: "de4", from: "d2", to: "d5", kind: "flow", toPort: "in" },
-    { id: "de5", from: "d6", to: "d5", kind: "attach", toPort: "model" },
-    { id: "de6", from: "d7", to: "d5", kind: "attach", toPort: "tools" },
-    { id: "de7", from: "d5", to: "d8", kind: "flow", toPort: "in" },
-    { id: "de8", from: "d8", to: "d9", kind: "flow", toPort: "in" },
-    { id: "de9", from: "d9", to: "d10", kind: "flow", toPort: "in" },
-    { id: "de10", from: "d10", to: "d11", kind: "flow", toPort: "in" },
-  ],
-};
-
-// TENDRIL_DEMO_WORKFLOW and PRISM_DEMO_WORKFLOW are DEMO_WORKFLOW's shape
-// (trigger -> two agents, each with its own model and an agent-invoked
-// tool402 call -> one guaranteed flow-step tool402 call -> an http tool ->
-// an unconfigured, unbilled action -> end), with the CANIX402 calls swapped
-// for the partner the button is named after. Same reason as DEMO_WORKFLOW
-// itself: real, live-callable endpoints and correct billing math, not an
-// invented example.
+// TENDRIL_DEMO_WORKFLOW and PRISM_DEMO_WORKFLOW share one shape (trigger ->
+// two agents, each with its own model and an agent-invoked tool402 call ->
+// one guaranteed flow-step tool402 call -> an http tool -> an unconfigured,
+// unbilled action -> end), calling the partner the button is named after.
+// Real, live-callable endpoints and correct billing math, not an invented
+// example.
 //
 // Neither node type needs the partner's console: curated:tendril-run has no
 // lease step ("No lease needed -- Tendril picks the machine, runs the job in
@@ -877,9 +801,8 @@ export const DEMO_WORKFLOW: Workflow = {
 // -- not a copy that can drift, since a run node's own field values are what
 // get sent regardless.
 
-// tendrilNode mirrors canixNode's shape one row up: a self-contained
-// tool402 node pointed at Tendril's one payable endpoint, requiring no
-// separate rent/lease step.
+// tendrilNode is a self-contained tool402 node pointed at Tendril's one
+// payable endpoint, requiring no separate rent/lease step.
 function tendrilNode(
   id: string,
   x: number,
@@ -896,14 +819,15 @@ function tendrilNode(
     endpoint: "https://tendrilregister.007575.xyz/x402/run",
     method: "POST",
     provider: "tendrilregister.007575.xyz",
-    price: "0.01",
+    price: "1.50",
     unit: "call",
     discoveredParams: [
       {
         name: "payload",
         type: "string",
         required: true,
-        description: "Python source to execute. Its stdout is returned as `result`.",
+        description:
+          "Python source to execute. Its stdout is returned as `result`.",
       },
     ],
     paramDefaults: { payload: opts.payload },
@@ -1017,7 +941,259 @@ export const TENDRIL_DEMO_WORKFLOW: Workflow = {
   ],
 };
 
-// prismCodeReviewNode mirrors canixNode/tendrilNode. Deliberately restricted
+// TENDRIL_WORKFLOW is what the Workflows page's "Run demo workflow"
+// button creates. Unlike TENDRIL_DEMO_WORKFLOW (agents calling Tendril's
+// x402 endpoint as a tool402), it drives the full lifecycle with the native
+// tendril nodes the canvas palette offers, the same actions the Tendril
+// console runs (backend/internal/engine/nodes/tendril.go):
+//
+//   Manual Trigger -> Buy Tendril Credit -> Rent a Machine -> Probe ->
+//   Benchmark -> Benchmark Analyst (Gemini) -> Release -> End
+//
+// Rent reserves 0.25h of the user's Tendril credit for the cheapest online
+// machine. The topup covers exactly that (tendrilCoverHours): it reads the
+// same market, skips when the credit is already enough, and otherwise buys
+// the shortfall, at least $2 so small top-ups don't each pay the $1.50 fee.
+// Both jobs resolve the lease rent opened in this same run, so they execute
+// on that machine rather than a throwaway sandbox. The analyst reads the
+// benchmark's output (the agent's input is its predecessor's output) before
+// Release stops the meter and refunds unused reserved time. If any step
+// fails, the runner releases the lease when the run ends, because this
+// workflow has a Release step (engine/tendril_runleases.go).
+// Billing, in AgentMesh credit:
+//   rent gate fee          0.01 + 1.50 platform fee = 1.51
+//   two run jobs     2 x (1.50 + 1.50 platform fee) = 6.00
+//   analyst, economy-tier platform key               = 0.03
+//   -> $7.54 per run, plus metered machine seconds from Tendril credit and,
+//      on a run that tops up, the purchase (usually $2) + $1.50 fee.
+const TENDRIL_PROBE_PAYLOAD = `import os, platform, shutil, sys, time
+
+
+def read(path):
+    try:
+        with open(path) as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+cpuinfo = read("/proc/cpuinfo").splitlines()
+cpu_model = next((l.split(":", 1)[1].strip() for l in cpuinfo if l.startswith("model name")), platform.processor() or "unknown")
+mem_kb = next((int(l.split()[1]) for l in read("/proc/meminfo").splitlines() if l.startswith("MemTotal")), 0)
+disk = shutil.disk_usage("/")
+load = os.getloadavg() if hasattr(os, "getloadavg") else (0.0, 0.0, 0.0)
+uptime_raw = read("/proc/uptime").split()
+uptime_h = float(uptime_raw[0]) / 3600 if uptime_raw else 0.0
+
+print("== Tendril machine probe ==")
+print(f"os        {platform.system()} {platform.release()} ({platform.machine()})")
+print(f"python    {sys.version.split()[0]}")
+usable = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()
+print(f"cpu       {usable} usable of {os.cpu_count()} x {cpu_model}")
+print(f"memory    {mem_kb / 1048576:.1f} GiB")
+print(f"disk /    {disk.free / 1e9:.1f} GB free of {disk.total / 1e9:.1f} GB")
+print(f"load avg  {load[0]:.2f} {load[1]:.2f} {load[2]:.2f}")
+print(f"uptime    {uptime_h:.1f} h")
+
+t = time.perf_counter()
+sum(i * i for i in range(3_000_000))
+print(f"warm-up   3M-step loop in {time.perf_counter() - t:.3f}s")
+`;
+
+const TENDRIL_BENCHMARK_PAYLOAD = `import hashlib, math, multiprocessing, os, platform, random, sys, time
+from concurrent.futures import ProcessPoolExecutor
+
+CORES = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+LIMIT = 100_000_000
+PRIMES_BELOW_LIMIT = 5_761_455
+POINTS = 16_000_000
+
+
+def base_primes(n):
+    sieve = bytearray([1]) * (n + 1)
+    sieve[0:2] = bytearray(2)
+    for i in range(2, int(n ** 0.5) + 1):
+        if sieve[i]:
+            sieve[i * i :: i] = bytearray(len(range(i * i, n + 1, i)))
+    return [i for i, v in enumerate(sieve) if v]
+
+
+def count_segment(bounds):
+    lo, hi = bounds
+    seg = bytearray([1]) * (hi - lo)
+    for p in base_primes(int(hi ** 0.5) + 1):
+        start = max(p * p, (lo + p - 1) // p * p)
+        seg[start - lo :: p] = bytearray(len(range(start, hi, p)))
+    for i in range(lo, min(2, hi)):
+        seg[i - lo] = 0
+    return sum(seg)
+
+
+def monte_carlo(job):
+    seed, n = job
+    rng = random.Random(seed)
+    hits = 0
+    for _ in range(n):
+        x, y = rng.random(), rng.random()
+        if x * x + y * y <= 1.0:
+            hits += 1
+    return hits
+
+
+def parallel(fn, jobs):
+    # fork, so workers never re-import this script: it may arrive on stdin.
+    methods = multiprocessing.get_all_start_methods()
+    ctx = multiprocessing.get_context("fork") if "fork" in methods else None
+    try:
+        with ProcessPoolExecutor(max_workers=CORES, mp_context=ctx) as pool:
+            return list(pool.map(fn, jobs)), CORES
+    except Exception:
+        return [fn(j) for j in jobs], 1
+
+
+if __name__ == "__main__":
+    start = time.perf_counter()
+    print("== Tendril benchmark ==")
+    print(f"machine   {CORES} cores, {platform.system()} {platform.machine()}, python {sys.version.split()[0]}")
+
+    step = -(-LIMIT // (CORES * 4))
+    segments = [(lo, min(lo + step, LIMIT)) for lo in range(0, LIMIT, step)]
+    t = time.perf_counter()
+    counts, workers = parallel(count_segment, segments)
+    t_primes = time.perf_counter() - t
+    total = sum(counts)
+    status = "verified" if total == PRIMES_BELOW_LIMIT else "MISMATCH"
+    print(f"primes    {total:,} below {LIMIT:,} in {t_primes:.2f}s on {workers} workers ({status})")
+
+    jobs = [(seed, POINTS // (CORES * 4)) for seed in range(CORES * 4)]
+    t = time.perf_counter()
+    monte_carlo(jobs[0])
+    serial_estimate = (time.perf_counter() - t) * len(jobs)
+    t = time.perf_counter()
+    hits, workers = parallel(monte_carlo, jobs)
+    t_mc = time.perf_counter() - t
+    n = sum(j[1] for j in jobs)
+    pi = 4 * sum(hits) / n
+    print(f"pi        {pi:.6f} from {n:,} random points in {t_mc:.2f}s (off by {abs(pi - math.pi):.6f})")
+    print(f"          ~{serial_estimate:.2f}s on one core, {serial_estimate / t_mc:.1f}x speedup on {workers} workers")
+
+    block = os.urandom(1 << 20)
+    h = hashlib.sha256()
+    t = time.perf_counter()
+    for _ in range(256):
+        h.update(block)
+    t_hash = time.perf_counter() - t
+    print(f"sha256    256 MiB in {t_hash:.2f}s ({256 / t_hash:.0f} MiB/s on one core)")
+    print(f"total     {time.perf_counter() - start:.2f}s of compute")
+`;
+
+export const TENDRIL_WORKFLOW: Workflow = {
+  id: "wf-tendril",
+  name: "Demo: Rent, Benchmark & Release",
+  nodes: [
+    {
+      id: "tw1",
+      type: "trigger",
+      template: "manual",
+      icon: "▶",
+      x: 60,
+      y: 240,
+      label: "Manual Trigger",
+    },
+    {
+      id: "tw2",
+      type: "tendril",
+      template: "tendril_topup",
+      x: 300,
+      y: 220,
+      name: "Buy Tendril Credit",
+      icon: "＄",
+      tendrilAction: "topup",
+      tendrilAmount: "2",
+      tendrilCoverHours: "0.25",
+    },
+    {
+      id: "tw3",
+      type: "tendril",
+      template: "tendril_rent",
+      x: 560,
+      y: 220,
+      name: "Rent a Machine",
+      icon: "▣",
+      tendrilAction: "rent",
+      tendrilHours: "0.25",
+    },
+    {
+      id: "tw4",
+      type: "tendril",
+      template: "tendril_run",
+      x: 820,
+      y: 220,
+      name: "Probe the Machine",
+      icon: "▶",
+      tendrilAction: "run",
+      customParams: [
+        { name: "payload", kind: "text", value: TENDRIL_PROBE_PAYLOAD },
+      ],
+    },
+    {
+      id: "tw5",
+      type: "tendril",
+      template: "tendril_run",
+      x: 1080,
+      y: 220,
+      name: "Run the Benchmark",
+      icon: "▶",
+      tendrilAction: "run",
+      customParams: [
+        { name: "payload", kind: "text", value: TENDRIL_BENCHMARK_PAYLOAD },
+      ],
+    },
+    {
+      id: "tw6",
+      type: "agent",
+      template: "agent",
+      x: 1340,
+      y: 220,
+      name: "Benchmark Analyst",
+      systemPrompt:
+        "You receive the output of a benchmark that just ran on a machine rented from Tendril, a marketplace for metered compute. Write a short plain-text report of at most 150 words: one line on the machine, the headline numbers (prime count and time, parallel speedup, hashing throughput), what kinds of jobs this machine suits, and one caveat. Mention it if the prime count says MISMATCH or the speedup is below 1.5x. No markdown.",
+    },
+    {
+      id: "tw7",
+      type: "provider",
+      template: "gemini",
+      x: 1300,
+      y: 460,
+      name: "Gemini 2.5 Flash",
+      model: "gemini-2.5-flash",
+      keyMode: "platform",
+    },
+    {
+      id: "tw8",
+      type: "tendril",
+      template: "tendril_release",
+      x: 1600,
+      y: 220,
+      name: "Release",
+      icon: "■",
+      tendrilAction: "release",
+    },
+    { id: "tw9", type: "end", template: "done", x: 1860, y: 240 },
+  ],
+  edges: [
+    { id: "twe1", from: "tw1", to: "tw2", kind: "flow", toPort: "in" },
+    { id: "twe2", from: "tw2", to: "tw3", kind: "flow", toPort: "in" },
+    { id: "twe3", from: "tw3", to: "tw4", kind: "flow", toPort: "in" },
+    { id: "twe4", from: "tw4", to: "tw5", kind: "flow", toPort: "in" },
+    { id: "twe5", from: "tw5", to: "tw6", kind: "flow", toPort: "in" },
+    { id: "twe6", from: "tw7", to: "tw6", kind: "attach", toPort: "model" },
+    { id: "twe7", from: "tw6", to: "tw8", kind: "flow", toPort: "in" },
+    { id: "twe8", from: "tw8", to: "tw9", kind: "flow", toPort: "in" },
+  ],
+};
+
+// prismCodeReviewNode mirrors tendrilNode. Deliberately restricted
 // to code-review-fast/accurate: those take flat text query params (raw_url,
 // file_path), unlike resume-screen's nested files array, so they are the
 // only Prism endpoints an ordinary discoveredParams tool402 node can call --
@@ -1027,7 +1203,13 @@ function prismCodeReviewNode(
   id: string,
   x: number,
   y: number,
-  opts: { name: string; description: string; tier: "fast" | "accurate"; rawUrl: string; filePath: string },
+  opts: {
+    name: string;
+    description: string;
+    tier: "fast" | "accurate";
+    rawUrl: string;
+    filePath: string;
+  },
 ): WorkflowNode {
   return {
     id,
@@ -1053,7 +1235,8 @@ function prismCodeReviewNode(
         name: "file_path",
         type: "string",
         required: true,
-        description: "The file's name, extension included -- tells Prism which language to expect.",
+        description:
+          "The file's name, extension included -- tells Prism which language to expect.",
       },
     ],
     paramDefaults: { raw_url: opts.rawUrl, file_path: opts.filePath },
@@ -1176,13 +1359,31 @@ export const PRISM_DEMO_WORKFLOW: Workflow = {
   ],
 };
 
+// Sample times are relative to when the app loaded, so the list's "Upcoming
+// run" and the sort by recency read sensibly whenever the mock app is opened.
+// Last-run times match the newest sample run of each workflow in
+// runFixtures.ts; next runs are the real next firing of each cron in UTC.
+const MOCK_LOADED_AT = Date.now();
+const HOUR_MS = 3_600_000;
+const hoursAgo = (h: number) =>
+  new Date(MOCK_LOADED_AT - h * HOUR_MS).toISOString();
+function nextUtcHour(every: number, offset = 0): string {
+  const d = new Date(MOCK_LOADED_AT);
+  d.setUTCMinutes(0, 0, 0);
+  do d.setUTCHours(d.getUTCHours() + 1);
+  while ((d.getUTCHours() - offset + 24) % every !== 0);
+  return d.toISOString();
+}
+
 export const WORKFLOWS: Workflow[] = [
   {
     id: "wf-triage",
     name: "Customer Support Triage",
     status: "deployed",
     updated: "2m ago",
-    agents: 1,
+    createdAt: hoursAgo(24 * 40),
+    lastRunAt: hoursAgo(0.02),
+    agents: 2,
     runs: 1842,
     spend: "4.218",
     tags: ["support", "production"],
@@ -1194,7 +1395,11 @@ export const WORKFLOWS: Workflow[] = [
     name: "Daily Market Brief",
     status: "deployed",
     updated: "1h ago",
-    agents: 4,
+    createdAt: hoursAgo(24 * 21),
+    lastRunAt: hoursAgo(2.5),
+    scheduleCron: "0 9 * * *",
+    scheduleNextRunAt: nextUtcHour(24, 9),
+    agents: 1,
     runs: 38,
     spend: "1.482",
     tags: ["research"],
@@ -1206,7 +1411,9 @@ export const WORKFLOWS: Workflow[] = [
     name: "Invoice Reconciliation",
     status: "paused",
     updated: "yesterday",
-    agents: 2,
+    createdAt: hoursAgo(24 * 60),
+    lastRunAt: hoursAgo(30),
+    agents: 1,
     runs: 217,
     spend: "0.890",
     tags: ["finance"],
@@ -1218,7 +1425,8 @@ export const WORKFLOWS: Workflow[] = [
     name: "Lead Enrichment v2",
     status: "draft",
     updated: "3d ago",
-    agents: 3,
+    createdAt: hoursAgo(24 * 3),
+    agents: 1,
     runs: 0,
     spend: "0.000",
     tags: ["sales"],
@@ -1230,7 +1438,11 @@ export const WORKFLOWS: Workflow[] = [
     name: "On-chain Compliance Watch",
     status: "deployed",
     updated: "5h ago",
-    agents: 2,
+    createdAt: hoursAgo(24 * 12),
+    lastRunAt: hoursAgo(5),
+    scheduleCron: "0 */6 * * *",
+    scheduleNextRunAt: nextUtcHour(6),
+    agents: 1,
     runs: 642,
     spend: "2.118",
     tags: ["compliance", "production"],
@@ -1242,7 +1454,8 @@ export const WORKFLOWS: Workflow[] = [
     name: "Content Pipeline",
     status: "draft",
     updated: "1w ago",
-    agents: 5,
+    createdAt: hoursAgo(24 * 7),
+    agents: 2,
     runs: 0,
     spend: "0.000",
     tags: ["marketing"],

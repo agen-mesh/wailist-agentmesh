@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { formatUsd, totalCostMicros, type PrismEndpoint } from "./prism";
+import {
+  formatUsd,
+  repoRunCost,
+  totalCostMicros,
+  type PrismEndpoint,
+} from "./prism";
 import {
   MAX_PARAM_FILE_BYTES,
   bytesToBase64,
@@ -144,5 +149,29 @@ describe("what a partner card quotes", () => {
   // moves and this does not, every Bazaar card silently misquotes.
   it("uses the same platform fee the backend charges", () => {
     expect(X402_PLATFORM_FEE_USD_MICROS).toBe(1_500_000);
+  });
+});
+
+describe("what a whole-repo review costs", () => {
+  // The point of the batch: ONE platform fee for the run, not one per file.
+  // Per-file it would be 30 x $1.60 = $48.00.
+  it("charges the platform fee once, not per file", () => {
+    expect(repoRunCost(30, 100_000, 1_500_000)).toBe(4_500_000); // $4.50
+    expect(repoRunCost(1, 100_000, 1_500_000)).toBe(1_600_000); // $1.60
+    expect(repoRunCost(100, 100_000, 1_500_000)).toBe(11_500_000); // $11.50
+  });
+
+  it("costs nothing when nothing is selected", () => {
+    expect(repoRunCost(0, 100_000, 1_500_000)).toBe(0);
+    expect(repoRunCost(-1, 100_000, 1_500_000)).toBe(0);
+  });
+
+  // A 30-file repo has to come out an order of magnitude below the per-call
+  // pricing, or the feature is not worth shipping.
+  it("is far cheaper than billing every file separately", () => {
+    const batched = repoRunCost(30, 100_000, 1_500_000);
+    const perCall = 30 * (100_000 + 1_500_000);
+    expect(perCall).toBe(48_000_000);
+    expect(batched).toBeLessThan(perCall / 10);
   });
 });
