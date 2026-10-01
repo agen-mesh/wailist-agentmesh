@@ -153,6 +153,7 @@ type TendrilStore interface {
 	// only thing left to resolve against is "whichever machine this user
 	// currently has open."
 	LatestActiveLeaseForUser(ctx context.Context, userID string) (models.TendrilLease, error)
+	ListActiveTendrilLeases(ctx context.Context, userID string) ([]models.TendrilLease, error)
 	// Credit sub-ledger (Task 6) — the authority on what THIS user may spend.
 	TendrilCreditBalance(ctx context.Context, userID string) (int64, error)
 	CreditBalance(ctx context.Context, userID string) (int64, error)
@@ -872,12 +873,27 @@ func executeTendrilAuto(ctx context.Context, node models.WorkflowNode, rc RunCon
 	var leaseToken string
 	var rented map[string]any
 
-	// Auto's node ID selects a machine, while explicit Run uses a lease row ID.
-	leaseNode := node
-	leaseNode.TendrilNodeID = ""
-	if lease, err := resolveLease(ctx, leaseNode, cfg); err == nil && lease.Status == "active" && lease.FundedUntil.After(time.Now()) && (node.TendrilNodeID == "" || node.TendrilNodeID == lease.TendrilNodeID) {
-		if tok, derr := wallet.Decrypt(lease.LeaseTokenEnc, cfg.EncryptKey); derr == nil {
+	leases, err := cfg.Store.ListActiveTendrilLeases(ctx, cfg.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("tendril: list active leases for auto: %w", err)
+	}
+	now := time.Now()
+	// The store orders newest first; eligibility must precede selection.
+	for _, lease := range leases {
+		if lease.UserID != cfg.UserID || lease.Status != "active" ||
+			(node.TendrilNodeID != "" && node.TendrilNodeID != lease.TendrilNodeID) ||
+			lease.StartedAt.IsZero() || !lease.FundedUntil.After(now) ||
+			lease.HoursPurchased <= 0 || math.IsNaN(lease.HoursPurchased) || math.IsInf(lease.HoursPurchased, 0) {
+			continue
+		}
+		// Shared-pool funding can outlive the time this user purchased.
+		elapsedHours := now.Sub(lease.StartedAt).Hours()
+		if elapsedHours < 0 || elapsedHours >= lease.HoursPurchased {
+			continue
+		}
+		if tok, derr := wallet.Decrypt(lease.LeaseTokenEnc, cfg.EncryptKey); derr == nil && tok != "" {
 			leaseToken = tok
+			break
 		}
 	}
 
