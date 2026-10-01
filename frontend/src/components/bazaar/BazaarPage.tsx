@@ -524,20 +524,13 @@ export function BazaarPage() {
             role="region"
             aria-label="Partner services"
             aria-busy={!supportedSettled}
-            // Reserved only WHILE the request is in flight, which is all the
-            // old fixed `height: 320` was for. Keeping it afterwards left a
-            // ~110px hole above "Everything else" — three partner cards are
-            // about 210px tall. tabIndex goes with the scroller.
-            {...(supportedSettled
-              ? {}
-              : {
-                  tabIndex: 0,
-                  style: {
-                    height: 320,
-                    overflowY: "auto" as const,
-                    scrollbarGutter: "stable" as const,
-                  },
-                })}
+            // Late partner results must not move the independent catalogue.
+            tabIndex={0}
+            style={{
+              height: 320,
+              overflowY: "auto",
+              scrollbarGutter: "stable",
+            }}
           >
             {(!supportedSettled || supported.length === 0) && (
               <p
