@@ -1153,8 +1153,8 @@ function SchedulePopover({
             border: "none",
             background: "var(--accent)",
             color: "var(--bg)",
-            cursor: saving ? "default" : "pointer",
-            opacity: saving ? 0.6 : 1,
+            cursor: saving || !editing ? "default" : "pointer",
+            opacity: saving || !editing ? 0.6 : 1,
           }}
         >
           Save
