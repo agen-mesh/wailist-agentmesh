@@ -646,7 +646,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
         // The backend loads the graph fresh from the DB, so a drag still
         // sitting in the autosave debounce would be invisible to it and lost
         // when the build response replaces local state.
-        await flushPendingSave();
+        const flushed = await flushPendingSave();
+        if (!flushed) {
+          throw new Error("Latest changes failed to save. Try again before building.");
+        }
         const res = await workflowsApi.build(workflow.id, text, buildId);
         await poller?.stop();
         setWorkflow((wf) =>
