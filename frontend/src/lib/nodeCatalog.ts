@@ -453,9 +453,11 @@ export function buildNodeCatalog(): NodeCatalog {
         name: t.name,
         desc: t.desc,
         kind: kindOf("tendril", t.id),
-        presets: { tendrilAction: t.action, tendrilHours: "1", tendrilAmount: "10" },
+        presets: { tendrilAction: t.action, tendrilHours: "1", tendrilAmount: t.action === "auto" ? "" : "10" },
         fields:
-          t.action === "topup"
+          t.action === "auto"
+            ? [{ key: "tendrilAmount", where: "field" as const, label: "Budget (USD, optional)", placeholder: "1" }]
+            : t.action === "topup"
             ? [
                 { key: "tendrilAmount", where: "field" as const, label: "Amount (USD)", placeholder: "10" },
                 { key: "tendrilMinBalance", where: "field" as const, label: "Only if credit below (USD)", hint: "blank tops up on every run" },

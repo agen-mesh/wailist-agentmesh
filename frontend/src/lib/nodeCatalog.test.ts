@@ -52,6 +52,16 @@ describe("buildNodeCatalog", () => {
     expect(tpl("provider", "gemini").presets).toEqual({ model: "gemini-2.5-flash" });
   });
 
+  it("keeps automatic Tendril rentals on the same default budget as the palette", () => {
+    const auto = tpl("tendril", "tendril_auto");
+    expect(auto.presets?.tendrilAction).toBe("auto");
+    expect(auto.presets?.tendrilAmount).toBe("");
+    expect(auto.fields.find((field) => field.key === "tendrilAmount")).toMatchObject({
+      where: "field", placeholder: "1",
+    });
+    expect(tpl("tendril", "tendril_topup").presets?.tendrilAmount).toBe("10");
+  });
+
   it("marks every credential as a secret, never a settable field", () => {
     expect(tpl("action", "email").fields.find((f) => f.key === "emailApiKey")?.where).toBe("secret");
     expect(tpl("provider", "openai").fields.find((f) => f.key === "apiKey")?.where).toBe("secret");
