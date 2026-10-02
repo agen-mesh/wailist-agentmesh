@@ -6,9 +6,13 @@ on:
   push:
     branches: [master]
 
+# Pull-request runs are cancelled when a newer commit supersedes them. Runs on
+# master are not: pushes group by commit, so every merge gets a complete run and
+# a merge that breaks the build is visible on that merge, not hidden behind a
+# run the next merge cancelled.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend:
@@ -107,6 +111,9 @@ jobs:
       - name: typecheck
         run: npm run typecheck
 
+      - name: typecheck ratchet (noUncheckedIndexedAccess)
+        run: node scripts/tsc-index-ratchet.mjs
+
       - name: test
         run: npm test
 
@@ -114,3 +121,49 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8080
         run: npm run build
+
+  smoke:
+    name: frontend / smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            frontend/e2e/package-lock.json
+
+      - name: npm ci (site)
+        working-directory: frontend
+        run: npm ci
+
+      # NEXT_PUBLIC_API_URL is deliberately unset: lib/api.ts then serves its
+      # fixtures, so the smoke test runs without a backend.
+      - name: build in mock mode
+        working-directory: frontend
+        run: npm run build
+
+      # The smoke tests are their own npm project, so adding Playwright does not
+      # change the site's package.json or the lockfiles Vercel installs from.
+      - name: npm ci (smoke tests)
+        working-directory: frontend/e2e
+        run: npm ci
+
+      - name: install Chromium
+        working-directory: frontend/e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: smoke
+        working-directory: frontend/e2e
+        run: npx playwright test
+
+      - name: upload failure traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-test-results
+          path: frontend/e2e/test-results
+          retention-days: 7

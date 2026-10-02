@@ -1,3 +1,12 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
+
+[deploy]
+# GET /health (backend/internal/api/router.go) is registered on the router that
+# cmd/server builds only after it has opened the database, run the migrations and
+# validated its configuration, so a 2xx means the server is actually serving.
+# Railway makes a new deployment active only once this path returns a 2xx, and
+# marks the deploy failed if it does not within the timeout.
+healthcheckPath = "/health"
+healthcheckTimeout = 300
