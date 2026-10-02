@@ -33,6 +33,10 @@ import { WorkflowsPhoneList } from "./phone/WorkflowsPhoneList";
 import { WorkflowOverview } from "./WorkflowOverview";
 import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
 import { useReadOnly } from "@/hooks/useReadOnly";
+import { useIsCompact } from "@/hooks/useIsCompact";
+import { IS_NATIVE } from "@/lib/nativeAuth";
+import { DesktopRowMenu } from "./DesktopRowMenu";
+import { scheduleErrorText } from "@/lib/scheduleError";
 import {
   cadenceToCron,
   cronToCadence,
@@ -181,52 +185,28 @@ export function WorkflowsPage() {
     }
   }, []);
 
-  // Schedule set/clear mirror handleDelete's pattern: optimistic local list
-  // update on success, tagged pageError on failure. Both re-throw so
-  // SchedulePopover's own inline error state (right next to the button the
-  // user just clicked) shows the same message rather than only the
-  // page-level banner.
+  // Schedule editors own their inline errors, so failures must not also
+  // expose an unsanitized message in the page banner.
   const handleSetSchedule = useCallback(async (id: string, cron: string) => {
-    setPageError((prev) => (prev?.source === "schedule" ? null : prev));
-    try {
-      const { cron: savedCron, nextRunAt } = await workflowsApi.setSchedule(
-        id,
-        cron,
-      );
-      setWfList((prev) =>
-        prev.map((w) =>
-          w.id === id
-            ? { ...w, scheduleCron: savedCron, scheduleNextRunAt: nextRunAt }
-            : w,
-        ),
-      );
-    } catch (e) {
-      setPageError({
-        source: "schedule",
-        message: e instanceof Error ? e.message : "could not save schedule",
-      });
-      throw e;
-    }
+    const { cron: savedCron, nextRunAt } = await workflowsApi.setSchedule(id, cron);
+    setWfList((prev) =>
+      prev.map((w) =>
+        w.id === id
+          ? { ...w, scheduleCron: savedCron, scheduleNextRunAt: nextRunAt }
+          : w,
+      ),
+    );
   }, []);
 
   const handleClearSchedule = useCallback(async (id: string) => {
-    setPageError((prev) => (prev?.source === "schedule" ? null : prev));
-    try {
-      await workflowsApi.clearSchedule(id);
-      setWfList((prev) =>
-        prev.map((w) =>
-          w.id === id
-            ? { ...w, scheduleCron: undefined, scheduleNextRunAt: undefined }
-            : w,
-        ),
-      );
-    } catch (e) {
-      setPageError({
-        source: "schedule",
-        message: e instanceof Error ? e.message : "could not remove schedule",
-      });
-      throw e;
-    }
+    await workflowsApi.clearSchedule(id);
+    setWfList((prev) =>
+      prev.map((w) =>
+        w.id === id
+          ? { ...w, scheduleCron: undefined, scheduleNextRunAt: undefined }
+          : w,
+      ),
+    );
   }, []);
 
   // A phone gets its own thin list: no create, import, schedule or share
@@ -611,7 +591,8 @@ function WorkflowIcon({ name }: { name: string }) {
 // RowMenu is the ⋯ menu on a workflow row. Delete is permanent, so it asks for
 // a second click ("Delete permanently?") in place rather than firing on the
 // first — and rather than a browser confirm() dialog, which the rest of the app
-// doesn't use.
+// doesn't use. Compact viewports and the native shell only: desktop renders
+// DesktopRowMenu instead (see WorkflowRows).
 function RowMenu({
   workflowId,
   onDelete,
@@ -622,6 +603,8 @@ function RowMenu({
   onClearSchedule,
 }: {
   workflowId: string;
+  /** Used by DesktopRowMenu; accepted here so the two are interchangeable. */
+  workflowName?: string;
   onDelete: () => void;
   onShare: () => void;
   deployed: boolean;
@@ -632,10 +615,7 @@ function RowMenu({
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [view, setView] = useState<"menu" | "schedule">("menu");
-  // workflowsApi.list() doesn't return scheduleCron/scheduleNextRunAt (only
-  // the single-workflow GET does), so the row's props are always stale --
-  // fetched fresh every time the Schedule item is opened, rather than
-  // trusted from the list hydration.
+  // Re-read on open so edits made since list hydration are not overwritten.
   const [freshSchedule, setFreshSchedule] = useState<{
     cron?: string;
     nextRunAt?: string;
@@ -666,10 +646,6 @@ function RowMenu({
     setScheduleFetchError(null);
   }, []);
 
-  // Shared by the "Schedule" menu item and the error state's Retry button
-  // below: the row's own scheduleCron/scheduleNextRunAt props come from
-  // workflowsApi.list(), which the backend never populates, so this is the
-  // only way to ever actually get the real schedule.
   const fetchSchedule = useCallback(() => {
     setFreshSchedule(null);
     setScheduleFetchError(null);
@@ -694,7 +670,7 @@ function RowMenu({
       .catch((e) => {
         if (scheduleFetchIdRef.current !== fetchId) return;
         setScheduleFetchError(
-          e instanceof Error ? e.message : "could not load schedule",
+          scheduleErrorText(e, "load"),
         );
       })
       .finally(() => {
@@ -1027,22 +1003,25 @@ function SchedulePopover({
   onSave: (cron: string) => Promise<void>;
   onRemove: () => Promise<void>;
 }) {
-  const initial = useMemo<CadenceValue>(
-    () =>
-      (scheduleCron ? cronToCadence(scheduleCron) : null) ?? {
-        cadence: "daily",
-        time: "09:00",
-        dayOfWeek: 1,
-        dayOfMonth: 1,
-      },
+  const storedValue = useMemo(
+    () => (scheduleCron ? cronToCadence(scheduleCron) : null),
     [scheduleCron],
   );
+  const custom = !!scheduleCron && !storedValue;
+  const initial: CadenceValue = storedValue ?? {
+    cadence: "daily",
+    time: "09:00",
+    dayOfWeek: 1,
+    dayOfMonth: 1,
+  };
   const [cadence, setCadence] = useState<Cadence>(initial.cadence);
   const [time, setTime] = useState(initial.time);
   const [dayOfWeek, setDayOfWeek] = useState(initial.dayOfWeek ?? 1);
   const [dayOfMonth, setDayOfMonth] = useState(initial.dayOfMonth ?? 1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [replacingCustom, setReplacingCustom] = useState(false);
+  const editing = !custom || replacingCustom;
   // Click-to-arm, click-again-to-confirm -- same pattern as RowMenu's
   // delete-workflow button, since Remove here is just as irreversible
   // (deletes the live cron schedule) and shouldn't fire on a single
@@ -1084,7 +1063,22 @@ function SchedulePopover({
       >
         ← back
       </button>
-      <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+      {custom && (
+        <div role="status" style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 10 }}>
+          This workflow has a custom schedule. It stays unchanged unless you
+          choose to replace or remove it.
+          {!editing && (
+            <button
+              type="button"
+              style={{ ...ghostBtnSm, marginTop: 8 }}
+              onClick={() => setReplacingCustom(true)}
+            >
+              Replace schedule
+            </button>
+          )}
+        </div>
+      )}
+      {editing && <><div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
         {(["daily", "weekly", "monthly"] as Cadence[]).map((c) => (
           <button
             key={c}
@@ -1158,6 +1152,7 @@ function SchedulePopover({
           </select>
         </>
       )}
+      </>}
       {scheduleNextRunAt && (
         <div style={{ fontSize: 10, color: "var(--fg-dim)", marginBottom: 8 }}>
           Next run: {new Date(scheduleNextRunAt).toLocaleString()}
@@ -1172,8 +1167,9 @@ function SchedulePopover({
       )}
       <div style={{ display: "flex", gap: 6 }}>
         <button
-          disabled={saving}
+          disabled={saving || !editing}
           onClick={async () => {
+            if (!editing) return;
             setSaving(true);
             setError(null);
             try {
@@ -1181,9 +1177,7 @@ function SchedulePopover({
                 cadenceToCron({ cadence, time, dayOfWeek, dayOfMonth }),
               );
             } catch (e) {
-              setError(
-                e instanceof Error ? e.message : "could not save schedule",
-              );
+              setError(scheduleErrorText(e));
               setSaving(false);
             }
           }}
@@ -1196,8 +1190,8 @@ function SchedulePopover({
             border: "none",
             background: "var(--accent)",
             color: "var(--bg)",
-            cursor: saving ? "default" : "pointer",
-            opacity: saving ? 0.6 : 1,
+            cursor: saving || !editing ? "default" : "pointer",
+            opacity: saving || !editing ? 0.6 : 1,
           }}
         >
           Save
@@ -1215,9 +1209,7 @@ function SchedulePopover({
               try {
                 await onRemove();
               } catch (e) {
-                setError(
-                  e instanceof Error ? e.message : "could not remove schedule",
-                );
+                setError(scheduleErrorText(e, "remove"));
                 setSaving(false);
                 setRemoveConfirming(false);
               }
@@ -1262,6 +1254,10 @@ function WorkflowRows({
   onShare: (id: string) => void;
 }) {
   const readOnly = useReadOnly();
+  // Desktop gets the shadcn/ui menu (DesktopRowMenu); compact viewports and
+  // the native shell use RowMenu below, subject to the device policy.
+  const desktop = !useIsCompact() && !IS_NATIVE;
+  const Menu = desktop ? DesktopRowMenu : RowMenu;
   return (
     <Card style={{ padding: 0, overflowX: "auto" }}>
       <div
@@ -1442,8 +1438,9 @@ function WorkflowRows({
               </button>
             )}
             {can("workflow.delete", readOnly) && (
-              <RowMenu
+              <Menu
                 workflowId={wf.id}
+                workflowName={wf.name}
                 onDelete={() => onDelete(wf.id)}
                 onShare={() => onShare(wf.id)}
                 deployed={wf.status === "deployed"}

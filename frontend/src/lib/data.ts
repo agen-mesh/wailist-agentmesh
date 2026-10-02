@@ -28,11 +28,8 @@ export const NODE_TYPES: Record<string, NodeTypeMeta> = {
   google: { w: 220, h: 76, ports: ["in", "out"] },
 };
 
-// "cron" (Schedule) intentionally omitted: there is no scheduler in the
-// backend (grep -ri "cron|schedul" backend/internal turns up nothing
-// non-test), so a workflow whose only trigger is Schedule would never fire
-// on its own. Re-add once a real scheduler exists -- see the node-cleanup
-// plan's Part B5.
+// Schedules belong to the workflow. The backend scheduler starts its manual
+// trigger, so a separate cron trigger is not offered in the palette.
 export const TRIGGER_TEMPLATES = [
   { id: "manual", name: "Manual Trigger", desc: "Click to test", icon: "▶" },
   { id: "chat", name: "On Chat Message", desc: "Inbound chat", icon: "◴" },

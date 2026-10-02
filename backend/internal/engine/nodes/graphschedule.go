@@ -112,7 +112,7 @@ func (s *builderSchedule) set(args map[string]any, now time.Time) (string, error
 		return "schedule removed: the workflow will only run when someone starts it. Tell the user.", nil
 	}
 	if cadence != "daily" && cadence != "weekly" && cadence != "monthly" {
-		return "", fmt.Errorf("set_schedule: cadence must be daily, weekly, monthly or off, not %q -- for anything else (hourly, weekdays only, several times a day) tell the user to set it on the Workflows page", cadence)
+		return "", fmt.Errorf("set_schedule: cadence must be daily, weekly with one weekday, monthly with one date, or off, not %q. Other cadences are not supported by the schedule editor. Ask the user to choose a supported cadence before changing an existing schedule", cadence)
 	}
 	hour, minute, ok := parseClock(argString(args, "time"))
 	if !ok {
@@ -160,10 +160,15 @@ func (s *builderSchedule) set(args map[string]any, now time.Time) (string, error
 
 	expr := cadenceCron(cadence, hour, minute, dow, dom, s.loc, now)
 	s.cron = &expr
-	return fmt.Sprintf("schedule set: %s at %02d:%02d %s (saved as the UTC cron %q). "+
-		"It only fires once the workflow is deployed, so tell the user to press Deploy, and tell them the time and timezone above so they can check it. "+
+	// The UTC cron is deliberately not in the message: whatever the model is
+	// handed, it tends to repeat, and a cron expression means nothing to the
+	// person reading the reply.
+	clock := time.Date(2000, time.January, 1, hour, minute, 0, 0, time.UTC).Format("3:04 PM")
+	return fmt.Sprintf("schedule set: %s at %s (%s). "+
+		"It only fires once the workflow is deployed, so tell the user to press Deploy. "+
+		"Tell them this schedule and timezone so they can check it. "+
 		"The workflow still starts from its manual trigger -- do not add another trigger.",
-		when, hour, minute, zoneName(s.loc), expr), nil
+		when, clock, zoneName(s.loc)), nil
 }
 
 func zoneName(loc *time.Location) string {
