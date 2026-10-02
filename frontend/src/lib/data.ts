@@ -1457,8 +1457,6 @@ export const WORKFLOWS: Workflow[] = [
   },
 ];
 
-export const WAITLIST_COUNT = 142;
-
 // ── Usage & Credits fixtures ────────────────────────────────────────────────
 // Deterministic mock data so the Usage page is fully developable/demoable
 // before the backend exposes /usage/* aggregation endpoints. All numbers are

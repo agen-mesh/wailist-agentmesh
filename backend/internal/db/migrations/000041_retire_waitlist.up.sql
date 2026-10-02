@@ -1,0 +1,11 @@
+-- The waitlist is gone: the landing page no longer collects emails and
+-- POST /waitlist no longer exists, so nothing writes to this table any more.
+--
+-- Renamed rather than dropped, deliberately. runMigrations() is called from
+-- db.New() on every boot (db.go), so a DROP here would delete every collected
+-- signup address the moment this branch's container restarts -- irreversibly,
+-- since the down migration can only recreate an empty table. Renaming retires
+-- the table from the schema while keeping the rows, so the addresses can be
+-- exported on someone's own schedule and dropped in a later, deliberate
+-- migration.
+ALTER TABLE IF EXISTS waitlist RENAME TO waitlist_archived;
