@@ -180,7 +180,7 @@
 }
 .am-console-title {
   margin: 14px 0 6px;
-  font-size: 34px;
+  font-size: var(--t-7);
   font-weight: 500;
   letter-spacing: -0.02em;
   color: var(--fg);
@@ -190,7 +190,7 @@
     padding: 20px 16px 64px;
   }
   .am-console-title {
-    font-size: 26px;
+    font-size: var(--t-6);
   }
 }
 /* The consoles size their buttons and inputs at 26–32px for a mouse. A finger
@@ -411,7 +411,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: var(--bg-elev-2);
   border: 1px solid var(--border);
   color: var(--fg-muted);
@@ -500,13 +500,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--s-3);
   padding: 0;
   background: transparent;
   border: none;
   color: var(--fg-dim);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--t-0);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   cursor: pointer;
@@ -531,7 +531,7 @@
   content: "";
   width: 34px;
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: var(--border-strong);
 }
 @media (prefers-reduced-motion: reduce) {
@@ -657,7 +657,7 @@
 @media (max-width: 520px) {
   .am-canvas-bar {
     --canvas-bar-pad: 12px;
-    --canvas-bar-gap: 8px;
+    --canvas-bar-gap: var(--s-3);
     --canvas-name-min: 72px;
     --canvas-stats-pad: 10px;
     --canvas-run-min: 64px;
@@ -670,5 +670,154 @@
     min-width: 44px;
     min-height: 44px;
     justify-content: center;
+  }
+}
+
+/* ── Pager ──────────────────────────────────────────────────────────────────
+   components/ui/Pager.tsx. Two groups at opposite ends of a row. 560px is not
+   a new rung: it is where these two stop fitting side by side, measured
+   (~540px). Below it they stack, nav first — Prev/Next is what the reader
+   came for. */
+.am-pager {
+  margin-top: var(--s-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+.am-pager__size {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-2);
+  color: var(--fg-dim);
+}
+.am-pager__nav {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+@media (max-width: 560px) {
+  .am-pager {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: var(--s-3);
+  }
+  .am-pager__nav {
+    justify-content: space-between;
+  }
+  .am-pager__size {
+    justify-content: center;
+  }
+}
+/* 28-32px is a pointer size; a finger needs 44. */
+@media (pointer: coarse) {
+  .am-pager button,
+  .am-pager select {
+    min-height: 44px;
+  }
+}
+
+/* ── Studio panel rails ─────────────────────────────────────────────────────
+   The strip a collapsed side panel leaves behind, carrying the button that
+   brings it back. studioLayout.ts decides when one shows.
+
+   26px must stay in step with RAIL_W there, or the promise that two rails
+   plus MIN_CANVAS fit in 372px breaks. */
+.am-studio-rail {
+  flex-shrink: 0;
+  width: 26px;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--bg-elev-1);
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: var(--t-2);
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.12s var(--ease),
+    color 0.12s var(--ease);
+}
+/* Border on the other side, so the canvas stays separated from it. */
+.am-studio-rail[data-side="right"] {
+  border-right: none;
+  border-left: 1px solid var(--border);
+}
+@media (hover: hover) {
+  .am-studio-rail:hover {
+    background: var(--bg-elev-2);
+    color: var(--fg);
+  }
+}
+.am-studio-rail:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .am-studio-rail {
+    transition: none;
+  }
+}
+
+/* The chat rail's collapse chevron, pointing the way the panel goes. */
+.rail-collapse {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--r-1);
+  color: var(--fg-dim);
+  font-size: var(--t-2);
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.12s var(--ease),
+    color 0.12s var(--ease);
+}
+@media (hover: hover) {
+  .rail-collapse:hover {
+    background: var(--bg-elev-2);
+    color: var(--fg);
+  }
+}
+.rail-collapse:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* The handheld has the sheet grip instead. CanvasPage already withholds the
+   prop; this is belt and braces. */
+@media (pointer: coarse) {
+  .rail-collapse {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail-collapse {
+    transition: none;
+  }
+}
+
+/* The row is a div with an onClick, so this link is what makes a row
+   keyboard-reachable — it replaces the "Open" button that used to do that. */
+.wf-row-name:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--r-1);
+}
+@media (hover: hover) {
+  .wf-row-name:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
 }

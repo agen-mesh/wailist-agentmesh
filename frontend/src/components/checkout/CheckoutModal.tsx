@@ -19,7 +19,7 @@ import { usePaymentProviders } from "./usePaymentProviders";
 // Cashfree SDK render its QR / hosted checkout above our modal without any
 // stacking conflict.
 const MODAL_CSS = `
-.checkout-split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; }
+.checkout-split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: var(--s-5); }
 .checkout-check { animation: checkout-pulse 2.4s var(--ease) infinite; }
 .checkout-backdrop {
   position: fixed; inset: 0; z-index: 1000;
@@ -140,7 +140,7 @@ export function CheckoutModal({
                   flexDirection: "column",
                   alignItems: "center",
                   textAlign: "center",
-                  gap: 12,
+                  gap: "var(--s-4)",
                   padding: "40px 16px",
                 }}
               >
@@ -149,21 +149,21 @@ export function CheckoutModal({
                   style={{
                     width: 52,
                     height: 52,
-                    borderRadius: 999,
+                    borderRadius: "var(--r-full)",
                     background: "var(--accent-soft)",
                     border: "1px solid var(--accent-line)",
                     color: "var(--accent)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontSize: 24,
+                    fontSize: "var(--t-6)",
                   }}
                 >
                   ✓
                 </div>
                 <h2
                   style={{
-                    fontSize: 18,
+                    fontSize: "var(--t-5)",
                     fontWeight: 700,
                     color: "var(--fg)",
                     margin: 0,
@@ -172,7 +172,7 @@ export function CheckoutModal({
                   Payment successful
                 </h2>
                 <p
-                  style={{ fontSize: 13, color: "var(--fg-muted)", margin: 0 }}
+                  style={{ fontSize: "var(--t-3)", color: "var(--fg-muted)", margin: 0 }}
                 >
                   {creditedUSD === null
                     ? "Your credits have been added to your wallet."
@@ -181,7 +181,7 @@ export function CheckoutModal({
                 <div
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: 13,
+                    fontSize: "var(--t-3)",
                     color: "var(--fg)",
                     background: "var(--bg-elev-2)",
                     border: "1px solid var(--border)",
@@ -191,7 +191,7 @@ export function CheckoutModal({
                 >
                   New balance: ${balanceUSD.toFixed(2)}
                 </div>
-                <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+                <div style={{ display: "flex", gap: "var(--s-3)", marginTop: 8 }}>
                   <button
                     type="button"
                     onClick={() => router.push("/usage")}
@@ -202,7 +202,7 @@ export function CheckoutModal({
                       border: "1px solid var(--accent-line)",
                       background: "var(--accent)",
                       color: "var(--accent-fg)",
-                      fontSize: 13,
+                      fontSize: "var(--t-3)",
                       fontWeight: 600,
                       cursor: "pointer",
                     }}
@@ -219,7 +219,7 @@ export function CheckoutModal({
                       border: "1px solid var(--border-strong)",
                       background: "transparent",
                       color: "var(--fg-muted)",
-                      fontSize: 13,
+                      fontSize: "var(--t-3)",
                       fontWeight: 500,
                       cursor: "pointer",
                     }}
@@ -242,7 +242,7 @@ export function CheckoutModal({
                   <div>
                     <h2
                       style={{
-                        fontSize: 19,
+                        fontSize: "var(--t-5)",
                         fontWeight: 700,
                         color: "var(--fg)",
                         margin: 0,
@@ -254,7 +254,7 @@ export function CheckoutModal({
                     <p
                       style={{
                         margin: "3px 0 0",
-                        fontSize: 12.5,
+                        fontSize: "var(--t-2)",
                         color: "var(--fg-muted)",
                       }}
                     >
@@ -295,7 +295,7 @@ export function CheckoutModal({
                     <div
                       style={{
                         paddingBottom: 4,
-                        fontSize: 12,
+                        fontSize: "var(--t-2)",
                         fontWeight: 600,
                         color: "var(--fg-muted)",
                       }}

@@ -187,9 +187,9 @@ export function PaymentInfoPanel({
   const trust = `Secured by ${selected?.label ?? "our payment provider"} · details are encrypted`;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-5)" }}>
       <style>{PANEL_CSS}</style>
-      <div style={{ fontSize: 16, fontWeight: 600, color: "var(--fg)" }}>
+      <div style={{ fontSize: "var(--t-4)", fontWeight: 600, color: "var(--fg)" }}>
         Payment method
       </div>
 
@@ -197,7 +197,7 @@ export function PaymentInfoPanel({
       <div
         role="radiogroup"
         aria-label="Payment method"
-        style={{ display: "flex", flexDirection: "column", gap: 10 }}
+        style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}
       >
         {providers.map((p) => {
           const active = method === p.id;
@@ -215,7 +215,7 @@ export function PaymentInfoPanel({
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 12,
+                gap: "var(--s-4)",
                 width: "100%",
                 textAlign: "left",
                 padding: "12px 14px",
@@ -233,7 +233,7 @@ export function PaymentInfoPanel({
                 style={{
                   width: 16,
                   height: 16,
-                  borderRadius: 999,
+                  borderRadius: "var(--r-full)",
                   flexShrink: 0,
                   border: `1px solid ${active ? "var(--accent)" : "var(--border-strong)"}`,
                   display: "inline-flex",
@@ -246,17 +246,17 @@ export function PaymentInfoPanel({
                     style={{
                       width: 8,
                       height: 8,
-                      borderRadius: 999,
+                      borderRadius: "var(--r-full)",
                       background: "var(--accent)",
                     }}
                   />
                 )}
               </span>
               <span
-                style={{ display: "flex", flexDirection: "column", gap: 2 }}
+                style={{ display: "flex", flexDirection: "column", gap: "var(--s-0)" }}
               >
-                <span style={{ fontSize: 13, fontWeight: 500 }}>{p.label}</span>
-                <span style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+                <span style={{ fontSize: "var(--t-3)", fontWeight: 500 }}>{p.label}</span>
+                <span style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)" }}>
                   {p.sublabel}
                 </span>
               </span>
@@ -273,10 +273,10 @@ export function PaymentInfoPanel({
       {/* Cashfree needs a real contact number on the order — shown only for
           that provider, since others don't ask for one. */}
       {method === "cashfree" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
           <label
             htmlFor="checkout-phone"
-            style={{ fontSize: 12, fontWeight: 500, color: "var(--fg-muted)" }}
+            style={{ fontSize: "var(--t-2)", fontWeight: 500, color: "var(--fg-muted)" }}
           >
             Phone number
           </label>
@@ -300,13 +300,13 @@ export function PaymentInfoPanel({
               }`,
               background: "var(--bg)",
               color: "var(--fg)",
-              fontSize: 13,
+              fontSize: "var(--t-3)",
               fontFamily: "var(--font-mono)",
             }}
           />
           <span
             style={{
-              fontSize: 11,
+              fontSize: "var(--t-1)",
               color:
                 phoneTouched && !phoneValid ? "var(--danger)" : "var(--fg-dim)",
             }}
@@ -325,10 +325,10 @@ export function PaymentInfoPanel({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: 6,
+            gap: "var(--s-2)",
             marginBottom: 12,
             color: "var(--fg-dim)",
-            fontSize: 12,
+            fontSize: "var(--t-2)",
           }}
         >
           <svg
@@ -368,7 +368,7 @@ export function PaymentInfoPanel({
             border: "1px solid var(--accent-line)",
             borderRadius: "var(--r-2)",
             color: isSuccess ? "var(--accent)" : "var(--accent-fg)",
-            fontSize: 14,
+            fontSize: "var(--t-4)",
             fontWeight: 600,
             cursor: canPay ? "pointer" : "default",
             opacity: !canPay && !isSuccess ? 0.5 : 1,
@@ -385,7 +385,7 @@ export function PaymentInfoPanel({
             style={{
               display: "flex",
               alignItems: "flex-start",
-              gap: 9,
+              gap: "var(--s-3)",
               marginTop: 12,
               padding: "10px 12px",
               borderRadius: "var(--r-2)",
@@ -410,7 +410,7 @@ export function PaymentInfoPanel({
                 style={{
                   width: 15,
                   height: 15,
-                  borderRadius: 4,
+                  borderRadius: "var(--r-1)",
                   border: `1.5px solid ${agreed ? "var(--accent)" : "var(--border-strong)"}`,
                   background: agreed ? "var(--accent)" : "transparent",
                   display: "inline-flex",
@@ -456,7 +456,7 @@ export function PaymentInfoPanel({
                 stay clickable. */}
             <span
               style={{
-                fontSize: 11.5,
+                fontSize: "var(--t-1)",
                 lineHeight: 1.6,
                 color: "var(--fg-muted)",
                 userSelect: "none",
@@ -500,7 +500,7 @@ export function PaymentInfoPanel({
           <p
             style={{
               margin: "10px 0 0",
-              fontSize: 12,
+              fontSize: "var(--t-2)",
               color: "var(--danger)",
               textAlign: "center",
             }}
@@ -513,7 +513,7 @@ export function PaymentInfoPanel({
           <p
             style={{
               margin: "10px 0 0",
-              fontSize: 12,
+              fontSize: "var(--t-2)",
               color: "var(--fg-dim)",
               textAlign: "center",
             }}

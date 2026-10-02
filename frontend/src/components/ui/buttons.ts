@@ -41,7 +41,7 @@ export const ghostBtnSm: CSSProperties = {
   ...labelBase,
   minHeight: 28,
   padding: "0 10px",
-  fontSize: 12,
+  fontSize: "var(--t-2)",
   fontWeight: 500,
   background: "transparent",
   border: "1px solid var(--border-strong)",
@@ -54,7 +54,7 @@ export const ghostBtn: CSSProperties = {
   ...labelBase,
   minHeight: 36,
   padding: "0 14px",
-  fontSize: 13,
+  fontSize: "var(--t-3)",
   fontWeight: 500,
   background: "var(--bg-elev-2)",
   border: "1px solid var(--border-strong)",
@@ -66,7 +66,7 @@ export const primaryBtn: CSSProperties = {
   ...labelBase,
   minHeight: 36,
   padding: "0 14px",
-  fontSize: 13,
+  fontSize: "var(--t-3)",
   fontWeight: 600,
   background: "var(--accent)",
   border: "1px solid var(--accent)",
@@ -78,7 +78,7 @@ export const primaryBtnSm: CSSProperties = {
   ...labelBase,
   minHeight: 28,
   padding: "0 12px",
-  fontSize: 12,
+  fontSize: "var(--t-2)",
   fontWeight: 600,
   background: "var(--accent)",
   border: "1px solid var(--accent)",
@@ -97,7 +97,7 @@ export const authBtn: CSSProperties = {
   background: "var(--bg-elev-1)",
   border: "1px solid var(--border)",
   color: "var(--fg)",
-  fontSize: 13,
+  fontSize: "var(--t-3)",
   fontWeight: 500,
 };
 
@@ -128,7 +128,7 @@ export const ctrlBtn: CSSProperties = {
   border: "none",
   color: "var(--fg-muted)",
   fontFamily: "var(--font-mono)",
-  fontSize: 16,
+  fontSize: "var(--t-4)",
   borderRadius: "var(--r-1)",
 };
 
@@ -139,7 +139,7 @@ export const iconBtn: CSSProperties = {
   border: "1px solid var(--border-strong)",
   borderRadius: "var(--r-2)",
   color: "var(--fg-muted)",
-  fontSize: 12,
+  fontSize: "var(--t-2)",
   fontFamily: "var(--font-mono)",
 };
 

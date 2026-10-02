@@ -34,7 +34,7 @@ export default function TermsPage() {
           href="/"
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 14,
+            fontSize: "var(--t-4)",
             fontWeight: 700,
             color: "var(--fg)",
             textDecoration: "none",
@@ -46,7 +46,7 @@ export default function TermsPage() {
         <span
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             color: "var(--fg-dim)",
           }}
         >
@@ -61,13 +61,13 @@ export default function TermsPage() {
             style={{
               display: "inline-block",
               fontFamily: "var(--font-mono)",
-              fontSize: 11,
+              fontSize: "var(--t-1)",
               letterSpacing: "0.1em",
               textTransform: "uppercase",
               color: "var(--accent)",
               background: "var(--accent-soft)",
               border: "1px solid var(--accent-line)",
-              borderRadius: 999,
+              borderRadius: "var(--r-full)",
               padding: "3px 12px",
               marginBottom: 20,
             }}
@@ -77,7 +77,7 @@ export default function TermsPage() {
           <h1
             style={{
               margin: 0,
-              fontSize: 40,
+              fontSize: "var(--t-8)",
               fontWeight: 600,
               letterSpacing: "-0.025em",
               lineHeight: 1.15,
@@ -89,7 +89,7 @@ export default function TermsPage() {
             style={{
               margin: "12px 0 0",
               color: "var(--fg-muted)",
-              fontSize: 15,
+              fontSize: "var(--t-4)",
               lineHeight: 1.6,
             }}
           >
@@ -108,7 +108,7 @@ export default function TermsPage() {
             paddingTop: 32,
             borderTop: "1px solid var(--border)",
             display: "flex",
-            gap: 24,
+            gap: "var(--s-6)",
             flexWrap: "wrap",
           }}
         >
@@ -375,18 +375,18 @@ function Section({
         style={{
           display: "flex",
           alignItems: "baseline",
-          gap: 12,
+          gap: "var(--s-4)",
           marginBottom: 16,
         }}
       >
         <span
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             color: "var(--accent)",
             background: "var(--accent-soft)",
             border: "1px solid var(--accent-line)",
-            borderRadius: 999,
+            borderRadius: "var(--r-full)",
             padding: "2px 8px",
             flexShrink: 0,
           }}
@@ -396,7 +396,7 @@ function Section({
         <h2
           style={{
             margin: 0,
-            fontSize: 20,
+            fontSize: "var(--t-5)",
             fontWeight: 600,
             letterSpacing: "-0.015em",
           }}
@@ -404,7 +404,7 @@ function Section({
           {title}
         </h2>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-5)" }}>
         {children}
       </div>
     </div>
@@ -423,7 +423,7 @@ function SubSection({
       <h3
         style={{
           margin: "0 0 8px",
-          fontSize: 13,
+          fontSize: "var(--t-3)",
           fontWeight: 600,
           color: "var(--fg)",
           letterSpacing: "-0.01em",
@@ -441,7 +441,7 @@ function P({ children }: { children: React.ReactNode }) {
     <p
       style={{
         margin: 0,
-        fontSize: 14.5,
+        fontSize: "var(--t-4)",
         lineHeight: 1.75,
         color: "var(--fg-muted)",
       }}
@@ -460,7 +460,7 @@ function Notice({ children }: { children: React.ReactNode }) {
         background: "var(--accent-soft)",
         border: "1px solid var(--accent-line)",
         borderRadius: "var(--r-2)",
-        fontSize: 13,
+        fontSize: "var(--t-3)",
         lineHeight: 1.6,
         color: "var(--fg)",
         fontStyle: "italic",
@@ -473,7 +473,7 @@ function Notice({ children }: { children: React.ReactNode }) {
 
 const linkStyle: React.CSSProperties = {
   fontFamily: "var(--font-mono)",
-  fontSize: 12,
+  fontSize: "var(--t-2)",
   color: "var(--fg-muted)",
   textDecoration: "none",
 };

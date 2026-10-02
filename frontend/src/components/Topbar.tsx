@@ -112,7 +112,9 @@ export function Topbar() {
           <NavLink label={item.label} active={active} onClick={onClick} />
         )}
         brand={
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div
+            style={{ display: "flex", alignItems: "center", gap: "var(--s-4)" }}
+          >
             <button
               onClick={() => router.push("/")}
               style={{
@@ -131,7 +133,11 @@ export function Topbar() {
             <Hairline className="hide-md" vertical length={22} />
             <div
               className="hide-md"
-              style={{ display: "flex", alignItems: "center", gap: 8 }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--s-3)",
+              }}
             >
               <button style={ghostBtnSm}>{orgName} ▾</button>
             </div>
@@ -168,20 +174,20 @@ export function Topbar() {
                         padding: "12px 14px",
                         display: "flex",
                         alignItems: "center",
-                        gap: 10,
+                        gap: "var(--s-3)",
                       }}
                     >
                       <div
                         style={{
                           width: 28,
                           height: 28,
-                          borderRadius: 999,
+                          borderRadius: "var(--r-full)",
                           background: "var(--accent)",
                           color: "var(--accent-fg)",
                           display: "inline-flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          fontSize: 11,
+                          fontSize: "var(--t-1)",
                           fontWeight: 700,
                           flexShrink: 0,
                         }}
@@ -191,7 +197,7 @@ export function Topbar() {
                       <div style={{ minWidth: 0 }}>
                         <div
                           style={{
-                            fontSize: 13,
+                            fontSize: "var(--t-3)",
                             fontWeight: 600,
                             color: "var(--fg)",
                           }}
@@ -200,7 +206,7 @@ export function Topbar() {
                         </div>
                         <div
                           style={{
-                            fontSize: 11,
+                            fontSize: "var(--t-1)",
                             color: "var(--fg-dim)",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
@@ -322,21 +328,30 @@ function OnboardingModal({
           padding: 24,
           display: "flex",
           flexDirection: "column",
-          gap: 14,
+          gap: "var(--s-4)",
         }}
       >
-        <div>
-          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--fg)" }}>
-            Welcome — one more step
-          </div>
-          <div
-            style={{ fontSize: 12.5, color: "var(--fg-muted)", marginTop: 4 }}
-          >
-            Tell us who you are so your teammates recognize you.
-          </div>
+        {/* Was "Welcome — one more step" over "Tell us who you are so your
+            teammates recognize you." Two lines for a form whose first field
+            is already labelled "Full name": the heading named no task and
+            the caption restated the label under it. */}
+        <div
+          style={{
+            fontSize: "var(--t-4)",
+            fontWeight: 600,
+            color: "var(--fg)",
+          }}
+        >
+          Add your name
         </div>
-        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ fontSize: 12, color: "var(--fg-muted)" }}>
+        <label
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--s-2)",
+          }}
+        >
+          <span style={{ fontSize: "var(--t-2)", color: "var(--fg-muted)" }}>
             Full name
           </span>
           <input
@@ -349,8 +364,14 @@ function OnboardingModal({
             style={onboardingInputStyle}
           />
         </label>
-        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ fontSize: 12, color: "var(--fg-muted)" }}>
+        <label
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--s-2)",
+          }}
+        >
+          <span style={{ fontSize: "var(--t-2)", color: "var(--fg-muted)" }}>
             Organization (optional)
           </span>
           <input
@@ -365,7 +386,7 @@ function OnboardingModal({
           <div
             style={{
               color: "var(--danger)",
-              fontSize: 12,
+              fontSize: "var(--t-2)",
               fontFamily: "var(--font-mono)",
             }}
           >
@@ -383,7 +404,7 @@ function OnboardingModal({
             color: "var(--accent-fg)",
             border: "none",
             borderRadius: "var(--r-2)",
-            fontSize: 13.5,
+            fontSize: "var(--t-3)",
             fontWeight: 600,
             fontFamily: "var(--font-sans)",
             cursor: saving || !name.trim() ? "not-allowed" : "pointer",
@@ -404,7 +425,7 @@ const onboardingInputStyle: React.CSSProperties = {
   border: "1px solid var(--border)",
   borderRadius: "var(--r-2)",
   color: "var(--fg)",
-  fontSize: 13,
+  fontSize: "var(--t-3)",
   fontFamily: "var(--font-sans)",
 };
 
@@ -434,7 +455,7 @@ function NavLink({
         if (!active) e.currentTarget.style.background = "transparent";
       }}
       style={{
-        fontSize: 12.5,
+        fontSize: "var(--t-2)",
         fontWeight: 500,
         background: active ? "var(--bg-elev-3)" : "transparent",
         border: "none",
@@ -444,7 +465,7 @@ function NavLink({
         fontFamily: "var(--font-sans)",
         display: "inline-flex",
         alignItems: "center",
-        gap: 6,
+        gap: "var(--s-2)",
         transition: "background .15s var(--ease), color .15s var(--ease)",
       }}
     >

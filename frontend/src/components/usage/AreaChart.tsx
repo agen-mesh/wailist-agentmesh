@@ -185,7 +185,7 @@ export function AreaChart({
                       ? "translateX(-100%)"
                       : "translateX(-50%)",
                 fontFamily: "var(--font-mono)",
-                fontSize: 9,
+                fontSize: "var(--t-0)",
                 color: "var(--fg-dim)",
                 whiteSpace: "nowrap",
               }}
@@ -234,7 +234,7 @@ function ChartTip({
         borderRadius: "var(--r-2)",
         padding: "8px 10px",
         fontFamily: "var(--font-mono)",
-        fontSize: 10,
+        fontSize: "var(--t-0)",
         color: "var(--fg)",
         boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
         whiteSpace: "nowrap",
@@ -261,7 +261,7 @@ function TipRow({ c, label, val }: { c: string; label: string; val: string }) {
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 7,
+        gap: "var(--s-2)",
         marginTop: 2,
         color: "var(--fg-muted)",
       }}
@@ -270,7 +270,7 @@ function TipRow({ c, label, val }: { c: string; label: string; val: string }) {
         style={{
           width: 7,
           height: 7,
-          borderRadius: 999,
+          borderRadius: "var(--r-full)",
           background: c,
           display: "inline-block",
         }}

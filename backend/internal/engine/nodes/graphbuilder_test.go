@@ -564,31 +564,35 @@ func TestAddNodeRejectsCronTrigger(t *testing.T) {
 	}
 }
 
-func TestAddNodeCreatesStateAndGoogleNodes(t *testing.T) {
+func TestAddNodeCreatesGoogleNodes(t *testing.T) {
 	graph := &models.WorkflowGraph{}
-	if _, err := applyGraphOp(graph, "add_node", map[string]any{"type": "state", "template": "set"}); err != nil {
-		t.Fatalf("state node: %v", err)
-	}
 	if _, err := applyGraphOp(graph, "add_node", map[string]any{"type": "google", "template": "gmail_list"}); err != nil {
 		t.Fatalf("google node: %v", err)
 	}
 }
 
-// A "Write State" node with no stateOp silently runs get; a Tendril node with
-// no tendrilAction fails outright. The palette sets both on drop.
+// State was dropped from the palette and the catalogue, so the builder must
+// no longer be able to reach for one -- the type still exists in models for
+// graphs saved before the removal, which is exactly why this is worth
+// asserting rather than assuming.
+func TestAddNodeRejectsStateNode(t *testing.T) {
+	graph := &models.WorkflowGraph{}
+	if _, err := applyGraphOp(graph, "add_node", map[string]any{"type": "state", "template": "set"}); err == nil {
+		t.Fatal("state is not in the catalogue; add_node must refuse it")
+	}
+}
+
+// A Tendril node with no tendrilAction fails outright. The palette sets it on
+// drop, and the catalogue is what tells the builder to do the same.
 func TestAddNodeAppliesCatalogPresets(t *testing.T) {
 	graph := &models.WorkflowGraph{}
-	applyGraphOp(graph, "add_node", map[string]any{"type": "state", "template": "set"})
 	applyGraphOp(graph, "add_node", map[string]any{"type": "tendril", "template": "tendril_rent"})
 	applyGraphOp(graph, "add_node", map[string]any{"type": "provider", "template": "gemini"})
-	if graph.Nodes[0].StateOp != "set" {
-		t.Fatalf("state/set must preset stateOp=set, got %q", graph.Nodes[0].StateOp)
+	if graph.Nodes[0].TendrilAction != "rent" || graph.Nodes[0].TendrilHours != "1" {
+		t.Fatalf("tendril_rent presets not applied: %+v", graph.Nodes[0])
 	}
-	if graph.Nodes[1].TendrilAction != "rent" || graph.Nodes[1].TendrilHours != "1" {
-		t.Fatalf("tendril_rent presets not applied: %+v", graph.Nodes[1])
-	}
-	if graph.Nodes[2].Model != "gemini-2.5-flash" {
-		t.Fatalf("provider/gemini must preset its default model, got %q", graph.Nodes[2].Model)
+	if graph.Nodes[1].Model != "gemini-2.5-flash" {
+		t.Fatalf("provider/gemini must preset its default model, got %q", graph.Nodes[1].Model)
 	}
 }
 
@@ -652,15 +656,24 @@ func TestAddNodeRejectsGoogleAccountConnection(t *testing.T) {
 	}
 }
 
+// Used to be written against state get->set. The State node type was dropped
+// from the palette and the catalogue, so the case is expressed with provider
+// templates instead -- the behaviour under test is the catalogue's presets
+// being re-applied on a template change, not anything specific to state.
 func TestUpdateNodeTemplateChangeReappliesPresets(t *testing.T) {
 	graph := &models.WorkflowGraph{}
-	applyGraphOp(graph, "add_node", map[string]any{"type": "state", "template": "get"})
+	if _, err := applyGraphOp(graph, "add_node", map[string]any{"type": "provider", "template": "gemini"}); err != nil {
+		t.Fatalf("add_node: %v", err)
+	}
+	if graph.Nodes[0].Model != "gemini-2.5-flash" {
+		t.Fatalf("the added node should carry gemini's preset model, got %q", graph.Nodes[0].Model)
+	}
 	id := graph.Nodes[0].ID
-	if _, err := applyGraphOp(graph, "update_node", map[string]any{"id": id, "template": "set"}); err != nil {
+	if _, err := applyGraphOp(graph, "update_node", map[string]any{"id": id, "template": "openai"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if graph.Nodes[0].StateOp != "set" {
-		t.Fatalf("changing state get->set must move stateOp too, got %q", graph.Nodes[0].StateOp)
+	if graph.Nodes[0].Model != "gpt-4.1" {
+		t.Fatalf("changing gemini->openai must move the preset model too, got %q", graph.Nodes[0].Model)
 	}
 }
 

@@ -433,6 +433,6 @@ const touchTarget: React.CSSProperties = { minHeight: 44 };
 const actions: React.CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
-  gap: 10,
+  gap: "var(--s-3)",
   marginTop: 16,
 };

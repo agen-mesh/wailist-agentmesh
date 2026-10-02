@@ -15,9 +15,28 @@
   --border-strong: #34324c;
   --border-soft: #1b1a2c;
 
+  /* Foreground ladder, raised to clear WCAG 1.4.3 AA. --fg-dim was #5c5970 =
+     2.98:1 on --bg, about half the 4.5:1 floor, on the token carrying every
+     eyebrow and caption. --fg-muted moved with it: raising --fg-dim alone
+     would have closed the gap to 1.3:1 and flattened three steps into two.
+
+     --fg-dim is measured against the MOST-RAISED surface it can land on, not
+     against --bg. At #7f7c9a it read 4.49 on elev-2 and 4.09 on elev-3 -- the
+     first pass excused those as small letter-spaced labels, which has it
+     backwards: 1.4.3 relaxes to 3:1 only for LARGE text (>=24px, or >=18.66px
+     bold), so a 10px type badge on elev-3 is the case needing the full 4.5,
+     and a 24px heading would have been the one with room to spare.
+
+     Ratios against --bg / elev-1 / elev-2 / elev-3:
+       --fg        17.8  17.0  15.9  14.5
+       --fg-muted   8.1   7.7   7.2   6.6
+       --fg-dim     5.6   5.3   5.0   4.5
+     Every cell clears 4.5, so the ladder holds on any surface. --fg-dim sits
+     1.46:1 from --fg-muted -- tighter than before, still well clear of the
+     1.3:1 that would flatten the two into one step. */
   --fg: #f2f0f7;
-  --fg-muted: #8e8aa3;
-  --fg-dim: #5c5970;
+  --fg-muted: #a5a2b8;
+  --fg-dim: #8783a3;
 
   --accent: #a78bfa;
   --accent-strong: #8b5cf6;
@@ -33,10 +52,70 @@
   --info: #6ea8ff;
   --info-soft: rgba(110, 168, 255, 0.14);
 
+  /* Status: one colour per MEANING — outcomes, never categories. The app had
+     none, so every file that needed "green" picked its own (#4ade80, #34d399
+     and #3ecf8e were all in the tree at once). */
+  --success: #34d399;
+  --success-soft: rgba(52, 211, 153, 0.14);
+  --warning: #ffb547;
+  --warning-soft: rgba(255, 181, 71, 0.14);
+  --danger-soft: rgba(255, 92, 92, 0.14);
+  /* Queued, idle, skipped. The muted foreground rather than a hue: a pending
+     row has no news. Tracks --fg-muted by value. */
+  --pending: #a5a2b8;
+
+  /* Categories: a different axis from status — a tool402 node is magenta
+     whether its last run passed or failed. The x402 magenta used to appear
+     23 times as a literal. */
+  --type-agent: #a78bfa;
+  --type-x402: #e879f9;
+  --type-x402-soft: rgba(232, 121, 249, 0.14);
+  /* Text ON the magenta, as --accent-fg is text on the accent. */
+  --type-x402-fg: #1a0a1a;
+  --type-llm: #6ea8ff;
+  --type-action: #fb923c;
+  --type-action-soft: rgba(251, 146, 60, 0.14);
+
+  /* Type scale. The app had twenty ad-hoc sizes with three quarters of all
+     text in the 10-12px band, so headings and captions rendered alike and
+     nothing read as more important than anything else.
+
+     --t-0 is mono uppercase eyebrows ONLY; body copy starts at --t-2. The old
+     14 and 16px rungs fold UP into --t-4, never down — the complaint this
+     answers is that everything is too quiet. */
+  --t-0: 10px;
+  --t-1: 11px;
+  --t-2: 12px;
+  --t-3: 13px;
+  --t-4: 15px;
+  --t-5: 18px;
+  --t-6: 24px;
+  --t-7: 32px;
+  --t-8: 40px;
+
+  /* Space ramp. gap: 2/4/5/6/7/8/10/12/14/16/20/24 were all in the tree and
+     the odd values carried no meaning. Eight rungs rather than plain 4px
+     multiples because 2px and 6px are load-bearing in a dense tool.
+
+     Every old value maps to its nearest rung AT OR BELOW itself — a gap that
+     only shrinks cannot push a row past its container, which is what made the
+     codemod safe across 200-odd call sites. */
+  --s-0: 2px;
+  --s-1: 4px;
+  --s-2: 6px;
+  --s-3: 8px;
+  --s-4: 12px;
+  --s-5: 16px;
+  --s-6: 24px;
+  --s-7: 32px;
+
   --r-1: 4px;
   --r-2: 8px;
   --r-3: 12px;
   --r-4: 18px;
+  /* Named so "is this a pill?" becomes a decision rather than a default.
+     Pills are for controls you press; a tag or status chip takes --r-1. */
+  --r-full: 999px;
 
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
@@ -74,7 +153,7 @@ body {
 }
 *::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 999px;
+  border-radius: var(--r-full);
 }
 *::-webkit-scrollbar-thumb:hover {
   background: var(--border-strong);
@@ -377,7 +456,7 @@ body {
 .profile-menu__trigger {
   width: 28px;
   height: 28px;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: var(--accent);
   color: var(--accent-fg);
   border: none;
@@ -386,7 +465,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: var(--t-1);
   font-weight: 700;
   font-family: var(--font-sans);
 }
@@ -431,7 +510,7 @@ body {
   border: none;
   color: var(--fg-muted);
   font-family: var(--font-sans);
-  font-size: 12.5px;
+  font-size: var(--t-2);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -465,7 +544,7 @@ body {
 .usage-split {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: var(--s-5);
 }
 @media (max-width: 1024px) {
   .usage-split {
@@ -531,7 +610,7 @@ body {
   border-radius: var(--r-2);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--t-0);
   color: var(--fg);
   white-space: nowrap;
   opacity: 0;
@@ -594,7 +673,7 @@ body {
   .lp-marquee-row {
     flex-direction: column;
     align-items: flex-start;
-    gap: 16px;
+    gap: var(--s-5);
   }
   .lp-marquee-row > * {
     width: 100%;
@@ -628,7 +707,7 @@ body {
    stop being an inline style before any media query could reach it. */
 .lp-waitlist {
   display: flex;
-  gap: 8px;
+  gap: var(--s-3);
 }
 @media (max-width: 520px) {
   .lp-waitlist {
@@ -745,7 +824,7 @@ body {
   --wf-page-pad: 36px 24px 80px;
   /* Hero figures. Overridden smaller on a phone; see the 768 block. */
   --wf-row-pad: 14px 16px;
-  --wf-row-gap: 12px;
+  --wf-row-gap: var(--s-4);
   --wf-balance-size: 28px;
   --us-figure-size: 40px;
   --wf-h1: 36px;
@@ -759,11 +838,11 @@ body {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--s-5);
 }
 .wf-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--s-3);
 }
 /* ── Touch targets ─────────────────────────────────────────────────────────
    Nearly every control in this app is sized for a mouse: 26px to 40px tall.
@@ -812,7 +891,7 @@ body {
 .wf-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--s-3);
 }
 .wf-search {
   flex: 1;
@@ -859,7 +938,7 @@ body {
     --wf-row-pad: 10px 12px;
     /* 10, not 8: eight read as clamped against the 9px captions once the
        cells went to three columns. Still well under the 12 desktop uses. */
-    --wf-row-gap: 10px;
+    --wf-row-gap: var(--s-3);
     --wf-balance-size: 22px;
     --us-figure-size: 28px;
   }
@@ -887,7 +966,7 @@ body {
   .wf-row {
     align-items: start;
     /* 12 -> 8: five gaps per card, so this alone is 20px off every row. */
-    row-gap: 8px;
+    row-gap: var(--s-3);
   }
   .wf-row > *:first-child,
   .wf-row > *:last-child {
@@ -928,7 +1007,7 @@ body {
        between them let the two run together at a glance. */
     margin-bottom: 4px;
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: var(--t-0);
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--fg-dim);
@@ -1012,13 +1091,13 @@ body {
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: 14px;
+  gap: var(--s-4);
   padding: 32px 24px;
   background: var(--bg);
 }
 .canvas-narrow__title {
   margin: 0;
-  font-size: 22px;
+  font-size: var(--t-6);
   font-weight: 500;
   letter-spacing: -0.02em;
   color: var(--fg);
@@ -1026,7 +1105,7 @@ body {
 .canvas-narrow__body {
   margin: 0;
   max-width: 34ch;
-  font-size: 14px;
+  font-size: var(--t-4);
   line-height: 1.55;
   color: var(--fg-muted);
 }
@@ -1039,7 +1118,7 @@ body {
   border-radius: var(--r-2);
   color: var(--fg);
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: var(--t-3);
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
@@ -1072,11 +1151,14 @@ body {
    See NAVBAR_HAMBURGER_RESEARCH_PLAN.md §1.3 for what the ideal version does. */
 :root {
   --ease-nav: cubic-bezier(0.4, 0, 0.6, 1);
-  --nav-rate-fade: 0.24s;
   --nav-rate-slow: 0.32s;
-  --nav-stagger: 80ms;
   --nav-h: 56px;
 }
+/* --nav-rate-fade and --nav-stagger are gone with the CSS transition they
+   timed. The sheet's entrance and exit are springs owned by motion in
+   AppNav.tsx now, and its stagger is a real per-child sequence rather than
+   one delay applied to the whole panel -- so there is nothing left here for
+   either value to time. */
 
 /* The bar is --nav-h tall, and then sits below the status bar rather than under
    it. From Android 15 the WebView draws edge to edge (see layout.tsx), so the
@@ -1108,13 +1190,13 @@ body {
   /* 12px, not 20: the only gap that is ever visible is inline-links → actions,
      and that spacing carries over from the pre-AppNav bar. The gaps either side
      of the flex:1 spacer are absorbed by the spacer. */
-  gap: 12px;
+  gap: var(--s-4);
   padding: 0 24px;
 }
 .appnav__inline {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--s-0);
 }
 .appnav__spacer {
   flex: 1;
@@ -1122,7 +1204,7 @@ body {
 .appnav__actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--s-4);
 }
 .appnav__trigger {
   display: none;
@@ -1176,7 +1258,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: var(--s-1);
   padding: 8px 4px;
   text-decoration: none;
   color: var(--fg-dim);
@@ -1205,7 +1287,7 @@ body {
 }
 
 .bottomnav__label {
-  font-size: 11px;
+  font-size: var(--t-1);
   letter-spacing: 0.01em;
   line-height: 1;
 }
@@ -1229,7 +1311,7 @@ body[data-bottomnav] .am-viewport-min {
   .bottomnav__item {
     min-height: 44px;
     flex-direction: row;
-    gap: 6px;
+    gap: var(--s-2);
     padding: 4px;
   }
   body[data-bottomnav] .am-viewport,
@@ -1263,6 +1345,14 @@ body[data-typing] .bottomnav {
   }
 }
 
+/* The sheet is MOUNTED only while open (AnimatePresence in AppNav.tsx), so
+   there is no opacity/visibility/transform state here any more and no
+   transition for a resize to interrupt -- motion owns the whole entrance and
+   exit. What is left is the surface itself.
+
+   Mounting on demand is also what makes the overlap question trivial: when
+   the menu is shut there is no full-viewport fixed element in the tree at
+   all, so nothing can sit under it at any width. */
 .appnav__sheet {
   position: fixed;
   /* Below the whole bar, inset included, or the sheet starts underneath it. */
@@ -1275,55 +1365,96 @@ body[data-typing] .bottomnav {
   overscroll-behavior: contain;
   background: var(--bg-elev-1);
   /* Clear of the gesture bar, and of a side navigation bar in landscape. */
-  padding: 8px calc(16px + var(--safe-right)) calc(40px + var(--safe-bottom))
-    calc(16px + var(--safe-left));
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(-6px);
-  transition:
-    opacity var(--nav-rate-fade) var(--ease-nav),
-    transform var(--nav-rate-fade) var(--ease-nav),
-    visibility var(--nav-rate-fade) step-end;
+  padding: var(--s-3) calc(16px + var(--safe-right))
+    calc(40px + var(--safe-bottom)) calc(16px + var(--safe-left));
 }
-.appnav--open .appnav__sheet {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
-  transition:
-    opacity var(--nav-rate-fade) var(--ease-nav) var(--nav-stagger),
-    transform var(--nav-rate-fade) var(--ease-nav) var(--nav-stagger),
-    visibility var(--nav-rate-fade) step-start var(--nav-stagger);
+.appnav__section + .appnav__section {
+  margin-top: var(--s-4);
+}
+.appnav__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 .appnav__group {
-  margin-top: 18px;
-  padding: 0 8px 6px;
+  margin-top: var(--s-5);
+  padding: 0 var(--s-5) var(--s-2);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--t-0);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--fg-dim);
 }
+/* A row, not a line of text. It fills the width, clears the 44px touch floor
+   on its own, and says which way it goes with a chevron -- the old version was
+   left-aligned prose whose only state was a colour change, which gave a reader
+   nothing to aim at and no feedback that they had hit it. */
 .appnav__link {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
   width: 100%;
+  min-height: 52px;
+  padding: var(--s-4) var(--s-4) var(--s-4) var(--s-5);
   text-align: left;
-  padding: 13px 8px;
   background: transparent;
   border: none;
-  border-radius: var(--r-2);
+  border-radius: var(--r-3);
   color: var(--fg-muted);
   font-family: var(--font-sans);
-  font-size: 17px;
+  font-size: var(--t-5);
   font-weight: 400;
   cursor: pointer;
-  transition: color var(--nav-rate-fade) var(--ease-nav);
+  position: relative;
+  transition:
+    color 0.15s var(--ease-nav),
+    background 0.15s var(--ease-nav);
 }
-.appnav__link[aria-current="page"] {
+/* The accent marker for the page you are on. An absolutely positioned bar
+   rather than a border-left, so the row's text does not shift by 3px as the
+   marker appears and disappears between routes. */
+.appnav__link::before {
+  content: "";
+  position: absolute;
+  left: var(--s-2);
+  top: 50%;
+  width: 3px;
+  height: 0;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  transform: translateY(-50%);
+  transition: height 0.2s var(--ease-nav);
+}
+.appnav__link[data-active] {
   color: var(--fg);
   font-weight: 500;
+  background: var(--accent-soft);
+}
+.appnav__link[data-active]::before {
+  height: 20px;
+}
+.appnav__chevron {
+  flex-shrink: 0;
+  color: var(--fg-dim);
+  transition: transform 0.15s var(--ease-nav);
+}
+@media (hover: hover) {
+  .appnav__link:hover {
+    background: var(--bg-elev-2);
+    color: var(--fg);
+  }
+  .appnav__link:hover .appnav__chevron {
+    transform: translateX(2px);
+  }
 }
 .appnav__link:active {
-  background: var(--bg-elev-2);
+  background: var(--bg-elev-3);
+  transform: scale(0.99);
+}
+.appnav__link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 /* Sits below the links, outside the <nav>, separated by a rule rather than a
    heading — it is an action, not another destination. */
@@ -1380,7 +1511,7 @@ body[data-typing] .bottomnav {
   padding: 0 32px;
 }
 .appnav--landing .appnav__actions {
-  gap: 8px;
+  gap: var(--s-3);
 }
 .appnav--landing .appnav__sheet {
   background: rgba(12, 10, 24, 0.96);
@@ -1424,7 +1555,7 @@ body[data-typing] .bottomnav {
      28px. Tighter spacing, a narrower button and no arrow give that back. */
   .appnav--landing .appnav__bar {
     padding: 0 16px;
-    gap: 8px;
+    gap: var(--s-3);
   }
   .lp-open-studio {
     padding: 8px 14px;
@@ -1436,14 +1567,18 @@ body[data-typing] .bottomnav {
 
 /* Applied while the viewport is being resized so crossing the breakpoint never
    plays the open animation. */
-.appnav-block-transitions .appnav__sheet {
-  transition: none !important;
-}
+/* `.appnav-block-transitions` is gone with the sheet's CSS transition. It
+   existed so a resize could not replay an entrance mid-drag; the sheet now
+   mounts on open, so there is no entrance for a resize to catch. */
 @media (prefers-reduced-motion: reduce) {
-  .appnav__sheet,
   .appnav__trigger,
-  .appnav__link {
+  .appnav__link,
+  .appnav__link::before,
+  .appnav__chevron {
     transition: none !important;
+  }
+  .appnav__link:active {
+    transform: none;
   }
 }
 
@@ -1575,16 +1710,16 @@ body[data-typing] .bottomnav {
   line-height: 1.35;
 }
 .chat-markdown h1 {
-  font-size: 15px;
+  font-size: var(--t-4);
 }
 .chat-markdown h2 {
-  font-size: 14px;
+  font-size: var(--t-4);
 }
 .chat-markdown h3,
 .chat-markdown h4,
 .chat-markdown h5,
 .chat-markdown h6 {
-  font-size: 13px;
+  font-size: var(--t-3);
 }
 .chat-markdown blockquote {
   margin: 0 0 8px;
@@ -1613,7 +1748,7 @@ body[data-typing] .bottomnav {
    override in MarkdownContent. */
 .chat-markdown code {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--t-2);
   background: var(--bg-elev-3);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1625,7 +1760,7 @@ body[data-typing] .bottomnav {
 }
 .chat-markdown table {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--t-2);
 }
 .chat-markdown th,
 .chat-markdown td {
@@ -1665,7 +1800,7 @@ body[data-typing] .bottomnav {
 }
 .chat-code-block__lang {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--t-0);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--fg-dim);
@@ -1675,7 +1810,7 @@ body[data-typing] .bottomnav {
   border: none;
   padding: 2px 4px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--t-0);
   color: var(--fg-dim);
   cursor: pointer;
   transition: color 0.12s var(--ease);
@@ -1695,7 +1830,7 @@ body[data-typing] .bottomnav {
   margin: 0;
   padding: 10px 12px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--t-2);
   color: var(--fg);
   white-space: pre;
 }
@@ -1745,7 +1880,7 @@ body[data-typing] .bottomnav {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: stretch;
   padding: 2px;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   border: 1px solid var(--border);
   /* Recessed against the rail's --bg-elev-1, so the track reads as a groove
      the thumb rides in rather than another raised pill. */
@@ -1769,7 +1904,7 @@ body[data-typing] .bottomnav {
   bottom: 2px;
   left: 2px;
   width: calc(50% - 2px);
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: var(--accent-soft);
   border: 1px solid var(--accent-line);
   pointer-events: none;
@@ -1785,7 +1920,7 @@ body[data-typing] .bottomnav {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: var(--s-1);
   /* 26px matches this toolbar's existing dense pills and ghostBtnSm's 28px.
      The 44px touch minimum is not met here on purpose: in its own column the
      rail header is pointer-driven chrome, and a 44px control would double its
@@ -1795,11 +1930,11 @@ body[data-typing] .bottomnav {
   padding: 0 9px;
   border: none;
   background: transparent;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   cursor: pointer;
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--t-0);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--fg-dim);
@@ -1859,7 +1994,7 @@ body[data-typing] .bottomnav {
 .wfp-head__top {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--s-4);
 }
 .wfp-head__top .wfp-title {
   flex: 1;
@@ -1868,10 +2003,10 @@ body[data-typing] .bottomnav {
 .wfp-head__facts {
   display: flex;
   align-items: baseline;
-  gap: 12px;
+  gap: var(--s-4);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  font-size: var(--t-2);
   line-height: 18px;
 }
 .wfp-head__summary {
@@ -1922,7 +2057,7 @@ body[data-typing] .bottomnav {
 /* Search at four fifths, the filter at the last fifth. */
 .wfp-controls {
   display: flex;
-  gap: 8px;
+  gap: var(--s-3);
   padding: 10px 0;
 }
 .wfp-search {
@@ -1948,7 +2083,7 @@ body[data-typing] .bottomnav {
   background: var(--bg-elev-1);
   color: var(--fg);
   font-family: var(--font-sans);
-  font-size: 16px; /* 16px keeps mobile browsers from zooming on focus */
+  font-size: var(--t-4); /* 16px keeps mobile browsers from zooming on focus */
 }
 .wfp-search__input::placeholder {
   color: var(--fg-dim);
@@ -2024,7 +2159,7 @@ body[data-typing] .bottomnav {
 }
 .wfp-menu__group {
   padding: 8px 14px 4px;
-  font-size: 11px;
+  font-size: var(--t-1);
   color: var(--fg-dim);
 }
 .wfp-menu__divider {
@@ -2036,7 +2171,7 @@ body[data-typing] .bottomnav {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--s-4);
   width: 100%;
   min-height: 44px;
   padding: 0 14px;
@@ -2044,7 +2179,7 @@ body[data-typing] .bottomnav {
   background: transparent;
   color: var(--fg-muted);
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: var(--t-4);
   text-align: left;
   cursor: pointer;
   touch-action: manipulation;
@@ -2061,7 +2196,7 @@ body[data-typing] .bottomnav {
 }
 .wfp-menu__hint {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--t-1);
   color: var(--accent);
   white-space: nowrap;
 }
@@ -2091,7 +2226,7 @@ body[data-typing] .bottomnav {
      text pushed every card past the screen edge instead of letting the name
      end in an ellipsis. */
   grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
+  gap: var(--s-3);
   margin: 0;
   padding: 0;
 }
@@ -2145,7 +2280,7 @@ body[data-typing] .bottomnav {
 
 .wfp-card__name {
   display: block;
-  font-size: 15px;
+  font-size: var(--t-4);
   line-height: 20px;
   font-weight: 500;
   letter-spacing: -0.01em;
@@ -2162,7 +2297,7 @@ body[data-typing] .bottomnav {
   margin: 3px 0 0;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  font-size: var(--t-2);
   line-height: 17px;
   color: var(--fg-muted);
 }
@@ -2191,20 +2326,20 @@ body[data-typing] .bottomnav {
 }
 .wfp-title {
   margin: 0 0 2px;
-  font-size: 22px;
+  font-size: var(--t-6);
   line-height: 28px;
   font-weight: 600;
   letter-spacing: -0.02em;
 }
 .wfp-error {
   margin: 8px 0 0;
-  font-size: 13px;
+  font-size: var(--t-3);
   color: var(--danger);
 }
 .wfp-empty {
   padding: 32px 0;
   text-align: center;
-  font-size: 13px;
+  font-size: var(--t-3);
   color: var(--fg-muted);
 }
 .wfp-empty__clear {
@@ -2217,7 +2352,7 @@ body[data-typing] .bottomnav {
   background: transparent;
   color: var(--accent);
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: var(--t-3);
   cursor: pointer;
   touch-action: manipulation;
 }
@@ -2228,7 +2363,7 @@ body[data-typing] .bottomnav {
 .wfp-skeleton {
   display: grid;
   align-content: center;
-  gap: 6px;
+  gap: var(--s-2);
   height: 66px;
   padding: 0 16px;
   border-radius: var(--r-2);
@@ -2248,14 +2383,14 @@ body[data-typing] .bottomnav {
 }
 .bilp-title {
   margin: 0;
-  font-size: 24px;
+  font-size: var(--t-6);
   line-height: 30px;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
 .bilp-sub {
   margin: 4px 0 0;
-  font-size: 13px;
+  font-size: var(--t-3);
   line-height: 18px;
   color: var(--fg-muted);
 }
@@ -2269,7 +2404,7 @@ body[data-typing] .bottomnav {
   display: grid;
   grid-template-columns: 1fr 1fr;
   align-items: start;
-  gap: 16px;
+  gap: var(--s-5);
   margin-top: 18px;
 }
 .bilp-stat + .bilp-stat {
@@ -2278,23 +2413,23 @@ body[data-typing] .bottomnav {
 }
 .bilp-stat {
   display: grid;
-  gap: 4px;
+  gap: var(--s-1);
   min-width: 0;
 }
 .bilp-stat__label {
-  font-size: 12px;
+  font-size: var(--t-2);
   color: var(--fg-muted);
 }
 .bilp-stat__row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--s-3);
   flex-wrap: wrap;
 }
 .bilp-stat__value {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 24px;
+  font-size: var(--t-6);
   line-height: 30px;
   letter-spacing: -0.02em;
   color: var(--fg);
@@ -2303,12 +2438,12 @@ body[data-typing] .bottomnav {
 .bilp-pill {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--s-1);
   flex-shrink: 0;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: var(--accent-soft);
-  font-size: 11px;
+  font-size: var(--t-1);
   color: var(--accent);
 }
 .bilp-pill__dot {
@@ -2334,7 +2469,7 @@ body[data-typing] .bottomnav {
 }
 .bilp-eyebrow {
   margin: 0 0 10px;
-  font-size: 11px;
+  font-size: var(--t-1);
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2342,13 +2477,13 @@ body[data-typing] .bottomnav {
 }
 .bilp-heading {
   margin: 0 0 10px;
-  font-size: 13px;
+  font-size: var(--t-3);
   font-weight: 600;
   color: var(--fg);
 }
 .bilp-note {
   margin: 10px 0 0;
-  font-size: 12px;
+  font-size: var(--t-2);
   line-height: 18px;
   color: var(--fg-muted);
 }
@@ -2366,7 +2501,7 @@ body[data-typing] .bottomnav {
 .bilp-seg {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
+  gap: var(--s-1);
   padding: 4px;
   border-radius: var(--r-2);
   background: var(--bg-elev-1);
@@ -2379,7 +2514,7 @@ body[data-typing] .bottomnav {
   color: var(--fg-muted);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 14px;
+  font-size: var(--t-4);
   cursor: pointer;
   touch-action: manipulation;
 }
@@ -2401,7 +2536,7 @@ body[data-typing] .bottomnav {
 .bilp-amount {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--s-2);
   margin-top: 14px;
   border-bottom: 1px solid var(--border);
 }
@@ -2410,7 +2545,7 @@ body[data-typing] .bottomnav {
 }
 .bilp-amount__prefix {
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: var(--t-4);
   color: var(--fg-muted);
 }
 .bilp-amount__input {
@@ -2423,7 +2558,7 @@ body[data-typing] .bottomnav {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   /* 16px keeps mobile browsers from zooming on focus. */
-  font-size: 16px;
+  font-size: var(--t-4);
 }
 .bilp-amount__input::placeholder {
   color: var(--fg-dim);
@@ -2436,17 +2571,17 @@ body[data-typing] .bottomnav {
    inputs too, so a min-height here would be overridden back to 44. */
 .bilp-amount__input--figure {
   height: 52px;
-  font-size: 22px;
+  font-size: var(--t-6);
   letter-spacing: -0.01em;
 }
 .bilp-amount--figure .bilp-amount__prefix {
-  font-size: 18px;
+  font-size: var(--t-5);
 }
 .bilp-amount__usd {
   flex-shrink: 0;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 13px;
+  font-size: var(--t-3);
   color: var(--fg-muted);
 }
 
@@ -2463,7 +2598,7 @@ body[data-typing] .bottomnav {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--s-3);
   width: 100%;
   min-height: 44px;
   margin-top: 18px;
@@ -2473,7 +2608,7 @@ body[data-typing] .bottomnav {
   box-shadow: 0 8px 24px var(--accent-glow);
   color: var(--accent-fg);
   font-family: var(--font-sans);
-  font-size: 15px;
+  font-size: var(--t-4);
   font-weight: 600;
   cursor: pointer;
   touch-action: manipulation;
@@ -2510,7 +2645,7 @@ body[data-typing] .bottomnav {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--s-4);
   width: 100%;
   min-height: 44px;
   padding: 0;
@@ -2518,7 +2653,7 @@ body[data-typing] .bottomnav {
   background: none;
   color: var(--fg);
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: var(--t-4);
   text-align: left;
   cursor: pointer;
   touch-action: manipulation;
@@ -2550,7 +2685,7 @@ body[data-typing] .bottomnav {
   background: none;
   color: var(--accent);
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: var(--t-4);
   cursor: pointer;
   touch-action: manipulation;
 }
@@ -2569,8 +2704,8 @@ body[data-typing] .bottomnav {
   margin: 10px 0 0;
   padding-left: 16px;
   display: grid;
-  gap: 8px;
-  font-size: 12px;
+  gap: var(--s-3);
+  font-size: var(--t-2);
   line-height: 18px;
   color: var(--fg-muted);
 }
@@ -2598,7 +2733,7 @@ body[data-typing] .bottomnav {
 .usgp-delta {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  font-size: var(--t-2);
   color: var(--fg-muted);
 }
 /* More spend is not good news on a spend screen, so it gets the warm colour. */
@@ -2607,23 +2742,23 @@ body[data-typing] .bottomnav {
 }
 .usgp-legend {
   display: flex;
-  gap: 14px;
+  gap: var(--s-4);
   margin-bottom: 8px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--t-1);
   color: var(--fg-muted);
 }
 .usgp-legend span {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--s-2);
 }
 .usgp-legend i,
 .usgp-dot {
   display: inline-block;
   width: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   flex-shrink: 0;
 }
 .usgp-chart {
@@ -2633,7 +2768,7 @@ body[data-typing] .bottomnav {
   display: grid;
   grid-template-columns: 120px 1fr;
   align-items: center;
-  gap: 16px;
+  gap: var(--s-5);
 }
 .usgp-donut {
   width: 120px;
@@ -2650,7 +2785,7 @@ body[data-typing] .bottomnav {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--s-4);
   min-height: 44px;
   padding: 8px 0;
   color: var(--fg);
@@ -2658,18 +2793,18 @@ body[data-typing] .bottomnav {
 }
 .usgp-row__main {
   display: grid;
-  gap: 2px;
+  gap: var(--s-0);
   min-width: 0;
 }
 .usgp-row__main--inline {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
+  gap: var(--s-3);
+  font-size: var(--t-4);
 }
 .usgp-row__name {
   overflow: hidden;
-  font-size: 14px;
+  font-size: var(--t-4);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2677,8 +2812,8 @@ body[data-typing] .bottomnav {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
-  font-size: 12px;
+  gap: var(--s-2);
+  font-size: var(--t-2);
   color: var(--fg-muted);
 }
 .usgp-row__fig {
@@ -2687,19 +2822,19 @@ body[data-typing] .bottomnav {
   justify-items: end;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 14px;
+  font-size: var(--t-4);
   color: var(--fg);
 }
 .usgp-row__fig small {
-  font-size: 11px;
+  font-size: var(--t-1);
   color: var(--fg-muted);
 }
 .usgp-pill {
   padding: 0 6px;
   border: 1px solid currentColor;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--t-1);
   line-height: 16px;
 }
 /* Credits left, above the range: a balance is not a range figure. */
@@ -2710,16 +2845,16 @@ body[data-typing] .bottomnav {
   border-bottom: 1px solid var(--border-soft);
 }
 .usgp-credit__label {
-  font-size: 14px;
+  font-size: var(--t-4);
   color: var(--fg-muted);
 }
 .usgp-credit__value {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--s-3);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 16px;
+  font-size: var(--t-4);
   color: var(--fg);
 }
 .usgp-credit__chevron {
@@ -2747,7 +2882,7 @@ body[data-typing] .bottomnav {
 }
 .usgp-skeleton {
   display: grid;
-  gap: 16px;
+  gap: var(--s-5);
   margin-top: 20px;
 }
 
@@ -2757,13 +2892,13 @@ body[data-typing] .bottomnav {
    rules: hairlines, small sentence-case labels, tabular times. */
 .upc__title {
   margin: 0 0 4px;
-  font-size: 13px;
+  font-size: var(--t-3);
   font-weight: 600;
   color: var(--fg);
 }
 .upc__day {
   padding: 8px 0 2px;
-  font-size: 11px;
+  font-size: var(--t-1);
   color: var(--fg-dim);
 }
 .upc__list {
@@ -2774,7 +2909,7 @@ body[data-typing] .bottomnav {
 .upc__row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--s-4);
   min-height: 44px;
   border-bottom: 1px solid var(--border-soft);
   color: inherit;
@@ -2799,13 +2934,13 @@ a.upc__row:focus-visible {
   min-width: 64px;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 13px;
+  font-size: var(--t-3);
   color: var(--fg);
 }
 .upc__name {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--t-4);
   color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2816,12 +2951,12 @@ a.upc__row:focus-visible {
   flex-shrink: 0;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  font-size: var(--t-2);
   color: var(--fg-muted);
 }
 .upc__empty {
   margin: 4px 0 0;
-  font-size: 13px;
+  font-size: var(--t-3);
   color: var(--fg-muted);
 }
 .upc__retry {
@@ -2840,9 +2975,9 @@ a.upc__row:focus-visible {
 .wfd-status {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--s-2);
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--t-2);
   color: var(--fg-muted);
 }
 .wfd-status__dot {
@@ -2852,27 +2987,27 @@ a.upc__row:focus-visible {
 }
 .wfd-desc {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--t-4);
   line-height: 1.55;
   color: var(--fg);
   text-wrap: pretty;
 }
 .wfd-note {
   margin: 4px 0 0;
-  font-size: 11px;
+  font-size: var(--t-1);
   color: var(--fg-dim);
 }
 .wfd-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 16px;
+  gap: var(--s-4) 16px;
   margin: 16px 0 0;
   padding: 12px 0;
   border-top: 1px solid var(--border-soft);
   border-bottom: 1px solid var(--border-soft);
 }
 .wfd-stats dt {
-  font-size: 11px;
+  font-size: var(--t-1);
   line-height: 14px;
   color: var(--fg-dim);
 }
@@ -2880,7 +3015,7 @@ a.upc__row:focus-visible {
   margin: 2px 0 0;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 14px;
+  font-size: var(--t-4);
   color: var(--fg);
 }
 .wfd-agents {
@@ -2892,14 +3027,14 @@ a.upc__row:focus-visible {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--s-4);
   min-height: 44px;
   padding: 12px 0;
   border-bottom: 1px solid var(--border-soft);
 }
 .wfd-agent__name {
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--t-4);
   color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2915,6 +3050,6 @@ a.upc__row:focus-visible {
   overflow-wrap: anywhere;
   text-align: right;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--t-2);
   color: var(--fg-muted);
 }

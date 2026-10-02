@@ -193,7 +193,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
           <div
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 11,
+              fontSize: "var(--t-1)",
               color: "var(--fg-dim)",
               whiteSpace: "nowrap",
               flexShrink: 0,
@@ -228,7 +228,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
             >
               {mode === "signin" ? "Welcome back." : "Create your account."}
             </h1>
-            <p style={{ marginTop: 8, color: "var(--fg-muted)", fontSize: 14 }}>
+            <p style={{ marginTop: 8, color: "var(--fg-muted)", fontSize: "var(--t-4)" }}>
               {mode === "signin"
                 ? "Sign in to your AgentMesh workspace."
                 : "Free testnet access. Mainnet by invite."}
@@ -240,7 +240,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                 marginTop: 32,
                 display: "flex",
                 flexDirection: "column",
-                gap: 12,
+                gap: "var(--s-4)",
               }}
             >
               {mode === "signup" && (
@@ -288,7 +288,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                       style={{
                         color: "var(--fg-dim)",
                         fontFamily: "var(--font-mono)",
-                        fontSize: 11,
+                        fontSize: "var(--t-1)",
                       }}
                     >
                       min 12 chars
@@ -327,7 +327,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                       background: "transparent",
                       border: "none",
                       color: "var(--fg-muted)",
-                      fontSize: 11,
+                      fontSize: "var(--t-1)",
                       fontFamily: "var(--font-mono)",
                       textTransform: "uppercase",
                       letterSpacing: "0.06em",
@@ -343,7 +343,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                 <div
                   style={{
                     color: "var(--danger)",
-                    fontSize: 12,
+                    fontSize: "var(--t-2)",
                     fontFamily: "var(--font-mono)",
                   }}
                 >
@@ -362,12 +362,12 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  gap: 6,
+                  gap: "var(--s-2)",
                   background: "var(--accent)",
                   color: "var(--accent-fg)",
                   border: "none",
                   borderRadius: "var(--r-2)",
-                  fontSize: 14,
+                  fontSize: "var(--t-4)",
                   fontWeight: 600,
                   fontFamily: "var(--font-sans)",
                   cursor: loading ? "not-allowed" : "pointer",
@@ -386,10 +386,10 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 10,
+                  gap: "var(--s-3)",
                   margin: "8px 0",
                   fontFamily: "var(--font-mono)",
-                  fontSize: 11,
+                  fontSize: "var(--t-1)",
                   color: "var(--fg-dim)",
                 }}
               >
@@ -423,7 +423,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
             <div
               style={{
                 marginTop: 32,
-                fontSize: 13,
+                fontSize: "var(--t-3)",
                 color: "var(--fg-muted)",
                 textAlign: "center",
               }}
@@ -438,7 +438,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                       border: "none",
                       color: "var(--accent)",
                       cursor: "pointer",
-                      fontSize: 13,
+                      fontSize: "var(--t-3)",
                       fontFamily: "var(--font-sans)",
                       padding: 0,
                     }}
@@ -456,7 +456,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
                       border: "none",
                       color: "var(--accent)",
                       cursor: "pointer",
-                      fontSize: 13,
+                      fontSize: "var(--t-3)",
                       fontFamily: "var(--font-sans)",
                       padding: 0,
                     }}
@@ -472,7 +472,7 @@ export function AuthPage({ initialMode = "signin" }: AuthPageProps) {
         <div
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             color: "var(--fg-dim)",
             display: "flex",
             justifyContent: "space-between",
@@ -542,14 +542,14 @@ function AuthVisual() {
         style={{
           display: "flex",
           flexDirection: "column",
-          gap: 14,
+          gap: "var(--s-4)",
           alignItems: "flex-end",
         }}
       >
         {cards.map((c, i) => {
           const accent =
             c.tone === "magenta"
-              ? "#E879F9"
+              ? "var(--type-x402)"
               : c.tone === "accent"
                 ? "var(--accent)"
                 : "var(--fg-muted)";
@@ -574,7 +574,7 @@ function AuthVisual() {
               <div
                 style={{
                   fontFamily: "var(--font-mono)",
-                  fontSize: 11,
+                  fontSize: "var(--t-1)",
                   color: accent,
                   textTransform: "uppercase",
                   letterSpacing: "0.08em",
@@ -582,14 +582,14 @@ function AuthVisual() {
               >
                 {c.kicker}
               </div>
-              <div style={{ marginTop: 4, fontSize: 14, fontWeight: 500 }}>
+              <div style={{ marginTop: 4, fontSize: "var(--t-4)", fontWeight: 500 }}>
                 {c.name}
               </div>
               <div
                 style={{
                   marginTop: 2,
                   fontFamily: "var(--font-mono)",
-                  fontSize: 11,
+                  fontSize: "var(--t-1)",
                   color: "var(--fg-muted)",
                 }}
               >
@@ -605,7 +605,7 @@ function AuthVisual() {
         <div
           style={{
             marginTop: 14,
-            fontSize: 30,
+            fontSize: "var(--t-7)",
             fontWeight: 500,
             letterSpacing: "-0.025em",
             lineHeight: 1.15,
@@ -621,7 +621,7 @@ function AuthVisual() {
           style={{
             marginTop: 16,
             fontFamily: "var(--font-mono)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             color: "var(--fg-dim)",
           }}
         >
@@ -642,14 +642,14 @@ function FormField({
   children: React.ReactNode;
 }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <label style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
       <div
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           fontFamily: "var(--font-mono)",
-          fontSize: 11,
+          fontSize: "var(--t-1)",
           color: "var(--fg-muted)",
           textTransform: "uppercase",
           letterSpacing: "0.08em",
@@ -688,7 +688,7 @@ const inputStyle: React.CSSProperties = {
   // to extend -- `lib/device.ts` uses that query from JavaScript, which is a
   // different thing. Making it conditional would mean either a dead CSS rule
   // or a JS round trip, to keep a 3px difference nobody asked for.
-  fontSize: 16,
+  fontSize: "var(--t-4)",
   fontFamily: "var(--font-sans)",
   outline: "none",
 };

@@ -53,6 +53,39 @@ describe("independent Bazaar requests", () => {
     expect(screen.getByText("Tendril", { exact: true })).toBeTruthy();
   });
 
+  // The Prev/Next toolbar was written here first; ui/Pager.tsx is it
+  // extracted, so this page has to keep working through the shared component
+  // rather than a second copy of it.
+  it("pages the catalogue through the shared Pager", async () => {
+    mocks.list.mockImplementation(
+      ({ supported: isPartner }: { supported: boolean }) =>
+        isPartner
+          ? Promise.resolve(pageOf([]))
+          : Promise.resolve({ ...pageOf([endpoint]), total: 24 }),
+    );
+    render(<BazaarPage />);
+    await screen.findByText(endpoint.description);
+    // Pager's own wording and page-size control, not the inline copy.
+    expect(screen.getByText(/24 endpoints/)).toBeTruthy();
+    expect(screen.getByText("Page 1 of 3")).toBeTruthy();
+    expect(screen.getByLabelText("endpoints per page")).toBeTruthy();
+    // Paging here is a refetch, not a slice: the request has to change.
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() =>
+      expect(mocks.list).toHaveBeenCalledWith(
+        expect.objectContaining({ supported: false, offset: 10, limit: 10 }),
+      ),
+    );
+    fireEvent.change(screen.getByLabelText("endpoints per page"), {
+      target: { value: "5" },
+    });
+    await waitFor(() =>
+      expect(mocks.list).toHaveBeenCalledWith(
+        expect.objectContaining({ supported: false, offset: 0, limit: 5 }),
+      ),
+    );
+  });
+
   it("shows a catalogue error and retries before partners settle", async () => {
     const supported = deferred<Page>();
     const catalogue = vi.fn().mockRejectedValueOnce(new Error("Catalogue unavailable")).mockResolvedValue(pageOf([endpoint]));
@@ -77,23 +110,35 @@ describe("independent Bazaar requests", () => {
     expect(screen.getByText(endpoint.description)).toBeTruthy();
   });
 
+  // jsdom does not lay out wrapped cards, so auto height cannot prove the
+  // size bound. Check the bound and keyboard access across each transition.
   it.each(["success", "empty", "error"] as const)("preserves partner space on %s", async (outcome) => {
     const supported = deferred<Page>();
     mocks.list.mockImplementation(({ supported: isPartner }: { supported: boolean }) => isPartner ? supported.promise : Promise.resolve(pageOf([endpoint])));
     const view = render(<BazaarPage />);
     await screen.findByText(endpoint.description);
     const frame = screen.getByRole("region", { name: "Partner services" });
-    const height = getComputedStyle(frame).height;
-    expect(Number.parseFloat(height)).toBeGreaterThan(0);
+
+    // Pending: the space is held, so the catalogue below has somewhere to sit.
+    const reserved = Number.parseFloat(getComputedStyle(frame).height);
+    expect(reserved).toBeGreaterThan(0);
     expect(getComputedStyle(frame).overflowY).toBe("auto");
+    expect(frame.getAttribute("tabindex")).toBe("0");
+
     const row = view.container.querySelector(".bz-row");
     await act(async () => {
       if (outcome === "error") supported.reject(new Error("Partner service unavailable"));
       else supported.resolve(pageOf(outcome === "success" ? [partner] : []));
     });
+
+    // Settled: same node, catalogue intact and never pushed further down.
     expect(screen.getByRole("region", { name: "Partner services" })).toBe(frame);
-    expect(getComputedStyle(frame).height).toBe(height);
     expect(view.container.querySelector(".bz-row")).toBe(row);
+    expect(Number.parseFloat(getComputedStyle(frame).height)).toBe(reserved);
+    expect(getComputedStyle(frame).overflowY).toBe("auto");
+
+    expect(frame.getAttribute("tabindex")).toBe("0");
+
     if (outcome === "empty") expect(screen.getByText("No partners available.")).toBeTruthy();
     if (outcome === "error") expect(screen.getByText("Could not load partners.")).toBeTruthy();
     expect(screen.queryByText(endpoint.description)).toBeTruthy();

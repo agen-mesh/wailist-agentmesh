@@ -121,7 +121,7 @@ export function AccountPage() {
 
 function Chevron() {
   return (
-    <span aria-hidden="true" style={{ color: "var(--fg-dim)", fontSize: 16 }}>
+    <span aria-hidden="true" style={{ color: "var(--fg-dim)", fontSize: "var(--t-4)" }}>
       ›
     </span>
   );
@@ -158,7 +158,7 @@ const title: React.CSSProperties = {
 const profile: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 12,
+  gap: "var(--s-4)",
   margin: "20px 0 24px",
   padding: "14px 12px",
   borderRadius: "var(--r-2)",
@@ -169,7 +169,7 @@ const profile: React.CSSProperties = {
 const avatar: React.CSSProperties = {
   width: 40,
   height: 40,
-  borderRadius: 999,
+  borderRadius: "var(--r-full)",
   background: "var(--accent)",
   color: "var(--accent-fg)",
   display: "inline-flex",
@@ -198,7 +198,7 @@ const list: React.CSSProperties = {
   margin: 0,
   padding: 0,
   display: "grid",
-  gap: 6,
+  gap: "var(--s-2)",
 };
 
 const row: React.CSSProperties = {
@@ -207,7 +207,7 @@ const row: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: 12,
+  gap: "var(--s-4)",
   padding: "0 14px",
   borderRadius: "var(--r-2)",
   border: "1px solid var(--border)",
@@ -222,7 +222,7 @@ const row: React.CSSProperties = {
 const rowValue: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
-  gap: 10,
+  gap: "var(--s-3)",
   font: "500 13px/1 var(--font-mono)",
   fontVariantNumeric: "tabular-nums",
   color: "var(--fg-muted)",

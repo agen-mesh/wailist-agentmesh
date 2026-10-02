@@ -18,17 +18,17 @@ import { PrismResult } from "./PrismResult";
 // exact total before any money moves — pasting a link must never be the same
 // gesture as agreeing to a bill.
 
-const MAGENTA = "#E879F9";
-const MAGENTA_DIM = "rgba(232, 121, 249, 0.08)";
-const GREEN = "#34D399";
-const AMBER = "#FFB547";
+const MAGENTA = "var(--type-x402)";
+const MAGENTA_DIM = "var(--type-x402-soft)";
+const GREEN = "var(--success)";
+const AMBER = "var(--warning)";
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
     <div
       style={{
         fontFamily: "var(--font-mono)",
-        fontSize: 10,
+        fontSize: "var(--t-0)",
         textTransform: "uppercase",
         letterSpacing: "0.1em",
         color: "var(--fg-dim)",
@@ -48,7 +48,7 @@ const inputStyle: React.CSSProperties = {
   border: "1px solid var(--border-strong)",
   borderRadius: "var(--r-1)",
   color: "var(--fg)",
-  fontSize: 13,
+  fontSize: "var(--t-3)",
   fontFamily: "var(--font-mono)",
   outline: "none",
 };
@@ -57,7 +57,7 @@ function actionButton(disabled: boolean): React.CSSProperties {
   return {
     height: 34,
     padding: "0 16px",
-    fontSize: 11,
+    fontSize: "var(--t-1)",
     fontWeight: 700,
     letterSpacing: "0.08em",
     textTransform: "uppercase",
@@ -65,7 +65,7 @@ function actionButton(disabled: boolean): React.CSSProperties {
     background: disabled ? "var(--bg-elev-2)" : MAGENTA,
     border: `1px solid ${disabled ? "var(--border-strong)" : MAGENTA}`,
     borderRadius: "var(--r-1)",
-    color: disabled ? "var(--fg-dim)" : "#1a0a1a",
+    color: disabled ? "var(--fg-dim)" : "var(--type-x402-fg)",
     cursor: disabled ? "default" : "pointer",
     whiteSpace: "nowrap",
   };
@@ -169,10 +169,10 @@ export function PrismRepoReview({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
       <div>
         <Label>Repository</Label>
-        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "var(--s-3)", marginTop: 8, flexWrap: "wrap" }}>
           <input
             value={repo}
             onChange={(e) => setRepo(e.target.value)}
@@ -194,7 +194,7 @@ export function PrismRepoReview({
         </div>
         <div
           style={{
-            fontSize: 11.5,
+            fontSize: "var(--t-1)",
             color: "var(--fg-muted)",
             marginTop: 6,
             lineHeight: 1.5,
@@ -208,7 +208,7 @@ export function PrismRepoReview({
 
       {error && (
         <div>
-          <div style={{ fontSize: 12.5, color: "var(--danger)", lineHeight: 1.55 }}>
+          <div style={{ fontSize: "var(--t-2)", color: "var(--danger)", lineHeight: 1.55 }}>
             {error}
           </div>
           {/* A 402 is refused before any file is reviewed, so the honest note
@@ -218,7 +218,7 @@ export function PrismRepoReview({
             <div style={{ marginTop: 8 }}>
               <div
                 style={{
-                  fontSize: 11.5,
+                  fontSize: "var(--t-1)",
                   color: "var(--fg-muted)",
                   lineHeight: 1.55,
                 }}
@@ -230,7 +230,7 @@ export function PrismRepoReview({
                 style={{
                   display: "inline-block",
                   marginTop: 8,
-                  fontSize: 11.5,
+                  fontSize: "var(--t-1)",
                   color: "var(--accent)",
                   textDecoration: "underline",
                 }}
@@ -250,14 +250,14 @@ export function PrismRepoReview({
                 display: "flex",
                 alignItems: "baseline",
                 justifyContent: "space-between",
-                gap: 10,
+                gap: "var(--s-3)",
                 flexWrap: "wrap",
               }}
             >
               <Label>
                 {listing.owner}/{listing.name} · {listing.ref}
               </Label>
-              <div style={{ fontSize: 11.5, color: "var(--fg-dim)" }}>
+              <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)" }}>
                 {reviewable.length} of {listing.files.length} files can be reviewed
               </div>
             </div>
@@ -266,7 +266,7 @@ export function PrismRepoReview({
               <div
                 style={{
                   marginTop: 10,
-                  fontSize: 12.5,
+                  fontSize: "var(--t-2)",
                   color: "var(--fg-muted)",
                   lineHeight: 1.55,
                 }}
@@ -295,7 +295,7 @@ export function PrismRepoReview({
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: 10,
+                        gap: "var(--s-3)",
                         padding: "7px 12px",
                         borderBottom: "1px solid var(--border)",
                         cursor: running ? "default" : "pointer",
@@ -314,7 +314,7 @@ export function PrismRepoReview({
                           flex: 1,
                           minWidth: 0,
                           fontFamily: "var(--font-mono)",
-                          fontSize: 11.5,
+                          fontSize: "var(--t-1)",
                           color: on ? "var(--fg)" : "var(--fg-muted)",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
@@ -326,7 +326,7 @@ export function PrismRepoReview({
                       <span
                         style={{
                           fontFamily: "var(--font-mono)",
-                          fontSize: 10.5,
+                          fontSize: "var(--t-0)",
                           color: "var(--fg-dim)",
                           flexShrink: 0,
                         }}
@@ -345,7 +345,7 @@ export function PrismRepoReview({
               <details style={{ marginTop: 8 }}>
                 <summary
                   style={{
-                    fontSize: 11.5,
+                    fontSize: "var(--t-1)",
                     color: "var(--fg-dim)",
                     cursor: "pointer",
                   }}
@@ -357,7 +357,7 @@ export function PrismRepoReview({
                     marginTop: 6,
                     maxHeight: 160,
                     overflow: "auto",
-                    fontSize: 11,
+                    fontSize: "var(--t-1)",
                     fontFamily: "var(--font-mono)",
                     color: "var(--fg-dim)",
                     lineHeight: 1.7,
@@ -388,14 +388,14 @@ export function PrismRepoReview({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                gap: 14,
+                gap: "var(--s-4)",
                 flexWrap: "wrap",
               }}
             >
               <div
                 style={{
                   fontFamily: "var(--font-mono)",
-                  fontSize: 11.5,
+                  fontSize: "var(--t-1)",
                   color: "var(--fg-dim)",
                   lineHeight: 1.7,
                 }}
@@ -421,7 +421,7 @@ export function PrismRepoReview({
           )}
 
           {overCap && (
-            <div style={{ fontSize: 11.5, color: AMBER, textAlign: "right" }}>
+            <div style={{ fontSize: "var(--t-1)", color: AMBER, textAlign: "right" }}>
               That&rsquo;s more than {listing.maxFiles} files. Untick some to
               carry on.
             </div>
@@ -430,7 +430,7 @@ export function PrismRepoReview({
           {running && (
             <div
               style={{
-                fontSize: 12,
+                fontSize: "var(--t-2)",
                 color: "var(--fg-muted)",
                 lineHeight: 1.55,
               }}
@@ -443,13 +443,13 @@ export function PrismRepoReview({
       )}
 
       {result && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
           <div
             style={{
               display: "flex",
               alignItems: "baseline",
               justifyContent: "space-between",
-              gap: 10,
+              gap: "var(--s-3)",
               flexWrap: "wrap",
               paddingTop: 12,
               borderTop: "1px solid var(--border)",
@@ -461,7 +461,7 @@ export function PrismRepoReview({
             <span
               style={{
                 fontFamily: "var(--font-mono)",
-                fontSize: 11,
+                fontSize: "var(--t-1)",
                 color: "var(--fg-muted)",
               }}
             >
@@ -488,7 +488,7 @@ export function PrismRepoReview({
                     width: "100%",
                     display: "flex",
                     alignItems: "center",
-                    gap: 10,
+                    gap: "var(--s-3)",
                     padding: "10px 12px",
                     background: "transparent",
                     border: "none",
@@ -499,7 +499,7 @@ export function PrismRepoReview({
                 >
                   <span
                     aria-hidden
-                    style={{ color: f.error ? AMBER : GREEN, fontSize: 11 }}
+                    style={{ color: f.error ? AMBER : GREEN, fontSize: "var(--t-1)" }}
                   >
                     {f.error ? "!" : "✓"}
                   </span>
@@ -508,7 +508,7 @@ export function PrismRepoReview({
                       flex: 1,
                       minWidth: 0,
                       fontFamily: "var(--font-mono)",
-                      fontSize: 11.5,
+                      fontSize: "var(--t-1)",
                       color: "var(--fg)",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
@@ -517,7 +517,7 @@ export function PrismRepoReview({
                   >
                     {f.path}
                   </span>
-                  <span style={{ fontSize: 10.5, color: "var(--fg-dim)" }}>
+                  <span style={{ fontSize: "var(--t-0)", color: "var(--fg-dim)" }}>
                     {open ? "hide" : "view"}
                   </span>
                 </button>
@@ -526,7 +526,7 @@ export function PrismRepoReview({
                     {f.error ? (
                       <div
                         style={{
-                          fontSize: 12,
+                          fontSize: "var(--t-2)",
                           color: "var(--danger)",
                           lineHeight: 1.55,
                         }}

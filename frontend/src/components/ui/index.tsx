@@ -13,7 +13,7 @@ import React from "react";
 // /logo.png itself ever changes.
 export function Logo({ size = 18 }: { size?: number }) {
   return (
-    <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+    <div style={{ display: "inline-flex", alignItems: "center", gap: "var(--s-3)" }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src="/logo-mark.png"
@@ -83,16 +83,21 @@ export function Pill({
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 6,
+        gap: "var(--s-2)",
         height: 22,
         padding: "0 8px",
         whiteSpace: "nowrap",
         flexShrink: 0,
-        borderRadius: 999,
+        // A Pill is read, not pressed -- it is a <span> reporting a status.
+        // Fully rounded is the shape this app gives its BUTTONS, and when
+        // every element carries it the shape stops saying anything. The
+        // rectangle is what makes a tag legible as a label rather than as a
+        // control someone forgot to wire up. See --r-full in globals.css.
+        borderRadius: "var(--r-1)",
         border: `1px solid ${s.border}`,
         background: s.bg,
         color: s.fg,
-        fontSize: 11,
+        fontSize: "var(--t-1)",
         fontWeight: 500,
         fontFamily: mono ? "var(--font-mono)" : "var(--font-sans)",
         letterSpacing: mono ? "0.02em" : "-0.01em",
@@ -103,7 +108,7 @@ export function Pill({
           style={{
             width: 6,
             height: 6,
-            borderRadius: 999,
+            borderRadius: "var(--r-full)",
             background: s.fg,
             display: "inline-block",
           }}
@@ -144,9 +149,9 @@ export function Tag({ children }: { children: React.ReactNode }) {
       style={{
         display: "inline-flex",
         alignItems: "baseline",
-        gap: 6,
+        gap: "var(--s-2)",
         fontFamily: "var(--font-mono)",
-        fontSize: 11,
+        fontSize: "var(--t-1)",
         color: "var(--fg-muted)",
         letterSpacing: "0.04em",
         textTransform: "uppercase",
@@ -157,7 +162,7 @@ export function Tag({ children }: { children: React.ReactNode }) {
           width: 4,
           height: 4,
           background: "var(--accent)",
-          borderRadius: 999,
+          borderRadius: "var(--r-full)",
           display: "inline-block",
           alignSelf: "center",
         }}
@@ -214,7 +219,7 @@ export function StatusDot({
         display: "inline-block",
         width: size,
         height: size,
-        borderRadius: 999,
+        borderRadius: "var(--r-full)",
         background: c,
         boxShadow: tone === "ok" ? `0 0 8px ${c}` : "none",
       }}
@@ -470,12 +475,12 @@ export function Toast({
         padding: "10px 16px",
         borderRadius: "var(--r-2)",
         fontFamily: "var(--font-mono)",
-        fontSize: 12,
+        fontSize: "var(--t-2)",
         maxWidth: "min(520px, calc(100vw - 48px))",
         boxShadow: "0 10px 32px rgba(0,0,0,0.5)",
         display: "flex",
         alignItems: "center",
-        gap: 10,
+        gap: "var(--s-3)",
         animation: "fade-up 0.25s var(--ease)",
       }}
     >

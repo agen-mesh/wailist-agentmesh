@@ -34,7 +34,7 @@ const BILLING_CSS = `
   .bill-cta:not(:disabled):hover { box-shadow: 0 12px 34px var(--accent-glow); }
 }
 .bill-cta:not(:disabled):active { transform: scale(0.99); }
-.bill-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.bill-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: var(--s-5); align-items: start; }
 @media (max-width: 900px) { .bill-grid { grid-template-columns: minmax(0, 1fr); } }
 .bill-page { max-width: 1040px; margin: 0 auto; padding: 40px 24px 96px; }
 @media (max-width: 520px) { .bill-page { padding: 24px 16px 64px; } }
@@ -317,7 +317,7 @@ export default function BillingPage() {
           <div className="bill-reveal" style={{ marginBottom: 24 }}>
             <h1
               style={{
-                fontSize: 26,
+                fontSize: "var(--t-6)",
                 fontWeight: 700,
                 letterSpacing: "-0.02em",
                 margin: 0,
@@ -329,13 +329,12 @@ export default function BillingPage() {
             <p
               style={{
                 margin: "6px 0 0",
-                fontSize: 14,
+                fontSize: "var(--t-4)",
                 color: "var(--fg-muted)",
                 lineHeight: 1.5,
               }}
             >
-              Credits are spent as your agents call paid tools and models. Top
-              up anytime; testnet usage stays free.
+              Testnet usage stays free.
             </p>
           </div>
 
@@ -349,7 +348,7 @@ export default function BillingPage() {
                 marginTop: 18,
                 padding: "12px 14px",
                 borderRadius: "var(--r-2)",
-                fontSize: 13,
+                fontSize: "var(--t-3)",
                 lineHeight: 1.5,
                 border: `1px solid ${
                   returnState.tone === "error"
@@ -369,7 +368,13 @@ export default function BillingPage() {
 
           <div className="bill-grid">
             {/* MAIN column */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--s-5)",
+              }}
+            >
               {/* Balance hero */}
               <div
                 className="bill-reveal"
@@ -392,7 +397,7 @@ export default function BillingPage() {
                     right: -40,
                     width: 200,
                     height: 200,
-                    borderRadius: 999,
+                    borderRadius: "var(--r-full)",
                     background: "var(--accent-glow)",
                     filter: "blur(60px)",
                     opacity: 0.5,
@@ -412,9 +417,9 @@ export default function BillingPage() {
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: 7,
+                        gap: "var(--s-2)",
                         color: "var(--fg-muted)",
-                        fontSize: 12,
+                        fontSize: "var(--t-2)",
                         fontWeight: 500,
                       }}
                     >
@@ -424,7 +429,7 @@ export default function BillingPage() {
                       style={{
                         marginTop: 8,
                         fontFamily: "var(--font-mono)",
-                        fontSize: 34,
+                        fontSize: "var(--t-7)",
                         fontWeight: 600,
                         letterSpacing: "-0.01em",
                         color: "var(--fg)",
@@ -438,11 +443,11 @@ export default function BillingPage() {
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
-                      gap: 6,
+                      gap: "var(--s-2)",
                       height: 24,
                       padding: "0 10px",
-                      borderRadius: 999,
-                      fontSize: 11,
+                      borderRadius: "var(--r-full)",
+                      fontSize: "var(--t-1)",
                       fontWeight: 500,
                       border: `1px solid ${isLow ? "rgba(255,181,71,0.35)" : "var(--accent-line)"}`,
                       background: isLow
@@ -455,7 +460,7 @@ export default function BillingPage() {
                       style={{
                         width: 6,
                         height: 6,
-                        borderRadius: 999,
+                        borderRadius: "var(--r-full)",
                         background: isLow ? "var(--warm)" : "var(--accent)",
                       }}
                     />
@@ -475,7 +480,7 @@ export default function BillingPage() {
               >
                 <div
                   style={{
-                    fontSize: 12,
+                    fontSize: "var(--t-2)",
                     fontWeight: 600,
                     color: "var(--fg-muted)",
                     marginBottom: 12,
@@ -490,7 +495,7 @@ export default function BillingPage() {
                   style={{
                     display: "grid",
                     gridTemplateColumns: "var(--wf-kpi-cols)",
-                    gap: 8,
+                    gap: "var(--s-3)",
                   }}
                 >
                   {PRESETS_INR.map((inr) => {
@@ -509,7 +514,7 @@ export default function BillingPage() {
                           display: "flex",
                           flexDirection: "column",
                           alignItems: "flex-start",
-                          gap: 3,
+                          gap: "var(--s-0)",
                           padding: "12px 12px 11px",
                           borderRadius: "var(--r-2)",
                           border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
@@ -525,7 +530,7 @@ export default function BillingPage() {
                       >
                         <span
                           style={{
-                            fontSize: 16,
+                            fontSize: "var(--t-4)",
                             fontWeight: 700,
                             color: "var(--fg)",
                             letterSpacing: "-0.01em",
@@ -535,7 +540,7 @@ export default function BillingPage() {
                         </span>
                         <span
                           style={{
-                            fontSize: 11,
+                            fontSize: "var(--t-1)",
                             color: "var(--fg-dim)",
                             fontFamily: "var(--font-mono)",
                             fontVariantNumeric: "tabular-nums",
@@ -557,7 +562,7 @@ export default function BillingPage() {
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      gap: 8,
+                      gap: "var(--s-3)",
                       height: 42,
                       padding: "0 12px",
                       borderRadius: "var(--r-2)",
@@ -565,7 +570,12 @@ export default function BillingPage() {
                       background: "var(--bg)",
                     }}
                   >
-                    <span style={{ color: "var(--fg-muted)", fontSize: 15 }}>
+                    <span
+                      style={{
+                        color: "var(--fg-muted)",
+                        fontSize: "var(--t-4)",
+                      }}
+                    >
                       ₹
                     </span>
                     <input
@@ -602,14 +612,14 @@ export default function BillingPage() {
                         border: "none",
                         outline: "none",
                         color: "var(--fg)",
-                        fontSize: 14,
+                        fontSize: "var(--t-4)",
                         fontFamily: "var(--font-sans)",
                       }}
                     />
                     {canCheckout && (
                       <span
                         style={{
-                          fontSize: 12,
+                          fontSize: "var(--t-2)",
                           color: "var(--fg-muted)",
                           fontFamily: "var(--font-mono)",
                           fontVariantNumeric: "tabular-nums",
@@ -624,7 +634,7 @@ export default function BillingPage() {
                   <p
                     style={{
                       margin: "8px 2px 0",
-                      fontSize: 11,
+                      fontSize: "var(--t-1)",
                       color: overMax ? "var(--danger)" : "var(--fg-dim)",
                     }}
                   >
@@ -647,7 +657,7 @@ export default function BillingPage() {
                       border: "1px solid var(--accent-line)",
                       background: "var(--accent-soft)",
                       color: "var(--accent)",
-                      fontSize: 12.5,
+                      fontSize: "var(--t-2)",
                       fontWeight: 500,
                       cursor: "pointer",
                     }}
@@ -666,7 +676,7 @@ export default function BillingPage() {
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    gap: 8,
+                    gap: "var(--s-3)",
                     width: "100%",
                     height: 46,
                     marginTop: 14,
@@ -676,7 +686,7 @@ export default function BillingPage() {
                       ? "linear-gradient(180deg, var(--accent), var(--accent-strong))"
                       : "var(--bg-elev-2)",
                     color: canCheckout ? "var(--accent-fg)" : "var(--fg-dim)",
-                    fontSize: 14,
+                    fontSize: "var(--t-4)",
                     fontWeight: 600,
                     cursor: canCheckout ? "pointer" : "default",
                     boxShadow: canCheckout
@@ -698,7 +708,13 @@ export default function BillingPage() {
             </div>
 
             {/* SIDEBAR column */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--s-5)",
+              }}
+            >
               {/* Coupon redemption */}
               <div
                 className="bill-reveal"
@@ -706,7 +722,7 @@ export default function BillingPage() {
               >
                 <div
                   style={{
-                    fontSize: 12,
+                    fontSize: "var(--t-2)",
                     fontWeight: 600,
                     color: "var(--fg-muted)",
                     marginBottom: 12,
@@ -714,7 +730,7 @@ export default function BillingPage() {
                 >
                   Have a coupon?
                 </div>
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: "var(--s-3)" }}>
                   <input
                     type="text"
                     className="bill-touch"
@@ -737,7 +753,7 @@ export default function BillingPage() {
                       border: "1px solid var(--border)",
                       background: "var(--bg)",
                       color: "var(--fg)",
-                      fontSize: 13,
+                      fontSize: "var(--t-3)",
                       fontFamily: "var(--font-mono)",
                       outline: "none",
                       textTransform: "uppercase",
@@ -755,7 +771,7 @@ export default function BillingPage() {
                       border: "1px solid var(--accent-line)",
                       background: "var(--accent-soft)",
                       color: "var(--accent)",
-                      fontSize: 12.5,
+                      fontSize: "var(--t-2)",
                       fontWeight: 600,
                       cursor:
                         !couponCode.trim() || couponState === "loading"
@@ -776,7 +792,7 @@ export default function BillingPage() {
                   <p
                     style={{
                       margin: "8px 2px 0",
-                      fontSize: 11.5,
+                      fontSize: "var(--t-1)",
                       color:
                         couponState === "success"
                           ? "var(--accent)"
@@ -795,7 +811,7 @@ export default function BillingPage() {
               >
                 <div
                   style={{
-                    fontSize: 12,
+                    fontSize: "var(--t-2)",
                     fontWeight: 600,
                     color: "var(--fg-muted)",
                     marginBottom: 14,
@@ -810,7 +826,7 @@ export default function BillingPage() {
                     listStyle: "none",
                     display: "flex",
                     flexDirection: "column",
-                    gap: 12,
+                    gap: "var(--s-4)",
                   }}
                 >
                   {HOW_IT_WORKS.map((item) => (
@@ -818,8 +834,8 @@ export default function BillingPage() {
                       key={item}
                       style={{
                         display: "flex",
-                        gap: 10,
-                        fontSize: 12.5,
+                        gap: "var(--s-3)",
+                        fontSize: "var(--t-2)",
                         lineHeight: 1.5,
                         color: "var(--fg-muted)",
                       }}
@@ -831,7 +847,7 @@ export default function BillingPage() {
                           width: 5,
                           height: 5,
                           marginTop: 7,
-                          borderRadius: 999,
+                          borderRadius: "var(--r-full)",
                           background: "var(--accent)",
                         }}
                       />

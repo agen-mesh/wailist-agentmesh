@@ -657,7 +657,7 @@ export function CanvasGraph({
           zIndex: 4,
           display: "flex",
           flexDirection: "column",
-          gap: 4,
+          gap: "var(--s-1)",
           background: "var(--bg-elev-2)",
           border: "1px solid var(--border)",
           borderRadius: "var(--r-2)",
@@ -676,7 +676,7 @@ export function CanvasGraph({
           style={{
             textAlign: "center",
             fontFamily: "var(--font-mono)",
-            fontSize: 10,
+            fontSize: "var(--t-0)",
             color: "var(--fg-dim)",
           }}
         >
@@ -725,7 +725,7 @@ export function CanvasGraph({
           // bottom-left placement had to wrap away from.
           maxWidth: "calc(100% - 32px)",
           fontFamily: "var(--font-mono)",
-          fontSize: 10,
+          fontSize: "var(--t-0)",
           color: "var(--fg-dim)",
         }}
       >
@@ -745,7 +745,7 @@ export function CanvasGraph({
             style={{
               display: "inline-flex",
               alignItems: "center",
-              gap: 5,
+              gap: "var(--s-1)",
               whiteSpace: "nowrap",
               flexShrink: 0,
               // The row disables pointer events so it doesn't steal the
@@ -762,11 +762,11 @@ export function CanvasGraph({
                 minWidth: 18,
                 height: 18,
                 padding: "0 4px",
-                borderRadius: 4,
+                borderRadius: "var(--r-1)",
                 border: "1px solid var(--border-strong)",
                 background: "var(--bg-elev-1)",
                 fontFamily: "var(--font-mono)",
-                fontSize: 10,
+                fontSize: "var(--t-0)",
                 color: "var(--fg-muted)",
                 whiteSpace: "nowrap",
                 flexShrink: 0,
@@ -789,20 +789,20 @@ export function CanvasGraph({
             alignItems: "center",
             justifyContent: "center",
             pointerEvents: "none",
-            gap: 12,
+            gap: "var(--s-4)",
           }}
         >
           <div
             style={{
               width: 64,
               height: 64,
-              borderRadius: 12,
+              borderRadius: "var(--r-3)",
               border: "1px dashed var(--border-strong)",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
               color: "var(--fg-dim)",
-              fontSize: 24,
+              fontSize: "var(--t-6)",
             }}
           >
             +
@@ -810,7 +810,7 @@ export function CanvasGraph({
           <div
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 12,
+              fontSize: "var(--t-2)",
               color: "var(--fg-dim)",
             }}
           >
@@ -843,7 +843,7 @@ function EdgePath({
   onClick?: () => void;
 }) {
   const isAttach = kind === "attach";
-  const color = isAttach ? "#E879F9" : "var(--accent)";
+  const color = isAttach ? "var(--type-x402)" : "var(--accent)";
   let d: string;
   if (isAttach) {
     const off = Math.max(30, Math.abs(y2 - y1) * 0.45);

@@ -1,5 +1,6 @@
 "use client";
 import { Fragment, useEffect, useId, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { type NavItem, groupNavItems, isNavItemActive } from "@/lib/nav";
 import { useScrollLock } from "@/hooks/useScrollLock";
 import { useCloseOnBack } from "@/hooks/useCloseOnBack";
@@ -39,22 +40,33 @@ interface AppNavProps {
   scrollContainer?: React.RefObject<HTMLElement | null>;
 }
 
+// The surface arrives first, then the rows stagger in behind it. Exit is
+// faster and NOT staggered: a menu closing is the answer to a tap that already
+// happened, so nobody should wait for six rows to leave one at a time.
+const SHEET_IN = { type: "spring" as const, stiffness: 420, damping: 38, mass: 0.9 };
+const SHEET_OUT = { duration: 0.16, ease: [0.4, 0, 1, 1] as const };
+
+const listVariants = {
+  closed: {},
+  open: { transition: { staggerChildren: 0.035, delayChildren: 0.04 } },
+};
+const rowVariants = {
+  closed: { opacity: 0, y: -8 },
+  open: {
+    opacity: 1,
+    y: 0,
+    transition: { type: "spring" as const, stiffness: 520, damping: 40 },
+  },
+};
+
 /**
- * The navigation shell for both the marketing and application surfaces.
+ * The navigation shell for both the marketing and application surfaces: an
+ * ordinary bar with inline links above `md`, a trigger and a sheet below it.
  *
- * Above the `md` breakpoint it is an ordinary bar with inline links. Below it,
- * the links are replaced by a trigger and a full-height sheet fades in beneath
- * the bar (see the AppNav block in globals.css for the motion, and for why the
- * sheet is fixed rather than a grown bar).
- *
- * Semantics follow the ARIA disclosure pattern, not `role="menu"`: a real
- * <button> with aria-expanded/aria-controls revealing a <nav> of links. A menu
- * role would promise arrow-key traversal that a list of links does not have.
- *
- * Which surface is showing is decided entirely in CSS, so there is no
- * useMediaQuery, no hydration mismatch, and no flash of the wrong layout. The
- * sheet's markup is always rendered; `visibility` (stepped, not interpolated)
- * is what takes it out of hit-testing and the accessibility tree.
+ * ARIA disclosure, not `role="menu"` — a menu role would promise arrow-key
+ * traversal a list of links does not have. Which surface shows is decided in
+ * CSS, so there is no useMediaQuery and no hydration mismatch. The sheet is
+ * mounted only while open, so nothing can sit under it when it is shut.
  */
 export function AppNav({
   items,
@@ -71,6 +83,8 @@ export function AppNav({
   const sheetId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+  // Less motion is not a request for faster motion: this removes it entirely.
+  const still = useReducedMotion();
 
   useScrollLock(open, scrollContainer);
   // Back closes the sheet rather than leaving the page under it. Every path
@@ -106,44 +120,25 @@ export function AppNav({
     return () => document.removeEventListener("focusin", onFocusIn);
   }, [open]);
 
-  // Crossing the breakpoint must not play the open animation. The class is
-  // added for one frame around each resize, matching the escape hatch the
-  // reference implementation ships.
-  //
-  // The same crossing must also not leave the sheet open: above the breakpoint
-  // the sheet and the trigger are both display:none, so an `open` that survives
-  // is an invisible scroll lock with no control left to release it. The media
-  // query mirrors the 768px in the AppNav block of globals.css, and its own
-  // `change` event is what closes the sheet — `resize` alone is not enough,
-  // since a viewport can cross the breakpoint without emitting one.
+  // Above the breakpoint the trigger is display:none, so an `open` that
+  // survives is an invisible scroll lock with nothing left to release it.
+  // `change`, not `resize`: a viewport can cross a breakpoint without resizing.
   useEffect(() => {
-    let raf = 0;
     const mq = window.matchMedia("(max-width: 768px)");
     const closeAboveBreakpoint = () => {
       if (!mq.matches) setOpen(false);
     };
-    const onResize = () => {
-      document.documentElement.classList.add("appnav-block-transitions");
-      closeAboveBreakpoint();
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        document.documentElement.classList.remove("appnav-block-transitions");
-      });
-    };
-    window.addEventListener("resize", onResize);
+    closeAboveBreakpoint();
     mq.addEventListener("change", closeAboveBreakpoint);
-    return () => {
-      window.removeEventListener("resize", onResize);
-      mq.removeEventListener("change", closeAboveBreakpoint);
-      cancelAnimationFrame(raf);
-      document.documentElement.classList.remove("appnav-block-transitions");
-    };
+    return () => mq.removeEventListener("change", closeAboveBreakpoint);
   }, []);
 
   const select = (item: NavItem) => {
     setOpen(false);
     onSelect(item);
   };
+
+  const groups = groupNavItems(items);
 
   return (
     <div
@@ -174,74 +169,151 @@ export function AppNav({
             type="button"
             className="appnav__trigger"
             aria-expanded={open}
-            aria-controls={sheetId}
+            // Only while the sheet exists: it is mounted on open now, and
+            // aria-controls pointing at an absent id breaks the disclosure
+            // relationship rather than describing it.
+            aria-controls={open ? sheetId : undefined}
             aria-label={open ? "Close menu" : "Menu"}
             onClick={() => setOpen((o) => !o)}
           >
-            <BurgerIcon open={open} />
+            <BurgerIcon open={open} still={!!still} />
           </button>
         </div>
 
-        <div ref={sheetRef} id={sheetId} className="appnav__sheet">
-          <nav aria-label="Primary">
-            {groupNavItems(items).map(({ group, items: groupItems }) => (
-              <div key={group || "_"}>
-                {group ? <div className="appnav__group">{group}</div> : null}
-                <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                  {groupItems.map((item) => (
-                    <li key={item.label}>
-                      <button
-                        type="button"
-                        className="appnav__link"
-                        aria-current={
-                          isNavItemActive(item, pathname) ? "page" : undefined
-                        }
-                        onClick={() => select(item)}
+        <AnimatePresence initial={false}>
+          {open && (
+            <motion.div
+              ref={sheetRef}
+              id={sheetId}
+              className="appnav__sheet"
+              initial={still ? { opacity: 0 } : { opacity: 0, y: -10 }}
+              animate={still ? { opacity: 1 } : { opacity: 1, y: 0 }}
+              // Its own shorter curve: a spring would ring on the way out.
+              exit={
+                still
+                  ? { opacity: 0, transition: { duration: 0 } }
+                  : { opacity: 0, y: -6, transition: SHEET_OUT }
+              }
+              transition={still ? { duration: 0 } : SHEET_IN}
+            >
+              <motion.nav
+                aria-label="Primary"
+                variants={still ? undefined : listVariants}
+                initial="closed"
+                animate="open"
+              >
+                {groups.map(({ group, items: groupItems }) => (
+                  <div key={group || "_"} className="appnav__section">
+                    {group ? (
+                      <motion.div
+                        className="appnav__group"
+                        variants={still ? undefined : rowVariants}
                       >
-                        {item.label}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </nav>
-          {sheetFooter ? (
-            <div className="appnav__sheet-foot">{sheetFooter}</div>
-          ) : null}
-        </div>
+                        {group}
+                      </motion.div>
+                    ) : null}
+                    <ul className="appnav__list">
+                      {groupItems.map((item) => {
+                        const active = isNavItemActive(item, pathname);
+                        return (
+                          <motion.li
+                            key={item.label}
+                            variants={still ? undefined : rowVariants}
+                          >
+                            <button
+                              type="button"
+                              className="appnav__link"
+                              data-active={active || undefined}
+                              aria-current={active ? "page" : undefined}
+                              onClick={() => select(item)}
+                            >
+                              <span className="appnav__link-label">
+                                {item.label}
+                              </span>
+                              <ChevronRight />
+                            </button>
+                          </motion.li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ))}
+              </motion.nav>
+              {sheetFooter ? (
+                <motion.div
+                  className="appnav__sheet-foot"
+                  initial={still ? undefined : { opacity: 0 }}
+                  animate={still ? undefined : { opacity: 1 }}
+                  transition={{ delay: 0.12, duration: 0.2 }}
+                >
+                  {sheetFooter}
+                </motion.div>
+              ) : null}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
 }
 
-// Two strokes that morph into an X. The endpoints are animated rather than the
-// whole glyph rotated, so the caps stay put and the cross lands centred.
-function BurgerIcon({ open }: { open: boolean }) {
-  const stroke = {
-    transition: "all var(--nav-rate-fade) var(--ease-nav)",
-  } as const;
+// A full-width row that does something when pressed should say which way it
+// goes; without this the sheet was plain text that happened to be tappable.
+function ChevronRight() {
+  return (
+    <svg
+      className="appnav__chevron"
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M6 3.5 L10.5 8 L6 12.5"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// Two strokes that cross into an X. Rotated about a shared centre rather than
+// animating x1/y1/x2/y2, which stretched both lines to ~19px at the crossed
+// state and made the X visibly bigger than the burger it came from.
+function BurgerIcon({ open, still }: { open: boolean; still: boolean }) {
+  const spring = still
+    ? { duration: 0 }
+    : { type: "spring" as const, stiffness: 500, damping: 30 };
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-      <line
-        x1="2"
-        y1={open ? "4" : "6"}
-        x2="16"
-        y2={open ? "14" : "6"}
+      <motion.line
+        x1="2.5"
+        x2="15.5"
+        y1="9"
+        y2="9"
         stroke="currentColor"
-        strokeWidth="1.2"
+        strokeWidth="1.4"
         strokeLinecap="round"
-        style={stroke}
+        style={{ originX: "9px", originY: "9px" }}
+        initial={false}
+        animate={{ rotate: open ? 45 : 0, y: open ? 0 : -3.5 }}
+        transition={spring}
       />
-      <line
-        x1="2"
-        y1={open ? "14" : "12"}
-        x2="16"
-        y2={open ? "4" : "12"}
+      <motion.line
+        x1="2.5"
+        x2="15.5"
+        y1="9"
+        y2="9"
         stroke="currentColor"
-        strokeWidth="1.2"
+        strokeWidth="1.4"
         strokeLinecap="round"
-        style={stroke}
+        style={{ originX: "9px", originY: "9px" }}
+        initial={false}
+        animate={{ rotate: open ? -45 : 0, y: open ? 0 : 3.5 }}
+        transition={spring}
       />
     </svg>
   );

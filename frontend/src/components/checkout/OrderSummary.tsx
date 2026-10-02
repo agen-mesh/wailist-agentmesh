@@ -28,7 +28,7 @@ export function OrderSummary({
         borderTop: "1px solid var(--border)",
         display: "flex",
         flexDirection: "column",
-        gap: 12,
+        gap: "var(--s-4)",
       }}
     >
       <SummaryRow label="Subtotal (excl. GST)" value={base} />
@@ -43,12 +43,12 @@ export function OrderSummary({
           borderTop: "1px solid var(--border)",
         }}
       >
-        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)" }}>
+        <span style={{ fontSize: "var(--t-4)", fontWeight: 600, color: "var(--fg)" }}>
           Total payable
         </span>
         <span
           style={{
-            fontSize: 20,
+            fontSize: "var(--t-5)",
             fontWeight: 700,
             color: "var(--fg)",
             fontFamily: "var(--font-mono)",
@@ -72,12 +72,12 @@ export function OrderSummary({
           border: "1px solid var(--accent-line)",
         }}
       >
-        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--accent)" }}>
+        <span style={{ fontSize: "var(--t-2)", fontWeight: 500, color: "var(--accent)" }}>
           You receive
         </span>
         <span
           style={{
-            fontSize: 15,
+            fontSize: "var(--t-4)",
             fontWeight: 700,
             fontFamily: "var(--font-mono)",
             fontVariantNumeric: "tabular-nums",
@@ -94,10 +94,10 @@ export function OrderSummary({
 function SummaryRow({ label, value }: { label: string; value: number }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between" }}>
-      <span style={{ fontSize: 13, color: "var(--fg-muted)" }}>{label}</span>
+      <span style={{ fontSize: "var(--t-3)", color: "var(--fg-muted)" }}>{label}</span>
       <span
         style={{
-          fontSize: 13,
+          fontSize: "var(--t-3)",
           color: "var(--fg)",
           fontFamily: "var(--font-mono)",
           fontVariantNumeric: "tabular-nums",

@@ -82,7 +82,7 @@ export function PurchaseHistory({
         {heading !== null && (
           <h2
             style={{
-              fontSize: 15,
+              fontSize: "var(--t-4)",
               fontWeight: 600,
               color: "var(--fg)",
               marginBottom: 12,
@@ -93,7 +93,7 @@ export function PurchaseHistory({
         )}
 
         {purchasesFailed && purchases.length === 0 ? (
-          <p style={{ fontSize: 13, color: "var(--fg-dim)", margin: 0 }}>
+          <p style={{ fontSize: "var(--t-3)", color: "var(--fg-dim)", margin: 0 }}>
             Could not load your billing history.{" "}
             <button
               type="button"
@@ -121,7 +121,7 @@ export function PurchaseHistory({
             </button>
           </p>
         ) : purchases.length === 0 ? (
-          <p style={{ fontSize: 13, color: "var(--fg-dim)", margin: 0 }}>
+          <p style={{ fontSize: "var(--t-3)", color: "var(--fg-dim)", margin: 0 }}>
             No purchases yet.
           </p>
         ) : (
@@ -132,7 +132,7 @@ export function PurchaseHistory({
                 style={{
                   display: "flex",
                   flexDirection: "column",
-                  gap: 8,
+                  gap: "var(--s-3)",
                   padding: "12px 16px",
                   borderTop: i === 0 ? "none" : "1px solid var(--border-soft)",
                 }}
@@ -143,12 +143,12 @@ export function PurchaseHistory({
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    gap: 8,
+                    gap: "var(--s-3)",
                   }}
                 >
                   <span
                     style={{
-                      fontSize: 13,
+                      fontSize: "var(--t-3)",
                       fontWeight: 600,
                       color: "var(--fg)",
                       fontFamily: "var(--font-mono)",
@@ -163,7 +163,7 @@ export function PurchaseHistory({
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      gap: 8,
+                      gap: "var(--s-3)",
                       flexShrink: 0,
                     }}
                   >
@@ -176,7 +176,7 @@ export function PurchaseHistory({
                     {p.status === "completed" ? (
                       <span
                         style={{
-                          fontSize: 13,
+                          fontSize: "var(--t-3)",
                           fontFamily: "var(--font-mono)",
                           color: "var(--accent)",
                           fontVariantNumeric: "tabular-nums",
@@ -187,7 +187,7 @@ export function PurchaseHistory({
                     ) : (
                       <span
                         style={{
-                          fontSize: 13,
+                          fontSize: "var(--t-3)",
                           fontFamily: "var(--font-mono)",
                           color: "var(--fg-dim)",
                           fontVariantNumeric: "tabular-nums",
@@ -205,7 +205,7 @@ export function PurchaseHistory({
                 {/* Method · date */}
                 <div
                   style={{
-                    fontSize: 11,
+                    fontSize: "var(--t-1)",
                     color: "var(--fg-dim)",
                     fontFamily: "var(--font-mono)",
                   }}
@@ -215,7 +215,7 @@ export function PurchaseHistory({
                 </div>
 
                 {/* Actions */}
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: "var(--s-3)" }}>
                   {/* A receipt is a GST-shaped payment document. Offering one
                       for a failed, expired or pending row would let a user
                       print an invoice for money that never moved. */}

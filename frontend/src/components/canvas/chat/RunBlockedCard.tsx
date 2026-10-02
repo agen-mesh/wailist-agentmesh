@@ -47,19 +47,19 @@ export function RunBlockedCard({
         background: "var(--bg-elev-2)",
         display: "flex",
         flexDirection: "column",
-        gap: 8,
+        gap: "var(--s-3)",
         minWidth: 0,
       }}
     >
       <div
-        style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}
+        style={{ display: "flex", alignItems: "baseline", gap: "var(--s-3)", minWidth: 0 }}
       >
         <span
           aria-hidden
           style={{
             width: 6,
             height: 6,
-            borderRadius: 999,
+            borderRadius: "var(--r-full)",
             background: line,
             flexShrink: 0,
             transform: "translateY(-2px)",
@@ -69,7 +69,7 @@ export function RunBlockedCard({
           <div
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 10,
+              fontSize: "var(--t-0)",
               textTransform: "uppercase",
               letterSpacing: "0.06em",
               color: line,
@@ -79,7 +79,7 @@ export function RunBlockedCard({
           </div>
           <div
             style={{
-              fontSize: 12.5,
+              fontSize: "var(--t-2)",
               lineHeight: 1.45,
               color: "var(--fg)",
               marginTop: 3,
@@ -90,18 +90,18 @@ export function RunBlockedCard({
           </div>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+      <div style={{ display: "flex", gap: "var(--s-3)", justifyContent: "flex-end" }}>
         {actionLabel && (
           <button
             onClick={onDeploy}
             disabled={deploying}
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 10,
+              fontSize: "var(--t-0)",
               textTransform: "uppercase",
               letterSpacing: "0.06em",
               padding: "4px 10px",
-              borderRadius: 999,
+              borderRadius: "var(--r-full)",
               border: `1px solid ${line}`,
               background: "transparent",
               color: line,
@@ -116,11 +116,11 @@ export function RunBlockedCard({
           onClick={onDismiss}
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 10,
+            fontSize: "var(--t-0)",
             textTransform: "uppercase",
             letterSpacing: "0.06em",
             padding: "4px 10px",
-            borderRadius: 999,
+            borderRadius: "var(--r-full)",
             border: "1px solid var(--border)",
             background: "transparent",
             color: "var(--fg-dim)",

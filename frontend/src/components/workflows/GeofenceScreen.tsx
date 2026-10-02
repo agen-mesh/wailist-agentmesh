@@ -437,7 +437,9 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
 
       <Card style={{ marginBottom: 12 }}>
         <SectionLabel>How big</SectionLabel>
-        <p style={{ ...mono, fontSize: 22 }}>{formatDistance(radiusM)}</p>
+        <p style={{ ...mono, fontSize: "var(--t-6)" }}>
+          {formatDistance(radiusM)}
+        </p>
         <input
           type="range"
           min={0}
@@ -478,8 +480,8 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
 
       {!IS_NATIVE && (
         <Notice tone="info">
-          Crossings are noticed by the AgentMesh app on your Android phone.
-          Saving a zone here records it; the phone is what watches the edge.
+          Saving a zone here records it. The AgentMesh Android app is what
+          watches the edge.
         </Notice>
       )}
 
@@ -607,7 +609,7 @@ const scaleRow: React.CSSProperties = {
 
 const actionRow: React.CSSProperties = {
   display: "flex",
-  gap: 8,
+  gap: "var(--s-3)",
   flexWrap: "wrap",
   marginTop: 16,
 };

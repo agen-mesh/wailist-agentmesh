@@ -45,7 +45,7 @@ const DOCK_CSS = `
 .run-dock__bar {
   position: relative;
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: var(--bg-elev-3);
   overflow: hidden;
   margin-bottom: 8px;
@@ -53,17 +53,17 @@ const DOCK_CSS = `
 .run-dock__fill {
   position: absolute;
   inset: 0 auto 0 0;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: var(--accent);
   transition: width 0.35s var(--ease);
 }
 .run-dock[data-state="failed"] .run-dock__fill { background: var(--danger); }
-.run-dock[data-state="success"] .run-dock__fill { background: var(--ok, #3ecf8e); }
+.run-dock[data-state="success"] .run-dock__fill { background: var(--ok, var(--success)); }
 .run-dock[data-state="stopped"] .run-dock__fill { background: var(--fg-dim); }
 .run-dock__line {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--s-3);
   width: 100%;
   background: none;
   border: none;
@@ -84,19 +84,19 @@ const DOCK_CSS = `
 }
 .run-dock__count {
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--t-1);
   color: var(--fg-muted);
   flex: none;
 }
 .run-dock__now {
-  font-size: 12.5px;
+  font-size: var(--t-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
   min-width: 0;
 }
-.run-dock__chevron { flex: none; color: var(--fg-dim); font-size: 11px; }
+.run-dock__chevron { flex: none; color: var(--fg-dim); font-size: var(--t-1); }
 .run-dock__steps {
   list-style: none;
   /* Scrolling the steps costs the other axis too: a box with overflow-y set
@@ -115,9 +115,9 @@ const DOCK_CSS = `
 .run-dock__step {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--s-3);
   padding: 5px 0;
-  font-size: 12.5px;
+  font-size: var(--t-2);
   color: var(--fg-muted);
 }
 .run-dock__step[data-state="done"] { color: var(--fg); }
@@ -127,7 +127,7 @@ const DOCK_CSS = `
 .run-dock__dot {
   width: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: currentColor;
   opacity: 0.35;
   flex: none;
@@ -142,10 +142,10 @@ const DOCK_CSS = `
 .run-dock__took {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--t-1);
   color: var(--fg-dim);
 }
-.run-dock__actions { display: flex; gap: 8px; margin-top: 10px; }
+.run-dock__actions { display: flex; gap: var(--s-3); margin-top: 10px; }
 .run-dock__actions button:disabled { opacity: 0.55; cursor: default; }
 @keyframes run-dock-pulse {
   0%, 100% { transform: scale(1); opacity: 1; }
@@ -363,8 +363,8 @@ export function RunProgressDock({
 const dockBtn: React.CSSProperties = {
   padding: "7px 12px",
   minHeight: 36,
-  fontSize: 12.5,
-  borderRadius: 6,
+  fontSize: "var(--t-2)",
+  borderRadius: "var(--r-2)",
   border: "1px solid var(--border-strong)",
   background: "transparent",
   color: "var(--fg)",

@@ -135,7 +135,7 @@ export function ChatPane({
           padding: "10px 14px",
           display: "flex",
           flexDirection: "column",
-          gap: 12,
+          gap: "var(--s-4)",
         }}
       >
         {session.hydrated && session.messages.length === 0 && (
@@ -145,7 +145,7 @@ export function ChatPane({
               textAlign: "center",
               maxWidth: "34ch",
               color: "var(--fg-dim)",
-              fontSize: 12,
+              fontSize: "var(--t-2)",
               lineHeight: 1.6,
             }}
           >
@@ -155,7 +155,7 @@ export function ChatPane({
                 display: "block",
                 marginTop: 8,
                 fontFamily: "var(--font-mono)",
-                fontSize: 10,
+                fontSize: "var(--t-0)",
                 lineHeight: 1.7,
               }}
             >
@@ -183,7 +183,7 @@ export function ChatPane({
             role="alert"
             style={{
               padding: "6px 10px 0",
-              fontSize: 11,
+              fontSize: "var(--t-1)",
               lineHeight: 1.5,
               color: "var(--danger)",
             }}
@@ -197,7 +197,7 @@ export function ChatPane({
               minWidth: 0,
               borderTop: "1px solid var(--border)",
               padding: "14px 12px",
-              fontSize: 11.5,
+              fontSize: "var(--t-1)",
               lineHeight: 1.5,
               color: "var(--fg-dim)",
             }}
@@ -211,7 +211,7 @@ export function ChatPane({
             borderTop: "1px solid var(--border)",
             padding: 10,
             display: "flex",
-            gap: 8,
+            gap: "var(--s-3)",
             alignItems: "flex-end",
           }}
         >
@@ -252,7 +252,7 @@ export function ChatPane({
             borderRadius: "var(--r-2)",
             color: "var(--fg)",
             fontFamily: "var(--font-sans)",
-            fontSize: 13,
+            fontSize: "var(--t-3)",
             lineHeight: 1.5,
             outline: "none",
             opacity: busy ? 0.6 : 1,
@@ -301,7 +301,7 @@ export function ChatPane({
             borderRadius: "var(--r-2)",
             color: "var(--accent-fg)",
             fontFamily: "var(--font-sans)",
-            fontSize: 13,
+            fontSize: "var(--t-3)",
             fontWeight: 600,
             cursor: busy || draft.trim() === "" ? "default" : "pointer",
             opacity: busy || draft.trim() === "" ? 0.45 : 1,

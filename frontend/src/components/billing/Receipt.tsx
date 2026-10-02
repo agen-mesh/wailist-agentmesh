@@ -82,10 +82,10 @@ const RECEIPT_CSS = `
 const printRowStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 24,
+  gap: "var(--s-6)",
   padding: "7px 0",
   borderBottom: "1px solid #ddd",
-  fontSize: 12,
+  fontSize: "var(--t-2)",
   color: "#000",
 };
 
@@ -132,12 +132,12 @@ function PrintSheet({ purchase }: { purchase: Purchase }) {
           marginBottom: 16,
         }}
       >
-        <span style={{ fontSize: 20, fontWeight: 700, color: "#000" }}>
+        <span style={{ fontSize: "var(--t-5)", fontWeight: 700, color: "#000" }}>
           AgentMesh
         </span>
         <span
           style={{
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             textTransform: "uppercase",
             letterSpacing: "0.12em",
             color: "#000",
@@ -163,7 +163,7 @@ function PrintSheet({ purchase }: { purchase: Purchase }) {
         ))}
       </div>
 
-      <p style={{ fontSize: 10, color: "#444", margin: "16px 0 0" }}>
+      <p style={{ fontSize: "var(--t-0)", color: "#444", margin: "16px 0 0" }}>
         Mock receipt: not a valid tax invoice.
       </p>
     </div>
@@ -176,10 +176,10 @@ function Row({ label, value }: { label: string; value: string }) {
       style={{
         display: "flex",
         justifyContent: "space-between",
-        gap: 16,
+        gap: "var(--s-5)",
         padding: "8px 0",
         borderBottom: "1px solid var(--border-soft)",
-        fontSize: 13,
+        fontSize: "var(--t-3)",
       }}
     >
       <span style={{ color: "var(--fg-muted)" }}>{label}</span>
@@ -247,12 +247,12 @@ export function Receipt({
               marginBottom: 16,
             }}
           >
-            <span style={{ fontSize: 16, fontWeight: 700, color: "var(--fg)" }}>
+            <span style={{ fontSize: "var(--t-4)", fontWeight: 700, color: "var(--fg)" }}>
               AgentMesh
             </span>
             <span
               style={{
-                fontSize: 12,
+                fontSize: "var(--t-2)",
                 textTransform: "uppercase",
                 letterSpacing: "0.08em",
                 color: "var(--fg-dim)",
@@ -298,7 +298,7 @@ export function Receipt({
           </div>
 
           <p
-            style={{ fontSize: 11, color: "var(--fg-dim)", margin: "14px 0 0" }}
+            style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)", margin: "14px 0 0" }}
           >
             Mock receipt: not a valid tax invoice.
           </p>
@@ -306,7 +306,7 @@ export function Receipt({
           <div
             style={{
               display: "flex",
-              gap: 10,
+              gap: "var(--s-3)",
               marginTop: 20,
               justifyContent: "flex-end",
             }}
@@ -321,7 +321,7 @@ export function Receipt({
                 border: "1px solid var(--accent-line)",
                 background: "var(--accent)",
                 color: "var(--accent-fg)",
-                fontSize: 13,
+                fontSize: "var(--t-3)",
                 fontWeight: 600,
                 cursor: "pointer",
               }}
@@ -338,7 +338,7 @@ export function Receipt({
                 border: "1px solid var(--border-strong)",
                 background: "transparent",
                 color: "var(--fg-muted)",
-                fontSize: 13,
+                fontSize: "var(--t-3)",
                 fontWeight: 500,
                 cursor: "pointer",
               }}

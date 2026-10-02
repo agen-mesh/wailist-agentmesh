@@ -27,9 +27,9 @@ const EMPTY_FIELDS: Record<string, PrismRunField> = {};
 // Prism shares the x402 magenta the canvas tool node, the Inspector and the
 // Tendril console all use, so a paid endpoint reads as the same kind of thing
 // wherever it appears in the app.
-const MAGENTA = "#E879F9";
-const MAGENTA_DIM = "rgba(232, 121, 249, 0.08)";
-const AMBER = "#FFB547";
+const MAGENTA = "var(--type-x402)";
+const MAGENTA_DIM = "var(--type-x402-soft)";
+const AMBER = "var(--warning)";
 
 // ── Shared chrome, matching TendrilConsolePage's idiom ──────────────────────
 function Panel({
@@ -58,7 +58,7 @@ function PanelLabel({ children }: { children: React.ReactNode }) {
     <div
       style={{
         fontFamily: "var(--font-mono)",
-        fontSize: 10,
+        fontSize: "var(--t-0)",
         textTransform: "uppercase",
         letterSpacing: "0.1em",
         color: "var(--fg-dim)",
@@ -77,7 +77,7 @@ const textInput: React.CSSProperties = {
   border: "1px solid var(--border-strong)",
   borderRadius: "var(--r-1)",
   color: "var(--fg)",
-  fontSize: 13,
+  fontSize: "var(--t-3)",
   fontFamily: "var(--font-mono)",
   outline: "none",
   boxSizing: "border-box",
@@ -87,7 +87,7 @@ function nameplateButton(disabled: boolean): React.CSSProperties {
   return {
     height: 36,
     padding: "0 18px",
-    fontSize: 11,
+    fontSize: "var(--t-1)",
     fontWeight: 700,
     letterSpacing: "0.08em",
     textTransform: "uppercase",
@@ -95,7 +95,7 @@ function nameplateButton(disabled: boolean): React.CSSProperties {
     background: disabled ? "var(--bg-elev-2)" : MAGENTA,
     border: `1px solid ${disabled ? "var(--border-strong)" : MAGENTA}`,
     borderRadius: "var(--r-1)",
-    color: disabled ? "var(--fg-dim)" : "#1a0a1a",
+    color: disabled ? "var(--fg-dim)" : "var(--type-x402-fg)",
     cursor: disabled ? "default" : "pointer",
     whiteSpace: "nowrap",
   };
@@ -105,7 +105,7 @@ const txLinkStyle: React.CSSProperties = {
   color: MAGENTA,
   textDecoration: "underline",
   fontFamily: "var(--font-mono)",
-  fontSize: 11,
+  fontSize: "var(--t-1)",
   wordBreak: "break-all",
 };
 
@@ -127,7 +127,7 @@ function Segmented<T extends string>({
       aria-label={ariaLabel}
       style={{
         display: "flex",
-        gap: 6,
+        gap: "var(--s-2)",
         flexWrap: "wrap",
       }}
     >
@@ -154,11 +154,11 @@ function Segmented<T extends string>({
                 "border-color 0.15s var(--ease), background 0.15s var(--ease)",
             }}
           >
-            <div style={{ fontSize: 13, fontWeight: 600 }}>{o.label}</div>
+            <div style={{ fontSize: "var(--t-3)", fontWeight: 600 }}>{o.label}</div>
             {o.note && (
               <div
                 style={{
-                  fontSize: 11,
+                  fontSize: "var(--t-1)",
                   color: active ? "var(--fg-muted)" : "var(--fg-dim)",
                   marginTop: 2,
                   fontFamily: "var(--font-mono)",
@@ -216,29 +216,29 @@ function FieldControl({
   };
 
   const label = (
-    <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-      <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--fg)" }}>
+    <div style={{ display: "flex", alignItems: "baseline", gap: "var(--s-2)" }}>
+      <span style={{ fontSize: "var(--t-2)", fontWeight: 600, color: "var(--fg)" }}>
         {field.label}
       </span>
       {!field.required && (
-        <span style={{ fontSize: 10.5, color: "var(--fg-dim)" }}>optional</span>
+        <span style={{ fontSize: "var(--t-0)", color: "var(--fg-dim)" }}>optional</span>
       )}
     </div>
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
       {label}
       {field.description && (
         <div
-          style={{ fontSize: 11.5, color: "var(--fg-muted)", lineHeight: 1.5 }}
+          style={{ fontSize: "var(--t-1)", color: "var(--fg-muted)", lineHeight: 1.5 }}
         >
           {field.description}
         </div>
       )}
 
       {field.kind === "file" ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
           <input
             ref={inputRef}
             type="file"
@@ -257,7 +257,7 @@ function FieldControl({
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 8,
+                gap: "var(--s-3)",
                 padding: "9px 11px",
                 border: `1px solid ${MAGENTA}`,
                 background: MAGENTA_DIM,
@@ -272,7 +272,7 @@ function FieldControl({
                   flex: 1,
                   minWidth: 0,
                   fontFamily: "var(--font-mono)",
-                  fontSize: 12,
+                  fontSize: "var(--t-2)",
                   color: "var(--fg)",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
@@ -285,7 +285,7 @@ function FieldControl({
                 <span
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: 11,
+                    fontSize: "var(--t-1)",
                     color: "var(--fg-dim)",
                   }}
                 >
@@ -306,7 +306,7 @@ function FieldControl({
                   border: "none",
                   color: "var(--fg-dim)",
                   cursor: disabled ? "default" : "pointer",
-                  fontSize: 13,
+                  fontSize: "var(--t-3)",
                   padding: 0,
                 }}
               >
@@ -324,7 +324,7 @@ function FieldControl({
                 borderRadius: "var(--r-1)",
                 background: "var(--bg)",
                 color: "var(--fg-muted)",
-                fontSize: 12.5,
+                fontSize: "var(--t-2)",
                 fontFamily: "var(--font-sans)",
                 cursor: disabled ? "default" : "pointer",
               }}
@@ -336,7 +336,7 @@ function FieldControl({
             </button>
           )}
           {fileError && (
-            <div style={{ fontSize: 11.5, color: "var(--danger)" }}>
+            <div style={{ fontSize: "var(--t-1)", color: "var(--danger)" }}>
               {fileError}
             </div>
           )}
@@ -524,7 +524,7 @@ export function PrismConsolePage() {
             style={{
               margin: "0 0 14px",
               color: "var(--fg-muted)",
-              fontSize: 14,
+              fontSize: "var(--t-4)",
               maxWidth: 540,
             }}
           >
@@ -534,7 +534,7 @@ export function PrismConsolePage() {
 
           {loadError && (
             <Panel style={{ padding: 16, borderColor: "var(--danger)" }}>
-              <div style={{ fontSize: 13, color: "var(--danger)" }}>
+              <div style={{ fontSize: "var(--t-3)", color: "var(--danger)" }}>
                 {loadError}
               </div>
             </Panel>
@@ -544,7 +544,7 @@ export function PrismConsolePage() {
             <div
               style={{
                 fontFamily: "var(--font-mono)",
-                fontSize: 12,
+                fontSize: "var(--t-2)",
                 color: "var(--fg-dim)",
               }}
             >
@@ -613,7 +613,7 @@ export function PrismConsolePage() {
                   <p
                     style={{
                       margin: "12px 0 0",
-                      fontSize: 12,
+                      fontSize: "var(--t-2)",
                       color: "var(--fg-muted)",
                       lineHeight: 1.55,
                     }}
@@ -625,10 +625,10 @@ export function PrismConsolePage() {
                   <div
                     style={{
                       display: "flex",
-                      gap: 7,
+                      gap: "var(--s-2)",
                       alignItems: "baseline",
                       marginTop: 10,
-                      fontSize: 11.5,
+                      fontSize: "var(--t-1)",
                       color: "var(--fg-dim)",
                       lineHeight: 1.55,
                     }}
@@ -689,7 +689,7 @@ export function PrismConsolePage() {
                       marginTop: 14,
                       display: "flex",
                       flexDirection: "column",
-                      gap: 16,
+                      gap: "var(--s-5)",
                     }}
                   >
                     {endpoint.fields.map((f) => (
@@ -715,7 +715,7 @@ export function PrismConsolePage() {
                       borderTop: "1px solid var(--border)",
                       display: "flex",
                       alignItems: "center",
-                      gap: 14,
+                      gap: "var(--s-4)",
                       // Same escape hatch the pre-flatten layout had: on a
                       // narrow viewport the hint text can't shrink below its
                       // own width, so without wrap it would overflow the
@@ -726,7 +726,7 @@ export function PrismConsolePage() {
                     {missing.length > 0 && (
                       <div
                         style={{
-                          fontSize: 11.5,
+                          fontSize: "var(--t-1)",
                           color: "var(--fg-dim)",
                         }}
                       >
@@ -767,7 +767,7 @@ export function PrismConsolePage() {
                   <div
                     style={{
                       marginTop: 6,
-                      fontSize: 12.5,
+                      fontSize: "var(--t-2)",
                       color: "var(--danger)",
                       lineHeight: 1.55,
                     }}
@@ -780,7 +780,7 @@ export function PrismConsolePage() {
                     <div style={{ marginTop: 10 }}>
                       <div
                         style={{
-                          fontSize: 11.5,
+                          fontSize: "var(--t-1)",
                           color: "var(--fg-muted)",
                           lineHeight: 1.55,
                         }}
@@ -803,7 +803,7 @@ export function PrismConsolePage() {
                     <div
                       style={{
                         marginTop: 8,
-                        fontSize: 11.5,
+                        fontSize: "var(--t-1)",
                         color: "var(--fg-muted)",
                         lineHeight: 1.55,
                       }}
@@ -822,7 +822,7 @@ export function PrismConsolePage() {
                       display: "flex",
                       alignItems: "baseline",
                       justifyContent: "space-between",
-                      gap: 12,
+                      gap: "var(--s-4)",
                       flexWrap: "wrap",
                     }}
                   >
@@ -830,7 +830,7 @@ export function PrismConsolePage() {
                     <span
                       style={{
                         fontFamily: "var(--font-mono)",
-                        fontSize: 11,
+                        fontSize: "var(--t-1)",
                         color: result.settled ? "var(--fg-muted)" : AMBER,
                       }}
                     >
@@ -852,7 +852,7 @@ export function PrismConsolePage() {
                         border: `1px solid ${AMBER}`,
                         borderRadius: "var(--r-1)",
                         background: "rgba(255, 181, 71, 0.07)",
-                        fontSize: 11.5,
+                        fontSize: "var(--t-1)",
                         color: "var(--fg-muted)",
                         lineHeight: 1.55,
                       }}
@@ -873,11 +873,11 @@ export function PrismConsolePage() {
                         marginTop: 12,
                         display: "flex",
                         flexDirection: "column",
-                        gap: 4,
+                        gap: "var(--s-1)",
                       }}
                     >
                       {result.txId && (
-                        <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+                        <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)" }}>
                           Paid to Prism{" "}
                           <ExternalLink
                             href={result.explorerURL}
@@ -888,7 +888,7 @@ export function PrismConsolePage() {
                         </div>
                       )}
                       {result.platformFeeTxId && (
-                        <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+                        <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)" }}>
                           AgentMesh fee{" "}
                           <ExternalLink
                             href={result.platformFeeExplorerURL}

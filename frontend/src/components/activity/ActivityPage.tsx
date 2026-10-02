@@ -223,9 +223,6 @@ export function ActivityPage() {
       >
         <main style={page}>
           <h1 style={title}>Activity</h1>
-          <p style={{ ...copy, marginTop: 4 }}>
-            What your workflows ran, and what each run spent.
-          </p>
 
           {/* What will run next, above what already ran. Hidden when nothing
               is scheduled, so an unscheduled account sees only its history. */}
@@ -239,17 +236,17 @@ export function ActivityPage() {
                 Run history is not available on this server yet.
               </p>
             ) : !loaded ? (
-              <div aria-busy="true" style={{ display: "grid", gap: 8 }}>
+              <div
+                aria-busy="true"
+                style={{ display: "grid", gap: "var(--s-3)" }}
+              >
                 <Skeleton width="30%" height={12} />
                 <Skeleton width="100%" height={64} radius="var(--r-2)" />
                 <Skeleton width="100%" height={64} radius="var(--r-2)" />
                 <Skeleton width="100%" height={64} radius="var(--r-2)" />
               </div>
             ) : runList.length === 0 ? (
-              <p style={copy}>
-                {error ??
-                  "No runs yet. When one of your workflows runs, it shows up here."}
-              </p>
+              <p style={copy}>{error ?? "No runs yet."}</p>
             ) : (
               <>
                 {error && (
@@ -383,14 +380,14 @@ const list: React.CSSProperties = {
   margin: 0,
   padding: 0,
   display: "grid",
-  gap: 6,
+  gap: "var(--s-2)",
 };
 
 const row: React.CSSProperties = {
   width: "100%",
   minHeight: 64,
   display: "grid",
-  gap: 6,
+  gap: "var(--s-2)",
   padding: "10px 12px",
   borderRadius: "var(--r-2)",
   border: "1px solid var(--border)",
@@ -404,7 +401,7 @@ const rowTop: React.CSSProperties = {
   display: "flex",
   alignItems: "baseline",
   justifyContent: "space-between",
-  gap: 12,
+  gap: "var(--s-4)",
   minWidth: 0,
 };
 
@@ -425,7 +422,7 @@ const rowSpend: React.CSSProperties = {
 const rowBottom: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 8,
+  gap: "var(--s-3)",
   flexWrap: "wrap",
   minWidth: 0,
 };

@@ -28,9 +28,9 @@ import {
 // HelixBox shares the x402 magenta the canvas tool node, the Inspector and the
 // Tendril and Prism consoles all use, so a paid endpoint reads as the same kind
 // of thing wherever it appears in the app.
-const MAGENTA = "#E879F9";
-const MAGENTA_DIM = "rgba(232, 121, 249, 0.08)";
-const AMBER = "#FFB547";
+const MAGENTA = "var(--type-x402)";
+const MAGENTA_DIM = "var(--type-x402-soft)";
+const AMBER = "var(--warning)";
 
 // How often the "42m left" labels are recomputed. An hour-long session is the
 // most common purchase, so a stale label is misleading within minutes — but
@@ -64,7 +64,7 @@ function PanelLabel({ children }: { children: React.ReactNode }) {
     <div
       style={{
         fontFamily: "var(--font-mono)",
-        fontSize: 10,
+        fontSize: "var(--t-0)",
         textTransform: "uppercase",
         letterSpacing: "0.1em",
         color: "var(--fg-dim)",
@@ -79,7 +79,7 @@ function nameplateButton(disabled: boolean): React.CSSProperties {
   return {
     height: 36,
     padding: "0 18px",
-    fontSize: 11,
+    fontSize: "var(--t-1)",
     fontWeight: 700,
     letterSpacing: "0.08em",
     textTransform: "uppercase",
@@ -87,7 +87,7 @@ function nameplateButton(disabled: boolean): React.CSSProperties {
     background: disabled ? "var(--bg-elev-2)" : MAGENTA,
     border: `1px solid ${disabled ? "var(--border-strong)" : MAGENTA}`,
     borderRadius: "var(--r-1)",
-    color: disabled ? "var(--fg-dim)" : "#1a0a1a",
+    color: disabled ? "var(--fg-dim)" : "var(--type-x402-fg)",
     cursor: disabled ? "default" : "pointer",
     whiteSpace: "nowrap",
   };
@@ -97,7 +97,7 @@ const txLinkStyle: React.CSSProperties = {
   color: MAGENTA,
   textDecoration: "underline",
   fontFamily: "var(--font-mono)",
-  fontSize: 11,
+  fontSize: "var(--t-1)",
   wordBreak: "break-all",
 };
 
@@ -127,7 +127,7 @@ function CopyField({ value }: { value: string }) {
     <div
       style={{
         display: "flex",
-        gap: 8,
+        gap: "var(--s-3)",
         alignItems: "stretch",
         flexWrap: "wrap",
       }}
@@ -141,7 +141,7 @@ function CopyField({ value }: { value: string }) {
           border: `1px solid ${MAGENTA}`,
           borderRadius: "var(--r-1)",
           fontFamily: "var(--font-mono)",
-          fontSize: 12,
+          fontSize: "var(--t-2)",
           color: "var(--fg)",
           wordBreak: "break-all",
           lineHeight: 1.5,
@@ -169,7 +169,7 @@ const textInput: React.CSSProperties = {
   border: "1px solid var(--border-strong)",
   borderRadius: "var(--r-1)",
   color: "var(--fg)",
-  fontSize: 13,
+  fontSize: "var(--t-3)",
   fontFamily: "var(--font-mono)",
   outline: "none",
   boxSizing: "border-box",
@@ -199,7 +199,7 @@ function PairingCodeField({
         htmlFor={`helixbox-${field.name}`}
         style={{
           display: "block",
-          fontSize: 12.5,
+          fontSize: "var(--t-2)",
           fontWeight: 600,
           color: "var(--fg)",
           marginBottom: 4,
@@ -211,7 +211,7 @@ function PairingCodeField({
         <p
           style={{
             margin: "0 0 8px",
-            fontSize: 11.5,
+            fontSize: "var(--t-1)",
             lineHeight: 1.55,
             color: "var(--fg-muted)",
             maxWidth: "62ch",
@@ -280,15 +280,17 @@ function PlanOption({
           display: "flex",
           alignItems: "baseline",
           justifyContent: "space-between",
-          gap: 12,
+          gap: "var(--s-4)",
           flexWrap: "wrap",
         }}
       >
-        <span style={{ fontSize: 14, fontWeight: 600 }}>{endpoint.title}</span>
+        <span style={{ fontSize: "var(--t-4)", fontWeight: 600 }}>
+          {endpoint.title}
+        </span>
         <span
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 12,
+            fontSize: "var(--t-2)",
             fontWeight: 600,
             color: selected ? MAGENTA : "var(--fg-muted)",
           }}
@@ -298,7 +300,7 @@ function PlanOption({
       </div>
       <div
         style={{
-          fontSize: 11.5,
+          fontSize: "var(--t-1)",
           color: "var(--fg-dim)",
           fontFamily: "var(--font-mono)",
           marginTop: 3,
@@ -310,7 +312,7 @@ function PlanOption({
       <p
         style={{
           margin: "8px 0 0",
-          fontSize: 12.5,
+          fontSize: "var(--t-2)",
           lineHeight: 1.55,
           color: "var(--fg-muted)",
           maxWidth: "62ch",
@@ -322,7 +324,13 @@ function PlanOption({
           loud. It is HelixBox's own pricing, pinned by
           TestTheTwoHourlyPlansStillSharePrice. */}
       {samePriceNote && (
-        <div style={{ marginTop: 6, fontSize: 11.5, color: "var(--fg-dim)" }}>
+        <div
+          style={{
+            marginTop: 6,
+            fontSize: "var(--t-1)",
+            color: "var(--fg-dim)",
+          }}
+        >
           Same price as the CLI hour — the agent is included, not an extra.
         </div>
       )}
@@ -358,17 +366,23 @@ function SavedSession({
           display: "flex",
           alignItems: "baseline",
           justifyContent: "space-between",
-          gap: 10,
+          gap: "var(--s-3)",
           flexWrap: "wrap",
         }}
       >
-        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>
+        <span
+          style={{
+            fontSize: "var(--t-3)",
+            fontWeight: 600,
+            color: "var(--fg)",
+          }}
+        >
           {session.title}
         </span>
         <span
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 11,
+            fontSize: "var(--t-1)",
             color: expired ? "var(--fg-dim)" : AMBER,
           }}
         >
@@ -384,11 +398,11 @@ function SavedSession({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: 10,
+          gap: "var(--s-3)",
           flexWrap: "wrap",
         }}
       >
-        <span style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+        <span style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)" }}>
           {formatUsd(session.totalUsdMicros)} ·{" "}
           {new Date(session.boughtAt).toLocaleString()}
         </span>
@@ -565,7 +579,7 @@ export function HelixboxConsolePage() {
             style={{
               margin: "0 0 14px",
               color: "var(--fg-muted)",
-              fontSize: 14,
+              fontSize: "var(--t-4)",
               maxWidth: 560,
               lineHeight: 1.6,
             }}
@@ -577,7 +591,7 @@ export function HelixboxConsolePage() {
 
           {loadError && (
             <Panel style={{ padding: 16, borderColor: "var(--danger)" }}>
-              <div style={{ fontSize: 13, color: "var(--danger)" }}>
+              <div style={{ fontSize: "var(--t-3)", color: "var(--danger)" }}>
                 {loadError}
               </div>
             </Panel>
@@ -587,7 +601,7 @@ export function HelixboxConsolePage() {
             <div
               style={{
                 fontFamily: "var(--font-mono)",
-                fontSize: 12,
+                fontSize: "var(--t-2)",
                 color: "var(--fg-dim)",
               }}
             >
@@ -607,7 +621,7 @@ export function HelixboxConsolePage() {
                     marginTop: 10,
                     display: "flex",
                     flexDirection: "column",
-                    gap: 8,
+                    gap: "var(--s-3)",
                   }}
                 >
                   {spec.endpoints.map((e) => (
@@ -648,10 +662,10 @@ export function HelixboxConsolePage() {
                   <div
                     style={{
                       display: "flex",
-                      gap: 7,
+                      gap: "var(--s-2)",
                       alignItems: "baseline",
                       marginTop: 12,
-                      fontSize: 11.5,
+                      fontSize: "var(--t-1)",
                       color: "var(--fg-dim)",
                       lineHeight: 1.55,
                     }}
@@ -678,13 +692,13 @@ export function HelixboxConsolePage() {
                       borderTop: "1px solid var(--border)",
                       display: "flex",
                       alignItems: "center",
-                      gap: 14,
+                      gap: "var(--s-4)",
                       flexWrap: "wrap",
                     }}
                   >
                     <div
                       style={{
-                        fontSize: 11.5,
+                        fontSize: "var(--t-1)",
                         color: "var(--fg-dim)",
                         fontFamily: "var(--font-mono)",
                       }}
@@ -702,7 +716,12 @@ export function HelixboxConsolePage() {
                       }}
                     />
                     {missingCode && (
-                      <div style={{ fontSize: 11.5, color: "var(--fg-dim)" }}>
+                      <div
+                        style={{
+                          fontSize: "var(--t-1)",
+                          color: "var(--fg-dim)",
+                        }}
+                      >
                         Add your pairing code to buy.
                       </div>
                     )}
@@ -730,7 +749,7 @@ export function HelixboxConsolePage() {
                   <div
                     style={{
                       marginTop: 6,
-                      fontSize: 12.5,
+                      fontSize: "var(--t-2)",
                       color: "var(--danger)",
                       lineHeight: 1.55,
                     }}
@@ -743,7 +762,7 @@ export function HelixboxConsolePage() {
                     <div style={{ marginTop: 10 }}>
                       <div
                         style={{
-                          fontSize: 11.5,
+                          fontSize: "var(--t-1)",
                           color: "var(--fg-muted)",
                           lineHeight: 1.55,
                         }}
@@ -762,7 +781,7 @@ export function HelixboxConsolePage() {
                     <div
                       style={{
                         marginTop: 8,
-                        fontSize: 11.5,
+                        fontSize: "var(--t-1)",
                         color: "var(--fg-muted)",
                         lineHeight: 1.55,
                       }}
@@ -782,7 +801,7 @@ export function HelixboxConsolePage() {
                       display: "flex",
                       alignItems: "baseline",
                       justifyContent: "space-between",
-                      gap: 12,
+                      gap: "var(--s-4)",
                       flexWrap: "wrap",
                     }}
                   >
@@ -790,7 +809,7 @@ export function HelixboxConsolePage() {
                     <span
                       style={{
                         fontFamily: "var(--font-mono)",
-                        fontSize: 11,
+                        fontSize: "var(--t-1)",
                         color: result.settled ? "var(--fg-muted)" : AMBER,
                       }}
                     >
@@ -811,7 +830,7 @@ export function HelixboxConsolePage() {
                         border: `1px solid ${AMBER}`,
                         borderRadius: "var(--r-1)",
                         background: "rgba(255, 181, 71, 0.07)",
-                        fontSize: 11.5,
+                        fontSize: "var(--t-1)",
                         color: "var(--fg-muted)",
                         lineHeight: 1.55,
                       }}
@@ -826,7 +845,7 @@ export function HelixboxConsolePage() {
                     <div style={{ marginTop: 12 }}>
                       <div
                         style={{
-                          fontSize: 12.5,
+                          fontSize: "var(--t-2)",
                           color: "var(--fg-muted)",
                           lineHeight: 1.6,
                           marginBottom: 10,
@@ -847,7 +866,7 @@ export function HelixboxConsolePage() {
                         <>
                           <div
                             style={{
-                              fontSize: 11.5,
+                              fontSize: "var(--t-1)",
                               color: "var(--fg-dim)",
                               marginBottom: 6,
                             }}
@@ -860,7 +879,7 @@ export function HelixboxConsolePage() {
                       <div
                         style={{
                           marginTop: 10,
-                          fontSize: 11.5,
+                          fontSize: "var(--t-1)",
                           color: "var(--fg-dim)",
                           lineHeight: 1.55,
                         }}
@@ -881,7 +900,7 @@ export function HelixboxConsolePage() {
                         border: `1px solid ${AMBER}`,
                         borderRadius: "var(--r-1)",
                         background: "rgba(255, 181, 71, 0.07)",
-                        fontSize: 12,
+                        fontSize: "var(--t-2)",
                         color: "var(--fg-muted)",
                         lineHeight: 1.55,
                       }}
@@ -901,7 +920,7 @@ export function HelixboxConsolePage() {
                     <summary
                       style={{
                         cursor: "pointer",
-                        fontSize: 11.5,
+                        fontSize: "var(--t-1)",
                         color: "var(--fg-dim)",
                       }}
                     >
@@ -915,7 +934,7 @@ export function HelixboxConsolePage() {
                         background: "var(--bg)",
                         border: "1px solid var(--border)",
                         borderRadius: "var(--r-1)",
-                        fontSize: 11,
+                        fontSize: "var(--t-1)",
                         fontFamily: "var(--font-mono)",
                         color: "var(--fg-muted)",
                         overflowX: "auto",
@@ -932,11 +951,16 @@ export function HelixboxConsolePage() {
                         marginTop: 12,
                         display: "flex",
                         flexDirection: "column",
-                        gap: 4,
+                        gap: "var(--s-1)",
                       }}
                     >
                       {result.txId && (
-                        <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+                        <div
+                          style={{
+                            fontSize: "var(--t-1)",
+                            color: "var(--fg-dim)",
+                          }}
+                        >
                           Paid to HelixBox{" "}
                           <ExternalLink
                             href={result.explorerURL}
@@ -947,7 +971,12 @@ export function HelixboxConsolePage() {
                         </div>
                       )}
                       {result.platformFeeTxId && (
-                        <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+                        <div
+                          style={{
+                            fontSize: "var(--t-1)",
+                            color: "var(--fg-dim)",
+                          }}
+                        >
                           AgentMesh fee{" "}
                           <ExternalLink
                             href={result.platformFeeExplorerURL}
@@ -969,12 +998,11 @@ export function HelixboxConsolePage() {
                   <p
                     style={{
                       margin: "8px 0 0",
-                      fontSize: 11.5,
+                      fontSize: "var(--t-1)",
                       color: "var(--fg-dim)",
                       lineHeight: 1.55,
                     }}
                   >
-                    Time you have bought, and which pairing code it went to.
                     Kept in this browser only.
                   </p>
                   <div
@@ -982,7 +1010,7 @@ export function HelixboxConsolePage() {
                       marginTop: 12,
                       display: "flex",
                       flexDirection: "column",
-                      gap: 8,
+                      gap: "var(--s-3)",
                     }}
                   >
                     {sessions.map((s) => (

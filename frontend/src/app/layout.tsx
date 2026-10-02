@@ -5,6 +5,7 @@ import { BottomNav } from "@/components/nav/BottomNav";
 import { RouteTransition } from "@/components/nav/RouteTransition";
 import { IS_NATIVE } from "@/lib/nativeAuth";
 import { buildCsp } from "@/lib/csp";
+import { SURFACE } from "@/lib/tokens";
 import localFont from "next/font/local";
 import "./globals.css";
 
@@ -80,10 +81,12 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  // The literal value of --bg. A theme colour has to be a colour, not a var():
-  // the browser reads this meta tag to paint chrome outside the document, where
-  // the page's custom properties do not exist. Keep in step with globals.css.
-  themeColor: "#08070c",
+  // A theme colour has to be a colour, not a var(): the browser reads this
+  // meta tag to paint chrome outside the document, where the page's custom
+  // properties do not exist. Sourced from lib/tokens.ts, where a test asserts
+  // it still equals --bg -- it used to be a literal with a comment asking for
+  // it to be kept in step with globals.css by hand.
+  themeColor: SURFACE.bg,
 };
 
 export default function RootLayout({

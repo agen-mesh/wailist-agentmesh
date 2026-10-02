@@ -551,7 +551,7 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
           ) : !ready ? (
             <div
               aria-busy="true"
-              style={{ marginTop: 20, display: "grid", gap: 10 }}
+              style={{ marginTop: 20, display: "grid", gap: "var(--s-3)" }}
             >
               <Skeleton width="60%" height={22} />
               <Skeleton width="40%" height={14} />
@@ -630,7 +630,7 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
                 {blocked && !newestRunning && (
                   <p
                     id="wf-summary-blocked"
-                    style={{ ...copy, marginTop: 8, fontSize: 12 }}
+                    style={{ ...copy, marginTop: 8, fontSize: "var(--t-2)" }}
                   >
                     {blocked}
                   </p>
@@ -641,7 +641,7 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
                     style={{
                       ...copy,
                       marginTop: 8,
-                      fontSize: 12,
+                      fontSize: "var(--t-2)",
                       color: "var(--danger)",
                     }}
                   >
@@ -668,7 +668,7 @@ export function WorkflowSummary({ workflowId }: { workflowId: string }) {
                   Run history is not available on this server yet.
                 </p>
               ) : !runsLoaded ? (
-                <div aria-busy="true" style={{ display: "grid", gap: 8 }}>
+                <div aria-busy="true" style={{ display: "grid", gap: "var(--s-3)" }}>
                   <Skeleton width="100%" height={56} radius="var(--r-2)" />
                   <Skeleton width="100%" height={56} radius="var(--r-2)" />
                 </div>
@@ -800,7 +800,7 @@ const page: React.CSSProperties = {
 const titleRow: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 10,
+  gap: "var(--s-3)",
   flexWrap: "wrap",
 };
 
@@ -856,7 +856,7 @@ const list: React.CSSProperties = {
   margin: 0,
   padding: 0,
   display: "grid",
-  gap: 6,
+  gap: "var(--s-2)",
 };
 
 const row: React.CSSProperties = {
@@ -865,7 +865,7 @@ const row: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: 12,
+  gap: "var(--s-4)",
   padding: "8px 12px",
   borderRadius: "var(--r-2)",
   border: "1px solid var(--border)",
@@ -878,7 +878,7 @@ const row: React.CSSProperties = {
 const rowMain: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 8,
+  gap: "var(--s-3)",
   minWidth: 0,
   flexWrap: "wrap",
 };
@@ -891,7 +891,7 @@ const rowMeta: React.CSSProperties = {
 const rowFigures: React.CSSProperties = {
   display: "grid",
   justifyItems: "end",
-  gap: 2,
+  gap: "var(--s-0)",
   flexShrink: 0,
   font: "500 12px/1.3 var(--font-mono)",
   fontVariantNumeric: "tabular-nums",

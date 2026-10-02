@@ -18,9 +18,9 @@ import {
 // Tendril's own accent, shared with the canvas node type (PalettePanel /
 // Inspector) so this reads as the same feature rather than a disconnected
 // sub-app.
-const MAGENTA = "#E879F9";
-const MAGENTA_DIM = "rgba(232, 121, 249, 0.08)";
-const GREEN = "#34D399";
+const MAGENTA = "var(--type-x402)";
+const MAGENTA_DIM = "var(--type-x402-soft)";
+const GREEN = "var(--success)";
 
 function formatDuration(totalSeconds: number): string {
   const s = Math.max(0, Math.round(totalSeconds));
@@ -77,7 +77,7 @@ function PanelLabel({ children }: { children: React.ReactNode }) {
     <div
       style={{
         fontFamily: "var(--font-mono)",
-        fontSize: 10,
+        fontSize: "var(--t-0)",
         textTransform: "uppercase",
         letterSpacing: "0.1em",
         color: "var(--fg-dim)",
@@ -95,7 +95,7 @@ function Dot({ color }: { color: string }) {
       style={{
         width: 7,
         height: 7,
-        borderRadius: 999,
+        borderRadius: "var(--r-full)",
         background: color,
         boxShadow: `0 0 6px ${color}`,
         flexShrink: 0,
@@ -111,7 +111,7 @@ const monoInput: React.CSSProperties = {
   border: "1px solid var(--border-strong)",
   borderRadius: "var(--r-1)",
   color: "var(--fg)",
-  fontSize: 13,
+  fontSize: "var(--t-3)",
   fontFamily: "var(--font-mono)",
   outline: "none",
 };
@@ -120,7 +120,7 @@ function nameplateButton(disabled: boolean): React.CSSProperties {
   return {
     height: 32,
     padding: "0 16px",
-    fontSize: 11,
+    fontSize: "var(--t-1)",
     fontWeight: 700,
     letterSpacing: "0.08em",
     textTransform: "uppercase",
@@ -128,7 +128,7 @@ function nameplateButton(disabled: boolean): React.CSSProperties {
     background: disabled ? "var(--bg-elev-2)" : MAGENTA,
     border: `1px solid ${disabled ? "var(--border-strong)" : MAGENTA}`,
     borderRadius: "var(--r-1)",
-    color: disabled ? "var(--fg-dim)" : "#1a0a1a",
+    color: disabled ? "var(--fg-dim)" : "var(--type-x402-fg)",
     cursor: disabled ? "default" : "pointer",
     whiteSpace: "nowrap",
   };
@@ -140,7 +140,7 @@ const txLinkStyle: React.CSSProperties = {
   color: MAGENTA,
   textDecoration: "underline",
   fontFamily: "var(--font-mono)",
-  fontSize: 11,
+  fontSize: "var(--t-1)",
   whiteSpace: "nowrap",
 };
 
@@ -148,7 +148,7 @@ function quietButton(danger = false): React.CSSProperties {
   return {
     height: 32,
     padding: "0 14px",
-    fontSize: 11,
+    fontSize: "var(--t-1)",
     fontWeight: 600,
     letterSpacing: "0.04em",
     textTransform: "uppercase",
@@ -320,7 +320,7 @@ export function TendrilConsolePage() {
             style={{
               margin: "0 0 14px",
               color: "var(--fg-muted)",
-              fontSize: 14,
+              fontSize: "var(--t-4)",
               maxWidth: 520,
             }}
           >
@@ -331,9 +331,9 @@ export function TendrilConsolePage() {
             style={{
               display: "flex",
               alignItems: "baseline",
-              gap: 8,
+              gap: "var(--s-3)",
               marginBottom: 32,
-              fontSize: 12,
+              fontSize: "var(--t-2)",
               color: "var(--fg-dim)",
               maxWidth: 560,
             }}
@@ -354,7 +354,7 @@ export function TendrilConsolePage() {
                 flexWrap: "wrap",
                 justifyContent: "space-between",
                 alignItems: "flex-start",
-                gap: 12,
+                gap: "var(--s-4)",
               }}
             >
               <div>
@@ -362,7 +362,7 @@ export function TendrilConsolePage() {
                 <div
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: 32,
+                    fontSize: "var(--t-7)",
                     fontWeight: 600,
                     color: "var(--fg)",
                     marginTop: 4,
@@ -376,7 +376,7 @@ export function TendrilConsolePage() {
                 </div>
                 <div
                   style={{
-                    fontSize: 11.5,
+                    fontSize: "var(--t-1)",
                     color: "var(--fg-dim)",
                     marginTop: 4,
                   }}
@@ -401,7 +401,7 @@ export function TendrilConsolePage() {
                   style={{
                     display: "flex",
                     flexDirection: "column",
-                    gap: 6,
+                    gap: "var(--s-2)",
                     alignItems: "flex-end",
                   }}
                 >
@@ -410,7 +410,7 @@ export function TendrilConsolePage() {
                       display: "flex",
                       flexWrap: "wrap",
                       justifyContent: "flex-end",
-                      gap: 6,
+                      gap: "var(--s-2)",
                     }}
                   >
                     <span
@@ -461,7 +461,7 @@ export function TendrilConsolePage() {
             </div>
             {topupMsg && (
               <div
-                style={{ fontSize: 12, marginTop: 10, color: "var(--danger)" }}
+                style={{ fontSize: "var(--t-2)", marginTop: 10, color: "var(--danger)" }}
               >
                 {topupMsg}
               </div>
@@ -474,23 +474,23 @@ export function TendrilConsolePage() {
                   borderTop: "1px solid var(--border)",
                   display: "flex",
                   flexDirection: "column",
-                  gap: 4,
+                  gap: "var(--s-1)",
                 }}
               >
-                <div style={{ fontSize: 12, color: "var(--fg-muted)" }}>
+                <div style={{ fontSize: "var(--t-2)", color: "var(--fg-muted)" }}>
                   Added {topupResult.toppedUp} USDC.
                 </div>
                 <div
                   style={{
                     display: "flex",
                     flexWrap: "wrap",
-                    gap: 12,
-                    fontSize: 11,
+                    gap: "var(--s-4)",
+                    fontSize: "var(--t-1)",
                   }}
                 >
                   {topupResult.txId && (
                     <span
-                      style={{ display: "flex", alignItems: "center", gap: 5 }}
+                      style={{ display: "flex", alignItems: "center", gap: "var(--s-1)" }}
                     >
                       <span style={{ color: "var(--fg-dim)" }}>
                         Wallet 1 → Wallet 2
@@ -516,7 +516,7 @@ export function TendrilConsolePage() {
                   )}
                   {topupResult.outboundTxId && (
                     <span
-                      style={{ display: "flex", alignItems: "center", gap: 5 }}
+                      style={{ display: "flex", alignItems: "center", gap: "var(--s-1)" }}
                     >
                       <span style={{ color: "var(--fg-dim)" }}>
                         Wallet 2 → Tendril
@@ -561,8 +561,8 @@ export function TendrilConsolePage() {
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 6,
-                fontSize: 11.5,
+                gap: "var(--s-2)",
+                fontSize: "var(--t-1)",
                 color: "var(--fg-dim)",
               }}
             >
@@ -584,7 +584,7 @@ export function TendrilConsolePage() {
             style={{
               display: "flex",
               flexDirection: "column",
-              gap: 8,
+              gap: "var(--s-3)",
               marginBottom: 24,
             }}
           >
@@ -594,7 +594,7 @@ export function TendrilConsolePage() {
                   padding: 16,
                   textAlign: "center",
                   color: "var(--fg-dim)",
-                  fontSize: 13,
+                  fontSize: "var(--t-3)",
                 }}
               >
                 No machines online right now.
@@ -629,7 +629,7 @@ export function TendrilConsolePage() {
                     <div
                       style={{
                         fontFamily: "var(--font-mono)",
-                        fontSize: 13,
+                        fontSize: "var(--t-3)",
                         fontWeight: 600,
                         color: "var(--fg)",
                         overflow: "hidden",
@@ -646,7 +646,7 @@ export function TendrilConsolePage() {
                         gap: "2px 10px",
                         marginTop: 2,
                         fontFamily: "var(--font-mono)",
-                        fontSize: 11,
+                        fontSize: "var(--t-1)",
                         color: "var(--fg-dim)",
                       }}
                     >
@@ -669,7 +669,7 @@ export function TendrilConsolePage() {
                     style={{
                       marginLeft: "auto",
                       textAlign: "right",
-                      fontSize: 11,
+                      fontSize: "var(--t-1)",
                       color: overBudget ? "var(--danger)" : "var(--fg-dim)",
                       fontFamily: "var(--font-mono)",
                     }}
@@ -690,7 +690,7 @@ export function TendrilConsolePage() {
           {rentMsg && (
             <div
               style={{
-                fontSize: 12,
+                fontSize: "var(--t-2)",
                 marginTop: -14,
                 marginBottom: 20,
                 color: "var(--danger)",
@@ -708,7 +708,7 @@ export function TendrilConsolePage() {
                   padding: "14px 18px",
                   display: "flex",
                   alignItems: "center",
-                  gap: 10,
+                  gap: "var(--s-3)",
                   borderBottom: "1px solid var(--border)",
                   background: MAGENTA_DIM,
                 }}
@@ -717,7 +717,7 @@ export function TendrilConsolePage() {
                 <span
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: 12,
+                    fontSize: "var(--t-2)",
                     fontWeight: 600,
                     color: "var(--fg)",
                   }}
@@ -727,7 +727,7 @@ export function TendrilConsolePage() {
                 <span
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: 11,
+                    fontSize: "var(--t-1)",
                     color: "var(--fg-dim)",
                   }}
                 >
@@ -767,7 +767,7 @@ export function TendrilConsolePage() {
                       <div
                         style={{
                           height: 4,
-                          borderRadius: 999,
+                          borderRadius: "var(--r-full)",
                           background: "var(--bg)",
                           border: "1px solid var(--border)",
                           overflow: "hidden",
@@ -788,7 +788,7 @@ export function TendrilConsolePage() {
                           justifyContent: "space-between",
                           marginTop: 6,
                           fontFamily: "var(--font-mono)",
-                          fontSize: 10.5,
+                          fontSize: "var(--t-0)",
                           color: "var(--fg-dim)",
                         }}
                       >
@@ -814,7 +814,7 @@ export function TendrilConsolePage() {
                     display: "flex",
                     flexWrap: "wrap",
                     alignItems: "center",
-                    gap: 8,
+                    gap: "var(--s-3)",
                   }}
                 >
                   <code
@@ -825,7 +825,7 @@ export function TendrilConsolePage() {
                       border: "1px solid var(--border)",
                       borderRadius: "var(--r-1)",
                       padding: "8px 12px",
-                      fontSize: 12,
+                      fontSize: "var(--t-2)",
                       fontFamily: "var(--font-mono)",
                       color: "var(--fg-muted)",
                       overflow: "auto",
@@ -889,7 +889,7 @@ export function TendrilConsolePage() {
                     value={payload}
                     onChange={(e) => setPayload(e.target.value)}
                   />
-                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <div style={{ display: "flex", gap: "var(--s-3)", marginTop: 8 }}>
                     <button
                       style={nameplateButton(runBusy)}
                       disabled={runBusy}
@@ -901,7 +901,7 @@ export function TendrilConsolePage() {
                   {runMsg && (
                     <div
                       style={{
-                        fontSize: 12,
+                        fontSize: "var(--t-2)",
                         marginTop: 8,
                         color: "var(--danger)",
                       }}
@@ -917,7 +917,7 @@ export function TendrilConsolePage() {
                         background: "var(--bg)",
                         border: "1px solid var(--border)",
                         borderRadius: "var(--r-2)",
-                        fontSize: 11,
+                        fontSize: "var(--t-1)",
                         fontFamily: "var(--font-mono)",
                         color: "var(--fg-muted)",
                         overflow: "auto",
@@ -938,13 +938,13 @@ export function TendrilConsolePage() {
                 padding: "14px 18px",
                 display: "flex",
                 alignItems: "center",
-                gap: 10,
+                gap: "var(--s-3)",
                 borderColor: "rgba(52, 211, 153, 0.35)",
                 background: "rgba(52, 211, 153, 0.06)",
               }}
             >
               <Dot color={GREEN} />
-              <div style={{ fontSize: 12.5, color: "var(--fg)" }}>
+              <div style={{ fontSize: "var(--t-2)", color: "var(--fg)" }}>
                 Released after {formatDuration(releaseResult.usedSeconds)} —
                 charged{" "}
                 <strong style={{ fontFamily: "var(--font-mono)" }}>
@@ -973,7 +973,7 @@ export function TendrilConsolePage() {
             machines.length > 0 &&
             !loading && (
               <div
-                style={{ fontSize: 12, color: "var(--fg-dim)", marginTop: -4 }}
+                style={{ fontSize: "var(--t-2)", color: "var(--fg-dim)", marginTop: -4 }}
               >
                 Rent one to get a terminal.
               </div>

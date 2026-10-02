@@ -127,21 +127,21 @@ function NodeHeader({
         padding: "10px 12px",
         display: "flex",
         alignItems: "center",
-        gap: 10,
+        gap: "var(--s-3)",
       }}
     >
       <span
         style={{
           width: 24,
           height: 24,
-          borderRadius: 5,
+          borderRadius: "var(--r-2)",
           background: iconBg,
           color: iconColor,
           border: "1px solid var(--border-strong)",
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: 12,
+          fontSize: "var(--t-2)",
           flexShrink: 0,
         }}
       >
@@ -151,7 +151,7 @@ function NodeHeader({
         <div
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 9.5,
+            fontSize: "var(--t-0)",
             color: "var(--fg-dim)",
             textTransform: "uppercase",
             letterSpacing: "0.08em",
@@ -161,7 +161,7 @@ function NodeHeader({
         </div>
         <div
           style={{
-            fontSize: 12.5,
+            fontSize: "var(--t-2)",
             fontWeight: 500,
             color: "var(--fg)",
             whiteSpace: "nowrap",
@@ -175,7 +175,7 @@ function NodeHeader({
           <div
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 9.5,
+              fontSize: "var(--t-0)",
               color: "var(--fg-dim)",
               whiteSpace: "nowrap",
               overflow: "hidden",
@@ -235,7 +235,7 @@ function SidePort({
         style={{
           width: 10,
           height: 10,
-          borderRadius: 999,
+          borderRadius: "var(--r-full)",
           background: "var(--bg)",
           border: `1.5px solid ${color}`,
         }}
@@ -283,7 +283,7 @@ function TopPort({
         style={{
           width: 10,
           height: 10,
-          borderRadius: 999,
+          borderRadius: "var(--r-full)",
           background: "var(--bg)",
           border: `1.5px solid ${color}`,
         }}
@@ -330,7 +330,7 @@ function BottomPort({
         style={{
           width: 10,
           height: 10,
-          borderRadius: 999,
+          borderRadius: "var(--r-full)",
           background: "var(--bg)",
           border: `1.5px solid ${color}`,
         }}
@@ -412,7 +412,7 @@ function AgentNode({
           padding: "12px 14px 10px",
           display: "flex",
           alignItems: "center",
-          gap: 10,
+          gap: "var(--s-3)",
           borderBottom: "1px solid var(--border-soft)",
         }}
       >
@@ -420,13 +420,13 @@ function AgentNode({
           style={{
             width: 26,
             height: 26,
-            borderRadius: 6,
+            borderRadius: "var(--r-2)",
             background: "var(--accent-soft)",
             color: "var(--accent)",
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: 13,
+            fontSize: "var(--t-3)",
             flexShrink: 0,
           }}
         >
@@ -440,7 +440,7 @@ function AgentNode({
           <div
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 9.5,
+              fontSize: "var(--t-0)",
               color: "var(--accent)",
               textTransform: "uppercase",
               letterSpacing: "0.08em",
@@ -450,7 +450,7 @@ function AgentNode({
           </div>
           <div
             style={{
-              fontSize: 13,
+              fontSize: "var(--t-3)",
               fontWeight: 500,
               color: "var(--fg)",
               overflow: "hidden",
@@ -476,14 +476,14 @@ function AgentNode({
           padding: "8px 14px 10px",
           display: "flex",
           alignItems: "center",
-          gap: 8,
+          gap: "var(--s-3)",
           fontFamily: "var(--font-mono)",
-          fontSize: 10,
+          fontSize: "var(--t-0)",
           minWidth: 0,
           overflow: "hidden",
         }}
       >
-        <span style={{ color: "var(--fg-dim)", fontSize: 9.5 }}>
+        <span style={{ color: "var(--fg-dim)", fontSize: "var(--t-0)" }}>
           {deployed ? "live · paid calls billed to credits" : "not deployed"}
         </span>
       </div>
@@ -580,7 +580,7 @@ function SubPortLabel({
         alignItems: "center",
         gap: 1,
         fontFamily: "var(--font-mono)",
-        fontSize: 9,
+        fontSize: "var(--t-0)",
         textTransform: "uppercase",
         letterSpacing: "0.08em",
       }}
@@ -591,7 +591,7 @@ function SubPortLabel({
       <span
         style={{
           color: "var(--fg-dim)",
-          fontSize: 8.5,
+          fontSize: "var(--t-0)",
           textTransform: "none",
           letterSpacing: 0,
         }}
@@ -641,9 +641,9 @@ function ProviderNode({
           padding: "4px 12px 10px",
           display: "flex",
           alignItems: "center",
-          gap: 6,
+          gap: "var(--s-2)",
           fontFamily: "var(--font-mono)",
-          fontSize: 10,
+          fontSize: "var(--t-0)",
         }}
       >
         <span style={{ color: "var(--fg-dim)" }}>key</span>
@@ -661,7 +661,7 @@ function ProviderNode({
             >
               {maskedKey}
             </span>
-            <span style={{ color: "#4ade80", fontSize: 9, flexShrink: 0 }}>
+            <span style={{ color: "var(--success)", fontSize: "var(--t-0)", flexShrink: 0 }}>
               ✓
             </span>
           </>
@@ -754,7 +754,7 @@ function Tool402Node({
   // No preset template list anymore (TOOL402_TEMPLATES removed -- see
   // node-cleanup plan Part A1); every x402 node is custom, so it always
   // carries its own name/provider/price/unit/icon set at creation time.
-  const magenta = "#E879F9";
+  const magenta = "var(--type-x402)";
   const name = node.name ?? "x402 Tool";
   const provider = node.provider ?? "";
   const price = node.price;
@@ -776,20 +776,20 @@ function Tool402Node({
           padding: "10px 12px 6px",
           display: "flex",
           alignItems: "center",
-          gap: 10,
+          gap: "var(--s-3)",
         }}
       >
         <span
           style={{
             width: 24,
             height: 24,
-            borderRadius: 5,
+            borderRadius: "var(--r-2)",
             background: "rgba(232, 121, 249, 0.14)",
             color: magenta,
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: 13,
+            fontSize: "var(--t-3)",
             flexShrink: 0,
             fontWeight: 600,
           }}
@@ -800,7 +800,7 @@ function Tool402Node({
           <div
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 9.5,
+              fontSize: "var(--t-0)",
               color: magenta,
               textTransform: "uppercase",
               letterSpacing: "0.08em",
@@ -810,7 +810,7 @@ function Tool402Node({
           </div>
           <div
             style={{
-              fontSize: 13,
+              fontSize: "var(--t-3)",
               fontWeight: 500,
               whiteSpace: "nowrap",
               overflow: "hidden",
@@ -823,9 +823,9 @@ function Tool402Node({
         <span
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 9,
+            fontSize: "var(--t-0)",
             padding: "2px 6px",
-            borderRadius: 999,
+            borderRadius: "var(--r-1)",
             border: `1px solid ${magenta}`,
             color: magenta,
             textTransform: "uppercase",
@@ -842,7 +842,7 @@ function Tool402Node({
           alignItems: "center",
           justifyContent: "space-between",
           fontFamily: "var(--font-mono)",
-          fontSize: 10,
+          fontSize: "var(--t-0)",
         }}
       >
         <span
@@ -1073,7 +1073,7 @@ function TendrilNode({
 }: NodeProps) {
   const t = NODE_TYPES.tendril;
   const tpl = TENDRIL_TEMPLATES.find((x) => x.id === node.template);
-  const magenta = "#E879F9";
+  const magenta = "var(--type-x402)";
   const name = node.name ?? tpl?.name ?? "Tendril";
   const sub = node.sub ?? tpl?.desc ?? "";
   const icon = node.icon ?? tpl?.icon ?? "▣";

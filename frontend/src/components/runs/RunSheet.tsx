@@ -354,7 +354,7 @@ const metaRow: React.CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
   alignItems: "center",
-  gap: 8,
+  gap: "var(--s-3)",
   font: "400 12px/1.4 var(--font-sans)",
   color: "var(--fg-muted)",
 };
@@ -362,7 +362,7 @@ const metaRow: React.CSSProperties = {
 const facts: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: 12,
+  gap: "var(--s-4)",
   margin: "16px 0 4px",
 };
 
@@ -417,7 +417,7 @@ const listRow: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "baseline",
-  gap: 12,
+  gap: "var(--s-4)",
   padding: "10px 0",
   borderBottom: "1px solid var(--border)",
   font: "400 13px/1.4 var(--font-sans)",

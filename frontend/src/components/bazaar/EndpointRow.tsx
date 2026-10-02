@@ -3,7 +3,7 @@ import { assetSymbol, formatPrice, type BazaarResource } from "@/lib/bazaar";
 
 // Matches ResourceCard's tool402 accent, so a row still reads as "the same
 // kind of thing" as the pinned Supported cards above it.
-const MAGENTA = "#E879F9";
+const MAGENTA = "var(--type-x402)";
 const MAGENTA_SOFT = "rgba(232, 121, 249, 0.14)";
 
 // A single catalog entry, as one fixed-height row rather than a card. Every
@@ -45,7 +45,7 @@ export function EndpointRow({
       </span>
 
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: "var(--s-3)" }}>
           <span className="bz-row__name">
             {resource.provider ?? resource.host}
           </span>

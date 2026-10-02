@@ -13,7 +13,7 @@ import { TENDRIL_DEMO_WORKFLOW, PRISM_DEMO_WORKFLOW } from "@/lib/data";
 import { loadTemplateWorkflow } from "@/lib/templateWorkflow";
 import type { Workflow } from "@/lib/types";
 
-const MAGENTA = "#E879F9";
+const MAGENTA = "var(--type-x402)";
 const MAGENTA_SOFT = "rgba(232, 121, 249, 0.14)";
 
 // What each console is FOR, in the user's terms rather than the catalog's. A
@@ -224,7 +224,7 @@ export function ConsoleCard({
         padding: 18,
         display: "flex",
         flexDirection: "column",
-        gap: 12,
+        gap: "var(--s-4)",
         minWidth: 0,
         // Grow into whatever the row has left, so the last card in a wrapped
         // row is never marooned beside empty space. 320px is the basis at
@@ -233,7 +233,7 @@ export function ConsoleCard({
         boxSizing: "border-box",
       }}
     >
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--s-3)" }}>
         <span
           aria-hidden
           style={{
@@ -245,7 +245,7 @@ export function ConsoleCard({
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: 14,
+            fontSize: "var(--t-4)",
             flexShrink: 0,
           }}
         >
@@ -254,7 +254,7 @@ export function ConsoleCard({
         <div style={{ minWidth: 0, flex: 1 }}>
           <div
             style={{
-              fontSize: 15,
+              fontSize: "var(--t-4)",
               fontWeight: 600,
               color: "var(--fg)",
               letterSpacing: "-0.01em",
@@ -262,7 +262,7 @@ export function ConsoleCard({
           >
             {provider}
           </div>
-          <div style={{ fontSize: 12, color: "var(--fg-muted)", marginTop: 1 }}>
+          <div style={{ fontSize: "var(--t-2)", color: "var(--fg-muted)", marginTop: 1 }}>
             {copy?.verb ?? "Open console"}
           </div>
         </div>
@@ -289,7 +289,7 @@ export function ConsoleCard({
               background: "var(--bg)",
               color: trying || !available ? "var(--fg-dim)" : MAGENTA,
               cursor: trying || !available ? "default" : "pointer",
-              fontSize: 11,
+              fontSize: "var(--t-1)",
               padding: 0,
             }}
           >
@@ -301,7 +301,7 @@ export function ConsoleCard({
       <p
         style={{
           margin: 0,
-          fontSize: 12.5,
+          fontSize: "var(--t-2)",
           lineHeight: 1.6,
           color: "var(--fg-muted)",
           flex: 1,
@@ -318,16 +318,16 @@ export function ConsoleCard({
           one — but humanised, because a raw path ("code-review-accurate") is a
           route name, not a capability. */}
       {capabilities.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s-1)" }}>
           {capabilities.map((c) => (
             <span
               key={c}
               style={{
                 padding: "2px 8px",
-                borderRadius: 999,
+                borderRadius: "var(--r-1)",
                 border: "1px solid var(--border-strong)",
                 background: "var(--bg)",
-                fontSize: 11,
+                fontSize: "var(--t-1)",
                 color: "var(--fg-muted)",
               }}
             >
@@ -342,7 +342,7 @@ export function ConsoleCard({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: 10,
+          gap: "var(--s-3)",
           flexWrap: "wrap",
           paddingTop: 12,
           borderTop: "1px solid var(--border)",
@@ -351,7 +351,7 @@ export function ConsoleCard({
         <span
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: 11.5,
+            fontSize: "var(--t-1)",
             color: "var(--fg)",
             fontWeight: 600,
           }}
@@ -372,7 +372,7 @@ export function ConsoleCard({
             background: !available ? "transparent" : "var(--accent)",
             color: !available ? "var(--fg-dim)" : "var(--accent-fg)",
             borderRadius: "var(--r-2)",
-            fontSize: 12,
+            fontSize: "var(--t-2)",
             fontWeight: 500,
             cursor: !available ? "default" : "pointer",
             fontFamily: "var(--font-sans)",
@@ -384,7 +384,7 @@ export function ConsoleCard({
 
       {error && (
         <div
-          style={{ fontSize: 11.5, color: "var(--danger)", lineHeight: 1.5 }}
+          style={{ fontSize: "var(--t-1)", color: "var(--danger)", lineHeight: 1.5 }}
         >
           {error}
         </div>

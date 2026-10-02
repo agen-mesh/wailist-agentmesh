@@ -60,14 +60,14 @@ export function WorkflowListSkeleton({ count = 3 }: { count?: number }) {
       </span>
       <div
         aria-hidden="true"
-        style={{ display: "flex", flexDirection: "column", gap: 12 }}
+        style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}
       >
         {Array.from({ length: count }, (_, i) => (
           <Card key={i} style={{ padding: 16 }}>
             {/* A title line, then a meta row -- the same two-part shape a real
                 workflow card has, so little moves when one replaces it. */}
             <Skeleton width="44%" height={14} />
-            <div style={{ display: "flex", gap: 24, marginTop: 16 }}>
+            <div style={{ display: "flex", gap: "var(--s-6)", marginTop: 16 }}>
               <Skeleton width={72} height={11} />
               <Skeleton width={56} height={11} />
               <Skeleton width={64} height={11} />

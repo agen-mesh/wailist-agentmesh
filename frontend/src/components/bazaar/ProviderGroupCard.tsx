@@ -2,7 +2,7 @@
 import { assetSymbol, formatPrice, type BazaarResource } from "@/lib/bazaar";
 import { EndpointRow } from "./EndpointRow";
 
-const MAGENTA = "#E879F9";
+const MAGENTA = "var(--type-x402)";
 const MAGENTA_SOFT = "rgba(232, 121, 249, 0.14)";
 
 // Endpoints sharing a host collapse into one of these — one publisher can be
