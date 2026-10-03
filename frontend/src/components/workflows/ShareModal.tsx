@@ -643,9 +643,6 @@ export function ShareModal({
               <div style={{ paddingTop: 10 }}>
                 <div
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "var(--s-3)",
                     marginBottom: otherLinks.length > 0 ? 14 : 0,
                   }}
                 >
@@ -654,41 +651,64 @@ export function ShareModal({
                       it MAKES -- labelled "New link expires", people
                       reasonably read it as putting an expiry on the one they
                       had just copied. */}
-                  <label
-                    htmlFor="share-expiry"
-                    style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)" }}
-                  >
-                    Make another, expiring in
-                  </label>
-                  <select
-                    id="share-expiry"
-                    value={expirySelection}
-                    onChange={(e) => setExpiryDays(Number(e.target.value))}
+                  <span
+                    id="share-expiry-label"
                     style={{
-                      height: 30,
-                      padding: "0 8px",
-                      background: "var(--bg-elev-2)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "var(--r-2)",
-                      color: "var(--fg)",
-                      fontSize: "var(--t-2)",
+                      display: "block",
+                      marginBottom: 6,
+                      fontSize: "var(--t-1)",
+                      color: "var(--fg-dim)",
                     }}
                   >
-                    {expiryChoices.map((c) => (
-                      <option key={c.days} value={c.days}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={handleNewLink}
-                    disabled={busy}
-                    className="share-ghost-btn"
-                    style={{ flex: "0 0 auto", padding: "0 12px" }}
+                    Make another, expiring in
+                  </span>
+                  {/* The label sits on its own line because three segments and
+                      Make it do not fit beside it in a 480px panel. */}
+                  {/* stretch, not center: on a touch pointer the 44px floor
+                      in globals.css applies to each SEGMENT, which makes the
+                      track taller than this button's own 36px. Letting the
+                      button take its height from the row keeps the two edges
+                      aligned at either size instead of centring a short
+                      button against a tall track. */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "stretch",
+                      gap: "var(--s-3)",
+                    }}
                   >
-                    Make it
-                  </button>
+                    <div
+                      className="share-seg"
+                      role="radiogroup"
+                      aria-labelledby="share-expiry-label"
+                    >
+                      {expiryChoices.map((c) => (
+                        <button
+                          key={c.days}
+                          type="button"
+                          role="radio"
+                          aria-checked={c.days === expirySelection}
+                          className="share-seg__item"
+                          onClick={() => setExpiryDays(c.days)}
+                        >
+                          {c.label}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleNewLink}
+                      disabled={busy}
+                      className="share-ghost-btn"
+                      style={{
+                        flex: "0 0 auto",
+                        padding: "0 12px",
+                        height: "auto",
+                      }}
+                    >
+                      Make it
+                    </button>
+                  </div>
                 </div>
 
                 {otherLinks.length > 0 && (

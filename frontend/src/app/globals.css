@@ -800,6 +800,88 @@ body {
   }
 }
 
+/* The expiry choice, as a segmented control rather than a <select>.
+   It offers TWO options -- three only once the current link expires -- and a
+   dropdown hides a two-item choice behind an extra click for nothing back.
+   The open <option> list is drawn by the OS besides, so the part that looked
+   least like this app was the one part no CSS of ours could reach.
+
+   Same recipe as .bilp-seg: the selected segment is RAISED, not accented,
+   because this dialog already spends its one accent on Copy link and a second
+   accent surface would compete with the primary action. */
+.share-seg {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  /* .share-ghost-btn's height, so the segments and Make it share a baseline. */
+  height: 36px;
+  padding: 3px;
+  gap: var(--s-0);
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+}
+
+.share-seg__item {
+  flex: 1 1 0;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-1);
+  background: none;
+  color: var(--fg-muted);
+  font-family: inherit;
+  font-size: var(--t-2);
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    background 0.14s var(--ease),
+    border-color 0.14s var(--ease),
+    color 0.14s var(--ease),
+    transform 0.12s var(--ease);
+}
+
+@media (hover: hover) {
+  .share-seg__item:hover {
+    color: var(--fg);
+  }
+}
+
+.share-seg__item[aria-checked="true"] {
+  background: var(--bg-elev-3);
+  border-color: var(--border);
+  color: var(--fg);
+}
+
+.share-seg__item:active {
+  transform: scale(0.97);
+}
+
+/* The track's 3px padding is what keeps this ring from being clipped. */
+.share-seg__item:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 2px;
+}
+
+/* A segment is a <button>, so the 44px touch floor above applies to it with
+   !important. A fixed-height track would be burst by that rather than grow,
+   leaving the segments overflowing it -- so on a touch pointer the track
+   takes its height from the segments instead of imposing one. */
+@media (pointer: coarse) and (hover: none) {
+  .share-seg {
+    height: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .share-seg__item {
+    transition: none;
+  }
+  .share-seg__item:active {
+    transform: none;
+  }
+}
+
 /* The share link's own field carries its box inline and only its focus state
    here -- the hybrid the rest of this codebase uses (see .chat-send), because
    :focus cannot be written in a style prop. */
