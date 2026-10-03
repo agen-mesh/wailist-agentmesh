@@ -274,6 +274,53 @@ type Workflow struct {
 	IsSystem bool `json:"-"`
 }
 
+// WorkflowShare is one share link: a frozen, sanitised copy of a workflow's
+// graph that anybody holding the token can read and import into their own
+// workspace.
+//
+// Frozen rather than a live view of the workflow, deliberately -- see the
+// header of migration 000041. The consequence worth stating here is that
+// Name, Description and Graph are this row's own data, not the workflow's:
+// renaming or editing the workflow afterwards changes nothing a recipient
+// sees.
+type WorkflowShare struct {
+	Token string `json:"token"`
+	// WorkflowID and UserID are provenance and authority, never published --
+	// json:"-" because the public read serves this same struct, and the id of
+	// a workflow (and of its owner) is exactly what an unauthenticated caller
+	// must not learn from a link somebody forwarded them.
+	WorkflowID string `json:"-"`
+	UserID     string `json:"-"`
+
+	Name        string        `json:"name"`
+	Description string        `json:"description,omitempty"`
+	Graph       WorkflowGraph `json:"graph"`
+
+	NodeCount int `json:"nodeCount"`
+	EdgeCount int `json:"edgeCount"`
+	// ImportCount is for the sharer's own listing. The public read zeroes it
+	// before responding -- how many people took a copy is the sharer's
+	// business, not a recipient's.
+	ImportCount int `json:"importCount,omitempty"`
+
+	// ExpiresAt nil means the link never expires. RevokedAt nil means it is
+	// still live. Both read the same way to a recipient: 404.
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	RevokedAt *time.Time `json:"revokedAt,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
+}
+
+// Live reports whether a share may still be read or imported. Revocation and
+// expiry are one question with one answer, asked in one place, so a caller
+// cannot check half of it -- which is how the public read, the import path
+// and the per-user active-share quota all stay in agreement.
+func (s WorkflowShare) Live(now time.Time) bool {
+	if s.RevokedAt != nil {
+		return false
+	}
+	return s.ExpiresAt == nil || s.ExpiresAt.After(now)
+}
+
 type RunStatus string
 
 const (

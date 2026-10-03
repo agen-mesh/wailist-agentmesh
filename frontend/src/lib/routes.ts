@@ -32,6 +32,26 @@ export function workflowHref(
   return search ? `${path}?${search}` : path;
 }
 
+// Where a share link lives. Short on purpose -- this is the one URL in the app
+// meant to survive being pasted into a tweet, a chat message or a mail client,
+// all of which truncate. /s also sits outside the PROTECTED prefixes in
+// middleware.ts, which is what lets a signed-out visitor open it at all.
+export function shareHref(token: string): string {
+  return `/s/${encodeURIComponent(token)}`;
+}
+
+// The absolute form, for copying and for sending somewhere else.
+//
+// Built from the browser's own origin rather than an env var, so a link copied
+// from a preview deployment points at that preview and one copied from
+// production points at production. Falls back to the relative path when there
+// is no window (SSR), where an absolute URL would be a guess.
+export function shareUrl(token: string): string {
+  const path = shareHref(token);
+  if (typeof window === "undefined") return path;
+  return `${window.location.origin}${path}`;
+}
+
 /**
  * A `next` target that is safe to navigate to after sign-in, or null.
  *

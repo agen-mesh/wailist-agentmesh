@@ -1458,6 +1458,24 @@ function WorkflowRows({
                 {wf.geofenceRadiusM !== undefined ? "Zone ·" : "Zone"}
               </button>
             )}
+            {/* On the row for the same reason Zone is: RowMenu below is gated
+                on "workflow.delete", so the only way to share from this screen
+                vanished on a phone -- while sharing itself works perfectly
+                well there. It was also the quieter half of a pair: Import sits
+                in the toolbar as a button, and its opposite was two levels
+                down a menu. */}
+            {can("workflow.share", readOnly) && (
+              <button
+                style={ghostBtnSm}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onShare(wf.id);
+                }}
+                title="Share this workflow"
+              >
+                Share
+              </button>
+            )}
             {can("workflow.delete", readOnly) && (
               <RowMenu
                 workflowId={wf.id}

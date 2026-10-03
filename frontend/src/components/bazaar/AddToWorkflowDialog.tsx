@@ -47,7 +47,7 @@ export function AddToWorkflowDialog({
     };
   }, []);
 
-  useModalDismissal(onClose);
+  const dialogRef = useModalDismissal(onClose);
 
   const choose = (id: string) => {
     const encoded = encodePendingNode(resourceToNode(resource));
@@ -56,6 +56,7 @@ export function AddToWorkflowDialog({
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-label="Add endpoint to a workflow"

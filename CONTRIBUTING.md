@@ -33,6 +33,7 @@ AgentMesh lets users build autonomous AI agent workflows visually. Here's the fu
 **4. Fund** — `POST /workflows/:id/agents/:agentId/fund` calls the Algorand testnet dispenser to drop ALGO into the agent's wallet.
 
 **5. Run** — `POST /workflows/:id/run` starts a workflow run. The backend:
+
 - Performs a topological sort of the workflow graph
 - Executes nodes level by level (nodes in the same level run in parallel goroutines)
 - For Agent nodes, runs a full LLM function-calling loop (up to 15 iterations)
@@ -40,6 +41,7 @@ AgentMesh lets users build autonomous AI agent workflows visually. Here's the fu
 - Streams every log line in real time over SSE (`GET /runs/:runId/stream`)
 
 **6. Payment** — When the agent's LLM decides to call an x402 tool, the runner calls `ExecuteTool402`:
+
 - Hits the endpoint → receives `402` with price + recipient
 - Decrypts the agent's mnemonic → signs an Algorand payment transaction
 - Submits to the network → retries the request with `X-Payment-Txid` header
@@ -154,29 +156,29 @@ npm run dev
 
 All backend config lives in `backend/.env`. Required vars:
 
-| Variable | Description |
-|---|---|
-| `DATABASE_URL` | Postgres connection string |
-| `JWT_SECRET` | Min 32 bytes — `openssl rand -hex 32` |
-| `ENCRYPTION_KEY` | 32-byte key for AES-GCM mnemonic encryption |
-| `BASE_URL` | Public URL of the backend (used to build OAuth callback URLs) |
-| `FRONTEND_URL` | Public URL of the frontend (OAuth redirects) |
-| `CORS_ORIGIN` | Allowed browser origin — must match frontend URL exactly, no trailing slash |
+| Variable         | Description                                                                 |
+| ---------------- | --------------------------------------------------------------------------- |
+| `DATABASE_URL`   | Postgres connection string                                                  |
+| `JWT_SECRET`     | Min 32 bytes — `openssl rand -hex 32`                                       |
+| `ENCRYPTION_KEY` | 32-byte key for AES-GCM mnemonic encryption                                 |
+| `BASE_URL`       | Public URL of the backend (used to build OAuth callback URLs)               |
+| `FRONTEND_URL`   | Public URL of the frontend (OAuth redirects)                                |
+| `CORS_ORIGIN`    | Allowed browser origin — must match frontend URL exactly, no trailing slash |
 
 Optional (needed for specific features):
 
-| Variable | Feature |
-|---|---|
-| `GEMINI_API_KEY` | Gemini LLM nodes |
-| `OPENAI_API_KEY` | OpenAI LLM nodes |
-| `ANTHROPIC_API_KEY` | Anthropic LLM nodes |
-| `GROQ_API_KEY` | Groq LLM nodes |
-| `MISTRAL_API_KEY` | Mistral LLM nodes |
-| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth |
-| `RESEND_API_KEY` | Email action node |
-| `TENDRIL_REGISTRY_URL` | Tendril compute registry (default `https://tendrilregister.007575.xyz`). Unset disables tendril nodes — they fail closed. |
-| `MAX_RELAY_OUTBOUND_USD_MICROS` | Ceiling on one relayed x402 payment (default `20000000`, $20.00 — raised from $5.00 because a 2-hour rent on a $6/hr machine tops the pool up by $12 in a single call). |
+| Variable                                    | Feature                                                                                                                                                                 |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GEMINI_API_KEY`                            | Gemini LLM nodes                                                                                                                                                        |
+| `OPENAI_API_KEY`                            | OpenAI LLM nodes                                                                                                                                                        |
+| `ANTHROPIC_API_KEY`                         | Anthropic LLM nodes                                                                                                                                                     |
+| `GROQ_API_KEY`                              | Groq LLM nodes                                                                                                                                                          |
+| `MISTRAL_API_KEY`                           | Mistral LLM nodes                                                                                                                                                       |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth                                                                                                                                                            |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth                                                                                                                                                            |
+| `RESEND_API_KEY`                            | Email action node                                                                                                                                                       |
+| `TENDRIL_REGISTRY_URL`                      | Tendril compute registry (default `https://tendrilregister.007575.xyz`). Unset disables tendril nodes — they fail closed.                                               |
+| `MAX_RELAY_OUTBOUND_USD_MICROS`             | Ceiling on one relayed x402 payment (default `20000000`, $20.00 — raised from $5.00 because a 2-hour rent on a $6/hr machine tops the pool up by $12 in a single call). |
 
 ### The two Tendril balances
 
@@ -196,35 +198,42 @@ SUM(users.tendril_credit_usd_micros) + (hours currently metering) <= Tendril poo
 
 ### Public endpoints (no auth)
 
-| Method | Route | Description |
-|---|---|---|
-| `GET` | `/health` | Returns `ok` |
-| `POST` | `/auth/signup` | Create account — body: `{ email, password }` → sets auth cookie |
-| `POST` | `/auth/signin` | Sign in — body: `{ email, password }` → sets auth cookie |
-| `POST` | `/auth/signout` | Clears auth cookie |
-| `GET` | `/auth/oauth/:provider` | Start OAuth (`github` or `google`) |
-| `GET` | `/auth/oauth/:provider/callback` | OAuth callback — sets cookie, redirects to frontend |
-| `POST` | `/waitlist` | Join waitlist — body: `{ email }` |
-| `POST` | `/run/:workflowId` | Public webhook trigger (only works on deployed workflows with a trigger node) |
+| Method | Route                            | Description                                                                                                                                                                            |
+| ------ | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/health`                        | Returns `ok`                                                                                                                                                                           |
+| `POST` | `/auth/signup`                   | Create account — body: `{ email, password }` → sets auth cookie                                                                                                                        |
+| `POST` | `/auth/signin`                   | Sign in — body: `{ email, password }` → sets auth cookie                                                                                                                               |
+| `POST` | `/auth/signout`                  | Clears auth cookie                                                                                                                                                                     |
+| `GET`  | `/auth/oauth/:provider`          | Start OAuth (`github` or `google`)                                                                                                                                                     |
+| `GET`  | `/auth/oauth/:provider/callback` | OAuth callback — sets cookie, redirects to frontend                                                                                                                                    |
+| `POST` | `/waitlist`                      | Join waitlist — body: `{ email }`                                                                                                                                                      |
+| `POST` | `/run/:workflowId`               | Public webhook trigger (only works on deployed workflows with a trigger node)                                                                                                          |
+| `GET`  | `/shares/:token`                 | Read a shared workflow snapshot. Public on purpose — a share link has to open for somebody with no account. Missing, revoked and expired all answer the same 404. Rate-limited per IP. |
 
 ### Protected endpoints (require auth cookie or `Authorization: Bearer <token>`)
 
-| Method | Route | Description |
-|---|---|---|
-| `GET` | `/auth/me` | Returns `{ id }` for the current user |
-| `GET` | `/workflows` | List the user's workflows |
-| `POST` | `/workflows` | Create a workflow — body: `{ name, graph }` |
-| `GET` | `/workflows/:id` | Get a workflow (API keys masked in response) |
-| `PUT` | `/workflows/:id` | Update a workflow |
-| `DELETE` | `/workflows/:id` | Delete a workflow |
-| `POST` | `/workflows/:id/deploy` | Provision Algorand wallets for all agent nodes |
-| `GET` | `/workflows/:id/agents/:agentId/balance` | Get agent wallet ALGO balance |
-| `POST` | `/workflows/:id/agents/:agentId/fund` | Fund agent from testnet dispenser |
-| `POST` | `/workflows/:id/run` | Start a workflow run — body: `{ input }` |
-| `POST` | `/workflows/:id/stop` | Stop a running workflow |
-| `GET` | `/runs/:runId` | Get a run and its logs |
-| `GET` | `/runs/:runId/stream` | SSE stream of live run logs — supports `?token=<jwt>` for EventSource |
-| `POST` | `/tools/x402/quote` | Discover price + params for an x402 endpoint — body: `{ url }` |
+| Method   | Route                                    | Description                                                                                                                                                                                                                                                      |
+| -------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/auth/me`                               | Returns `{ id }` for the current user                                                                                                                                                                                                                            |
+| `GET`    | `/workflows`                             | List the user's workflows                                                                                                                                                                                                                                        |
+| `POST`   | `/workflows`                             | Create a workflow — body: `{ name, graph }`                                                                                                                                                                                                                      |
+| `GET`    | `/workflows/:id`                         | Get a workflow (API keys masked in response)                                                                                                                                                                                                                     |
+| `PUT`    | `/workflows/:id`                         | Update a workflow                                                                                                                                                                                                                                                |
+| `DELETE` | `/workflows/:id`                         | Delete a workflow                                                                                                                                                                                                                                                |
+| `POST`   | `/workflows/import`                      | Create a workflow from a pasted graph — body: `{ name, description?, nodes, edges }`. Atomic, and sanitised server-side; **not** the same as `POST /workflows` + `PUT`, which round-trips the canvas's own ciphertext                                            |
+| `POST`   | `/workflows/:id/share`                   | Freeze a sanitised snapshot and mint a share link — body: `{ expiresInDays, reuseIfUnchanged }` (`expiresInDays` 0 = never). With `reuseIfUnchanged`, an existing live link holding an identical snapshot comes back with **200** rather than a new one with 201 |
+| `GET`    | `/workflows/:id/shares`                  | List this workflow's share links, revoked and expired included                                                                                                                                                                                                   |
+| `GET`    | `/shares`                                | Every link the caller has out, across every workflow, each carrying `workflowId`/`workflowName`, plus the per-user `limit`. The allowance is counted per user, so this is the only view that can answer "which of my links should I revoke?"                     |
+| `DELETE` | `/shares/:token`                         | Revoke a share link                                                                                                                                                                                                                                              |
+| `POST`   | `/shares/:token/import`                  | Copy a shared workflow into the caller's own workspace                                                                                                                                                                                                           |
+| `POST`   | `/workflows/:id/deploy`                  | Provision Algorand wallets for all agent nodes                                                                                                                                                                                                                   |
+| `GET`    | `/workflows/:id/agents/:agentId/balance` | Get agent wallet ALGO balance                                                                                                                                                                                                                                    |
+| `POST`   | `/workflows/:id/agents/:agentId/fund`    | Fund agent from testnet dispenser                                                                                                                                                                                                                                |
+| `POST`   | `/workflows/:id/run`                     | Start a workflow run — body: `{ input }`                                                                                                                                                                                                                         |
+| `POST`   | `/workflows/:id/stop`                    | Stop a running workflow                                                                                                                                                                                                                                          |
+| `GET`    | `/runs/:runId`                           | Get a run and its logs                                                                                                                                                                                                                                           |
+| `GET`    | `/runs/:runId/stream`                    | SSE stream of live run logs — supports `?token=<jwt>` for EventSource                                                                                                                                                                                            |
+| `POST`   | `/tools/x402/quote`                      | Discover price + params for an x402 endpoint — body: `{ url }`                                                                                                                                                                                                   |
 
 ### Auth
 
@@ -241,6 +250,20 @@ For SSE (`GET /runs/:runId/stream`), EventSource can't set headers, so the JWT c
 A workflow is a JSON graph of `WorkflowNode` objects and `WorkflowEdge` objects. Nodes have a `type` (`trigger`, `agent`, `tool402`, `action`), a `config` object, and `inputs`/`outputs` port definitions. Edges connect output ports to input ports.
 
 The full type is in `backend/internal/models/types.go` and mirrored in `frontend/src/lib/types.ts`.
+
+### Sharing a workflow
+
+A share is a **frozen, sanitised copy** of a graph, stored in `workflow_shares` and reachable at `/s/<token>`. Frozen rather than a live view of the workflow: a link serving the live row would publish every later edit retroactively to everyone already holding it, and revocation would mean nothing.
+
+`handlers.SanitizeGraphForShare` is what makes a snapshot safe, and it is an **allowlist** — it builds a fresh `WorkflowNode` and copies named fields onto it, so a field added to that struct is absent from a share until somebody deliberately adds it. A denylist is what failed before: `maskNodes` never grew a case for `CustomParams`, which is how uploaded file bytes ended up in share codes.
+
+`share_sanitize_test.go` reflects over `WorkflowNode` and **fails until every field is classified** as carried, transformed or dropped. If you add a field to that struct, that test is where you say whether it may travel.
+
+Because the snapshot is frozen, **anything that shares or deploys a workflow has to let the canvas autosave land first.** The backend re-reads the graph from the database, so a change still sitting in `CanvasPage`'s 1500 ms debounce is simply not in it — which is how a shared workflow once arrived one connection short of the one on screen. `flushPendingSave` exists for this; the build path, Deploy and the Share button all await it. Any future action that makes the server read the graph belongs on that list.
+
+For the same reason the Share dialog does not choose for itself whether to reuse a link. It sends `reuseIfUnchanged` and lets the backend compare the freshly sanitised graph against the stored snapshot (`Store.FindLiveWorkflowShareBySnapshot`, a `jsonb` equality so key order does not matter). Reuse keeps the dialog from leaving a trail of links behind; comparing the _sanitised_ graph means a stripped API key never invalidates a link, while a real edit always does.
+
+The sanitiser runs **inbound as well as outbound**. `encryptField` passes an `enc:`-prefixed value through untouched — correct for the canvas round-tripping its own ciphertext, and exactly why a stranger's pasted graph must not use the ordinary save path.
 
 ### agentToolIDs
 
@@ -271,13 +294,13 @@ Each run has a channel in the in-process SSE broker (`internal/sse`). The runner
 
 **App Router** pages:
 
-| Route | Auth | Description |
-|---|---|---|
-| `/` | public | Landing page |
-| `/signin`, `/signup` | public | Auth forms |
-| `/auth/callback` | public | OAuth token landing |
-| `/workflows` | protected | Workflow list |
-| `/workflows/:id` | protected | Canvas editor |
+| Route                | Auth      | Description         |
+| -------------------- | --------- | ------------------- |
+| `/`                  | public    | Landing page        |
+| `/signin`, `/signup` | public    | Auth forms          |
+| `/auth/callback`     | public    | OAuth token landing |
+| `/workflows`         | protected | Workflow list       |
+| `/workflows/:id`     | protected | Canvas editor       |
 
 **Canvas** (`src/components/canvas/`): All rendering is custom SVG — no ReactFlow or similar. `CanvasPage.tsx` owns all state. `CanvasGraph.tsx` handles the SVG surface, drag/drop, and port-to-port wiring. Node components live in `canvas/nodes/index.tsx`.
 
@@ -294,6 +317,7 @@ Each run has a channel in the in-process SSE broker (`internal/sse`). The runner
 **Engine** (`internal/engine/runner.go`): Topological sort → parallel level execution. Each node runs in its own goroutine within a level. Results pass between nodes via the `RunContext`.
 
 **Node executors** (`internal/engine/nodes/`):
+
 - `provider.go` — LLM function-calling loop for Gemini, OpenAI, Anthropic, Groq, Mistral
 - `tool402.go` — full x402 payment flow (fetch → 402 → sign → pay → retry)
 - `tool.go` — standard HTTP tool with SSRF protection (DNS-resolved, private IP blocked)
@@ -307,15 +331,16 @@ Each run has a channel in the in-process SSE broker (`internal/sse`). The runner
 
 ## Database schema
 
-| Table | Description |
-|---|---|
-| `users` | `id`, `email` (unique), `password_hash` (empty for OAuth users), `created_at` |
-| `workflows` | `id`, `user_id`, `name`, `graph` (JSONB), `status`, `deploy_metadata`, `created_at` |
-| `agent_wallets` | `id`, `workflow_id`, `agent_node_id`, `address`, `encrypted_mnemonic` |
-| `tool_credentials` | Encrypted per-provider API keys scoped to a workflow |
-| `runs` | `id`, `workflow_id`, `status`, `input`, `output`, `created_at` |
-| `run_logs` | `id`, `run_id`, `node_id`, `level`, `message`, `created_at` |
-| `waitlist` | `id`, `email` (unique), `created_at` |
+| Table              | Description                                                                                                                                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `users`            | `id`, `email` (unique), `password_hash` (empty for OAuth users), `created_at`                                                                                                                                                  |
+| `workflows`        | `id`, `user_id`, `name`, `graph` (JSONB), `status`, `deploy_metadata`, `created_at`                                                                                                                                            |
+| `agent_wallets`    | `id`, `workflow_id`, `agent_node_id`, `address`, `encrypted_mnemonic`                                                                                                                                                          |
+| `tool_credentials` | Encrypted per-provider API keys scoped to a workflow                                                                                                                                                                           |
+| `runs`             | `id`, `workflow_id`, `status`, `input`, `output`, `created_at`                                                                                                                                                                 |
+| `run_logs`         | `id`, `run_id`, `node_id`, `level`, `message`, `created_at`                                                                                                                                                                    |
+| `waitlist`         | `id`, `email` (unique), `created_at`                                                                                                                                                                                           |
+| `workflow_shares`  | `token` (PK), `workflow_id`, `user_id`, `name`, `graph` (JSONB, a **frozen sanitised copy** — never a pointer back to `workflows.graph`), `node_count`, `edge_count`, `import_count`, `expires_at`, `revoked_at`, `created_at` |
 
 ---
 
@@ -335,37 +360,41 @@ go test ./internal/engine/nodes/... -run TestX402  # run a specific test or patt
 
 ### Current coverage by package
 
-| Package | Coverage | Notes |
-|---|---|---|
-| `internal/api` | 89% | Middleware, CORS, JWT, health check |
-| `internal/api/handlers` | 11% | Unit tests pass; most handler tests require a real DB and are skipped without `TEST_DATABASE_URL` |
-| `internal/engine` | 27% | Graph/topological sort fully covered; runner integration tests need DB |
-| `internal/engine/nodes` | — | Build error in `provider_test.go` (see below) |
-| `internal/sse` | 83% | Broker publish/subscribe fully covered |
-| `internal/wallet` | 37% | Keypair generation and AES-GCM encrypt/decrypt covered |
-| `internal/db` | 0% | All DB tests are integration tests — skipped without `TEST_DATABASE_URL` |
-| `internal/models` | — | No statements (types only) |
+| Package                 | Coverage | Notes                                                                                             |
+| ----------------------- | -------- | ------------------------------------------------------------------------------------------------- |
+| `internal/api`          | 89%      | Middleware, CORS, JWT, health check                                                               |
+| `internal/api/handlers` | 11%      | Unit tests pass; most handler tests require a real DB and are skipped without `TEST_DATABASE_URL` |
+| `internal/engine`       | 27%      | Graph/topological sort fully covered; runner integration tests need DB                            |
+| `internal/engine/nodes` | —        | Build error in `provider_test.go` (see below)                                                     |
+| `internal/sse`          | 83%      | Broker publish/subscribe fully covered                                                            |
+| `internal/wallet`       | 37%      | Keypair generation and AES-GCM encrypt/decrypt covered                                            |
+| `internal/db`           | 0%       | All DB tests are integration tests — skipped without `TEST_DATABASE_URL`                          |
+| `internal/models`       | —        | No statements (types only)                                                                        |
 
 ### What each package tests
 
 **`internal/api`**
+
 - `TestNewAuthMiddlewareRejectsNoToken` — middleware returns 401 with no token
 - `TestNewAuthMiddlewareAcceptsValidToken` — valid HS256 JWT passes through
 - `TestHealthCheck` — `GET /health` returns 200
 
 **`internal/api/handlers`**
+
 - `TestSignUpReturnsBadRequestOnEmptyEmail` — 400 on missing email
 - `TestSignUpReturnsBadRequestOnShortPassword` — 400 on < 8 char password
 - `TestEncryptField_*` / `TestMaskNodes_*` / `TestDecryptNodes_*` — API key encryption/masking round-trips
 - `TestDeploy`, `TestTriggerRun`, `TestCreateAndGetWorkflow`, `TestAPIKeyEncryption`, `TestStopWorkflow*` — skipped without `TEST_DATABASE_URL`
 
 **`internal/engine`**
+
 - `TestTopologicalSort` — graph with no cycles sorts correctly
 - `TestCycleDetected` — graph with a cycle returns an error
 - `TestBuildAttachMap` — agent→tool attach edges parsed correctly
 - `TestStopReturns*` — runner stop signal tests (skipped without DB)
 
 **`internal/engine/nodes`**
+
 - `TestX402FreeEndpoint` — endpoint that returns 200 directly (no payment needed)
 - `TestX402ParseQuote` — endpoint returns 402, payment descriptor is parsed correctly
 - `TestX402PaymentSigned` — full flow: 402 → signer called → retry with txid → success
@@ -379,9 +408,11 @@ go test ./internal/engine/nodes/... -run TestX402  # run a specific test or patt
 - ⚠️ `provider_test.go` has a build error — `ExecuteAgent` signature changed, test not updated yet (good first issue)
 
 **`internal/sse`**
+
 - `TestBrokerPublishSubscribe` — messages published to a channel are received by all subscribers
 
 **`internal/wallet`**
+
 - `TestGenerateWallet` — generates a valid Algorand Ed25519 keypair with a correct-length address
 - `TestEncryptDecrypt` — AES-GCM mnemonic encrypt → decrypt round-trip
 

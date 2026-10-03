@@ -50,6 +50,14 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	r.Get("/x402/relay/platform-fee", d.X402PlatformFeeInfo)
 	// Same rationale, for nodes.SettleRunTotal's PaymentRequirements.Resource.
 	r.Get("/x402/relay/run-total", d.X402RunTotalInfo)
+	// Public because a share link that only opens for people who already have
+	// an account is not a share link — somebody has to be able to look at what
+	// they were sent before deciding to sign up for it. What makes that safe
+	// is the row, not the route: SanitizeGraphForShare ran before anything was
+	// stored, so there is no credential to leak and no workflow id to
+	// correlate. Missing, revoked and expired all answer 404 alike, the same
+	// rule PublicTrigger above follows.
+	r.Get("/shares/{token}", d.GetShare)
 
 	// Protected routes — JWT required
 	r.Group(func(r chi.Router) {
@@ -66,6 +74,24 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Get("/workflows/{id}/estimate", d.EstimateWorkflowCost)
 		r.Put("/workflows/{id}", d.UpdateWorkflow)
 		r.Delete("/workflows/{id}", d.DeleteWorkflow)
+
+		// Sharing. Creating and revoking a link are not authoring -- they
+		// publish or retract a copy and cannot change the workflow -- so
+		// neither is in readonly.go's blocked list, and both work from a
+		// phone. Importing IS authoring: it creates a workflow, so it is on
+		// that list beside POST /workflows.
+		r.Post("/workflows/{id}/share", d.CreateShare)
+		r.Get("/workflows/{id}/shares", d.ListWorkflowShares)
+		// Every link this user has out, across every workflow. The allowance
+		// is per user, so this is the only view that can answer "which of my
+		// links should I revoke?".
+		r.Get("/shares", d.ListMyShares)
+		r.Delete("/shares/{token}", d.RevokeShare)
+		r.Post("/shares/{token}/import", d.ImportShare)
+		// The paste-a-code half of the same feature. Its own endpoint rather
+		// than POST /workflows + PUT, because import must be atomic and must
+		// run a stranger's graph through the sanitiser -- see the handler.
+		r.Post("/workflows/import", d.ImportWorkflowGraph)
 
 		r.Get("/workflows/{id}/chat", d.GetChatSession)
 		r.Put("/workflows/{id}/chat", d.SaveChatSession)

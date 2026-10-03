@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { IconClose } from "@/components/ui";
 import { useModalDismissal } from "@/hooks/useModalDismissal";
@@ -69,7 +69,6 @@ export function CheckoutModal({
   amountINR: number;
   onClose: () => void;
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
   const items = useMemo(() => buildCreditCart(amountINR), [amountINR]);
   const [method, setMethod] = useState<PaymentMethod>(DEFAULT_PROVIDER);
   const { recordPurchase, balanceUSD } = useCredits();
@@ -108,7 +107,9 @@ export function CheckoutModal({
     void recordPurchase();
   };
 
-  useModalDismissal(onClose, open);
+  // The panel ref is the hook's: it traps Tab inside this element and
+  // hands focus back to whatever opened the dialog.
+  const panelRef = useModalDismissal(onClose, open);
 
   if (!open) return null;
 
