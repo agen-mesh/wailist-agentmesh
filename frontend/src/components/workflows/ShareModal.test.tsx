@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 
 // The dialog is tested against a stubbed API, the way WorkflowsPage is. What
 // matters here is which calls it makes and what it says about them, not the
@@ -133,11 +139,9 @@ describe("ShareModal", () => {
       await screen.findByRole("button", { name: /Link options/ }),
     );
 
-    const select = screen.getByLabelText(/Make another, expiring in/);
-    const offered = Array.from(
-      select.querySelectorAll("option"),
-      (o) => o.textContent,
-    );
+    const offered = within(screen.getByLabelText(/Make another, expiring in/))
+      .getAllByRole("radio")
+      .map((r) => r.textContent);
     expect(offered).not.toContain("No expiry");
     expect(offered).toContain("7 days");
   });
@@ -156,10 +160,34 @@ describe("ShareModal", () => {
       await screen.findByRole("button", { name: /Link options/ }),
     );
 
-    const select = screen.getByLabelText(/Make another, expiring in/);
     expect(
-      Array.from(select.querySelectorAll("option"), (o) => o.textContent),
+      within(screen.getByLabelText(/Make another, expiring in/))
+        .getAllByRole("radio")
+        .map((r) => r.textContent),
     ).toContain("No expiry");
+  });
+
+  it("moves the expiry selection to the segment that was pressed", async () => {
+    // The <select> this replaced could not get this wrong -- a native control
+    // owns its own value. A set of buttons does not, so the thing worth
+    // asserting is that pressing one both checks it AND unchecks the other:
+    // two segments reading as chosen is the failure mode here.
+    render(<ShareModal workflowId="wf-1" onClose={() => {}} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Link options/ }),
+    );
+
+    const group = screen.getByLabelText(/Make another, expiring in/);
+    const checked = () =>
+      within(group)
+        .getAllByRole("radio")
+        .filter((r) => r.getAttribute("aria-checked") === "true")
+        .map((r) => r.textContent);
+
+    expect(checked()).toEqual(["7 days"]);
+
+    fireEvent.click(within(group).getByRole("radio", { name: "30 days" }));
+    expect(checked()).toEqual(["30 days"]);
   });
 
   it("asks before revoking, because a link cannot be un-revoked", async () => {
