@@ -312,9 +312,15 @@ export function WorkflowsPage() {
               // The server cannot classify the device; reserve space until it can.
               style={{ visibility: hydrated ? undefined : "hidden" }}
             >
+              {/* "Import" alone reads as "import a file", which is what the
+                  word means in almost every other toolbar. Naming the thing it
+                  actually takes also pairs it with Share on the row below --
+                  two halves of one feature, naming the same object. The dialog
+                  accepts a code as well, but a code is the fallback for
+                  channels that mangle URLs; the link is what this opens for. */}
               {can("workflow.create", readOnly) && (
                 <button style={ghostBtn} onClick={() => setImportOpen(true)}>
-                  Import
+                  Import a link
                 </button>
               )}
               {can("workflow.create", readOnly) && (
