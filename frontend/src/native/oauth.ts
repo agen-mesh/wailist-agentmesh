@@ -25,8 +25,10 @@ import { SecureStore } from "./secureStore";
 // two, because it shares Chrome's cookie jar and the user is usually signed in
 // there already.
 
-// The scheme is the app's own applicationId. It must match, exactly, three
-// other places: capacitor.config.ts's appId, custom_url_scheme in
+// The scheme was the app's applicationId until the Play package became
+// com.agentmesh.app; the scheme deliberately stayed ai.agentmesh.app so the
+// backend redirect did not have to move. It must match, exactly, two other
+// places: custom_url_scheme in
 // mobile/android/app/src/main/res/values/strings.xml, and nativeAppScheme in
 // backend/internal/api/handlers/oauth_native.go. A mismatch fails silently --
 // Android simply does not match the intent-filter, the Custom Tab sits open,
