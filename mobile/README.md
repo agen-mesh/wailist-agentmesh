@@ -185,7 +185,7 @@ reports `unavailable` instead.
 ### Making notifications actually deliver
 
 1. **Firebase project (needs the project owner).** Create it, add the Android
-   app `ai.agentmesh.app`, and put `google-services.json` in
+   app `com.agentmesh.app`, and put `google-services.json` in
    `mobile/android/app/` (details below).
 2. **Backend credentials (needs the project owner).** Generate a service-account
    key and set it as `FCM_SERVICE_ACCOUNT_JSON` on the backend service.
@@ -213,7 +213,7 @@ Turning it on needs two artefacts, and they are not the same kind of thing.
 
 **`google-services.json` — config, not a secret.** In the Firebase console,
 create a project and add an Android app whose package name is exactly
-`ai.agentmesh.app`; it must match `applicationId` in `app/build.gradle`
+`com.agentmesh.app`; it must match `applicationId` in `app/build.gradle`
 character for character, and a mismatch fails silently at delivery time rather
 than at build time. Download the file to:
 
