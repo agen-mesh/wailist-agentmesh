@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "vitest run",
     "gen:node-catalog": "UPDATE_NODE_CATALOG=1 vitest run src/lib/nodeCatalog.sync.test.ts"
   },

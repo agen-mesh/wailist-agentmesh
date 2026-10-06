@@ -22,6 +22,14 @@ export type Capability =
   // Configuring a trigger from where you are. Not authoring, though it is
   // shaped like it -- see WITHHELD below for why this one is permitted.
   | "workflow.geofence"
+  // Handing a workflow to somebody else. Not authoring: it creates no
+  // workflow and edits none, and a phone is a perfectly good place to send a
+  // link from -- which is why it is absent from WITHHELD below.
+  //
+  // It has a name of its own because it used to borrow "workflow.deploy" at
+  // the one call site that gates it, so anything that ever withheld deploying
+  // would have silently taken sharing with it.
+  | "workflow.share"
   // Operating — available on any screen.
   | "workflow.run"
   | "workflow.stop"
@@ -74,6 +82,12 @@ export function can(capability: Capability, readOnly: boolean): boolean {
 // The rules deliberately mirror backend/internal/api/readonly.go one for one.
 const WRITE_RULES: ReadonlyArray<{ method: string; pattern: RegExp }> = [
   { method: "POST", pattern: /^\/workflows$/ },
+  // Importing creates a workflow, so both routes that do it sit beside POST
+  // /workflows. Creating and revoking a share LINK are deliberately absent:
+  // they publish or retract a copy and cannot change a graph, and handing
+  // somebody a link is a reasonable thing to do from a phone.
+  { method: "POST", pattern: /^\/workflows\/import$/ },
+  { method: "POST", pattern: /^\/shares\/[^/]+\/import$/ },
   { method: "PUT", pattern: /^\/workflows\/[^/]+$/ },
   { method: "DELETE", pattern: /^\/workflows\/[^/]+$/ },
   { method: "POST", pattern: /^\/workflows\/[^/]+\/deploy$/ },

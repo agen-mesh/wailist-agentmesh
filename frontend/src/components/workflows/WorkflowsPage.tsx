@@ -312,9 +312,15 @@ export function WorkflowsPage() {
               // The server cannot classify the device; reserve space until it can.
               style={{ visibility: hydrated ? undefined : "hidden" }}
             >
+              {/* "Import" alone reads as "import a file", which is what the
+                  word means in almost every other toolbar. Naming the thing it
+                  actually takes also pairs it with Share on the row below --
+                  two halves of one feature, naming the same object. The dialog
+                  accepts a code as well, but a code is the fallback for
+                  channels that mangle URLs; the link is what this opens for. */}
               {can("workflow.create", readOnly) && (
                 <button style={ghostBtn} onClick={() => setImportOpen(true)}>
-                  Import
+                  Import a link
                 </button>
               )}
               {can("workflow.create", readOnly) && (
@@ -1456,6 +1462,24 @@ function WorkflowRows({
                 }
               >
                 {wf.geofenceRadiusM !== undefined ? "Zone ·" : "Zone"}
+              </button>
+            )}
+            {/* On the row for the same reason Zone is: RowMenu below is gated
+                on "workflow.delete", so the only way to share from this screen
+                vanished on a phone -- while sharing itself works perfectly
+                well there. It was also the quieter half of a pair: Import sits
+                in the toolbar as a button, and its opposite was two levels
+                down a menu. */}
+            {can("workflow.share", readOnly) && (
+              <button
+                style={ghostBtnSm}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onShare(wf.id);
+                }}
+                title="Share this workflow"
+              >
+                Share
               </button>
             )}
             {can("workflow.delete", readOnly) && (

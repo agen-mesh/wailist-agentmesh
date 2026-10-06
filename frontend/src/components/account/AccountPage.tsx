@@ -76,6 +76,18 @@ export function AccountPage() {
                 </span>
               </Link>
             </li>
+            {/* The links this account has handed out. The per-workflow Share
+                dialog can only ever show one workflow's links, and the
+                allowance is counted across all of them -- so this is the only
+                place the question "what have I published?" can be answered. */}
+            <li>
+              <Link href="/account/links" className="account-row" style={row}>
+                <span>Shared links</span>
+                <span style={rowValue}>
+                  <Chevron />
+                </span>
+              </Link>
+            </li>
             {/* No Usage row: Usage is a tab of its own on the bottom bar. */}
             {/* Native only, as in the top bar's menu: a browser has no push
                 token to register. */}

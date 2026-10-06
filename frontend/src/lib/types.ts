@@ -274,6 +274,66 @@ export interface CostEstimate {
   hasUnpricedX402: boolean;
 }
 
+// --- Sharing --------------------------------------------------------------
+
+// One share link: a frozen, sanitised copy of a workflow that anybody holding
+// the token can read and import. Mirrors models.WorkflowShare.
+//
+// `graph` is the whole point and is NOT the live workflow -- editing the
+// original after sharing changes nothing a recipient sees. The sharer's
+// secrets, wallet, addresses and uploaded files were removed server-side
+// before the row was written; see the backend's share_sanitize.go.
+export interface WorkflowShare {
+  token: string;
+  name: string;
+  description?: string;
+  graph: { nodes: WorkflowNode[]; edges: WorkflowEdge[] };
+  nodeCount: number;
+  edgeCount: number;
+  // Only ever set on the sharer's own listing. The public read zeroes it.
+  importCount?: number;
+  // ISO-8601. Absent means the link never expires / has not been revoked.
+  expiresAt?: string;
+  revokedAt?: string;
+  createdAt: string;
+}
+
+/** One row of "every link I have out". `name` on the share is the snapshot's
+ *  own, frozen when the link was made; `workflowName` is what that workflow is
+ *  called now, which is what the sharer needs to find it again. */
+export interface UserShare extends WorkflowShare {
+  workflowId: string;
+  workflowName: string;
+}
+
+// What sanitising removed, shown to the SHARER before they hand the link over.
+// Counts, not values -- naming the removed key would be a smaller version of
+// the leak being prevented.
+export interface ShareRedactions {
+  apiKeys: number;
+  secrets: number;
+  webhookSecrets: number;
+  uploadedFiles: number;
+  agentWallets: number;
+  emailAddresses: number;
+  connectedAccounts: number;
+  leasedMachines: number;
+}
+
+// What the RECIPIENT still has to supply, worked out from the graph they are
+// being given. Deliberately a different question from ShareRedactions: how
+// many keys the sharer had in there is not a recipient's business.
+export interface ShareImportRequirements {
+  apiKeys: number;
+  files: number;
+  connectedAccounts: number;
+  /** Connector providers to reconnect, named and sorted -- ["jira","slack"].
+   *  Optional because a response from a backend older than this field has
+   *  none, and a preview that renders nothing is better than one that trips
+   *  over undefined. */
+  connectors?: string[];
+}
+
 export interface PortCoord {
   x: number;
   y: number;

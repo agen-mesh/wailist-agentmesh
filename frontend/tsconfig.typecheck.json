@@ -1,0 +1,28 @@
+{
+  // `npm run typecheck` runs against the source, and nothing else.
+  //
+  // tsconfig.json includes `**/*.ts` and excludes only node_modules, so a
+  // standalone `tsc --noEmit` also swallowed the eight files Next generates
+  // under .next/ -- among them .next/dev/types/validator.ts, which the DEV
+  // SERVER rewrites while it runs. Typechecking a file another process is
+  // part-way through writing is a race, and it lost: a truncated routes.d.ts
+  // (`actNode`, the tail of `React.ReactNode`) produced a page of errors
+  // that pointed at nothing in the repository and stopped reproducing once
+  // the writer had finished.
+  //
+  // Excluding them costs no coverage. CI runs typecheck BEFORE build on a
+  // fresh checkout (.github/workflows/ci.yml), so .next does not exist there
+  // and these globs have never matched -- this only makes a local run agree
+  // with the one that gates the branch. The generated route and page types
+  // are still checked where they are generated: `next build` reads
+  // tsconfig.json, which is left alone precisely so that keeps working.
+  //
+  // This does not remove .next entirely, and is not meant to. next-env.d.ts
+  // *imports* .next/types/routes.d.ts and root-params.d.ts outright, and an
+  // import is a hard reference that `exclude` cannot sever. Those two are
+  // written by `next build` and then left alone, so they are not the hazard.
+  // The four under .next/dev/types are, because `next dev` rewrites them for
+  // as long as it is running -- and those are now out.
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", ".next", "out-mobile"]
+}

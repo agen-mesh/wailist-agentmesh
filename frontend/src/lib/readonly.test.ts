@@ -69,6 +69,22 @@ describe("isWriteBlocked", () => {
     );
   });
 
+  // Importing creates a workflow, so it is authoring wherever it is reached
+  // from. Sharing is not: it publishes or retracts a copy and cannot change a
+  // graph, so a viewer may still hand somebody a link. Both halves must
+  // mirror backend/internal/api/readonly.go -- a call one list blocks and the
+  // other permits is a button that fails with no explanation.
+  it("blocks importing for a viewer but still lets them share a link", () => {
+    expect(isWriteBlocked("POST", "/workflows/import", VIEWER)).toBe(true);
+    expect(isWriteBlocked("POST", "/shares/tok_123/import", VIEWER)).toBe(true);
+
+    expect(isWriteBlocked("POST", "/workflows/wf_1/share", VIEWER)).toBe(false);
+    expect(isWriteBlocked("DELETE", "/shares/tok_123", VIEWER)).toBe(false);
+    expect(isWriteBlocked("GET", "/workflows/wf_1/shares", VIEWER)).toBe(false);
+    // Reading a share is public and never goes near this guard.
+    expect(isWriteBlocked("GET", "/shares/tok_123", VIEWER)).toBe(false);
+  });
+
   // Added alongside PUT/DELETE .../schedule and GET /tendril/console -- these
   // must mirror backend/internal/api/readonly.go one for one, same as every
   // other rule in this list.
