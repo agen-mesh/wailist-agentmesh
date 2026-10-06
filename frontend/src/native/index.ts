@@ -202,8 +202,7 @@ export const shell: NativeShell = {
     // Server first. If the backend rejects the zone -- undeployed workflow,
     // radius out of range -- registering it with the OS would leave the device
     // watching a boundary the server will never act on.
-    await setGeofence(workflowId, fence);
-    return start({ workflowId, ...fence });
+    return start({ workflowId, ...fence }, () => setGeofence(workflowId, fence));
   },
 
   async clearGeofence(workflowId) {

@@ -16,6 +16,8 @@ import { pushFix } from "./api";
 import { pending, remove, clear, type Fix } from "./queue";
 
 let flushing = false;
+let accountGeneration = 0;
+let accountCleanup: Promise<void> = Promise.resolve();
 
 // Module-scoped, not per-workflow: GeofencingClient.addGeofences() is
 // additive, so more than one workflow can have an armed fence at the same
@@ -50,12 +52,15 @@ function withListenerLock<T>(fn: () => Promise<T>): Promise<T> {
 // server uses that order to decide what is a crossing. Pushing a newer fix
 // past one that failed would advance the server's idea of "last seen" and make
 // the skipped one permanently stale.
-export async function flush(): Promise<void> {
-  if (flushing) return;
+export async function flush(generation = accountGeneration): Promise<void> {
+  if (flushing || generation !== accountGeneration) return;
   flushing = true;
   try {
+    await accountCleanup;
+    if (generation !== accountGeneration) return;
     const sent: Fix[] = [];
     for (const fix of await pending()) {
+      if (generation !== accountGeneration) return;
       try {
         await pushFix(fix);
         sent.push(fix);
@@ -68,7 +73,7 @@ export async function flush(): Promise<void> {
         break;
       }
     }
-    if (sent.length) await remove(sent);
+    if (sent.length && generation === accountGeneration) await remove(sent);
   } finally {
     flushing = false;
   }
@@ -89,46 +94,48 @@ export interface StartOptions {
  * viewer/controller without it, and permissions.ts owns explaining the trade
  * before Android's dialog appears.
  */
-export async function start(opts: StartOptions): Promise<boolean> {
-  const { granted } = await Geofence.hasPermission();
-  if (!granted) return false;
+export async function start(opts: StartOptions, prepare?: () => Promise<void>): Promise<boolean> {
+  const generation = accountGeneration;
+  try {
+    await accountCleanup;
+    if (generation !== accountGeneration) return false;
+    await prepare?.();
+    if (generation !== accountGeneration) return false;
+    const { granted } = await Geofence.hasPermission();
+    if (!granted || generation !== accountGeneration) return false;
 
-  await Geofence.addGeofence({
-    id: opts.workflowId,
-    lat: opts.lat,
-    lng: opts.lng,
-    radiusM: opts.radiusM,
-  });
+    await Geofence.addGeofence({
+      id: opts.workflowId,
+      lat: opts.lat,
+      lng: opts.lng,
+      radiusM: opts.radiusM,
+    });
 
-  // The other half of the offline queue: without this a backlog sits there
-  // until the next crossing happens to occur.
-  //
-  // Registered once, not once per armed workflow: the handle is kept so a
-  // second (or fifth) start() call doesn't stack another listener.
-  // Deliberately NOT Network.removeAllListeners() in stop() below, which the
-  // review suggested -- that would also tear down listeners belonging to any
-  // other code using the same plugin, and fixing our own leak by reaching
-  // into everyone else's is not a fix.
-  await withListenerLock(async () => {
-    armedWorkflows.add(opts.workflowId);
-    if (!networkListener) {
-      networkListener = await Network.addListener(
-        "networkStatusChange",
-        (status) => {
-          if (status.connected) void flush();
-        },
-      );
-    }
-  });
-
-  // Anything the native receiver queued while the app was closed.
-  await flush();
-  return true;
+    const armed = await withListenerLock(async () => {
+      if (generation !== accountGeneration) return false;
+      if (!networkListener) {
+        networkListener = await Network.addListener("networkStatusChange", (status) => {
+          if (status.connected) void flush(generation);
+        });
+      }
+      if (generation !== accountGeneration) return false;
+      armedWorkflows.add(opts.workflowId);
+      return true;
+    });
+    if (!armed || generation !== accountGeneration) return false;
+    await flush(generation);
+    return generation === accountGeneration;
+  } catch (error) {
+    if (generation !== accountGeneration) return false;
+    throw error;
+  }
 }
 
 export async function stop(workflowId: string): Promise<void> {
+  const generation = accountGeneration;
   await Geofence.removeGeofence({ id: workflowId });
   await withListenerLock(async () => {
+    if (generation !== accountGeneration) return;
     armedWorkflows.delete(workflowId);
     // Only once NO workflow has an armed fence left: leaving the listener up
     // for one still-armed workflow while tearing it down for another that
@@ -143,16 +150,21 @@ export async function stop(workflowId: string): Promise<void> {
   });
 }
 
-export async function clearAccountGeofences(): Promise<void> {
-  await withListenerLock(async () => {
+export function clearAccountGeofences(): Promise<void> {
+  // Invalidate before waiting for the listener lock or any native callback.
+  accountGeneration += 1;
+  accountCleanup = withListenerLock(async () => {
     armedWorkflows.clear();
     const results = await Promise.allSettled([
       Geofence.clearAccountData(),
-      networkListener?.remove(),
+      (async () => {
+        await networkListener?.remove();
+        networkListener = null;
+      })(),
     ]);
-    networkListener = null;
     results.push(...await Promise.allSettled([clear()]));
     const errors = results.filter((result) => result.status === "rejected");
     if (errors.length) throw new AggregateError(errors.map((result) => result.reason), "Location cleanup incomplete");
   });
+  return accountCleanup;
 }
