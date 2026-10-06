@@ -1099,7 +1099,9 @@ function TendrilNode({
         sub={
           action === "rent" && node.tendrilHours
             ? `${sub} · ${node.tendrilHours}h`
-            : sub
+            : action === "auto"
+              ? `${sub} · $${node.tendrilAmount || "1"} budget`
+              : sub
         }
       />
       <TopPort

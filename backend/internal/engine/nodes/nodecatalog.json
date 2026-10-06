@@ -2245,6 +2245,25 @@
       "desc": "Rented Tendril compute: buy credit, rent a machine, run code on it, release it.",
       "templates": [
         {
+          "id": "tendril_auto",
+          "name": "Auto Rent & Run",
+          "desc": "Reuses an open lease, or rents one ($1 default) and runs",
+          "kind": "action",
+          "presets": {
+            "tendrilAction": "auto",
+            "tendrilHours": "1",
+            "tendrilAmount": ""
+          },
+          "fields": [
+            {
+              "key": "tendrilAmount",
+              "where": "field",
+              "label": "Budget (USD, optional)",
+              "placeholder": "1"
+            }
+          ]
+        },
+        {
           "id": "tendril_topup",
           "name": "Buy Tendril Credit",
           "desc": "AgentMesh credits → Tendril credit",
