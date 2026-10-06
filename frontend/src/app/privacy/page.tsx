@@ -132,12 +132,13 @@ export default function PrivacyPage() {
             </P>
             <P>
               <strong>Connected accounts.</strong> If you connect a service such
-              as Google (Gmail, Sheets, Calendar, Drive), Slack, Notion or Jira
+              as Google (Gmail sending, Sheets, Calendar), Slack, Notion or Jira
               so a workflow can use it, we store the access tokens that service
               issues, encrypted. They are used only to perform the actions your
-              workflows are configured to take, such as reading or sending email
-              or updating a spreadsheet, and only when those workflows run. You
-              can disconnect at any time from the desktop app, and revoke access
+              workflows are configured to take, such as sending an email or
+              updating a spreadsheet, and only when those workflows run. We do
+              not read your Gmail messages or access your Google Drive. You can
+              disconnect at any time from the desktop app, and revoke access
               from the service&rsquo;s own account settings. {COMPANY}&rsquo;s
               use of information received from Google APIs adheres to the{" "}
               <a
@@ -224,10 +225,12 @@ export default function PrivacyPage() {
               Deleting a workflow deletes its configuration and its run history.
               To delete your account and associated application data, use the
               profile menu&apos;s Delete account control, or visit our{" "}
-              <Link href="/delete-account" style={inlineLink}>account deletion page</Link>.
-              It explains what is removed, prerequisites and the web deletion path.
-              For help with deletion, including copies held by connected services,
-              operational logs or backups, write to{" "}
+              <Link href="/delete-account" style={inlineLink}>
+                account deletion page
+              </Link>
+              . It explains what is removed, prerequisites and the web deletion
+              path. For help with deletion, including copies held by connected
+              services, operational logs or backups, write to{" "}
               <a href={`mailto:${CONTACT}`} style={inlineLink}>
                 {CONTACT}
               </a>
