@@ -69,7 +69,7 @@ describe("buildNodeCatalog", () => {
   });
 
   it("gives Google nodes their account connection", () => {
-    const f = tpl("google", "gmail_list").fields.find((x) => x.key === "oauthCredentialID");
+    const f = tpl("google", "gmail_send").fields.find((x) => x.key === "oauthCredentialID");
     expect(f?.where).toBe("connection");
   });
 });

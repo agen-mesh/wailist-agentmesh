@@ -1954,54 +1954,8 @@
     },
     {
       "type": "google",
-      "desc": "Gmail, Sheets, Calendar and Drive, through one Google account the user links in the Inspector.",
+      "desc": "Gmail sending, Sheets and Calendar, through one Google account the user links in the Inspector.",
       "templates": [
-        {
-          "id": "gmail_list",
-          "name": "Gmail: List Messages",
-          "desc": "Search/list inbox messages",
-          "kind": "read",
-          "fields": [
-            {
-              "key": "oauthCredentialID",
-              "where": "connection",
-              "label": "Google account",
-              "hint": "the user links a Google account in the Inspector"
-            },
-            {
-              "key": "gmailQuery",
-              "where": "config",
-              "label": "Query",
-              "hint": "Gmail search syntax, e.g. is:unread from:someone@x.com"
-            },
-            {
-              "key": "gmailMaxResults",
-              "where": "config",
-              "label": "Max results",
-              "placeholder": "10"
-            }
-          ]
-        },
-        {
-          "id": "gmail_get",
-          "name": "Gmail: Get Message",
-          "desc": "Read one message's content",
-          "kind": "read",
-          "fields": [
-            {
-              "key": "oauthCredentialID",
-              "where": "connection",
-              "label": "Google account",
-              "hint": "the user links a Google account in the Inspector"
-            },
-            {
-              "key": "gmailMessageID",
-              "where": "config",
-              "label": "Message ID",
-              "hint": "e.g. {{ result.id }} from an upstream Gmail: List step"
-            }
-          ]
-        },
         {
           "id": "gmail_send",
           "name": "Gmail: Send Message",
@@ -2191,66 +2145,6 @@
               "where": "config",
               "label": "Message",
               "hint": "what this step sends; blank sends the previous step's output. {{ result }} / {{ result.field }} / {{ node.<id> }} / {{ state.key }} interpolate"
-            }
-          ]
-        },
-        {
-          "id": "drive_list",
-          "name": "Drive: List Files",
-          "desc": "Search/list files",
-          "kind": "read",
-          "fields": [
-            {
-              "key": "oauthCredentialID",
-              "where": "connection",
-              "label": "Google account",
-              "hint": "the user links a Google account in the Inspector"
-            },
-            {
-              "key": "driveQuery",
-              "where": "config",
-              "label": "Query",
-              "hint": "Drive search syntax, e.g. name contains 'report'"
-            }
-          ]
-        },
-        {
-          "id": "drive_get",
-          "name": "Drive: Get File Info",
-          "desc": "Read file metadata",
-          "kind": "read",
-          "fields": [
-            {
-              "key": "oauthCredentialID",
-              "where": "connection",
-              "label": "Google account",
-              "hint": "the user links a Google account in the Inspector"
-            },
-            {
-              "key": "driveFileID",
-              "where": "config",
-              "label": "File ID",
-              "hint": "e.g. {{ result.id }} from an upstream Drive: List step"
-            }
-          ]
-        },
-        {
-          "id": "drive_download",
-          "name": "Drive: Download File",
-          "desc": "Fetch file contents",
-          "kind": "read",
-          "fields": [
-            {
-              "key": "oauthCredentialID",
-              "where": "connection",
-              "label": "Google account",
-              "hint": "the user links a Google account in the Inspector"
-            },
-            {
-              "key": "driveFileID",
-              "where": "config",
-              "label": "File ID",
-              "hint": "e.g. {{ result.id }} from an upstream Drive: List step"
             }
           ]
         }

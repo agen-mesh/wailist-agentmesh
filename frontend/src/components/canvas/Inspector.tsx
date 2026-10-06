@@ -2880,7 +2880,7 @@ function GoogleInspector({
                 lineHeight: 1.5,
               }}
             >
-              One connection covers Gmail, Sheets, Calendar, and Drive together.
+              One connection covers Gmail sending, Sheets, and Calendar together.
             </div>
           </>
         )}
@@ -2894,9 +2894,6 @@ function GoogleInspector({
       )}
       {template.startsWith("calendar_") && (
         <GoogleCalendarFields node={node} onUpdate={onUpdate} />
-      )}
-      {template.startsWith("drive_") && (
-        <GoogleDriveFields node={node} onUpdate={onUpdate} />
       )}
 
       {usesMessageTemplate && (
@@ -2916,38 +2913,6 @@ function GoogleGmailFields({
   onUpdate: (n: WorkflowNode) => void;
 }) {
   switch (node.template) {
-    case "gmail_list":
-      return (
-        <Section label="Search">
-          <ConfigField
-            node={node}
-            onUpdate={onUpdate}
-            configKey="gmailQuery"
-            label="Query"
-            hint="Gmail search syntax, e.g. is:unread from:someone@x.com"
-            placeholder="is:unread"
-          />
-          <ConfigField
-            node={node}
-            onUpdate={onUpdate}
-            configKey="gmailMaxResults"
-            label="Max results"
-            placeholder="10"
-          />
-        </Section>
-      );
-    case "gmail_get":
-      return (
-        <Section label="Message">
-          <ConfigField
-            node={node}
-            onUpdate={onUpdate}
-            configKey="gmailMessageID"
-            label="Message ID"
-            hint="e.g. {{ result.id }} from an upstream Gmail: List step"
-          />
-        </Section>
-      );
     case "gmail_send":
     case "gmail_reply":
       return (
@@ -3051,39 +3016,6 @@ function GoogleCalendarFields({
           />
         </>
       )}
-    </Section>
-  );
-}
-
-function GoogleDriveFields({
-  node,
-  onUpdate,
-}: {
-  node: WorkflowNode;
-  onUpdate: (n: WorkflowNode) => void;
-}) {
-  if (node.template === "drive_list") {
-    return (
-      <Section label="Search">
-        <ConfigField
-          node={node}
-          onUpdate={onUpdate}
-          configKey="driveQuery"
-          label="Query"
-          hint="Drive search syntax, e.g. name contains 'report'"
-        />
-      </Section>
-    );
-  }
-  return (
-    <Section label="File">
-      <ConfigField
-        node={node}
-        onUpdate={onUpdate}
-        configKey="driveFileID"
-        label="File ID"
-        hint="e.g. {{ result.id }} from an upstream Drive: List step"
-      />
     </Section>
   );
 }

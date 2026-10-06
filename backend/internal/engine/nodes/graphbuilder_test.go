@@ -569,7 +569,7 @@ func TestAddNodeCreatesStateAndGoogleNodes(t *testing.T) {
 	if _, err := applyGraphOp(graph, "add_node", map[string]any{"type": "state", "template": "set"}); err != nil {
 		t.Fatalf("state node: %v", err)
 	}
-	if _, err := applyGraphOp(graph, "add_node", map[string]any{"type": "google", "template": "gmail_list"}); err != nil {
+	if _, err := applyGraphOp(graph, "add_node", map[string]any{"type": "google", "template": "sheets_read"}); err != nil {
 		t.Fatalf("google node: %v", err)
 	}
 }
@@ -644,7 +644,7 @@ func TestAddNodeRejectsConnectorCredentialWithItsSource(t *testing.T) {
 func TestAddNodeRejectsGoogleAccountConnection(t *testing.T) {
 	graph := &models.WorkflowGraph{}
 	_, err := applyGraphOp(graph, "add_node", map[string]any{
-		"type": "google", "template": "gmail_list",
+		"type": "google", "template": "gmail_send",
 		"config": map[string]any{"oauthCredentialID": "whatever"},
 	})
 	if err == nil {

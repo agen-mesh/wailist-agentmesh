@@ -58,7 +58,7 @@ export const PROVIDER_TEMPLATES = [
   { id: "groq", name: "Groq", model: "llama-3.3-70b-versatile", icon: "q" },
 ];
 
-// One shared OAuth connection (Config.oauthCredentialID) covers all four
+// One shared OAuth connection (Config.oauthCredentialID) covers all three
 // products -- see backend/internal/api/handlers/oauth2creds.go's
 // googleConnectorScopes, requested together in one consent screen.
 // "product" groups the palette's Google tab into sections the way
@@ -67,7 +67,6 @@ export const GOOGLE_PRODUCTS = [
   "Gmail",
   "Sheets",
   "Calendar",
-  "Drive",
 ] as const;
 
 // usesMessage marks the operations that actually send/write something and
@@ -77,20 +76,6 @@ export const GOOGLE_PRODUCTS = [
 // sheets_append/calendar_create) so the Inspector's Message section can
 // derive from this table instead of keeping its own separate id list.
 export const GOOGLE_TEMPLATES = [
-  {
-    id: "gmail_list",
-    name: "Gmail: List Messages",
-    desc: "Search/list inbox messages",
-    icon: "✉",
-    product: "Gmail",
-  },
-  {
-    id: "gmail_get",
-    name: "Gmail: Get Message",
-    desc: "Read one message's content",
-    icon: "✉",
-    product: "Gmail",
-  },
   {
     id: "gmail_send",
     name: "Gmail: Send Message",
@@ -136,27 +121,6 @@ export const GOOGLE_TEMPLATES = [
     icon: "◔",
     product: "Calendar",
     usesMessage: true,
-  },
-  {
-    id: "drive_list",
-    name: "Drive: List Files",
-    desc: "Search/list files",
-    icon: "▤",
-    product: "Drive",
-  },
-  {
-    id: "drive_get",
-    name: "Drive: Get File Info",
-    desc: "Read file metadata",
-    icon: "▤",
-    product: "Drive",
-  },
-  {
-    id: "drive_download",
-    name: "Drive: Download File",
-    desc: "Fetch file contents",
-    icon: "▤",
-    product: "Drive",
   },
 ];
 

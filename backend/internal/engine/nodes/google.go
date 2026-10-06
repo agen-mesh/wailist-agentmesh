@@ -26,15 +26,14 @@ type GoogleConfig struct {
 	UserID string
 }
 
-// SetGoogleAPIBasesForTest overrides all four Google product API bases
-// ("gmail", "sheets", "calendar", "drive" in apiBaseDefaults) at once. Call
-// only from tests. Pass all "" to reset to the real APIs; a single "" restores
-// just that product's real base.
-func SetGoogleAPIBasesForTest(gmail, sheets, calendar, drive string) {
+// SetGoogleAPIBasesForTest overrides the three Google product API bases
+// ("gmail", "sheets", "calendar" in apiBaseDefaults) at once. Call only from
+// tests. Pass all "" to reset to the real APIs; a single "" restores just that
+// product's real base.
+func SetGoogleAPIBasesForTest(gmail, sheets, calendar string) {
 	setAPIBaseForTest("gmail", gmail)
 	setAPIBaseForTest("sheets", sheets)
 	setAPIBaseForTest("calendar", calendar)
-	setAPIBaseForTest("drive", drive)
 }
 
 // SetGoogleTokenEndpointForTest overrides the OAuth2 token-refresh endpoint
@@ -42,9 +41,8 @@ func SetGoogleAPIBasesForTest(gmail, sheets, calendar, drive string) {
 // tests. Pass "" to reset to the real endpoint.
 func SetGoogleTokenEndpointForTest(base string) { setAPIBaseForTest("google_token", base) }
 
-// ExecuteGoogle dispatches to the Gmail/Sheets/Calendar/Drive connector
-// matching node.Template's prefix -- one node type covering all four
-// products (see models.NodeTypeGoogle's doc comment) since they share the
+// ExecuteGoogle dispatches to the Gmail/Sheets/Calendar connector matching
+// node.Template's prefix -- one node type covering all three products (see models.NodeTypeGoogle's doc comment) since they share the
 // identical OAuth-credential-lookup mechanics and differ only in which API
 // they call.
 func ExecuteGoogle(ctx context.Context, node models.WorkflowNode, rc RunContexter, cfg GoogleConfig) (any, error) {
@@ -56,7 +54,7 @@ func ExecuteGoogle(ctx context.Context, node models.WorkflowNode, rc RunContexte
 	case strings.HasPrefix(node.Template, "calendar_"):
 		return executeCalendar(ctx, node, rc, cfg)
 	case strings.HasPrefix(node.Template, "drive_"):
-		return executeDrive(ctx, node, rc, cfg)
+		return nil, fmt.Errorf("google: Google Drive nodes have been removed (AgentMesh no longer requests Drive access); remove this %s node", node.Template)
 	}
 	return nil, fmt.Errorf("google: unknown template %q", node.Template)
 }
@@ -119,31 +117,12 @@ func executeGmail(ctx context.Context, node models.WorkflowNode, rc RunContexter
 	}
 
 	switch node.Template {
-	case "gmail_list":
-		q := url.Values{}
-		if query := resolveTemplate(configVal(node, "gmailQuery", ""), rc); query != "" {
-			q.Set("q", query)
-		}
-		if max := resolveTemplate(configVal(node, "gmailMaxResults", ""), rc); max != "" {
-			q.Set("maxResults", max)
-		}
-		target := apiBase("gmail") + "/users/me/messages"
-		if len(q) > 0 {
-			target += "?" + q.Encode()
-		}
-		return googleGET(ctx, target, token, "Gmail")
-
-	case "gmail_get":
-		id := resolveTemplate(configVal(node, "gmailMessageID", ""), rc)
-		if id == "" {
-			return "gmail_skipped_no_message_id", ErrActionSkipped
-		}
-		target := apiBase("gmail") + "/users/me/messages/" + url.PathEscape(id)
-		raw, err := googleGET(ctx, target, token, "Gmail")
-		if err != nil {
-			return nil, err
-		}
-		return decodeGmailMessage(raw), nil
+	case "gmail_list", "gmail_get":
+		// Reading mail needs gmail.readonly, a Google "restricted" scope that
+		// requires a paid annual security assessment. AgentMesh asks only for
+		// gmail.send, so a workflow still holding one of these nodes gets a
+		// clear reason rather than a 403 from Gmail.
+		return nil, fmt.Errorf("google: %s has been removed (AgentMesh no longer requests Gmail read access); remove this node", node.Template)
 
 	case "gmail_send", "gmail_reply":
 		// resolveTemplate, not plain configVal: the Inspector's own hint text
@@ -204,83 +183,6 @@ func buildRFC2822Message(to, subject, body string) string {
 func stripCRLF(s string) string {
 	s = strings.ReplaceAll(s, "\r", "")
 	return strings.ReplaceAll(s, "\n", "")
-}
-
-// decodeGmailMessage flattens Gmail's real response shape (id/threadId/
-// snippet plus a deeply nested payload.headers[]/payload.parts[] MIME tree)
-// into the handful of fields a workflow actually wants -- so {{ result.body
-// }} / {{ result.subject }} / {{ result.from }} (see connector_helpers.go's
-// resolveTemplate) can pick them out directly instead of the next node
-// having to know Gmail's own schema.
-func decodeGmailMessage(raw any) any {
-	m, ok := raw.(map[string]any)
-	if !ok {
-		return raw
-	}
-	payload, _ := m["payload"].(map[string]any)
-	headers, _ := payload["headers"].([]any)
-	header := func(name string) string {
-		for _, h := range headers {
-			hm, ok := h.(map[string]any)
-			if !ok {
-				continue
-			}
-			if n, _ := hm["name"].(string); strings.EqualFold(n, name) {
-				v, _ := hm["value"].(string)
-				return v
-			}
-		}
-		return ""
-	}
-	return map[string]any{
-		"id":       m["id"],
-		"threadId": m["threadId"],
-		"snippet":  m["snippet"],
-		"subject":  header("Subject"),
-		"from":     header("From"),
-		"to":       header("To"),
-		"date":     header("Date"),
-		"body":     extractPlainTextBody(payload),
-	}
-}
-
-// extractPlainTextBody walks a Gmail MessagePart tree depth-first for the
-// first text/plain part and decodes its base64url body.data. Real messages
-// are usually multipart/alternative (text/plain + text/html siblings) or
-// multipart/mixed (with attachments) -- the recursion into "parts" handles
-// both without needing to know which shape a given message used.
-func extractPlainTextBody(payload map[string]any) string {
-	if payload == nil {
-		return ""
-	}
-	if mimeType, _ := payload["mimeType"].(string); strings.HasPrefix(mimeType, "text/plain") {
-		if b, ok := payload["body"].(map[string]any); ok {
-			if data, ok := b["data"].(string); ok {
-				if decoded, err := decodeGmailBase64(data); err == nil {
-					return decoded
-				}
-			}
-		}
-	}
-	parts, _ := payload["parts"].([]any)
-	for _, p := range parts {
-		if pm, ok := p.(map[string]any); ok {
-			if body := extractPlainTextBody(pm); body != "" {
-				return body
-			}
-		}
-	}
-	return ""
-}
-
-// decodeGmailBase64 handles both padded and unpadded base64url, since real
-// Gmail responses aren't fully consistent about padding.
-func decodeGmailBase64(s string) (string, error) {
-	if b, err := base64.RawURLEncoding.DecodeString(s); err == nil {
-		return string(b), nil
-	}
-	b, err := base64.URLEncoding.DecodeString(s)
-	return string(b), err
 }
 
 // ── Google Sheets ────────────────────────────────────────────────────────
@@ -366,80 +268,6 @@ func executeCalendar(ctx context.Context, node models.WorkflowNode, rc RunContex
 		return doAndCheck(req, "calendar_event_created", "Google Calendar")
 	}
 	return nil, fmt.Errorf("google: unknown calendar template %q", node.Template)
-}
-
-// ── Google Drive ─────────────────────────────────────────────────────────
-//
-// Read-only (list/get metadata/download) — matches the drive.readonly scope
-// requested in handlers/oauth2creds.go's googleConnectorScopes. Upload
-// needs drive.file or the full drive scope, deliberately not requested:
-// narrower scope keeps Google's app-review surface smaller, and this can be
-// added later as its own scope bump if upload is actually needed.
-
-func executeDrive(ctx context.Context, node models.WorkflowNode, rc RunContexter, cfg GoogleConfig) (any, error) {
-	token, err := googleAccessToken(ctx, node, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	switch node.Template {
-	case "drive_list":
-		q := url.Values{}
-		if query := resolveTemplate(configVal(node, "driveQuery", ""), rc); query != "" {
-			q.Set("q", query)
-		}
-		target := apiBase("drive")
-		if len(q) > 0 {
-			target += "?" + q.Encode()
-		}
-		return googleGET(ctx, target, token, "Google Drive")
-
-	case "drive_get":
-		id := resolveTemplate(configVal(node, "driveFileID", ""), rc)
-		if id == "" {
-			return "drive_skipped_no_file_id", ErrActionSkipped
-		}
-		return googleGET(ctx, apiBase("drive")+"/"+url.PathEscape(id), token, "Google Drive")
-
-	case "drive_download":
-		id := resolveTemplate(configVal(node, "driveFileID", ""), rc)
-		if id == "" {
-			return "drive_skipped_no_file_id", ErrActionSkipped
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase("drive")+"/"+url.PathEscape(id)+"?alt=media", nil)
-		if err != nil {
-			return nil, fmt.Errorf("Google Drive: build request: %w", err)
-		}
-		for k, v := range bearerHeader(token) {
-			req.Header.Set(k, v)
-		}
-		resp, err := doValidatedRequest(req, "Google Drive")
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode >= 400 {
-			apiErr := fmt.Errorf("Google Drive API %d: %s", resp.StatusCode, readErrorBody(resp))
-			if resp.StatusCode >= 500 {
-				// GET, so idempotent -- see doValidatedRequest's own
-				// isIdempotentHTTPMethod reasoning in connector_helpers.go.
-				return nil, retryableIfIdempotent(apiErr, req.Method)
-			}
-			return nil, apiErr
-		}
-		// Same limit and same base64-in-JSON shape as the ElevenLabs audio
-		// connector (connectors_media.go) -- a proven precedent for
-		// carrying binary content through a node's JSON output.
-		data, err := readBounded(resp.Body, mediaResponseLimit)
-		if err != nil {
-			return nil, fmt.Errorf("Google Drive: read file: %w", err)
-		}
-		return map[string]any{
-			"status":        "drive_file_downloaded",
-			"contentBase64": base64.StdEncoding.EncodeToString(data),
-		}, nil
-	}
-	return nil, fmt.Errorf("google: unknown drive template %q", node.Template)
 }
 
 // googleOutgoingText is the content a Google write step sends -- an email's

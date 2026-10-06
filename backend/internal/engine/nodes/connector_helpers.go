@@ -347,7 +347,6 @@ var apiBaseDefaults = map[string]string{
 	"gmail":        "https://gmail.googleapis.com/gmail/v1",
 	"sheets":       "https://sheets.googleapis.com/v4/spreadsheets",
 	"calendar":     "https://www.googleapis.com/calendar/v3/calendars",
-	"drive":        "https://www.googleapis.com/drive/v3/files",
 	"google_token": "https://oauth2.googleapis.com/token",
 }
 
