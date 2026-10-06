@@ -54,8 +54,8 @@ func TestOAuth2CredStart_RedirectsToConsentScreenWithOfflineAccess(t *testing.T)
 		t.Error("want a non-empty state param")
 	}
 	if !strings.Contains(q.Get("scope"), "gmail.send") || !strings.Contains(q.Get("scope"), "spreadsheets") ||
-		!strings.Contains(q.Get("scope"), "calendar") {
-		t.Errorf("want all three Google product scopes requested in one consent screen, got %q", q.Get("scope"))
+		!strings.Contains(q.Get("scope"), "calendar") || !strings.Contains(q.Get("scope"), "userinfo.email") {
+		t.Errorf("want the three Google product scopes plus userinfo.email requested in one consent screen, got %q", q.Get("scope"))
 	}
 	// Restricted scopes cannot pass Google's OAuth verification without a paid
 	// CASA assessment; requesting one would put the whole consent screen back

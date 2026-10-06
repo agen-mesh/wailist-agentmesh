@@ -42,7 +42,13 @@ type oauth2CredProvider struct {
 // restricted scope cannot pass Google's OAuth verification without a paid
 // annual CASA security assessment. Sensitive scopes verify for free. Adding a
 // restricted scope back here re-opens that requirement.
+//
+// userinfo.email is non-sensitive (no review at all) and is what lets
+// fetchGoogleAccountLabel read the account's address: without it Google's
+// userinfo endpoint returns no email and every connection was stored as
+// "unlabeled-xxxx".
 var googleConnectorScopes = []string{
+	"https://www.googleapis.com/auth/userinfo.email",
 	"https://www.googleapis.com/auth/gmail.send",
 	"https://www.googleapis.com/auth/spreadsheets",
 	"https://www.googleapis.com/auth/calendar",
