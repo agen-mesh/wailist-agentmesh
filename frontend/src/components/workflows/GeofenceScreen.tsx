@@ -202,6 +202,7 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
         // app, so that is the common case for a first save). Discarding it
         // would report success on a trigger that will never fire.
         const { shell } = await import("@/native");
+        if (!liveRef.current) return;
         const armed = await shell.setGeofence(workflowId, fence);
         if (!liveRef.current) return;
         setDeviceArmed(armed);
@@ -263,6 +264,7 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
     setPermission(null);
     if (!saved) return;
     const { shell } = await import("@/native");
+    if (!liveRef.current) return;
     const armed = await shell.setGeofence(workflowId, {
       lat: saved.centre.lat,
       lng: saved.centre.lng,
