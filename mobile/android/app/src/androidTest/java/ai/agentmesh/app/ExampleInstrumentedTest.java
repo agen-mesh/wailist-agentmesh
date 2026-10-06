@@ -21,6 +21,6 @@ public class ExampleInstrumentedTest {
         // Context of the app under test.
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
 
-        assertEquals("ai.agentmesh.app", appContext.getPackageName());
+        assertEquals("com.agentmesh.app", appContext.getPackageName());
     }
 }

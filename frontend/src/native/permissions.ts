@@ -24,9 +24,9 @@ export const DISCLOSURE = {
     "choose. To do that, Android needs to let it check your location even " +
     "when the app is closed.\n\n" +
     "Your location is used only to work out whether you crossed that edge. " +
-    "On our servers we keep just that -- you entered, or you left -- and " +
-    "never the coordinates themselves. There is no record of where you have " +
-    "been for us to look through.\n\n" +
+    "On our servers we keep the zone you chose and just that -- you entered, " +
+    "or you left -- never your position at each crossing. There is no record " +
+    "of where you have been for us to look through.\n\n" +
     "On this phone, a crossing waits in a queue until it can be sent, so one " +
     "that happens with no signal is not lost. Those waiting readings do " +
     "include your position. They never leave the device except to report " +
