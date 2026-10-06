@@ -101,19 +101,27 @@ export default function PrivacyPage() {
               and the {COMPANY} Android app. Where the two differ (and on
               location, they differ considerably) the difference is stated.
             </P>
+            <P>
+              The Android app runs and monitors workflows; it does not build
+              them. Creating or editing a workflow, and connecting or
+              disconnecting the services it uses, is done in the {COMPANY}{" "}
+              desktop app at agent-mesh.app. So the workflow content and
+              connected-account data described below are entered there, not on
+              your phone.
+            </P>
           </Section>
 
           <Section n="2" title="Information you give us">
             <P>
-              <strong>Account details.</strong> Your email address, your name,
-              and, if you give one, the name of your organisation. If you sign
-              up with a password, we keep only a hash of it, never the password
-              itself.
+              <strong>Account details.</strong> Your email address, the name you
+              give us, and, if you give one, the name of your organisation. If
+              you sign up with a password, we keep only a hash of it, never the
+              password itself.
             </P>
             <P>
               <strong>Signing in with Google or GitHub.</strong> We ask the
-              provider for your verified email address and use it to find or
-              create your account. We do not receive or store your Google or
+              provider only for your verified email address, and use it to find
+              or create your account. We do not receive or store your Google or
               GitHub password.
             </P>
             <P>
@@ -121,6 +129,24 @@ export default function PrivacyPage() {
               configuration you enter into them, and the record of the runs they
               produce. Credentials you enter for third-party connectors are
               encrypted before storage.
+            </P>
+            <P>
+              <strong>Connected accounts.</strong> If you connect a service such
+              as Google (Gmail, Sheets, Calendar, Drive), Slack, Notion or Jira
+              so a workflow can use it, we store the access tokens that service
+              issues, encrypted. They are used only to perform the actions your
+              workflows are configured to take, such as reading or sending email
+              or updating a spreadsheet, and only when those workflows run. You
+              can disconnect at any time from the desktop app, and revoke access
+              from the service&rsquo;s own account settings. {COMPANY}&rsquo;s
+              use of information received from Google APIs adheres to the{" "}
+              <a
+                href="https://developers.google.com/terms/api-services-user-data-policy"
+                style={inlineLink}
+              >
+                Google API Services User Data Policy
+              </a>
+              , including the Limited Use requirements.
             </P>
             <P>
               <strong>Billing information.</strong> Records of credits purchased

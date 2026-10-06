@@ -95,8 +95,9 @@ export function AccountPage() {
                 </button>
               </li>
             )}
-            {/* Google Play requires the privacy policy to be reachable from
-                inside the app, not only from the store listing. */}
+            {/* On both web and native, deliberately: Google Play requires the
+                privacy policy to be reachable from inside the app, and on the
+                web it is simply useful. Not gated like Notifications. */}
             <li>
               <Link href="/privacy" className="account-row" style={row}>
                 <span>Privacy Policy</span>
