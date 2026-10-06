@@ -21,7 +21,7 @@ export const metadata: Metadata = {
     "How AgentMesh handles your data, including location used for workflow triggers.",
 };
 
-const EFFECTIVE = "3 September 2026";
+const EFFECTIVE = "6 October 2026";
 const COMPANY = "AgentMesh";
 const CONTACT = "privacy@agent-mesh.app";
 
@@ -105,8 +105,16 @@ export default function PrivacyPage() {
 
           <Section n="2" title="Information you give us">
             <P>
-              <strong>Account details.</strong> Your email address and a hashed
-              password. We never store your password itself.
+              <strong>Account details.</strong> Your email address, your name,
+              and, if you give one, the name of your organisation. If you sign
+              up with a password, we keep only a hash of it, never the password
+              itself.
+            </P>
+            <P>
+              <strong>Signing in with Google or GitHub.</strong> We ask the
+              provider for your verified email address and use it to find or
+              create your account. We do not receive or store your Google or
+              GitHub password.
             </P>
             <P>
               <strong>Workflow content.</strong> The workflows you build, the

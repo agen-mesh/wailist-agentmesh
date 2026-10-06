@@ -95,6 +95,16 @@ export function AccountPage() {
                 </button>
               </li>
             )}
+            {/* Google Play requires the privacy policy to be reachable from
+                inside the app, not only from the store listing. */}
+            <li>
+              <Link href="/privacy" className="account-row" style={row}>
+                <span>Privacy Policy</span>
+                <span style={rowValue}>
+                  <Chevron />
+                </span>
+              </Link>
+            </li>
           </ul>
 
           <button
