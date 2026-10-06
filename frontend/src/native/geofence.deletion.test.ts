@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   permission: vi.fn(), register: vi.fn(), nativeClear: vi.fn(),
   queueClear: vi.fn(), removeListener: vi.fn(), addListener: vi.fn(),
-  pending: vi.fn(), pushFix: vi.fn(), queueRemove: vi.fn(), save: vi.fn(), unregister: vi.fn(),
+  pending: vi.fn(), pushFix: vi.fn(), queueRemove: vi.fn(), save: vi.fn(), unregister: vi.fn(), clearServer: vi.fn(),
   fences: new Set<string>(), listeners: new Set<symbol>(), queue: [] as string[],
 }));
 vi.mock("@capacitor/network", () => ({ Network: { addListener: state.addListener } }));
@@ -12,7 +12,7 @@ vi.mock("./nativeGeofence", () => ({ Geofence: {
   removeGeofence: state.unregister,
 } }));
 vi.mock("./queue", () => ({ pending: state.pending, clear: state.queueClear, remove: state.queueRemove }));
-vi.mock("./api", () => ({ pushFix: state.pushFix, setGeofence: state.save }));
+vi.mock("./api", () => ({ pushFix: state.pushFix, setGeofence: state.save, clearGeofence: state.clearServer }));
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -38,6 +38,7 @@ beforeEach(async () => {
   state.queue = [];
   state.permission.mockResolvedValue({ granted: true });
   state.register.mockImplementation(async ({ id }: { id: string }) => { state.fences.add(id); });
+  state.unregister.mockImplementation(async ({ id }: { id: string }) => { state.fences.delete(id); });
   state.nativeClear.mockImplementation(async () => { state.fences.clear(); });
   state.queueClear.mockImplementation(async () => { state.queue = []; });
   state.pending.mockResolvedValue([]);
@@ -224,6 +225,57 @@ it("does not remove a new account listener when an old stop completes", async ()
   await stopping;
   expect(state.listeners.size).toBe(1);
   expect([...state.fences]).toEqual([owned.workflowId]);
+  await geofences.clearAccountGeofences();
+  expectEmpty();
+});
+
+it("cancels a pending server removal before it can disarm a later account with the same ID", async () => {
+  await geofences.start(owned);
+  const response = deferred<void>();
+  state.clearServer.mockReturnValueOnce(response.promise);
+  const { shell } = await import("./index");
+  const removing = shell.clearGeofence(owned.workflowId);
+  await vi.waitFor(() => expect(state.clearServer).toHaveBeenCalledWith(owned.workflowId));
+  expect(state.unregister).not.toHaveBeenCalled();
+  await geofences.clearAccountGeofences();
+  await geofences.start({ ...owned, lat: 55 });
+  const currentListeners = [...state.listeners];
+  response.resolve(undefined);
+  await removing;
+  expect(state.unregister).not.toHaveBeenCalled();
+  expect([...state.fences]).toEqual([owned.workflowId]);
+  expect([...state.listeners]).toEqual(currentListeners);
+  expect(state.listeners.size).toBe(1);
+  expect(state.removeListener).toHaveBeenCalledOnce();
+  await geofences.clearAccountGeofences();
+  expectEmpty();
+});
+
+it("preserves server-first ordering for a current removal", async () => {
+  await geofences.start(owned);
+  const response = deferred<void>();
+  state.clearServer.mockReturnValueOnce(response.promise);
+  const { shell } = await import("./index");
+  const removing = shell.clearGeofence(owned.workflowId);
+  await vi.waitFor(() => expect(state.clearServer).toHaveBeenCalledWith(owned.workflowId));
+  expect(state.unregister).not.toHaveBeenCalled();
+  expect([...state.fences]).toEqual([owned.workflowId]);
+  expect(state.listeners.size).toBe(1);
+  response.resolve(undefined);
+  await removing;
+  expect(state.unregister).toHaveBeenCalledExactlyOnceWith({ id: owned.workflowId });
+  expectEmpty();
+});
+
+it("preserves the native fence and listener after a server removal failure", async () => {
+  await geofences.start(owned);
+  state.clearServer.mockRejectedValueOnce(new Error("server unavailable"));
+  const { shell } = await import("./index");
+  await expect(shell.clearGeofence(owned.workflowId)).rejects.toThrow("server unavailable");
+  expect(state.unregister).not.toHaveBeenCalled();
+  expect([...state.fences]).toEqual([owned.workflowId]);
+  expect(state.listeners.size).toBe(1);
+  expect(state.removeListener).not.toHaveBeenCalled();
   await geofences.clearAccountGeofences();
   expectEmpty();
 });

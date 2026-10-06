@@ -131,8 +131,10 @@ export async function start(opts: StartOptions, prepare?: () => Promise<void>): 
   }
 }
 
-export async function stop(workflowId: string): Promise<void> {
+export async function stop(workflowId: string, prepare?: () => Promise<void>): Promise<void> {
   const generation = accountGeneration;
+  if (prepare) await prepare();
+  if (generation !== accountGeneration) return;
   await Geofence.removeGeofence({ id: workflowId });
   await withListenerLock(async () => {
     if (generation !== accountGeneration) return;

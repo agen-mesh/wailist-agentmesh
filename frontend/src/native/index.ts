@@ -212,7 +212,6 @@ export const shell: NativeShell = {
     // intent) rather than the alternative -- disarming the OS watch first and
     // then failing to tell the server, which leaves the server believing a
     // fence is live that will never fire again.
-    await clearGeofence(workflowId);
-    await stop(workflowId);
+    await stop(workflowId, () => clearGeofence(workflowId));
   },
 };
