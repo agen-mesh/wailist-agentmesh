@@ -41,11 +41,27 @@ func SetGoogleAPIBasesForTest(gmail, sheets, calendar string) {
 // tests. Pass "" to reset to the real endpoint.
 func SetGoogleTokenEndpointForTest(base string) { setAPIBaseForTest("google_token", base) }
 
+// removedGoogleTemplates are templates dropped with their Google "restricted"
+// scopes (gmail.readonly, drive.readonly), which cannot pass Google's OAuth
+// verification without a paid annual CASA assessment. Workflows saved before
+// the removal still hold such nodes; they fail with a reason the user can act
+// on, before any credential lookup or token refresh.
+var removedGoogleTemplates = map[string]string{
+	"gmail_list":     "Gmail read access",
+	"gmail_get":      "Gmail read access",
+	"drive_list":     "Drive access",
+	"drive_get":      "Drive access",
+	"drive_download": "Drive access",
+}
+
 // ExecuteGoogle dispatches to the Gmail/Sheets/Calendar connector matching
-// node.Template's prefix -- one node type covering all three products (see models.NodeTypeGoogle's doc comment) since they share the
-// identical OAuth-credential-lookup mechanics and differ only in which API
-// they call.
+// node.Template's prefix -- one node type covering all three products (see
+// models.NodeTypeGoogle's doc comment) since they share the identical
+// OAuth-credential-lookup mechanics and differ only in which API they call.
 func ExecuteGoogle(ctx context.Context, node models.WorkflowNode, rc RunContexter, cfg GoogleConfig) (any, error) {
+	if access, removed := removedGoogleTemplates[node.Template]; removed {
+		return nil, fmt.Errorf("google: %s has been removed (AgentMesh no longer requests %s); remove this node", node.Template, access)
+	}
 	switch {
 	case strings.HasPrefix(node.Template, "gmail_"):
 		return executeGmail(ctx, node, rc, cfg)
@@ -53,8 +69,6 @@ func ExecuteGoogle(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return executeSheets(ctx, node, rc, cfg)
 	case strings.HasPrefix(node.Template, "calendar_"):
 		return executeCalendar(ctx, node, rc, cfg)
-	case strings.HasPrefix(node.Template, "drive_"):
-		return nil, fmt.Errorf("google: Google Drive nodes have been removed (AgentMesh no longer requests Drive access); remove this %s node", node.Template)
 	}
 	return nil, fmt.Errorf("google: unknown template %q", node.Template)
 }
@@ -64,8 +78,8 @@ func ExecuteGoogle(ctx context.Context, node models.WorkflowNode, rc RunContexte
 // load-bearing, not defensive dressing: a node's Config is workflow data a
 // user (or, once workflow-sharing/templates exist, someone else's copied
 // workflow) controls, so without explicitly checking cred.UserID against
-// the RUN's actual owner, any workflow could read any user's Gmail/Sheets/
-// Calendar/Drive by supplying a credential ID it doesn't own — the oauthcred
+// the RUN's actual owner, any workflow could use any user's Gmail/Sheets/
+// Calendar by supplying a credential ID it doesn't own — the oauthcred
 // package itself is provider/user-agnostic and deliberately doesn't make
 // this check, since it has no notion of "the workflow calling it."
 func googleAccessToken(ctx context.Context, node models.WorkflowNode, cfg GoogleConfig) (string, error) {
@@ -96,7 +110,7 @@ func bearerHeader(token string) map[string]string {
 
 // googleGET builds and runs an authenticated GET, returning the decoded
 // JSON body via getJSON (connector_helpers.go) -- shared by every read
-// operation across all four Google products below.
+// operation across the Google products below.
 func googleGET(ctx context.Context, target, token, serviceName string) (any, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
@@ -117,13 +131,6 @@ func executeGmail(ctx context.Context, node models.WorkflowNode, rc RunContexter
 	}
 
 	switch node.Template {
-	case "gmail_list", "gmail_get":
-		// Reading mail needs gmail.readonly, a Google "restricted" scope that
-		// requires a paid annual security assessment. AgentMesh asks only for
-		// gmail.send, so a workflow still holding one of these nodes gets a
-		// clear reason rather than a 403 from Gmail.
-		return nil, fmt.Errorf("google: %s has been removed (AgentMesh no longer requests Gmail read access); remove this node", node.Template)
-
 	case "gmail_send", "gmail_reply":
 		// resolveTemplate, not plain configVal: the Inspector's own hint text
 		// for gmailThreadID below suggests "{{ result.threadId }}", so these

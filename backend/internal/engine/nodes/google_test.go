@@ -117,35 +117,6 @@ func TestGoogleAccessToken_DeniesAccessToAnotherUsersCredential(t *testing.T) {
 	}
 }
 
-// A real (trimmed) multipart/alternative Gmail message: text/plain sibling
-// next to text/html, which is the common real-world shape this has to
-// handle correctly, not just a flat single-part message.
-func gmailFixtureMessage(t *testing.T, plainText string) string {
-	t.Helper()
-	encoded := base64.RawURLEncoding.EncodeToString([]byte(plainText))
-	msg := map[string]any{
-		"id": "msg123", "threadId": "thread123", "snippet": "preview...",
-		"payload": map[string]any{
-			"mimeType": "multipart/alternative",
-			"headers": []map[string]any{
-				{"name": "Subject", "value": "Test Subject"},
-				{"name": "From", "value": "sender@example.com"},
-				{"name": "To", "value": "me@example.com"},
-				{"name": "Date", "value": "Thu, 6 Aug 2026 12:00:00 +0000"},
-			},
-			"parts": []map[string]any{
-				{"mimeType": "text/plain", "body": map[string]any{"data": encoded}},
-				{"mimeType": "text/html", "body": map[string]any{"data": base64.RawURLEncoding.EncodeToString([]byte("<p>" + plainText + "</p>"))}},
-			},
-		},
-	}
-	b, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
-}
-
 func TestGmailSend_BuildsCorrectRawRFC2822MessageAndSkipsWithoutRecipient(t *testing.T) {
 	var gotRaw string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -521,7 +492,10 @@ func TestCalendarCreate_SkipsWhenMissingTimes(t *testing.T) {
 // restricted scopes. Workflows saved before that still hold such nodes; they
 // must fail with a reason a user can act on, before any token is fetched.
 func TestExecuteGoogle_RemovedTemplatesExplainThemselves(t *testing.T) {
-	cfg, config := googleTestSetup(t, "u1")
+	// No oauthCredentialID in Config: a removed node must explain itself
+	// rather than ask the user to connect an account it can never use.
+	cfg, _ := googleTestSetup(t, "u1")
+	config := map[string]string{}
 	rc := engine.NewRunContext("r1", nil)
 	for _, tc := range []struct{ template, want string }{
 		{"gmail_list", "Gmail read access"},

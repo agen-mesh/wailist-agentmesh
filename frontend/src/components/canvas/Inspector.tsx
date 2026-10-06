@@ -2810,6 +2810,21 @@ function GoogleInspector({
         <Field label="Operation">
           <input style={inputStyle} value={tpl?.name ?? template} readOnly />
         </Field>
+        {!tpl && template && (
+          // A node saved before its operation was removed (Gmail read, Drive):
+          // the backend fails it at run time, so say so here first.
+          <div
+            style={{
+              fontSize: "var(--t-1)",
+              color: "var(--danger)",
+              marginTop: 6,
+              lineHeight: 1.5,
+            }}
+          >
+            This operation is no longer available. Remove this node or replace
+            it with a supported Google operation.
+          </div>
+        )}
       </Section>
 
       <Section label="Connected account">
