@@ -155,7 +155,65 @@ export default function PrivacyPage() {
             </P>
           </Section>
 
-          <Section n="3" title="Location, in the Android app">
+          <Section n="3" title="Google user data">
+            <P>
+              This section applies if you connect a Google account to a
+              workflow. It covers data {COMPANY} receives through Google APIs.
+            </P>
+            <P>
+              <strong>What we access.</strong> Only what the Google steps in
+              your workflows need, using three permissions: sending email from
+              your Gmail account (we cannot read, list or delete your mail),
+              reading and adding rows in Google Sheets you specify, and listing
+              and creating events in your Google Calendar. We also receive the
+              email address of the Google account you connect, to show you which
+              account a workflow uses. We do not access Google Drive.
+            </P>
+            <P>
+              <strong>How we use it.</strong> Only to carry out the step your
+              workflow is configured to perform, when that workflow runs: for
+              example sending the email it composes, appending its result to a
+              sheet, or creating the event it describes.
+            </P>
+            <P>
+              <strong>Who we share it with.</strong> We do not sell Google user
+              data or share it with third parties, except as needed to run the
+              workflow you built: if your workflow passes the result of a Google
+              step to an AI model or another connected service, that result is
+              sent there because you configured it to be. We do not use Google
+              user data for advertising, credit or lending decisions, or to
+              train AI or machine-learning models, and no person at {COMPANY}
+              reads it unless you ask us to for support, or the law requires it.
+            </P>
+            <P>
+              <strong>How we protect it.</strong> Google access and refresh
+              tokens are encrypted at rest and only used server-side to make the
+              API calls your workflows request. All traffic is encrypted in
+              transit.
+            </P>
+            <P>
+              <strong>Retention and deletion.</strong> Tokens are kept until you
+              disconnect the Google account, at which point we delete them; you
+              can also revoke access at any time from your Google
+              Account&rsquo;s security settings. Results of Google steps, such
+              as rows read from a sheet, can appear in that workflow&rsquo;s run
+              history, which is deleted when you delete the workflow or your
+              account.
+            </P>
+            <P>
+              {COMPANY}&rsquo;s use and transfer of information received from
+              Google APIs adheres to the{" "}
+              <a
+                href="https://developers.google.com/terms/api-services-user-data-policy"
+                style={inlineLink}
+              >
+                Google API Services User Data Policy
+              </a>
+              , including the Limited Use requirements.
+            </P>
+          </Section>
+
+          <Section n="4" title="Location, in the Android app">
             <P>
               This section exists because it is the part people most want a
               straight answer about.
@@ -189,7 +247,7 @@ export default function PrivacyPage() {
             </P>
           </Section>
 
-          <Section n="4" title="Notifications">
+          <Section n="5" title="Notifications">
             <P>
               If you allow notifications, your device is issued a registration
               token by Google&rsquo;s Firebase Cloud Messaging, and we store
@@ -199,7 +257,7 @@ export default function PrivacyPage() {
             </P>
           </Section>
 
-          <Section n="5" title="What we do not do">
+          <Section n="6" title="What we do not do">
             <P>
               We do not sell your personal information. We do not share it with
               third parties for their own advertising or marketing. We do not
@@ -207,7 +265,7 @@ export default function PrivacyPage() {
             </P>
           </Section>
 
-          <Section n="6" title="Service providers">
+          <Section n="7" title="Service providers">
             <P>
               Running the product means some data passes through others: hosting
               and database providers, Google&rsquo;s Firebase Cloud Messaging
@@ -219,7 +277,7 @@ export default function PrivacyPage() {
             </P>
           </Section>
 
-          <Section n="7" title="Retention and deletion">
+          <Section n="8" title="Retention and deletion">
             <P>
               Account and workflow data is kept while your account is open.
               Deleting a workflow deletes its configuration and its run history.
@@ -238,7 +296,7 @@ export default function PrivacyPage() {
             </P>
           </Section>
 
-          <Section n="8" title="Security">
+          <Section n="9" title="Security">
             <P>
               Traffic is encrypted in transit. Connector credentials are
               encrypted at rest, and on Android the session token is held in
@@ -247,14 +305,14 @@ export default function PrivacyPage() {
             </P>
           </Section>
 
-          <Section n="9" title="Children">
+          <Section n="10" title="Children">
             <P>
               {COMPANY} is not intended for children under 13, and we do not
               knowingly collect their information.
             </P>
           </Section>
 
-          <Section n="10" title="Changes">
+          <Section n="11" title="Changes">
             <P>
               If this policy changes materially, we will update the effective
               date above and notify account holders. Continuing to use {COMPANY}{" "}
@@ -262,7 +320,7 @@ export default function PrivacyPage() {
             </P>
           </Section>
 
-          <Section n="11" title="Contact">
+          <Section n="12" title="Contact">
             <P>
               Questions, requests, or complaints:{" "}
               <a href={`mailto:${CONTACT}`} style={inlineLink}>
