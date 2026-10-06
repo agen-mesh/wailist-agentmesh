@@ -222,7 +222,12 @@ export default function PrivacyPage() {
             <P>
               Account and workflow data is kept while your account is open.
               Deleting a workflow deletes its configuration and its run history.
-              To delete your account and the data associated with it, write to{" "}
+              To delete your account and associated application data, use the
+              profile menu&apos;s Delete account control, or visit our{" "}
+              <Link href="/delete-account" style={inlineLink}>account deletion page</Link>.
+              It explains what is removed, prerequisites and the web deletion path.
+              For help with deletion, including copies held by connected services,
+              operational logs or backups, write to{" "}
               <a href={`mailto:${CONTACT}`} style={inlineLink}>
                 {CONTACT}
               </a>

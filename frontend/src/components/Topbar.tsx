@@ -217,13 +217,16 @@ export function Topbar() {
                         </div>
                       </div>
                     </div>
-                    {/* Native only: there is no FCM in a browser, so on the
-                        web this would be a control that cannot do anything.
-                        The Settings item that used to sit here was removed --
-                        its onClick only closed the menu, because /settings
-                        does not exist on this branch, and shipping a working
-                        item beside a dead one is worse than shipping neither.
-                        #57 restores it along with the page it needs. */}
+                    <div className="profile-menu__divider" />
+                    <button
+                      className="profile-menu__item"
+                      onClick={() => {
+                        setMenuState("closed");
+                        router.push("/settings");
+                      }}
+                    >
+                      Delete account
+                    </button>
                     {IS_NATIVE && (
                       <>
                         <div className="profile-menu__divider" />

@@ -56,9 +56,11 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Use(NewAuthMiddleware(d.JWTSecret))
 		// Pass-through unless WEB_READONLY_MODE is set; see readonly.go.
 		r.Use(NewReadOnlyMiddleware())
+		r.Use(requireAccount(d.Store))
 
 		r.Get("/auth/me", d.Me)
 		r.Patch("/auth/me", d.UpdateProfile)
+		r.Delete("/auth/me", d.DeleteAccount)
 
 		r.Get("/workflows", d.ListWorkflows)
 		r.Post("/workflows", d.CreateWorkflow)

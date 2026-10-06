@@ -8,6 +8,7 @@ import {
   authReady,
 } from "@/lib/nativeAuth";
 import { resetCredits } from "@/lib/credits/store";
+import { clearDeletedAccountStorage } from "@/lib/accountDeletion";
 
 const UI_COOKIE = "agentmesh_ui";
 const TTL = 60 * 60 * 24 * 7; // 7 days -- matches backend JWT TTL
@@ -187,14 +188,14 @@ export function useAuth() {
     [],
   );
 
-  const clearLocalSession = useCallback(() => {
+  const clearLocalSession = useCallback((notifyNative = true) => {
     sessionEpoch.current += 1;
     if (IS_NATIVE) {
       setAuthToken(null);
       // Logged for the mirror-image reason: a shared device that fails to
       // clear the persisted token would otherwise silently keep the old
       // user's session live in Keystore after the UI has already moved on.
-      void import("@/native")
+      if (notifyNative) void import("@/native")
         .then(({ shell }) => shell.onSignedOut())
         .catch((err) =>
           console.error("native shell failed to clear sign-out", err),
@@ -230,6 +231,20 @@ export function useAuth() {
     }
   }, [clearLocalSession]);
 
+  const deleteAccount = useCallback(async (confirmation: string, password: string) => {
+    const token = getAuthToken();
+    await auth.deleteAccount(confirmation, password);
+    clearLocalSession(false);
+    const cleanup = await Promise.allSettled([
+      Promise.resolve().then(clearDeletedAccountStorage),
+      ...(IS_NATIVE ? [import("@/native/deletion").then(({ clearDeletedAccount }) => clearDeletedAccount(token))] : []),
+    ]);
+    for (const result of cleanup) {
+      if (result.status === "rejected") console.error("account deleted; device cleanup incomplete", result.reason);
+    }
+    return cleanup.some((result) => result.status === "rejected");
+  }, [clearLocalSession]);
+
   // Completes the post-OAuth onboarding prompt (or a later profile edit) —
   // updates the backend then reflects it locally so callers don't need a
   // full re-fetch just to clear needsOnboarding.
@@ -247,6 +262,7 @@ export function useAuth() {
     signIn,
     signUp,
     signOut,
+    deleteAccount,
     completeOnboarding,
   };
 }

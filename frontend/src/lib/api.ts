@@ -88,6 +88,7 @@ export interface AuthUser {
   // True for an OAuth account that has never set a name/org — Google and
   // GitHub only hand back a verified email, not an organization.
   needsOnboarding: boolean;
+  hasPassword?: boolean;
 }
 
 // Thrown by auth.me() when the server answered without confirming a session.
@@ -168,6 +169,7 @@ export const auth = {
       name: "Dev",
       orgName: "Acme Capital",
       needsOnboarding: false,
+      hasPassword: false,
     };
   },
 
@@ -204,6 +206,19 @@ export const auth = {
       return;
     }
     await delay(100);
+  },
+
+  deleteAccount: async (confirmation: string, password: string): Promise<void> => {
+    if (!BASE) throw new Error("Account deletion requires a connected backend.");
+    const res = await apiFetch(`${BASE}/auth/me`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmation, password }),
+    });
+    if (res.status !== 204) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error ?? "Could not delete account. Try again.");
+    }
   },
 
   // Full URL to kick off a backend OAuth flow. Empty string when no backend

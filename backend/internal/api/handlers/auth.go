@@ -29,12 +29,20 @@ const authCookieName = "agentmesh_token"
 const uiCookieName = "agentmesh_ui"
 
 func (d *Deps) setUICookie(w http.ResponseWriter) {
+	d.writeUICookie(w, "1", int(tokenTTL.Seconds()))
+}
+
+func (d *Deps) clearUICookie(w http.ResponseWriter) {
+	d.writeUICookie(w, "", -1)
+}
+
+func (d *Deps) writeUICookie(w http.ResponseWriter, value string, maxAge int) {
 	secure := strings.HasPrefix(os.Getenv("BASE_URL"), "https")
 	http.SetCookie(w, &http.Cookie{
 		Name:     uiCookieName,
-		Value:    "1",
+		Value:    value,
 		Path:     "/",
-		MaxAge:   int(tokenTTL.Seconds()),
+		MaxAge:   maxAge,
 		HttpOnly: false,
 		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
@@ -237,10 +245,11 @@ func (d *Deps) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond.JSON(w, http.StatusOK, map[string]any{
-		"id":      user.ID,
-		"email":   user.Email,
-		"name":    user.Name,
-		"orgName": user.OrgName,
+		"id":          user.ID,
+		"email":       user.Email,
+		"name":        user.Name,
+		"orgName":     user.OrgName,
+		"hasPassword": user.PasswordHash != "",
 		// OAuth accounts are created with no name — the frontend prompts for
 		// name+org once, right after the provider redirect lands them here.
 		"needsOnboarding": user.Name == "",
@@ -277,6 +286,7 @@ func (d *Deps) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		"name":            user.Name,
 		"orgName":         user.OrgName,
 		"needsOnboarding": false,
+		"hasPassword":     user.PasswordHash != "",
 	})
 }
 
