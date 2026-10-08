@@ -48,11 +48,11 @@ func TestExportedAPIBaseSettersRouteToRegistry(t *testing.T) {
 		t.Fatalf("order-note shopify base = %q, want untouched by the customer connector's override", got)
 	}
 
-	SetGoogleAPIBasesForTest("http://gmail.test", "http://sheets.test", "http://calendar.test", "http://drive.test")
-	defer SetGoogleAPIBasesForTest("", "", "", "")
+	SetGoogleAPIBasesForTest("http://gmail.test", "http://sheets.test", "http://calendar.test")
+	defer SetGoogleAPIBasesForTest("", "", "")
 	for service, want := range map[string]string{
 		"gmail": "http://gmail.test", "sheets": "http://sheets.test",
-		"calendar": "http://calendar.test", "drive": "http://drive.test",
+		"calendar": "http://calendar.test",
 	} {
 		if got := apiBase(service); got != want {
 			t.Fatalf("%s: apiBase = %q, want %q", service, got, want)

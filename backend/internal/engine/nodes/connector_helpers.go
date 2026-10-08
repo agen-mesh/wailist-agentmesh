@@ -113,7 +113,7 @@ func postJSON(ctx context.Context, target string, extraHeaders map[string]string
 // safe. This is every connector's shared low-level HTTP call, so gating on
 // the request's own method here (rather than per-connector) automatically
 // makes every current and future GET-based connector (RSS, OpenWeatherMap,
-// Calendly, Telegram getUpdates, Google Drive downloads, ...) retryable
+// Calendly, Telegram getUpdates, Google Sheets reads, ...) retryable
 // without touching each one, while every POST-based send (Slack, Jira,
 // Gmail, ...) stays correctly non-retryable -- a retry after an ambiguous
 // POST failure could double-send a message/ticket/email, which is exactly
@@ -347,7 +347,6 @@ var apiBaseDefaults = map[string]string{
 	"gmail":        "https://gmail.googleapis.com/gmail/v1",
 	"sheets":       "https://sheets.googleapis.com/v4/spreadsheets",
 	"calendar":     "https://www.googleapis.com/calendar/v3/calendars",
-	"drive":        "https://www.googleapis.com/drive/v3/files",
 	"google_token": "https://oauth2.googleapis.com/token",
 }
 

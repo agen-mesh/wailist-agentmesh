@@ -2810,6 +2810,21 @@ function GoogleInspector({
         <Field label="Operation">
           <input style={inputStyle} value={tpl?.name ?? template} readOnly />
         </Field>
+        {!tpl && template && (
+          // A node saved before its operation was removed (Gmail read, Drive):
+          // the backend fails it at run time, so say so here first.
+          <div
+            style={{
+              fontSize: "var(--t-1)",
+              color: "var(--danger)",
+              marginTop: 6,
+              lineHeight: 1.5,
+            }}
+          >
+            This operation is no longer available. Remove this node or replace
+            it with a supported Google operation.
+          </div>
+        )}
       </Section>
 
       <Section label="Connected account">
@@ -2880,7 +2895,7 @@ function GoogleInspector({
                 lineHeight: 1.5,
               }}
             >
-              One connection covers Gmail, Sheets, Calendar, and Drive together.
+              One connection covers Gmail sending, Sheets, and Calendar together.
             </div>
           </>
         )}
@@ -2894,9 +2909,6 @@ function GoogleInspector({
       )}
       {template.startsWith("calendar_") && (
         <GoogleCalendarFields node={node} onUpdate={onUpdate} />
-      )}
-      {template.startsWith("drive_") && (
-        <GoogleDriveFields node={node} onUpdate={onUpdate} />
       )}
 
       {usesMessageTemplate && (
@@ -2916,38 +2928,6 @@ function GoogleGmailFields({
   onUpdate: (n: WorkflowNode) => void;
 }) {
   switch (node.template) {
-    case "gmail_list":
-      return (
-        <Section label="Search">
-          <ConfigField
-            node={node}
-            onUpdate={onUpdate}
-            configKey="gmailQuery"
-            label="Query"
-            hint="Gmail search syntax, e.g. is:unread from:someone@x.com"
-            placeholder="is:unread"
-          />
-          <ConfigField
-            node={node}
-            onUpdate={onUpdate}
-            configKey="gmailMaxResults"
-            label="Max results"
-            placeholder="10"
-          />
-        </Section>
-      );
-    case "gmail_get":
-      return (
-        <Section label="Message">
-          <ConfigField
-            node={node}
-            onUpdate={onUpdate}
-            configKey="gmailMessageID"
-            label="Message ID"
-            hint="e.g. {{ result.id }} from an upstream Gmail: List step"
-          />
-        </Section>
-      );
     case "gmail_send":
     case "gmail_reply":
       return (
@@ -3055,39 +3035,6 @@ function GoogleCalendarFields({
   );
 }
 
-function GoogleDriveFields({
-  node,
-  onUpdate,
-}: {
-  node: WorkflowNode;
-  onUpdate: (n: WorkflowNode) => void;
-}) {
-  if (node.template === "drive_list") {
-    return (
-      <Section label="Search">
-        <ConfigField
-          node={node}
-          onUpdate={onUpdate}
-          configKey="driveQuery"
-          label="Query"
-          hint="Drive search syntax, e.g. name contains 'report'"
-        />
-      </Section>
-    );
-  }
-  return (
-    <Section label="File">
-      <ConfigField
-        node={node}
-        onUpdate={onUpdate}
-        configKey="driveFileID"
-        label="File ID"
-        hint="e.g. {{ result.id }} from an upstream Drive: List step"
-      />
-    </Section>
-  );
-}
-
 // ── Tendril Inspector ──────────────────────────────────────────────────────
 function TendrilInspector({
   node,
@@ -3108,7 +3055,7 @@ function TendrilInspector({
   }, []);
 
   useEffect(() => {
-    if (action !== "rent") return;
+    if (action !== "rent" && action !== "auto") return;
     tendrilApi
       .machines()
       .then(setMachines)
@@ -3166,6 +3113,7 @@ function TendrilInspector({
               })
             }
           >
+            <option value="auto">Auto (Rent + Run)</option>
             <option value="topup">Buy Tendril Credit</option>
             <option value="rent">Rent a Machine</option>
             <option value="run">Run a Job</option>
@@ -3173,6 +3121,58 @@ function TendrilInspector({
           </select>
         </Field>
       </Section>
+
+      {action === "auto" && (
+        <Section label="Auto">
+          <div style={{ fontSize: 11, color: "var(--fg-dim)", marginBottom: 6 }}>
+            Reuses a lease you already have open. If none is open (or it ran
+            out of funded time), this rents one automatically before running
+            the job below.
+          </div>
+          <Field label="Machine (optional)">
+            <select
+              style={monoInputStyle}
+              value={node.tendrilNodeId ?? ""}
+              onChange={(e) =>
+                onUpdate({ ...node, tendrilNodeId: e.target.value })
+              }
+            >
+              <option value="">Cheapest online</option>
+              {machines.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label || m.id} — {m.cpuCores} vCPU,{" "}
+                  {Math.round(m.ramMb / 1024)} GB — ${m.pricePerHourUsd}/hr
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Budget (USD, optional)">
+            <input
+              style={monoInputStyle}
+              type="number"
+              min="0.1"
+              step="0.5"
+              placeholder="1"
+              value={node.tendrilAmount ?? ""}
+              onChange={(e) =>
+                onUpdate({ ...node, tendrilAmount: e.target.value })
+              }
+            />
+          </Field>
+          <div style={{ fontSize: 11, color: "var(--fg-dim)" }}>
+            Defaults to $1 for rental time. A required top-up may rise to the
+            provider minimum within that budget. Normal call fees still apply,
+            including when reusing a lease.
+          </div>
+          <Field label="Payload (Python)">
+            <textarea
+              style={{ ...monoInputStyle, height: 120, resize: "vertical" }}
+              value={payloadValue}
+              onChange={(e) => setPayload(e.target.value)}
+            />
+          </Field>
+        </Section>
+      )}
 
       {action === "topup" && (
         <Section label="Topup">
