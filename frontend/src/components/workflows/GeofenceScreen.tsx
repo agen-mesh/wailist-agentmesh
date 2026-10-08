@@ -5,6 +5,7 @@ import { workflows } from "@/lib/api";
 import { IS_NATIVE } from "@/lib/nativeAuth";
 import { can } from "@/lib/readonly";
 import { useReadOnly } from "@/hooks/useReadOnly";
+import { useModalDismissal } from "@/hooks/useModalDismissal";
 import {
   MAX_RADIUS_M,
   MIN_RADIUS_M,
@@ -57,6 +58,7 @@ type DisclosureCopy = {
   body: string;
   grant: string;
   decline: string;
+  intent: "locate" | "arm";
 };
 
 // Long enough to get a real fix rather than the last cached one, short enough
@@ -83,6 +85,17 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
   // requires it on screen BEFORE Android's permission dialog, and the review
   // video has to show it, so the dialog is only ever reached through it.
   const [disclosure, setDisclosure] = useState<DisclosureCopy | null>(null);
+  const disclosureRef = useRef<HTMLDialogElement>(null);
+  const closeDisclosure = useCallback(() => setDisclosure(null), []);
+  useModalDismissal(closeDisclosure, disclosure !== null);
+
+  useEffect(() => {
+    const dialog = disclosureRef.current;
+    if (!dialog || !disclosure) return;
+    dialog.showModal();
+    dialog.querySelector("h2")?.focus();
+    return () => dialog.close();
+  }, [disclosure]);
 
   // The zone as the server currently has it, or null if there is none. All
   // three fields move together -- a partly configured zone means nothing.
@@ -135,13 +148,13 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
 
   // Native only: the copy lives beside requestBackgroundLocation in
   // native/permissions, which a browser build must not pull in.
-  const openDisclosure = useCallback(async () => {
+  const openDisclosure = useCallback(async (intent: "locate" | "arm" = "arm") => {
     if (!IS_NATIVE) return;
     const perms = await import("@/native/permissions");
-    if (liveRef.current) setDisclosure({ ...perms.DISCLOSURE });
+    if (liveRef.current) setDisclosure({ ...perms.DISCLOSURE, intent });
   }, []);
 
-  const locate = useCallback(() => {
+  const locateCurrent = useCallback(() => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       setStatus({
         kind: "error",
@@ -177,6 +190,11 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
       { enableHighAccuracy: true, timeout: FIX_TIMEOUT_MS, maximumAge: 0 },
     );
   }, []);
+
+  const locate = useCallback(() => {
+    if (IS_NATIVE) void openDisclosure("locate");
+    else locateCurrent();
+  }, [locateCurrent, openDisclosure]);
 
   const radiusCheck = checkRadius(radiusM);
 
@@ -283,9 +301,14 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
   // Only reachable from the disclosure's grant button: this is what puts
   // Android's dialog on screen.
   const grantAccess = useCallback(async () => {
-    if (!IS_NATIVE) return;
+    if (!IS_NATIVE || !disclosure) return;
     setDisclosure(null);
+    if (disclosure.intent === "locate") {
+      locateCurrent();
+      return;
+    }
     const perms = await import("@/native/permissions");
+    if (!liveRef.current) return;
     const result = await perms.requestBackgroundLocation();
     if (!liveRef.current) return;
     if (result !== "granted") {
@@ -302,7 +325,7 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
       radiusM: saved.radiusM,
     });
     if (liveRef.current) setDeviceArmed(armed);
-  }, [saved, workflowId]);
+  }, [disclosure, locateCurrent, saved, workflowId]);
 
   const clear = useCallback(async () => {
     setStatus({ kind: "clearing" });
@@ -528,38 +551,40 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
           branch of save() never touches it, so it stays at its initial
           null. */}
       {disclosure && (
-        <Card style={{ marginBottom: 12 }}>
-          <section
-            role="dialog"
-            aria-modal="false"
-            aria-labelledby="geofence-disclosure-title"
-          >
-            <h2 id="geofence-disclosure-title" style={disclosureTitle}>
-              {disclosure.title}
-            </h2>
-            {disclosure.body.split("\n\n").map((para, i) => (
-              <p key={i} style={{ ...copy, marginTop: i === 0 ? 0 : 10 }}>
-                {para}
-              </p>
-            ))}
-            <div style={actionRow}>
-              <button
-                type="button"
-                onClick={grantAccess}
-                style={{ ...primaryBtn, ...touchTarget }}
-              >
-                {disclosure.grant}
-              </button>
-              <button
-                type="button"
-                onClick={() => setDisclosure(null)}
-                style={{ ...ghostBtn, ...touchTarget }}
-              >
-                {disclosure.decline}
-              </button>
-            </div>
-          </section>
-        </Card>
+        <dialog
+          ref={disclosureRef}
+          aria-modal="true"
+          aria-labelledby="geofence-disclosure-title"
+          onCancel={closeDisclosure}
+          className="geofence-disclosure"
+          style={disclosurePanel}
+        >
+          <style>{`.geofence-disclosure::backdrop { background: rgba(8,7,12,0.72); }`}</style>
+          <h2 id="geofence-disclosure-title" tabIndex={-1} style={disclosureTitle}>
+            {disclosure.title}
+          </h2>
+          {disclosure.body.split("\n\n").map((para, i) => (
+            <p key={i} style={{ ...copy, marginTop: i === 0 ? 0 : 10 }}>
+              {para}
+            </p>
+          ))}
+          <div style={actionRow}>
+            <button
+              type="button"
+              onClick={grantAccess}
+              style={{ ...primaryBtn, ...touchTarget }}
+            >
+              {disclosure.grant}
+            </button>
+            <button
+              type="button"
+              onClick={closeDisclosure}
+              style={{ ...ghostBtn, ...touchTarget }}
+            >
+              {disclosure.decline}
+            </button>
+          </div>
+        </dialog>
       )}
       {status.kind === "saved" && deviceArmed === false && !disclosure && (
         <Notice tone="danger">
@@ -639,6 +664,19 @@ const disclosureTitle: React.CSSProperties = {
   font: "600 17px/1.3 var(--font-sans)",
   color: "var(--fg)",
   margin: "0 0 10px",
+};
+
+const disclosurePanel: React.CSSProperties = {
+  width: "calc(100% - 32px)",
+  maxWidth: 540,
+  maxHeight: "calc(100dvh - 32px)",
+  overflowY: "auto",
+  margin: "auto",
+  padding: 16,
+  border: "1px solid var(--border-strong)",
+  borderRadius: "var(--r-3)",
+  background: "var(--bg-elev-1)",
+  color: "var(--fg)",
 };
 
 const title: React.CSSProperties = {

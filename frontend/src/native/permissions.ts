@@ -13,27 +13,22 @@ import { Geofence } from "./nativeGeofence";
 
 export type PermissionState = "granted" | "denied" | "denied-permanently";
 
-// What the user is told BEFORE Android's dialog appears. Plain about what is
-// collected, when, and what is kept -- the server stores only the derived
-// enter/leave event, never a location history, and saying so is both true and
-// the strongest argument for granting.
 export const DISCLOSURE = {
   title: "Run workflows when you arrive or leave",
   body:
-    "AgentMesh can start a workflow when you cross the edge of a place you " +
-    "choose. To do that, Android needs to let it check your location even " +
-    "when the app is closed.\n\n" +
-    "Your location is used only to work out whether you crossed that edge. " +
-    "On our servers we keep the zone you chose and just that -- you entered, " +
-    "or you left -- never your position at each crossing. There is no record " +
-    "of where you have been for us to look through.\n\n" +
-    "On this phone, a crossing waits in a queue until it can be sent, so one " +
-    "that happens with no signal is not lost. Those waiting readings do " +
-    "include your position. They never leave the device except to report " +
-    "that one crossing, and each is deleted as soon as it is sent -- or " +
-    "within a day if it never can be.\n\n" +
-    "You can turn this off at any time, and everything else in the app keeps " +
-    "working without it.",
+    "AgentMesh checks your precise location to start a workflow when you " +
+    "enter or leave a zone you choose, including when the app is closed " +
+    "or not in use.\n\n" +
+    "This phone sends each crossing position to our server to check it " +
+    "against your zone. The server stores the zone, your latest inside or " +
+    "outside state, and the latest reading time. New geofence run history " +
+    "records the enter or leave event and time, without the position at " +
+    "that crossing.\n\n" +
+    "Crossing positions wait in a queue on this phone until they can be " +
+    "sent. Accepted readings are removed from the queue. Readings at least " +
+    "24 hours old are discarded when the app next processes the queue.\n\n" +
+    "You can turn location triggers off at any time. Other app features " +
+    "work without background location access.",
   grant: "Choose location access",
   decline: "Not now",
 } as const;

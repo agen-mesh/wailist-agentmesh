@@ -132,7 +132,8 @@ public class GeofenceReceiver extends BroadcastReceiver {
             try {
                 queue = new JSONArray(raw == null ? "[]" : raw);
             } catch (JSONException e) {
-                Log.e(TAG, "native queue was corrupt, starting a fresh one", e);
+                // Parser exceptions can contain queued coordinates.
+                Log.e(TAG, "native queue was corrupt, starting a fresh one");
                 queue = new JSONArray();
             }
 
@@ -159,7 +160,7 @@ public class GeofenceReceiver extends BroadcastReceiver {
                 // feature exists for is not an acceptable trade for a few ms.
                 prefs.edit().putString(QUEUE_KEY, queue.toString()).commit();
             } catch (Exception e) {
-                Log.e(TAG, "could not queue the crossing", e);
+                Log.e(TAG, "could not queue the crossing");
             }
         }
     }
