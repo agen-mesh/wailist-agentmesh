@@ -1,4 +1,9 @@
 version: 2
+
+# Minor and patch updates arrive as one grouped PR per ecosystem rather than
+# one PR per package, with at most three Dependabot PRs open per ecosystem.
+# On 2026-09-09 eleven separate Dependabot PRs were merged within ten minutes,
+# six of them major-version bumps.
 updates:
   # Tracks pinned-SHA actions (softprops/action-gh-release etc.) so a bump
   # is a reviewable PR, not a silent re-float of a mutable tag.
@@ -6,11 +11,21 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "gomod"
     directory: "/backend"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      go-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   # package-lock.json is the source of truth here (CI and local dev both
   # use npm, per CLAUDE.md) -- Dependabot bumps that lockfile only.
@@ -22,8 +37,41 @@ updates:
     directory: "/frontend"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      frontend-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    # Major versions of the framework, the React runtime, the compiler and the
+    # Capacitor bridge change behaviour the test suite does not cover. They are
+    # upgraded deliberately, on a branch, instead of being proposed weekly.
+    ignore:
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@capacitor/*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/mobile"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      mobile-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "@capacitor/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
