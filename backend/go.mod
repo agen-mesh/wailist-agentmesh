@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/PuerkitoBio/goquery v1.13.0
-	github.com/algorand/go-algorand-sdk/v2 v2.12.0
+	github.com/algorand/go-algorand-sdk/v2 v2.13.0
 	github.com/andybalholm/cascadia v1.3.5
 	github.com/coder/websocket v1.8.15
 	github.com/go-chi/chi/v5 v5.3.2
@@ -19,7 +19,9 @@ require (
 )
 
 require (
+	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/algorand/avm-abi v0.2.0 // indirect
+	github.com/algorand/falcon v0.1.0 // indirect
 	github.com/algorand/go-codec/codec v1.1.10 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
