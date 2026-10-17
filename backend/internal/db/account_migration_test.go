@@ -61,7 +61,7 @@ func TestAccountMigrationUpgradeAndRollback(t *testing.T) {
 		}
 	}
 	for range 2 {
-		if err := m.Up(); err != nil {
+		if err := m.Migrate(41); err != nil {
 			t.Fatalf("upgrade to 41: %v", err)
 		}
 		version, dirty, err := m.Version()
