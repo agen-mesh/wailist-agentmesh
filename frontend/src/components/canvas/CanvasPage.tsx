@@ -20,7 +20,6 @@ import {
   useCredits,
   refreshBalance as refreshCredits,
 } from "@/lib/credits/store";
-import { LOW_BALANCE_THRESHOLD_USD } from "@/lib/credits/fx";
 import { CanvasGraph } from "./CanvasGraph";
 import { PalettePanel } from "./PalettePanel";
 import { Inspector } from "./Inspector";
@@ -1287,8 +1286,8 @@ function CanvasTopbar({
   // financial cluster. The value comes from the backend (the same row the
   // engine debits), so it is only meaningful once that fetch has landed —
   // hence balanceKnown, which separates a real $0 from "not asked yet".
-  const { balanceUSD, balanceKnown, refreshBalance } = useCredits();
-  const lowBalance = balanceKnown && balanceUSD < LOW_BALANCE_THRESHOLD_USD;
+  const { balanceUSD, balanceKnown, refreshBalance, lowBalanceThresholdUSD } = useCredits();
+  const lowBalance = balanceKnown && balanceUSD < lowBalanceThresholdUSD;
   const [shareOpen, setShareOpen] = useState(false);
   const [estimate, setEstimate] = useState<CostEstimate | null>(null);
 
