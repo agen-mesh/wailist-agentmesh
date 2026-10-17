@@ -10,6 +10,8 @@ import com.google.android.gms.location.GeofencingClient;
 import com.google.android.gms.location.GeofencingRequest;
 
 import java.util.Collections;
+import java.util.ArrayDeque;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Builds and submits a single-circle GeofencingRequest.
@@ -21,11 +23,54 @@ import java.util.Collections;
  */
 final class GeofenceRegistrar {
 
+    private static final ArrayDeque<Runnable> operations = new ArrayDeque<>();
+    private static boolean operationRunning;
+    private static long accountGeneration;
+
     private GeofenceRegistrar() {
     }
 
     interface Callback {
         void onDone(boolean success, String error);
+    }
+
+    static long generation() {
+        synchronized (GeofenceReceiver.LOCK) {
+            return accountGeneration;
+        }
+    }
+
+    // The monitor covers submission and persistence; the queue covers asynchronous OS work.
+    private static void enqueue(Runnable operation) {
+        operations.addLast(operation);
+        if (!operationRunning) runNext();
+    }
+
+    private static void runNext() {
+        Runnable next = operations.pollFirst();
+        operationRunning = next != null;
+        if (next != null) next.run();
+    }
+
+    private static Callback completing(Callback callback) {
+        AtomicBoolean completed = new AtomicBoolean();
+        return (success, error) -> {
+            synchronized (GeofenceReceiver.LOCK) {
+                if (!completed.compareAndSet(false, true)) return;
+                try {
+                    callback.onDone(success, error);
+                } finally {
+                    runNext();
+                }
+            }
+        };
+    }
+
+    private static Callback forGeneration(long generation, Callback callback) {
+        return completing((success, error) -> {
+            if (generation != accountGeneration) callback.onDone(false, "account location data was cleared");
+            else callback.onDone(success, error);
+        });
     }
 
     static PendingIntent transitionIntent(Context context) {
@@ -44,6 +89,67 @@ final class GeofenceRegistrar {
     // instance. BootReceiver has no persistent instance to share and gets a
     // fresh one from LocationServices instead.
     static void register(Context context, GeofencingClient client, String id, double lat, double lng,
+            double radiusM, Callback callback) {
+        register(context, client, generation(), id, lat, lng, radiusM, callback);
+    }
+
+    static void register(Context context, GeofencingClient client, long generation, String id, double lat,
+            double lng, double radiusM, Callback callback) {
+        synchronized (GeofenceReceiver.LOCK) {
+            enqueue(() -> {
+                Callback done = forGeneration(generation, callback);
+                if (generation != accountGeneration) {
+                    done.onDone(false, "account location data was cleared");
+                    return;
+                }
+                registerNow(context, client, id, lat, lng, radiusM, done);
+            });
+        }
+    }
+
+    static void unregister(GeofencingClient client, long generation, String id, Callback callback) {
+        synchronized (GeofenceReceiver.LOCK) {
+            enqueue(() -> {
+                Callback done = forGeneration(generation, callback);
+                if (generation != accountGeneration) {
+                    done.onDone(false, "account location data was cleared");
+                    return;
+                }
+                try {
+                    client.removeGeofences(Collections.singletonList(id))
+                            .addOnSuccessListener(unused -> done.onDone(true, null))
+                            .addOnFailureListener(e -> done.onDone(false, e.getMessage()))
+                            .addOnCanceledListener(() -> done.onDone(false, "geofence removal cancelled"));
+                } catch (SecurityException | IllegalArgumentException e) {
+                    done.onDone(false, e.getMessage());
+                }
+            });
+        }
+    }
+
+    static void clearAccountData(Context context, GeofencingClient client, Callback callback) {
+        synchronized (GeofenceReceiver.LOCK) {
+            accountGeneration += 1;
+            boolean fencesCleared = GeofenceStore.clear(context);
+            boolean queueCleared = context.getSharedPreferences(GeofenceReceiver.PREFS, Context.MODE_PRIVATE)
+                    .edit().remove(GeofenceReceiver.QUEUE_KEY).remove("agentmesh.geofence.queue").commit();
+            // A pending add must settle before the final removal, or the OS can restore it afterward.
+            enqueue(() -> {
+                Callback done = completing(callback);
+                try {
+                    client.removeGeofences(transitionIntent(context))
+                            .addOnSuccessListener(unused -> done.onDone(fencesCleared && queueCleared,
+                                    fencesCleared && queueCleared ? null : "could not clear stored location data"))
+                            .addOnFailureListener(e -> done.onDone(false, "could not remove account geofences: " + e.getMessage()))
+                            .addOnCanceledListener(() -> done.onDone(false, "account geofence removal cancelled"));
+                } catch (SecurityException | IllegalArgumentException e) {
+                    done.onDone(false, "could not remove account geofences: " + e.getMessage());
+                }
+            });
+        }
+    }
+
+    private static void registerNow(Context context, GeofencingClient client, String id, double lat, double lng,
             double radiusM, Callback callback) {
         // Builder construction is inside the try, not just addGeofences():
         // BootReceiver calls this once per persisted fence with no try/catch
@@ -71,7 +177,8 @@ final class GeofenceRegistrar {
 
             client.addGeofences(request, transitionIntent(context))
                     .addOnSuccessListener(unused -> callback.onDone(true, null))
-                    .addOnFailureListener(e -> callback.onDone(false, e.getMessage()));
+                    .addOnFailureListener(e -> callback.onDone(false, e.getMessage()))
+                    .addOnCanceledListener(() -> callback.onDone(false, "geofence registration cancelled"));
         } catch (SecurityException e) {
             // Tagged distinctly from a GMS/network failure: this one means the
             // permission was revoked between the caller's check and this call,
