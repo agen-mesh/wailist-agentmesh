@@ -147,7 +147,8 @@ it("waits for cleanup before a new account registers and ignores the old complet
 
 it("can retry cleanup after listener removal fails without losing the handle", async () => {
   await geofences.start(owned);
-  const notify = state.addListener.mock.calls[0][1];
+  const notify = state.addListener.mock.calls[0]?.[1];
+  if (typeof notify !== "function") throw new Error("Geofence listener was not registered");
   state.removeListener.mockRejectedValueOnce(new Error("listener unavailable"));
   await expect(geofences.clearAccountGeofences()).rejects.toThrow("Location cleanup incomplete");
   notify({ connected: true });

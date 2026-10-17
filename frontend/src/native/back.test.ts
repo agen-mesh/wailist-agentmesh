@@ -57,7 +57,9 @@ describe("listenForBack", () => {
     const { listenForBack } = await import("./back");
     await listenForBack();
 
-    app.handlers[0]({ canGoBack: false });
+    const handler = app.handlers[0];
+    if (!handler) throw new Error("Back listener was not registered");
+    handler({ canGoBack: false });
 
     expect(back).toHaveBeenCalledTimes(1);
     expect(app.minimizeApp).not.toHaveBeenCalled();
@@ -69,7 +71,9 @@ describe("listenForBack", () => {
     const { listenForBack } = await import("./back");
     await listenForBack();
 
-    app.handlers[0]({ canGoBack: false });
+    const handler = app.handlers[0];
+    if (!handler) throw new Error("Back listener was not registered");
+    handler({ canGoBack: false });
 
     expect(back).not.toHaveBeenCalled();
     expect(app.minimizeApp).toHaveBeenCalledTimes(1);
