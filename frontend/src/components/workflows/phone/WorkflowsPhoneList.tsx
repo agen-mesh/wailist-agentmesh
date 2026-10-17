@@ -22,18 +22,20 @@ const CLOCK_MS = 30_000;
 
 // The Workflows screen on a phone: a title, the credit balance, search with
 // a filter beside it, and one thin row per workflow. Creating and editing
-// happen on a desktop; the only row action here is read-only scoped usage.
+// happen on a desktop; sharing and scoped usage stay available here.
 export function WorkflowsPhoneList({
   workflows,
   loading,
   error,
   onRetry,
+  onShare,
 }: {
   workflows: Workflow[];
   loading: boolean;
   error: string | null;
   // Loads the list again, for the failure state below.
   onRetry?: () => void;
+  onShare?: (id: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
@@ -111,7 +113,7 @@ export function WorkflowsPhoneList({
       ) : visible.length > 0 ? (
         <ul className="wfp-list">
           {visible.map((wf) => (
-            <WorkflowPhoneRow key={wf.id} workflow={wf} now={now} />
+            <WorkflowPhoneRow key={wf.id} workflow={wf} now={now} onShare={onShare} />
           ))}
         </ul>
       ) : workflows.length === 0 && error ? (
