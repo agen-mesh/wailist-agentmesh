@@ -948,24 +948,63 @@ func prependRunFundingReceipt(result map[string]any, rf runFundResult, node mode
 	result["x402Payments"] = append([]map[string]any{funded}, existing...)
 }
 
-// debitAgentFee charges an agent step. BYOK is free: the user is paying their
-// own provider directly with their own key, so AgentMesh incurs no cost to
-// pass on and takes no cut. Credits exist to cover what the platform actually
-// spends on the user's behalf — platform-key LLM calls, and real x402
-// settlements paid out of the platform wallets. Charging for BYOK billed
-// users for compute they had already bought themselves. Logs on failure
-// rather than failing the node: the call already happened, there's nothing
-// left to roll back.
-func (r *Runner) debitAgentFee(ctx context.Context, wf models.Workflow, run models.Run, nodeID string, amountUSDMicros int64, platformMode bool, model string, tokensIn, tokensOut int) {
-	if !platformMode {
+// Each hold is owned and settled by one executeNode call.
+type agentFeeHold struct {
+	r       *Runner
+	wf      models.Workflow
+	run     models.Run
+	nodeID  string
+	model   string
+	amount  int64
+	settled bool
+}
+
+// Reserve before attached calls can spend the balance needed for this turn.
+func (r *Runner) holdAgentFee(ctx context.Context, wf models.Workflow, run models.Run, nodeID string, amountUSDMicros int64, platformMode bool, model string) (*agentFeeHold, error) {
+	h := &agentFeeHold{r: r, wf: wf, run: run, nodeID: nodeID, model: model}
+	if !platformMode || amountUSDMicros == 0 {
+		h.settled = true
+		return h, nil
+	}
+	if err := r.checkCallSpend(ctx, wf, run, amountUSDMicros); err != nil {
+		return nil, err
+	}
+	if err := r.store.ReserveCredits(ctx, wf.UserID, amountUSDMicros); err != nil {
+		if errors.Is(err, db.ErrInsufficientCredits) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("reserving agent fee: %w", errBillingCheckFailed)
+	}
+	h.amount = amountUSDMicros
+	return h, nil
+}
+
+// Cancellation cannot undo an owed turn or trigger the deferred refund.
+func (h *agentFeeHold) charge(ctx context.Context, tokensIn, tokensOut int) {
+	if h.settled {
 		return
 	}
-	if err := r.store.DebitCreditsForPlatformLLM(ctx, wf.UserID, amountUSDMicros, wf.ID, run.ID, nodeID, model, tokensIn, tokensOut); err != nil {
-		log.Printf("platform-key debit failed: user=%s workflow=%s run=%s node=%s model=%s amount=%d: %v",
-			wf.UserID, wf.ID, run.ID, nodeID, model, amountUSDMicros, err)
-		return // the DB was never actually charged -- don't settle it on-chain either
+	h.settled = true
+	bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ledgerCompensationTimeout)
+	defer cancel()
+	if err := h.r.store.CommitReservedPlatformLLMDebit(bctx, h.wf.UserID, h.amount, h.wf.ID, h.run.ID, h.nodeID, h.model, tokensIn, tokensOut); err != nil {
+		criticalAlert(h.wf, h.run, "commit reserved agent fee failed (balance already decremented, no ledger row written)", err, "node", h.nodeID, "model", h.model, "amount", h.amount)
+		return // no ledger row -- don't settle it on-chain either
 	}
-	r.addRunBilling(run.ID, amountUSDMicros)
+	h.r.addRunBilling(h.run.ID, h.amount)
+}
+
+// Compensation must still run after the workflow context is cancelled.
+func (h *agentFeeHold) release(ctx context.Context) {
+	if h.settled {
+		return
+	}
+	h.settled = true
+	bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ledgerCompensationTimeout)
+	defer cancel()
+	if err := h.r.store.ReleaseReservedCredits(bctx, h.wf.UserID, h.amount); err != nil {
+		criticalAlert(h.wf, h.run, "release reserved agent fee failed (balance permanently stranded)", err, "node", h.nodeID, "amount", h.amount)
+	}
 }
 
 // Start creates a cancellable context for the run, registers it, and launches
@@ -1745,9 +1784,8 @@ func (r *Runner) executeNode(
 		platformMode := provider != nil && provider.KeyMode == "platform"
 
 		// BYOK costs the platform nothing, so it is neither gated on credits
-		// nor charged (see debitAgentFee). A zero preflight amount always
-		// passes, which is the point: a user running purely on their own API
-		// key should never be blocked by an empty balance.
+		// nor charged (see holdAgentFee): a user running purely on their own
+		// API key should never be blocked by an empty balance.
 		var agentFeeUSDMicros int64
 		var resolvedModel string
 		if platformMode {
@@ -1755,13 +1793,14 @@ func (r *Runner) executeNode(
 			agentFeeUSDMicros = nodes.PlatformKeyFeeUSDMicros(nodes.ModelTier(provider.Template, resolvedModel))
 		}
 
-		if err := r.checkCallSpend(ctx, wf, run, agentFeeUSDMicros); err != nil {
+		agentFee, err := r.holdAgentFee(ctx, wf, run, node.ID, agentFeeUSDMicros, platformMode, resolvedModel)
+		if err != nil {
 			return nil, err
 		}
-		if err := r.preflightCheck(ctx, wf, agentFeeUSDMicros); err != nil {
-			return nil, err
-		}
+		defer agentFee.release(ctx)
 		aw := walletByAgent[node.ID]
+		// Reads a balance the agent's own fee has already been taken out of,
+		// so an attached call's floor check can't count that fee as available.
 		checkBalance := func(cctx context.Context, amount int64) error {
 			return r.preflightCheck(cctx, wf, amount)
 		}
@@ -1835,7 +1874,7 @@ func (r *Runner) executeNode(
 			// means the agent turn itself never completed, so nothing is
 			// billed, matching the pre-existing behavior for those failures.
 			if isAgentFeeOwedDespiteFailure(err) {
-				r.debitAgentFee(ctx, wf, run, node.ID, agentFeeUSDMicros, platformMode, resolvedModel, 0, 0)
+				agentFee.charge(ctx, 0, 0)
 			}
 			return nil, err
 		}
@@ -1846,7 +1885,7 @@ func (r *Runner) executeNode(
 				tokensOut, _ = usage["tokensOut"].(int)
 			}
 		}
-		r.debitAgentFee(ctx, wf, run, node.ID, agentFeeUSDMicros, platformMode, resolvedModel, tokensIn, tokensOut)
+		agentFee.charge(ctx, tokensIn, tokensOut)
 		// Attached x402Payments entries (relay markup included) and attached
 		// flat-fee tool/action calls are already reserved+committed from
 		// inside ExecuteAgent's tool-calling loop, atomically per call, at
