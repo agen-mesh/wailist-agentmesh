@@ -89,6 +89,8 @@ export interface AuthUser {
   // GitHub only hand back a verified email, not an organization.
   needsOnboarding: boolean;
   hasPassword?: boolean;
+  createdAt?: string;
+  lowBalanceUsdMicros?: number;
 }
 
 // Thrown by auth.me() when the server answered without confirming a session.
@@ -197,6 +199,19 @@ export const auth = {
     };
   },
 
+  changePassword: async (currentPassword: string, newPassword: string): Promise<void> => {
+    if (!BASE) throw new Error("Password changes require a connected backend.");
+    const res = await apiFetch(`${BASE}/auth/password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    if (res.status !== 204) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error ?? "Could not change password.");
+    }
+  },
+
   signOut: async (): Promise<void> => {
     if (BASE) {
       await apiFetch(`${BASE}/auth/signout`, {
@@ -259,6 +274,40 @@ export const auth = {
 };
 
 // -- Workflows ------------------------------------------------------------
+export interface UserSettings {
+  lowBalanceUsdMicros: number;
+  maxCallSpendUsdMicros: number | null;
+  limits: {
+    minCallSpendUsdMicros: number;
+    maxCallSpendUsdMicros: number;
+    maxLowBalanceUsdMicros: number;
+  };
+}
+
+export type UserSettingsPatch = Partial<Pick<UserSettings, "lowBalanceUsdMicros" | "maxCallSpendUsdMicros">>;
+
+export const settings = {
+  get: async (): Promise<UserSettings> => {
+    if (!BASE) throw new Error("Settings require a connected backend.");
+    const res = await apiFetch(`${BASE}/settings`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "Could not load settings.");
+    return data;
+  },
+  update: async (patch: UserSettingsPatch): Promise<UserSettings> => {
+    assertWritable("PATCH", "/settings");
+    if (!BASE) throw new Error("Settings require a connected backend.");
+    const res = await apiFetch(`${BASE}/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "Could not save settings.");
+    return data;
+  },
+};
+
 export const workflows = {
   // TODO: GET /workflows
   list: async (): Promise<Workflow[]> => {
@@ -1165,45 +1214,25 @@ export const oauth2 = {
   connectURL: (provider: string): string => `${BASE}/oauth2/${provider}/start`,
 
   listCredentials: async (
-    provider: string,
+    provider?: string,
   ): Promise<OAuthCredentialSummary[]> => {
     if (!BASE) return []; // No connected-account concept in mock mode.
     const res = await apiFetch(
-      `${BASE}/oauth2/credentials?provider=${encodeURIComponent(provider)}`,
+      `${BASE}/oauth2/credentials${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`,
       { credentials: "include" },
     );
-    if (!res.ok) return [];
-    return res.json().catch(() => []);
+    if (!res.ok) throw new Error("Could not load connected accounts.");
+    return res.json();
   },
 
   deleteCredential: async (id: string): Promise<void> => {
-    if (!BASE) return;
-    await apiFetch(`${BASE}/oauth2/credentials/${encodeURIComponent(id)}`, {
+    assertWritable("DELETE", `/oauth2/credentials/${encodeURIComponent(id)}`);
+    if (!BASE) throw new Error("Disconnecting requires a connected backend.");
+    const res = await apiFetch(`${BASE}/oauth2/credentials/${encodeURIComponent(id)}`, {
       method: "DELETE",
       credentials: "include",
     });
-  },
-};
-
-// -- Waitlist -------------------------------------------------------------
-export const waitlist = {
-  // TODO: POST /waitlist
-  join: async (email: string): Promise<void> => {
-    if (BASE) {
-      // Plain fetch, not apiFetch: this is the one genuinely public endpoint
-      // here, and it must not send credentials. A credentialed cross-origin
-      // request fails outright when CORS_ORIGIN is unset (the wildcard case,
-      // where the server cannot send Allow-Credentials), which would break the
-      // landing page's signup for a deployment where nothing else is wrong.
-      await fetch(`${BASE}/waitlist`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      return;
-    }
-    void email;
-    await delay(600);
+    if (res.status !== 204) throw new Error("Could not disconnect this account. Try again.");
   },
 };
 

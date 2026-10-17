@@ -18,6 +18,7 @@ vi.mock("../Donut", () => ({ Donut: () => <div data-testid="donut" /> }));
 const credits = vi.hoisted(() => ({
   balanceUSD: 12.5,
   balanceKnown: true,
+  lowBalanceThresholdUSD: 5,
   refreshBalance: vi.fn(async () => {}),
 }));
 vi.mock("@/lib/credits/store", () => ({ useCredits: () => credits }));
@@ -48,6 +49,7 @@ afterEach(() => {
   cleanup();
   credits.balanceUSD = 12.5;
   credits.balanceKnown = true;
+  credits.lowBalanceThresholdUSD = 5;
 });
 
 describe("UsagePhonePage", () => {
@@ -79,6 +81,18 @@ describe("UsagePhonePage", () => {
     expect(
       screen.getByRole("link", { name: /Credits left/ }).textContent,
     ).toContain("—");
+  });
+
+  it.each([
+    { threshold: 0, low: false },
+    { threshold: 1, low: false },
+    { threshold: 2, low: true },
+  ])("uses the saved threshold $threshold", ({ threshold, low }) => {
+    credits.balanceUSD = 1.2;
+    credits.lowBalanceThresholdUSD = threshold;
+    renderPage();
+    const text = screen.getByRole("link", { name: /Credits left/ }).textContent;
+    expect(text?.includes("Low")).toBe(low);
   });
 
   it("marks the chosen range and reports a new one", () => {

@@ -246,6 +246,7 @@ export function PalettePanel({
   return (
     <div
       ref={rootRef}
+      data-panel="palette"
       style={{
         width,
         flexShrink: 0,
