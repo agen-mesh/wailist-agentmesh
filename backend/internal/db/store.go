@@ -2384,7 +2384,7 @@ func (s *Store) GetOAuthCredential(ctx context.Context, id string) (models.OAuth
 func (s *Store) ListOAuthCredentials(ctx context.Context, userID, provider string) ([]models.OAuthCredential, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+oauthCredentialCols+` FROM oauth_credentials
-		 WHERE user_id = $1 AND provider = $2 ORDER BY created_at DESC`, userID, provider)
+		 WHERE user_id = $1 AND ($2 = '' OR provider = $2) ORDER BY created_at DESC`, userID, provider)
 	if err != nil {
 		return nil, err
 	}
