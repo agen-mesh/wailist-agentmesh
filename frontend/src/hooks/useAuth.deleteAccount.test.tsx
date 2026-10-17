@@ -24,7 +24,7 @@ vi.mock("@/lib/nativeAuth", () => ({
 vi.mock("@/native", () => ({ shell: { onSignedOut: state.signedOut } }));
 vi.mock("@/native/deletion", () => ({ clearDeletedAccount: state.clearNative }));
 vi.mock("@/lib/accountDeletion", () => ({ clearDeletedAccountStorage: state.clearStorage }));
-vi.mock("@/lib/credits/store", () => ({ resetCredits: state.resetCredits }));
+vi.mock("@/lib/credits/store", () => ({ resetCredits: state.resetCredits, setAccountThreshold: vi.fn() }));
 import { useAuth } from "./useAuth";
 
 const user = { id: "owner", email: "owner@example.test", hasPassword: true };

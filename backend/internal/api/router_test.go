@@ -47,6 +47,51 @@ func TestRunHistoryRoutesRequireASession(t *testing.T) {
 	}
 }
 
+// A share link is the one workflow-shaped thing a stranger is meant to be
+// able to open. Reading one must NOT require a session -- that is the whole
+// feature -- while everything that creates, revokes or imports still must.
+//
+// Asserted through the router rather than by reading router.go, because the
+// only thing that actually decides is which side of the r.Group a route was
+// registered on, and that is a one-line mistake to make.
+func TestShareRoutesAreOnTheRightSideOfTheSession(t *testing.T) {
+	r := api.NewRouter(&handlers.Deps{})
+
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		public bool
+	}{
+		{"reading a share", http.MethodGet, "/shares/tok_123", true},
+		{"creating a link", http.MethodPost, "/workflows/wf_1/share", false},
+		{"listing links", http.MethodGet, "/workflows/wf_1/shares", false},
+		{"revoking a link", http.MethodDelete, "/shares/tok_123", false},
+		{"importing a link", http.MethodPost, "/shares/tok_123/import", false},
+		{"importing a pasted graph", http.MethodPost, "/workflows/import", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, nil))
+			if tc.public {
+				// Anything but 401 proves it got past the JWT group. It
+				// cannot reach 200 here: this Deps has no Store, so the
+				// handler panics into chi's Recoverer and answers 500. What
+				// is being pinned is that the session did not stop it.
+				if w.Code == http.StatusUnauthorized {
+					t.Fatalf("%s %s = 401; a share link must open without an account", tc.method, tc.path)
+				}
+				return
+			}
+			if w.Code != http.StatusUnauthorized {
+				t.Fatalf("%s %s = %d, want 401", tc.method, tc.path, w.Code)
+			}
+		})
+	}
+}
+
 func TestTrailingSlashNeverReachesTheAuthedGroup(t *testing.T) {
 	r := api.NewRouter(&handlers.Deps{})
 

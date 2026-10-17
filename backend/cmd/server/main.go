@@ -26,6 +26,11 @@ import (
 func main() {
 	_ = godotenv.Load()
 
+	shareReadRelayKey, err := handlers.ParseShareReadRelayKey(os.Getenv("SHARE_READ_RELAY_KEY"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	ctx := context.Background()
 
 	store, err := db.New(ctx, mustEnv("DATABASE_URL"))
@@ -205,14 +210,15 @@ func main() {
 	go scheduler.New(store, runner, broker, mustEnv("ENCRYPTION_KEY")).Run(ctx)
 
 	deps := &handlers.Deps{
-		Store:         store,
-		Broker:        broker,
-		Wallet:        walletSvc,
-		Engine:        runner,
-		BaseURL:       envOr("BASE_URL", "http://localhost:8080"),
-		RelayBaseURL:  relayBaseURL,
-		JWTSecret:     mustEnv("JWT_SECRET"),
-		EncryptionKey: mustEnv("ENCRYPTION_KEY"),
+		Store:             store,
+		Broker:            broker,
+		Wallet:            walletSvc,
+		Engine:            runner,
+		BaseURL:           envOr("BASE_URL", "http://localhost:8080"),
+		RelayBaseURL:      relayBaseURL,
+		JWTSecret:         mustEnv("JWT_SECRET"),
+		EncryptionKey:     mustEnv("ENCRYPTION_KEY"),
+		ShareReadRelayKey: shareReadRelayKey,
 
 		FrontendURL:        envOr("FRONTEND_URL", "http://localhost:3000"),
 		GithubClientID:     os.Getenv("GITHUB_CLIENT_ID"),

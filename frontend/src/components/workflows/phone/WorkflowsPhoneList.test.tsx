@@ -35,6 +35,17 @@ const rowNames = () =>
 afterEach(cleanup);
 
 describe("WorkflowsPhoneList", () => {
+  it("passes the selected filtered workflow to the share action", () => {
+    const onShare = vi.fn();
+    render(<WorkflowsPhoneList workflows={LIST} loading={false} error={null} onShare={onShare} />);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "brief" } });
+    fireEvent.click(screen.getByRole("button", { name: "Share Daily Market Brief" }));
+
+    expect(onShare).toHaveBeenCalledExactlyOnceWith("Daily Market Brief");
+    expect(screen.queryByRole("button", { name: "Share Customer Support Triage" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^(Import|Deploy|Run)$/ })).toBeNull();
+  });
+
   it("shows the header, search, filter and one card per workflow", () => {
     render(
       <WorkflowsPhoneList workflows={LIST} loading={false} error={null} />,

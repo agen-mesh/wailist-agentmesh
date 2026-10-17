@@ -30,6 +30,12 @@ import { workflowHref } from "@/lib/routes";
 import { filterWorkflows, type StatusFilter } from "@/lib/workflowList";
 import { ImportModal } from "./ImportModal";
 import { ShareModal } from "./ShareModal";
+import {
+  DEFAULT_PAGE_SIZE,
+  Pager,
+  pageSlice,
+  type PageSize,
+} from "@/components/ui/Pager";
 import { WorkflowsPhoneList } from "./phone/WorkflowsPhoneList";
 import { WorkflowOverview } from "./WorkflowOverview";
 import { ghostBtn, primaryBtn } from "@/components/ui/buttons";
@@ -136,6 +142,12 @@ export function WorkflowsPage() {
     () => filterWorkflows(wfList, { query: q, status }),
     [wfList, q, status],
   );
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
+  const { rows: pageRows, page: safePage, totalPages } = useMemo(
+    () => pageSlice(filtered, page, pageSize),
+    [filtered, page, pageSize],
+  );
 
   const handleNewWorkflow = useCallback(async () => {
     if (creating) return;
@@ -211,9 +223,7 @@ export function WorkflowsPage() {
     );
   }, []);
 
-  // A phone gets its own thin list: no create, import, schedule or share
-  // actions (those are desktop-only), no view toggle, and the status tabs
-  // folded into the filter menu. It shares the fetch and the pull above.
+  // The phone list allows sharing, while creation and editing stay on desktop.
   if (readOnly) {
     return (
       <div
@@ -236,8 +246,15 @@ export function WorkflowsPage() {
             loading={loading}
             error={pageError?.message ?? null}
             onRetry={() => void reload({ keepOnError: true })}
+            onShare={can("workflow.share", readOnly) ? setShareWorkflowId : undefined}
           />
         </PullToRefresh>
+        {shareWorkflowId && (
+          <ShareModal
+            workflowId={shareWorkflowId}
+            onClose={() => setShareWorkflowId(null)}
+          />
+        )}
       </div>
     );
   }
@@ -283,9 +300,6 @@ export function WorkflowsPage() {
               >
                 Workflows
               </h1>
-              <p style={{ margin: 0, color: "var(--fg-muted)", fontSize: 14 }}>
-                Design, deploy, and monitor agent pipelines.
-              </p>
             </div>
             <div
               className="wf-actions"
@@ -295,7 +309,7 @@ export function WorkflowsPage() {
             >
               {can("workflow.create", readOnly) && (
                 <button style={ghostBtn} onClick={() => setImportOpen(true)}>
-                  Import
+                  Import a link
                 </button>
               )}
               {can("workflow.create", readOnly) && (
@@ -392,7 +406,9 @@ export function WorkflowsPage() {
               {(["all", "active", "paused", "draft"] as const).map((s) => (
                 <button
                   key={s}
+                  type="button"
                   className="wf-filter"
+                  aria-pressed={status === s}
                   onClick={() => setStatus(s)}
                   style={{
                     border: "none",
@@ -424,7 +440,9 @@ export function WorkflowsPage() {
               }}
             >
               <button
+                type="button"
                 className="wf-view-toggle"
+                aria-pressed={view === "rows"}
                 onClick={() => setView("rows")}
                 style={{
                   ...ghostBtnSm,
@@ -437,7 +455,9 @@ export function WorkflowsPage() {
                 ☰ Rows
               </button>
               <button
+                type="button"
                 className="wf-view-toggle"
+                aria-pressed={view === "grid"}
                 onClick={() => setView("grid")}
                 style={{
                   ...ghostBtnSm,
@@ -460,7 +480,7 @@ export function WorkflowsPage() {
             <WorkflowListSkeleton />
           ) : view === "rows" ? (
             <WorkflowRows
-              items={filtered}
+              items={pageRows}
               onOpen={(id) => router.push(workflowHref(id))}
               onGeofence={(id) =>
                 router.push(workflowHref(id, { geofence: true }))
@@ -473,8 +493,20 @@ export function WorkflowsPage() {
             />
           ) : (
             <WorkflowGrid
-              items={filtered}
+              items={pageRows}
               onOpen={(id) => router.push(workflowHref(id))}
+            />
+          )}
+
+          {!loading && (totalPages > 1 || pageSize !== DEFAULT_PAGE_SIZE) && (
+            <Pager
+              page={safePage}
+              totalPages={totalPages}
+              total={filtered.length}
+              pageSize={pageSize}
+              onPage={setPage}
+              onPageSize={setPageSize}
+              noun="workflows"
             />
           )}
 
@@ -537,57 +569,6 @@ function StatusBadge({ status }: { status?: string }) {
     <Pill tone={s.tone} dot mono>
       {s.label}
     </Pill>
-  );
-}
-
-function WorkflowIcon({ name }: { name: string }) {
-  const seed = name.charCodeAt(0) + name.length;
-  const dotCount = 3 + (seed % 3);
-  const dots = Array.from({ length: dotCount }, (_, i) => {
-    const a = (i / dotCount) * Math.PI * 2 + seed * 0.3;
-    return { x: 14 + Math.cos(a) * 8, y: 14 + Math.sin(a) * 8 };
-  });
-  return (
-    <div
-      style={{
-        width: 36,
-        height: 36,
-        borderRadius: 8,
-        background: "var(--bg-elev-3)",
-        border: "1px solid var(--border-strong)",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-      }}
-    >
-      <svg width="28" height="28" viewBox="0 0 28 28">
-        {dots.map((d, i) =>
-          dots.map((d2, j) =>
-            j > i ? (
-              <line
-                key={`${i}_${j}`}
-                x1={d.x}
-                y1={d.y}
-                x2={d2.x}
-                y2={d2.y}
-                stroke="var(--fg-dim)"
-                strokeWidth="0.5"
-              />
-            ) : null,
-          ),
-        )}
-        {dots.map((d, i) => (
-          <circle
-            key={i}
-            cx={d.x}
-            cy={d.y}
-            r="2"
-            fill={i === 0 ? "var(--accent)" : "var(--fg-muted)"}
-          />
-        ))}
-      </svg>
-    </div>
   );
 }
 
@@ -1371,27 +1352,32 @@ function WorkflowRows({
             (e.currentTarget.style.background = "transparent")
           }
         >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              minWidth: 0,
-            }}
-          >
-            <WorkflowIcon name={wf.name ?? ""} />
+          <div style={{ minWidth: 0 }}>
             <div style={{ minWidth: 0 }}>
-              <div
+              <a
+                href={workflowHref(wf.id)}
+                className="wf-row-name"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+                    return;
+                  }
+                  event.preventDefault();
+                  onOpen(wf.id);
+                }}
                 style={{
-                  fontSize: 14,
+                  display: "block",
+                  fontSize: "var(--t-4)",
                   fontWeight: 500,
+                  color: "inherit",
+                  textDecoration: "none",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
                 }}
               >
                 {wf.name}
-              </div>
+              </a>
               <div
                 style={{
                   display: "flex",
@@ -1459,15 +1445,6 @@ function WorkflowRows({
             {fmtDate(wf.updatedAt ?? wf.updated)}
           </span>
           <div className="wf-row-actions" style={{ display: "flex", gap: 4 }}>
-            <button
-              style={ghostBtnSm}
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpen(wf.id);
-              }}
-            >
-              Open
-            </button>
             {/* Usage stays independent of the delete-gated RowMenu because it
                 is read-only. The phone list exposes the same action from its
                 compact row (see phone/WorkflowPhoneRow.tsx). */}
@@ -1501,6 +1478,18 @@ function WorkflowRows({
                 }
               >
                 {wf.geofenceRadiusM !== undefined ? "Zone ·" : "Zone"}
+              </button>
+            )}
+            {can("workflow.share", readOnly) && (
+              <button
+                style={ghostBtnSm}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onShare(wf.id);
+                }}
+                title="Share this workflow"
+              >
+                Share
               </button>
             )}
             {can("workflow.delete", readOnly) && (
@@ -1567,19 +1556,35 @@ function WorkflowGrid({
               justifyContent: "space-between",
             }}
           >
-            <WorkflowIcon name={wf.name ?? ""} />
             <StatusBadge status={wf.status} />
           </div>
-          <div
+          <a
+            href={workflowHref(wf.id)}
+            className="wf-row-name"
+            title={wf.name}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+                return;
+              }
+              event.preventDefault();
+              onOpen(wf.id);
+            }}
             style={{
+              display: "block",
               marginTop: 16,
-              fontSize: 16,
+              fontSize: "var(--t-5)",
               fontWeight: 500,
               letterSpacing: "-0.015em",
+              color: "inherit",
+              textDecoration: "none",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}
           >
             {wf.name}
-          </div>
+          </a>
           <div
             style={{
               display: "flex",

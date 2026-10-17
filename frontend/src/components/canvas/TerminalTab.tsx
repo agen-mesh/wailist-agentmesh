@@ -36,6 +36,7 @@ export function TerminalTab({
       // Not a --t-* token: xterm.js renders to a canvas and takes a number,
       // so there is no stylesheet for a custom property to resolve against.
       // 12 is --t-2, which is what the surrounding rail uses.
+      // eslint-disable-next-line no-restricted-syntax -- canvas API, takes a number
       fontSize: 12,
       fontFamily:
         "var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace",
