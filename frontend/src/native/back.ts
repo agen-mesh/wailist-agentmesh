@@ -20,7 +20,8 @@ export async function listenForBack(): Promise<void> {
   if (backListener) return;
   const { App } = await import("@capacitor/app");
   backListener = await App.addListener("backButton", ({ canGoBack }) => {
-    if (canGoBack) {
+    // WebView can report no history for a same-document modal entry.
+    if (canGoBack || window.history.state?.__amSheet === true) {
       window.history.back();
       return;
     }

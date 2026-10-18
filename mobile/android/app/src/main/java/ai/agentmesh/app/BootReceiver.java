@@ -28,7 +28,12 @@ public class BootReceiver extends BroadcastReceiver {
         if (!Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
             return;
         }
-        List<GeofenceStore.Active> fences = GeofenceStore.loadAll(context.getApplicationContext());
+        List<GeofenceStore.Active> fences;
+        long generation;
+        synchronized (GeofenceReceiver.LOCK) {
+            generation = GeofenceRegistrar.generation();
+            fences = GeofenceStore.loadAll(context.getApplicationContext());
+        }
         if (fences.isEmpty()) {
             return;
         }
@@ -45,7 +50,7 @@ public class BootReceiver extends BroadcastReceiver {
         GeofencingClient client = LocationServices.getGeofencingClient(appContext);
 
         for (GeofenceStore.Active active : fences) {
-            GeofenceRegistrar.register(appContext, client, active.id, active.lat, active.lng, active.radiusM,
+            GeofenceRegistrar.register(appContext, client, generation, active.id, active.lat, active.lng, active.radiusM,
                     (success, error) -> {
                         if (success) {
                             Log.i(TAG, "re-registered geofence for workflow " + active.id + " after reboot");
