@@ -4,14 +4,28 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Topbar } from "@/components/Topbar";
-import { useAuth } from "@/hooks/useAuth";
+import { getAccountRevision, publishAccountThreshold, useAuth } from "@/hooks/useAuth";
+import { settings, type UserSettings, type UserSettingsPatch } from "@/lib/api";
+import { AccountSection } from "./sections/Account";
+import { BillingSection } from "./sections/Billing";
+import { ExecutionSection } from "./sections/Execution";
+import { ConnectionsSection } from "./sections/Connections";
+import { DeveloperSection } from "./sections/Developer";
+import { SettingsSection, useActiveForm } from "./ui";
 import styles from "./SettingsPage.module.css";
 
 export function SettingsPage() {
   const router = useRouter();
-  const { user, loading, offline, retry, deleteAccount } = useAuth();
-  const [confirmation, setConfirmation] = useState("");
-  const [password, setPassword] = useState("");
+  const { user, loading, offline, retry, deleteAccount, completeOnboarding } = useAuth();
+  const [draft, setDraft] = useState({ owner: "", confirmation: "", password: "" });
+  const confirmation = draft.owner === user?.id ? draft.confirmation : "";
+  const password = draft.owner === user?.id ? draft.password : "";
+  function setConfirmation(value: string) {
+    setDraft((previous) => ({ owner: user?.id ?? "", confirmation: value, password: previous.owner === user?.id ? previous.password : "" }));
+  }
+  function setPassword(value: string) {
+    setDraft((previous) => ({ owner: user?.id ?? "", password: value, confirmation: previous.owner === user?.id ? previous.confirmation : "" }));
+  }
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [cleanupIncomplete, setCleanupIncomplete] = useState(false);
@@ -22,6 +36,12 @@ export function SettingsPage() {
       router.replace("/signin?next=%2Fsettings");
     }
   }, [loading, offline, user, router]);
+
+  useEffect(() => {
+    if (!loading && !offline && user && window.location.hash === "#delete-title") {
+      document.getElementById("delete-title")?.scrollIntoView({ block: "start" });
+    }
+  }, [loading, offline, user]);
 
   const canDelete = !loading && !offline && user?.hasPassword !== undefined &&
     confirmation === "DELETE" && (!user.hasPassword || password.length > 0);
@@ -68,6 +88,11 @@ export function SettingsPage() {
               <button type="button" onClick={retry}>Retry</button>
             </div>
           ) : user && (
+            <div key={user.id}>
+            <AccountSection user={user} saveProfile={completeOnboarding} disabled={deleting} />
+            <Preferences owner={user.id} disabled={deleting} />
+            <ConnectionsSection disabled={deleting} />
+            <DeveloperSection />
             <section aria-labelledby="delete-title" className={styles.card}>
               <h2 id="delete-title">Delete account</h2>
               <p>
@@ -114,9 +139,44 @@ export function SettingsPage() {
                 </form>
               )}
             </section>
+            </div>
           )}
         </main>
       </div>
     </div>
   );
+}
+
+function Preferences({ owner, disabled }: { owner: string; disabled: boolean }) {
+  const [value, setValue] = useState<UserSettings | null>(null);
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const active = useActiveForm();
+  useEffect(() => {
+    let current = true;
+    const revision = getAccountRevision();
+    settings.get().then((loaded) => {
+      if (!current || revision !== getAccountRevision()) return;
+      setValue(loaded);
+      publishAccountThreshold(owner, loaded.lowBalanceUsdMicros, revision);
+    }).catch(() => { if (current) setError("Could not load spending preferences."); });
+    return () => { current = false; };
+  }, [owner, attempt]);
+  async function save(patch: UserSettingsPatch) {
+    const revision = getAccountRevision();
+    const saved = await settings.update(patch);
+    if (!active.current || revision !== getAccountRevision()) return;
+    setValue((previous) => previous && ({
+      ...previous,
+      ...(patch.lowBalanceUsdMicros !== undefined ? { lowBalanceUsdMicros: saved.lowBalanceUsdMicros } : {}),
+      ...("maxCallSpendUsdMicros" in patch ? { maxCallSpendUsdMicros: saved.maxCallSpendUsdMicros } : {}),
+    }));
+    if (patch.lowBalanceUsdMicros !== undefined) publishAccountThreshold(owner, saved.lowBalanceUsdMicros, revision);
+  }
+  if (error) return <SettingsSection id="preferences" title="Spending preferences">
+    <p role="alert">{error}</p>
+    <button type="button" disabled={disabled} onClick={() => { setError(""); setAttempt((n) => n + 1); }}>Retry preferences</button>
+  </SettingsSection>;
+  if (!value) return <p role="status">Loading spending preferences...</p>;
+  return <><BillingSection value={value} save={save} disabled={disabled} /><ExecutionSection value={value} save={save} disabled={disabled} /></>;
 }
