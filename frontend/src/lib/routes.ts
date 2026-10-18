@@ -1,4 +1,5 @@
 import { IS_NATIVE } from "./nativeAuth";
+import { WEB_BILLING_URL } from "./openExternal";
 
 // Where a workflow lives, as a URL the running build can open.
 //
@@ -30,6 +31,25 @@ export function workflowHref(
   }
   const search = params.toString();
   return search ? `${path}?${search}` : path;
+}
+
+// Where a share link lives. Short on purpose -- this is the one URL in the app
+// meant to survive being pasted into a tweet, a chat message or a mail client,
+// all of which truncate. /s also sits outside the PROTECTED prefixes in
+// middleware.ts, which is what lets a signed-out visitor open it at all.
+export function shareHref(token: string): string {
+  return `/s/${encodeURIComponent(token)}`;
+}
+
+// Preview links stay on their own deployment; the native asset origin cannot
+// be reached by another device.
+export function shareUrl(token: string): string {
+  const path = shareHref(token);
+  if (typeof window === "undefined") return path;
+  const origin = IS_NATIVE
+    ? new URL(WEB_BILLING_URL).origin
+    : window.location.origin;
+  return `${origin}${path}`;
 }
 
 /**

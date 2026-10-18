@@ -7,8 +7,8 @@ on:
     branches: [master]
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend:
@@ -107,6 +107,9 @@ jobs:
       - name: typecheck
         run: npm run typecheck
 
+      - name: typecheck ratchet (noUncheckedIndexedAccess)
+        run: node scripts/tsc-index-ratchet.mjs
+
       - name: test
         run: npm test
 
@@ -114,3 +117,85 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8080
         run: npm run build
+
+  smoke:
+    name: frontend / smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: agentmesh_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.22.2
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            frontend/e2e/package-lock.json
+
+      - name: npm ci (site)
+        working-directory: frontend
+        run: npm ci
+
+      - name: build in mock mode
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: ""
+        run: npm run build
+
+      - name: npm ci (smoke tests)
+        working-directory: frontend/e2e
+        run: npm ci
+
+      - name: typecheck smoke tests
+        working-directory: frontend/e2e
+        run: npm run typecheck
+
+      - name: install Chromium
+        working-directory: frontend/e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: smoke
+        working-directory: frontend/e2e
+        run: npm run smoke -- --workers=1
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: build scratch sharing server
+        working-directory: backend
+        run: |
+          mkdir -p "$RUNNER_TEMP/agentmesh-smoke"
+          go build -o "$RUNNER_TEMP/agentmesh-smoke/server" ./cmd/server
+          go build -o "$RUNNER_TEMP/agentmesh-smoke/walletgen" ./cmd/walletgen
+
+      - name: verify fresh anonymous sharing and revocation
+        working-directory: frontend/e2e
+        env:
+          SMOKE_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/agentmesh_smoke?sslmode=disable
+          SMOKE_BACKEND_BINARY: ${{ runner.temp }}/agentmesh-smoke/server
+          SMOKE_WALLETGEN_BINARY: ${{ runner.temp }}/agentmesh-smoke/walletgen
+        run: npm run smoke -- --config share-server.config.ts
+
+      - name: upload failure traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-test-results
+          path: frontend/e2e/test-results
+          retention-days: 7

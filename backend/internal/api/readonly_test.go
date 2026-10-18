@@ -85,6 +85,26 @@ func TestBlocksWrite(t *testing.T) {
 
 		// A blocked path under a different verb is a different endpoint.
 		{"get deploy", http.MethodGet, "/workflows/wf_1/deploy", false},
+
+		// Importing creates a workflow, so both routes that do it belong here
+		// beside POST /workflows. Mirrored in frontend/src/lib/readonly.ts.
+		{"import a pasted graph", http.MethodPost, "/workflows/import", true},
+		{"import a share link", http.MethodPost, "/shares/tok_123/import", true},
+
+		// Creating and revoking a share LINK are not authoring: they publish
+		// or retract a copy and cannot change a graph, create a workflow or
+		// delete one. Handing somebody a link is a reasonable thing to do
+		// from the device this mode exists for. These cases are here so that
+		// adding them to the list later is a decision rather than a reflex --
+		// and if either flips to true, lib/readonly.ts must grow the matching
+		// WRITE_RULES entry in the same commit.
+		{"create a share link", http.MethodPost, "/workflows/wf_1/share", false},
+		{"revoke a share link", http.MethodDelete, "/shares/tok_123", false},
+		{"list share links", http.MethodGet, "/workflows/wf_1/shares", false},
+
+		// Reading a share is public and never reaches this middleware at all,
+		// but the rule must not claim otherwise if it ever does.
+		{"read a share", http.MethodGet, "/shares/tok_123", false},
 	}
 
 	for _, tc := range tests {

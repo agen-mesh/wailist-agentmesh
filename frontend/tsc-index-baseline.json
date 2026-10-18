@@ -1,0 +1,1799 @@
+{
+  "schemaVersion": 1,
+  "measuredOn": "b419419bd9dc536f6257fde033fc70d66359ad7c",
+  "typescript": "6.0.3",
+  "compilerOption": "noUncheckedIndexedAccess",
+  "errorCount": 223,
+  "historicalBaseline": {
+    "errors": 124,
+    "measuredOn": "40b6062fbec98d4939d0d716e9013fc80337b9e1"
+  },
+  "measurement": "Protected current master and this CI candidate produce the same 223 diagnostics: 95 in tests and 128 in implementation. The ordinary application typecheck passes.",
+  "identity": "File, diagnostic code, message and SHA256 of the trimmed source line; line and column are measurement metadata. New diagnostics fail even if another is fixed; resolved entries must be removed.",
+  "diagnostics": [
+    {
+      "file": "src/app/billing/page.test.tsx",
+      "line": 153,
+      "column": 11,
+      "code": "TS2488",
+      "message": "Type '[url: string, options?: { onClose?: (() => void) | undefined; } | undefined] | undefined' must have a '[Symbol.iterator]()' method that returns an iterator.",
+      "sourceHash": "bc4044dc974b7d724f59abe03d69c92d0204b62e0f33102440ef7bb16f1a72e0"
+    },
+    {
+      "file": "src/app/billing/page.tsx",
+      "line": 107,
+      "column": 54,
+      "code": "TS2345",
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number | (() => number)'.",
+      "sourceHash": "31868fcc21b1a2bbbb5fb4ce72932963dfed85a739716b38c0e5983121999886"
+    },
+    {
+      "file": "src/components/PullToRefresh.tsx",
+      "line": 107,
+      "column": 24,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "9caf1fdc8ef5e562285b7752874c9bce773fe775fddc89f5e7fe92723111033a"
+    },
+    {
+      "file": "src/components/PullToRefresh.tsx",
+      "line": 113,
+      "column": 18,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "12f42f2532f398d042df67318c7c50c394ca3bd433e9cfdae53631102baa090d"
+    },
+    {
+      "file": "src/components/bazaar/BazaarPage.tsx",
+      "line": 644,
+      "column": 24,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "8141fa27b965f4976b156581df72ac854de4ed957d6147170f98bacc49804785"
+    },
+    {
+      "file": "src/components/bazaar/BazaarPage.tsx",
+      "line": 645,
+      "column": 19,
+      "code": "TS2322",
+      "message": "Type 'BazaarResource | undefined' is not assignable to type 'BazaarResource'.",
+      "sourceHash": "6ac33098740ef50bf8c5c89b4a2a9ac90f80fb60ef7a1886700987de8f24df20"
+    },
+    {
+      "file": "src/components/bazaar/ConsoleCard.tsx",
+      "line": 105,
+      "column": 7,
+      "code": "TS2322",
+      "message": "Type 'string | undefined' is not assignable to type 'string'.",
+      "sourceHash": "b735d650623d2705767d3a19036b37163d5b869e7067d59da27579bb886a8a46"
+    },
+    {
+      "file": "src/components/bazaar/ConsoleCard.tsx",
+      "line": 113,
+      "column": 30,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "0f7bb568f478d98def7d572a3c47f20b36f424fb21f1dc45336f231359fa4bd8"
+    },
+    {
+      "file": "src/components/bazaar/ConsoleCard.tsx",
+      "line": 151,
+      "column": 35,
+      "code": "TS2345",
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.",
+      "sourceHash": "bc7207d28d86513bad329e41866f3b36d40dd1866c295ccb57cd8c75a4ba6caa"
+    },
+    {
+      "file": "src/components/bazaar/ConsoleCard.tsx",
+      "line": 152,
+      "column": 17,
+      "code": "TS2345",
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.",
+      "sourceHash": "ab14f5d6fef040c950b1fb32c834465b0b30222ac15a462e014f95455e7323bc"
+    },
+    {
+      "file": "src/components/bazaar/ConsoleCard.tsx",
+      "line": 152,
+      "column": 29,
+      "code": "TS2345",
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.",
+      "sourceHash": "ab14f5d6fef040c950b1fb32c834465b0b30222ac15a462e014f95455e7323bc"
+    },
+    {
+      "file": "src/components/bazaar/ConsoleCard.tsx",
+      "line": 174,
+      "column": 20,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "a334cfd1bdaeb7d0f55545a06235690d5fa85ee2a924212a1b1e0c23d806546d"
+    },
+    {
+      "file": "src/components/bazaar/ConsoleCard.tsx",
+      "line": 174,
+      "column": 45,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "a334cfd1bdaeb7d0f55545a06235690d5fa85ee2a924212a1b1e0c23d806546d"
+    },
+    {
+      "file": "src/components/bazaar/ConsoleCard.tsx",
+      "line": 313,
+      "column": 25,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "3e32a6ee9a967aad40e01c670981c137c9a227c525672ec3fcdb0e624646c076"
+    },
+    {
+      "file": "src/components/bazaar/ProviderGroupCard.tsx",
+      "line": 42,
+      "column": 17,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "43b015199010a2f240103563a8420c0f3c05f355e8686ff5a2511da1024ec398"
+    },
+    {
+      "file": "src/components/bazaar/ProviderGroupCard.tsx",
+      "line": 50,
+      "column": 35,
+      "code": "TS18048",
+      "message": "'min' is possibly 'undefined'.",
+      "sourceHash": "f438cb906bcca24a57c4b650b502b22272061afd33ab698cd091ddb2b5d3d3c1"
+    },
+    {
+      "file": "src/components/bazaar/ProviderGroupCard.tsx",
+      "line": 87,
+      "column": 31,
+      "code": "TS18048",
+      "message": "'cheapest' is possibly 'undefined'.",
+      "sourceHash": "d7cb4ef9ba6bf7a7ff546b8aa356c8c99333343daccabe1833a8a841254bc752"
+    },
+    {
+      "file": "src/components/bazaar/ProviderGroupCard.tsx",
+      "line": 88,
+      "column": 26,
+      "code": "TS18048",
+      "message": "'cheapest' is possibly 'undefined'.",
+      "sourceHash": "b8440a4eab4cb2b11d66033b4f890f8e0558e5a7cece71f9d71e437000d2099a"
+    },
+    {
+      "file": "src/components/canvas/CanvasGraph.tsx",
+      "line": 310,
+      "column": 28,
+      "code": "TS2345",
+      "message": "Argument of type 'Touch | undefined' is not assignable to parameter of type 'Touch'.",
+      "sourceHash": "6e94f7cd917dc4a53418c22cf46050f7689841b637745a5b62b35b7b89576e4e"
+    },
+    {
+      "file": "src/components/canvas/CanvasGraph.tsx",
+      "line": 311,
+      "column": 28,
+      "code": "TS2345",
+      "message": "Argument of type 'Touch | undefined' is not assignable to parameter of type 'Touch'.",
+      "sourceHash": "b32127c2d2d2bc9e29b052a92f6e4fa01b70af570a862370f314379b9cdf0536"
+    },
+    {
+      "file": "src/components/canvas/CanvasGraph.tsx",
+      "line": 344,
+      "column": 19,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "0e38fbecac747a0bd323ca128a2b2b4e3d7b0f23eb7c96d89a4bcfb3b548d433"
+    },
+    {
+      "file": "src/components/canvas/CanvasGraph.tsx",
+      "line": 345,
+      "column": 19,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "7be83d2273ee79778907bc21f16262d016ff2b3f0b1e1d671faac8dec51e5c03"
+    },
+    {
+      "file": "src/components/canvas/CanvasGraph.tsx",
+      "line": 369,
+      "column": 11,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "0e38fbecac747a0bd323ca128a2b2b4e3d7b0f23eb7c96d89a4bcfb3b548d433"
+    },
+    {
+      "file": "src/components/canvas/CanvasGraph.tsx",
+      "line": 370,
+      "column": 11,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "7be83d2273ee79778907bc21f16262d016ff2b3f0b1e1d671faac8dec51e5c03"
+    },
+    {
+      "file": "src/components/canvas/CanvasGraph.tsx",
+      "line": 384,
+      "column": 28,
+      "code": "TS2345",
+      "message": "Argument of type 'Touch | undefined' is not assignable to parameter of type 'Touch'.",
+      "sourceHash": "6e94f7cd917dc4a53418c22cf46050f7689841b637745a5b62b35b7b89576e4e"
+    },
+    {
+      "file": "src/components/canvas/CanvasGraph.tsx",
+      "line": 385,
+      "column": 28,
+      "code": "TS2345",
+      "message": "Argument of type 'Touch | undefined' is not assignable to parameter of type 'Touch'.",
+      "sourceHash": "b32127c2d2d2bc9e29b052a92f6e4fa01b70af570a862370f314379b9cdf0536"
+    },
+    {
+      "file": "src/components/canvas/CanvasGraph.tsx",
+      "line": 406,
+      "column": 19,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "f97a61fb7c3050d5ae99362f74d94bd202ffa7373c83f4bca647488343e8d627"
+    },
+    {
+      "file": "src/components/canvas/CanvasGraph.tsx",
+      "line": 407,
+      "column": 19,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "6adc3ca878fc9168c43b621e3e2e3b66dbc0e584ba4b901d9adb81ae6d8a689b"
+    },
+    {
+      "file": "src/components/canvas/CanvasGraph.tsx",
+      "line": 419,
+      "column": 28,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "e0e3cfa46048a5168e2830e252ed5b41d419a5c07127d5f685f2b3e389af4dd8"
+    },
+    {
+      "file": "src/components/canvas/CanvasGraph.tsx",
+      "line": 420,
+      "column": 28,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "083ba36fa13db99670a61a3e6ae7da1cb3d1a2d760ca9b5a7fc70cd44566758f"
+    },
+    {
+      "file": "src/components/canvas/CanvasGraph.tsx",
+      "line": 448,
+      "column": 13,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "0e38fbecac747a0bd323ca128a2b2b4e3d7b0f23eb7c96d89a4bcfb3b548d433"
+    },
+    {
+      "file": "src/components/canvas/CanvasGraph.tsx",
+      "line": 449,
+      "column": 13,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "7be83d2273ee79778907bc21f16262d016ff2b3f0b1e1d671faac8dec51e5c03"
+    },
+    {
+      "file": "src/components/canvas/CanvasPage.build.test.tsx",
+      "line": 111,
+      "column": 67,
+      "code": "TS2345",
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number | bigint'.",
+      "sourceHash": "444132c1100f0c03ed5453dfa48d8162d88566b12c4a1638332d4722e17a339e"
+    },
+    {
+      "file": "src/components/canvas/ConsolePanel.costs.test.tsx",
+      "line": 41,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "1bece46e80ee70c9a26e5bfc93f5467fd8f296750aeb91d95986bb7df04d8978"
+    },
+    {
+      "file": "src/components/canvas/Inspector.tsx",
+      "line": 610,
+      "column": 15,
+      "code": "TS18048",
+      "message": "'L' is possibly 'undefined'.",
+      "sourceHash": "a1b9340d27916067863b9386eac6a47b1c912d929120fa0767948c70afe74b0b"
+    },
+    {
+      "file": "src/components/canvas/Inspector.tsx",
+      "line": 614,
+      "column": 9,
+      "code": "TS18048",
+      "message": "'L' is possibly 'undefined'.",
+      "sourceHash": "2ac10e13dd6dcd40a07b4c69858353d983d021ceca0c8a1f2854a5972c9d42b7"
+    },
+    {
+      "file": "src/components/canvas/Inspector.tsx",
+      "line": 615,
+      "column": 9,
+      "code": "TS18048",
+      "message": "'L' is possibly 'undefined'.",
+      "sourceHash": "3ec6322244a8358e35be6ebaf10ef4e9a01aea6e5d988df12030bbaca83e69a0"
+    },
+    {
+      "file": "src/components/canvas/Inspector.tsx",
+      "line": 880,
+      "column": 9,
+      "code": "TS18048",
+      "message": "'row' is possibly 'undefined'.",
+      "sourceHash": "67bb0bf0854024f53f9811596e5e91c3262a594930e933c230d450e8f2ca0f29"
+    },
+    {
+      "file": "src/components/canvas/Inspector.tsx",
+      "line": 880,
+      "column": 34,
+      "code": "TS18048",
+      "message": "'row' is possibly 'undefined'.",
+      "sourceHash": "67bb0bf0854024f53f9811596e5e91c3262a594930e933c230d450e8f2ca0f29"
+    },
+    {
+      "file": "src/components/canvas/Inspector.tsx",
+      "line": 906,
+      "column": 17,
+      "code": "TS2322",
+      "message": "Type '{ key: string; value?: string | undefined; }' is not assignable to type '{ key: string; value: string; }'.",
+      "sourceHash": "e2dec906b06124a627d2616fa7b1f800f13c49eafb0ad15ecf52c4c316a8454c"
+    },
+    {
+      "file": "src/components/canvas/Inspector.tsx",
+      "line": 916,
+      "column": 17,
+      "code": "TS2322",
+      "message": "Type '{ value: string; key?: string | undefined; }' is not assignable to type '{ key: string; value: string; }'.",
+      "sourceHash": "e0b989956fe462223741bd3de51c21d421972c7cf7ff35a2fb6dcb3a7a5dc1c9"
+    },
+    {
+      "file": "src/components/canvas/Inspector.tsx",
+      "line": 1375,
+      "column": 18,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "0e33de9d46dd2b0c4820abdebb1e9b94f5b0ae457ffad420448e1b9cf25e3b3d"
+    },
+    {
+      "file": "src/components/canvas/PalettePanel.tsx",
+      "line": 150,
+      "column": 9,
+      "code": "TS2322",
+      "message": "Type '{ meta: Partial<WorkflowNode> | undefined; category: string | undefined; }[]' is not assignable to type 'ActionEntry[]'.",
+      "sourceHash": "1b485d6b30cc4fd78fab6712f2cd5cb26d3a2f6492e1eddcd870c167b629b7cf"
+    },
+    {
+      "file": "src/components/canvas/chat/buildProgress.test.ts",
+      "line": 43,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "f7401b5c818a9a0e156383b1725694e5752fbef2ac606de5b1fcc72e148886e9"
+    },
+    {
+      "file": "src/components/canvas/chat/buildProgress.test.ts",
+      "line": 44,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "df294e2268268b3bb1a419f9d6ad6899f78332605088ab2824ee350c06b5bb5f"
+    },
+    {
+      "file": "src/components/canvas/chat/buildProgress.test.ts",
+      "line": 45,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "c8921e8f2ae893d02f00c14ff9ad5e7bcace75acd997f56a07efc8adc5184262"
+    },
+    {
+      "file": "src/components/canvas/chat/buildProgress.test.ts",
+      "line": 60,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "35ea8b5418ab37108a140d2a0c6155e309a786b13af9f1ac8a5fd3a0e2275bae"
+    },
+    {
+      "file": "src/components/canvas/chat/buildProgress.test.ts",
+      "line": 66,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "943578399aad66b82bf0d932d8395468bf315fef321b4dfcb266c44314fe9ff1"
+    },
+    {
+      "file": "src/components/canvas/chat/buildProgress.test.ts",
+      "line": 67,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "5a638808a7aaca0cfbf8240d86a42e2c7ce700b3bcac19ad9d22b603df4a71fc"
+    },
+    {
+      "file": "src/components/canvas/chat/buildProgress.ts",
+      "line": 65,
+      "column": 16,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "af9f6b344a78fd5f2830a1cd693b337d3dd3722a8d02ae754bcd6d4629a40fe3"
+    },
+    {
+      "file": "src/components/canvas/chat/buildProgress.ts",
+      "line": 68,
+      "column": 3,
+      "code": "TS2322",
+      "message": "Type '{ steps: BuildStep[]; current: string | undefined; id?: string | undefined; sender?: \"user\" | \"assistant\" | undefined; text?: string | undefined; ts?: string | undefined; runId?: string; ... 6 more ...; spendUSD?: number; }' is not assignable to type 'ChatMessage'.",
+      "sourceHash": "6bb6312229dde1e3a2f4a74871d68f8f44c74743bf735664d0f513f0c3dc6e21"
+    },
+    {
+      "file": "src/components/canvas/chat/buildRecovery.test.ts",
+      "line": 35,
+      "column": 44,
+      "code": "TS2345",
+      "message": "Argument of type '() => Promise<BuildProgress | undefined>' is not assignable to parameter of type '() => Promise<BuildProgress>'.",
+      "sourceHash": "2882d0c6da0f962ef47485d2bcf296270b9761b02fa2f9c54b0598c8c4287e3c"
+    },
+    {
+      "file": "src/components/canvas/chat/buildRecovery.test.ts",
+      "line": 43,
+      "column": 32,
+      "code": "TS2345",
+      "message": "Argument of type '() => Promise<BuildProgress | undefined>' is not assignable to parameter of type '() => Promise<BuildProgress>'.",
+      "sourceHash": "6e6dbc16d316123308d2140cd52ae9194944660a03b11cf4653b823a674b8ca7"
+    },
+    {
+      "file": "src/components/canvas/chat/buildRecovery.test.ts",
+      "line": 49,
+      "column": 39,
+      "code": "TS2345",
+      "message": "Argument of type '() => Promise<BuildProgress | undefined>' is not assignable to parameter of type '() => Promise<BuildProgress>'.",
+      "sourceHash": "d6c567f33b645902092fc48723978312295e8608da7b80c8d50a18aa12ebb2ca"
+    },
+    {
+      "file": "src/components/canvas/chat/buildRecovery.test.ts",
+      "line": 56,
+      "column": 39,
+      "code": "TS2345",
+      "message": "Argument of type '() => Promise<BuildProgress | undefined>' is not assignable to parameter of type '() => Promise<BuildProgress>'.",
+      "sourceHash": "f794f9e1bb81cfc8c47802d42c4c0218acf7667058b4d2d345e907236ab19f3d"
+    },
+    {
+      "file": "src/components/canvas/chat/buildRecovery.test.ts",
+      "line": 65,
+      "column": 39,
+      "code": "TS2345",
+      "message": "Argument of type '() => Promise<BuildProgress | undefined>' is not assignable to parameter of type '() => Promise<BuildProgress>'.",
+      "sourceHash": "fc0a7a642ac7f70e9d8d0df73cf91c6be9a6a93a2af414d522f745f957ca3cb5"
+    },
+    {
+      "file": "src/components/canvas/chat/buildRecovery.test.ts",
+      "line": 70,
+      "column": 44,
+      "code": "TS2345",
+      "message": "Argument of type '() => Promise<BuildProgress | undefined>' is not assignable to parameter of type '() => Promise<BuildProgress>'.",
+      "sourceHash": "b1d7f4bf4b4598ac3237b0e6a5509da01b89b24dd5ae57552b40ecaeba5611c2"
+    },
+    {
+      "file": "src/components/canvas/chat/buildRecovery.test.ts",
+      "line": 77,
+      "column": 39,
+      "code": "TS2345",
+      "message": "Argument of type '() => Promise<BuildProgress | undefined>' is not assignable to parameter of type '() => Promise<BuildProgress>'.",
+      "sourceHash": "8c980cb5cd03ee8b0de6bc12eb93036ac6eb32620e0f155f24dcbdca5e97ec1a"
+    },
+    {
+      "file": "src/components/canvas/chat/buildRecovery.test.ts",
+      "line": 82,
+      "column": 39,
+      "code": "TS2345",
+      "message": "Argument of type '() => Promise<BuildProgress | undefined>' is not assignable to parameter of type '() => Promise<BuildProgress>'.",
+      "sourceHash": "176e6095ce14c3ef91cf9f535f3e364a47b1605a7b2e8d3f583eb7651def5f40"
+    },
+    {
+      "file": "src/components/canvas/chat/recoverPendingTurn.test.ts",
+      "line": 28,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "d06f50e46fd8186d8967d7a02813a6610e25dc3abc0f596254913b3044983bbe"
+    },
+    {
+      "file": "src/components/canvas/chat/recoverPendingTurn.test.ts",
+      "line": 42,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "42db1039197880d9c92ff8cdf169f8d9f38da2667d47114afea5075ab65538cf"
+    },
+    {
+      "file": "src/components/canvas/chat/settleIn.test.ts",
+      "line": 49,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "2e3ac28a971807f29b472f637924f4051f0e4704afadc10ef3ea25241150da73"
+    },
+    {
+      "file": "src/components/canvas/chat/settleIn.test.ts",
+      "line": 58,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "0cc9bc0a4dfb78a7efc50be5107918e00588e7f3348d44ea8e04a9b25806ef29"
+    },
+    {
+      "file": "src/components/canvas/chat/settleIn.test.ts",
+      "line": 137,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "31af5d1f5eb441926bfa4ecb69ce87d52183ea8fd04e8b4f5a755a51303d1db1"
+    },
+    {
+      "file": "src/components/canvas/chat/speechPlayback.test.ts",
+      "line": 75,
+      "column": 20,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "144c159acf3698a31c50988d239c711fb818574658bfc606c6e4fa13dbb65e4b"
+    },
+    {
+      "file": "src/components/canvas/chat/speechPlayback.test.ts",
+      "line": 96,
+      "column": 20,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "144c159acf3698a31c50988d239c711fb818574658bfc606c6e4fa13dbb65e4b"
+    },
+    {
+      "file": "src/components/canvas/chat/useChatSession.ts",
+      "line": 119,
+      "column": 9,
+      "code": "TS18048",
+      "message": "'m' is possibly 'undefined'.",
+      "sourceHash": "407ef91b7e2d93681cfc2c808a1e4c32a4766f94393b46306b35ffb764c8f885"
+    },
+    {
+      "file": "src/components/canvas/chat/useChatSession.ts",
+      "line": 119,
+      "column": 23,
+      "code": "TS18048",
+      "message": "'m' is possibly 'undefined'.",
+      "sourceHash": "407ef91b7e2d93681cfc2c808a1e4c32a4766f94393b46306b35ffb764c8f885"
+    },
+    {
+      "file": "src/components/canvas/chat/useChatSession.ts",
+      "line": 119,
+      "column": 35,
+      "code": "TS18048",
+      "message": "'m' is possibly 'undefined'.",
+      "sourceHash": "407ef91b7e2d93681cfc2c808a1e4c32a4766f94393b46306b35ffb764c8f885"
+    },
+    {
+      "file": "src/components/canvas/chat/useChatSession.ts",
+      "line": 144,
+      "column": 5,
+      "code": "TS2322",
+      "message": "Type '{ runId: string; id?: string | undefined; sender?: \"user\" | \"assistant\" | undefined; text?: string | undefined; ts?: string | undefined; pending?: boolean; build?: boolean; isError?: boolean; ... 5 more ...; spendUSD?: number; }' is not assignable to type 'ChatMessage'.",
+      "sourceHash": "e44ce02f4a5cf3e61441bdabe1d105771e84046be910ad993b00db5dfc66a0a2"
+    },
+    {
+      "file": "src/components/canvas/chat/useChatSession.ts",
+      "line": 183,
+      "column": 18,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "f1d8c25f084e5c07518c8a28104e4e5efbc626bd27b7b8807a13c83f6e6f937d"
+    },
+    {
+      "file": "src/components/canvas/chat/useChatSession.ts",
+      "line": 185,
+      "column": 3,
+      "code": "TS2322",
+      "message": "Type '{ pending: true; id?: string | undefined; sender?: \"user\" | \"assistant\" | undefined; text?: string | undefined; ts?: string | undefined; runId?: string; build?: boolean; isError?: boolean; ... 5 more ...; spendUSD?: number; }' is not assignable to type 'ChatMessage'.",
+      "sourceHash": "be8429368565c3f6cecdb3e7b69f77642248e8ef734818fa39b131f167b6baac"
+    },
+    {
+      "file": "src/components/canvas/chat/useChatSession.ts",
+      "line": 202,
+      "column": 3,
+      "code": "TS2322",
+      "message": "Type '{ pending: false; build?: boolean; text: string; runId?: string; isError?: boolean; interrupted?: boolean; steps?: BuildStep[]; current?: string; toolCount?: number; elapsedS?: number; spendUSD?: number; id?: string | undefined; sender?: \"user\" | ... 1 more ... | undefined; ts?: string | undefined; }' is not assignable to type 'ChatMessage'.",
+      "sourceHash": "8f9c369d202305c2d3a7e171a978215468d82a46d76dc9f04ae593a062834529"
+    },
+    {
+      "file": "src/components/canvas/chat/useSpeechRecognition.ts",
+      "line": 85,
+      "column": 45,
+      "code": "TS18048",
+      "message": "'result' is possibly 'undefined'.",
+      "sourceHash": "97c34f9abedcf61175a6429b4e01b0eb527da0c0ddb367cb95001b88364e1aa7"
+    },
+    {
+      "file": "src/components/canvas/chat/useSpeechRecognition.ts",
+      "line": 85,
+      "column": 45,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "97c34f9abedcf61175a6429b4e01b0eb527da0c0ddb367cb95001b88364e1aa7"
+    },
+    {
+      "file": "src/components/canvas/chat/useSpeechRecognition.ts",
+      "line": 86,
+      "column": 19,
+      "code": "TS18048",
+      "message": "'result' is possibly 'undefined'.",
+      "sourceHash": "a30b543f0970523a41e70c56716a34333c4bb76c3177e5918e564e17aa48abfd"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 358,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "1314c71dbadb0dc268d961de11f40efc587b81c15f11641752177a103fa796c6"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 359,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "de10145f0be6a88524321c79be16c4d414f61484351b6fa26ba5d1a2433272f5"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 404,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "1314c71dbadb0dc268d961de11f40efc587b81c15f11641752177a103fa796c6"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 405,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "de10145f0be6a88524321c79be16c4d414f61484351b6fa26ba5d1a2433272f5"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 435,
+      "column": 36,
+      "code": "TS18048",
+      "message": "'tpl' is possibly 'undefined'.",
+      "sourceHash": "004fd7b0ac118ff713738f4b2474d5f02b8655af71fdde82a96fe6919b677c27"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 626,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "1314c71dbadb0dc268d961de11f40efc587b81c15f11641752177a103fa796c6"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 627,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "de10145f0be6a88524321c79be16c4d414f61484351b6fa26ba5d1a2433272f5"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 702,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "1314c71dbadb0dc268d961de11f40efc587b81c15f11641752177a103fa796c6"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 703,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "de10145f0be6a88524321c79be16c4d414f61484351b6fa26ba5d1a2433272f5"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 769,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "1314c71dbadb0dc268d961de11f40efc587b81c15f11641752177a103fa796c6"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 770,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "de10145f0be6a88524321c79be16c4d414f61484351b6fa26ba5d1a2433272f5"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 916,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "1314c71dbadb0dc268d961de11f40efc587b81c15f11641752177a103fa796c6"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 917,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "de10145f0be6a88524321c79be16c4d414f61484351b6fa26ba5d1a2433272f5"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 975,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "1314c71dbadb0dc268d961de11f40efc587b81c15f11641752177a103fa796c6"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 976,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "de10145f0be6a88524321c79be16c4d414f61484351b6fa26ba5d1a2433272f5"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 1027,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "1314c71dbadb0dc268d961de11f40efc587b81c15f11641752177a103fa796c6"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 1028,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "de10145f0be6a88524321c79be16c4d414f61484351b6fa26ba5d1a2433272f5"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 1087,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "1314c71dbadb0dc268d961de11f40efc587b81c15f11641752177a103fa796c6"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 1088,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "de10145f0be6a88524321c79be16c4d414f61484351b6fa26ba5d1a2433272f5"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 1151,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "1314c71dbadb0dc268d961de11f40efc587b81c15f11641752177a103fa796c6"
+    },
+    {
+      "file": "src/components/canvas/nodes/index.tsx",
+      "line": 1152,
+      "column": 10,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "de10145f0be6a88524321c79be16c4d414f61484351b6fa26ba5d1a2433272f5"
+    },
+    {
+      "file": "src/components/canvas/useRunTranscript.ts",
+      "line": 440,
+      "column": 45,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "5f4b89188391b4802b3dc6b0be86e46616af2dc7203a5c5a6a393c2b1059f011"
+    },
+    {
+      "file": "src/components/canvas/useRunTranscript.ts",
+      "line": 580,
+      "column": 22,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "046dd62f88ac171cd80eeee6a6ac52dabb13f8650ae9d355231960ff2039842a"
+    },
+    {
+      "file": "src/components/canvas/useRunTranscript.ts",
+      "line": 582,
+      "column": 9,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "d54d20ea7494795ca6afa2a3f5f9dab9992d9b59c2ef1b0a2743bc7ac45a2ee6"
+    },
+    {
+      "file": "src/components/canvas/viewport.test.ts",
+      "line": 86,
+      "column": 30,
+      "code": "TS2345",
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.",
+      "sourceHash": "d58496fce3c3efa95c1c01daf126f4c59620d0a45b9ba14659b01c33f3da0972"
+    },
+    {
+      "file": "src/components/canvas/viewport.test.ts",
+      "line": 88,
+      "column": 36,
+      "code": "TS2345",
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.",
+      "sourceHash": "d440677e0a742ea61f3cbbfdbeea5a25c11aee93fe873852055168a93a18b3c9"
+    },
+    {
+      "file": "src/components/canvas/viewport.test.ts",
+      "line": 89,
+      "column": 36,
+      "code": "TS2345",
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.",
+      "sourceHash": "26b01c38807f6224f48f54237f0268e642dd9ec8d696ce60d12f844eea298fe0"
+    },
+    {
+      "file": "src/components/checkout/mockData.test.ts",
+      "line": 17,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "455734f620640f4b22e90eaf8f9e229b320c7594aa07b9e9f60ff27fbeb7f006"
+    },
+    {
+      "file": "src/components/helixbox/HelixboxConsolePage.tsx",
+      "line": 486,
+      "column": 46,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "3a56e74c3f1ede35235a8010c4ce970b61eed398f8b092552ec96bbc3e1f9cb9"
+    },
+    {
+      "file": "src/components/runs/RunProgressDock.test.tsx",
+      "line": 93,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "f79afdf311ab48b37ece9e4562552f7489cdbf72c6a79a4476fdfd65cb53880e"
+    },
+    {
+      "file": "src/components/runs/RunProgressDock.test.tsx",
+      "line": 94,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "8d25631fe92f195d0ad3ad06455b1a6250b3ff247052e3b6aef95bc59e142b50"
+    },
+    {
+      "file": "src/components/runs/RunProgressDock.test.tsx",
+      "line": 95,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "1ebbc5dfff58bdfb914b1921e3e9b5583c0a16d0cfa6f9733f2863a9479ddbb9"
+    },
+    {
+      "file": "src/components/runs/RunProgressDock.test.tsx",
+      "line": 96,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "8b7ad5367fbbf59194a31d2a0df0f809f0ea6bb8c54b00f7320d4d8dd58fa549"
+    },
+    {
+      "file": "src/components/runs/RunSheet.test.tsx",
+      "line": 235,
+      "column": 5,
+      "code": "TS18048",
+      "message": "'last' is possibly 'undefined'.",
+      "sourceHash": "4432189e3ccc06fc3426eccc7e05b41db1a9e1122d4709f2ecdc1e05e67a7dd3"
+    },
+    {
+      "file": "src/components/runs/RunSheet.test.tsx",
+      "line": 239,
+      "column": 5,
+      "code": "TS18048",
+      "message": "'first' is possibly 'undefined'.",
+      "sourceHash": "88584efdebee01f04167d65a882149571db77427dde698fdcdb8adf651639ebc"
+    },
+    {
+      "file": "src/components/runs/RunSheet.tsx",
+      "line": 95,
+      "column": 20,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "4608b41e37722cd2c90859955bb5c43e9be4bf79a484773d986bafe20427d384"
+    },
+    {
+      "file": "src/components/runs/RunSheet.tsx",
+      "line": 97,
+      "column": 7,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "dbf373f666653f331eefb95345a1e9833753d6f58773f740436a9e5bc799f9e4"
+    },
+    {
+      "file": "src/components/runs/UpcomingRuns.test.tsx",
+      "line": 72,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "cb3c9a854c26b7efd9b768d813f94d2d628a1ae642639a942bb60814a850b48a"
+    },
+    {
+      "file": "src/components/runs/UpcomingRuns.test.tsx",
+      "line": 73,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "1ad9b0aef4cf457eeb1fa326cd756014cd4e24d05d2c823c912f4db9d9ee3668"
+    },
+    {
+      "file": "src/components/runs/UpcomingRuns.test.tsx",
+      "line": 105,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "99ff1b25936e336d9652155aae493d113c0fbec19c6b8c226a898133654c286b"
+    },
+    {
+      "file": "src/components/runs/UpcomingRuns.test.tsx",
+      "line": 106,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "090c5b77efdac877e7e11fa5bb5d2d58032c2447a0c9db03a92c5610d9ad1c8f"
+    },
+    {
+      "file": "src/components/usage/AreaChart.tsx",
+      "line": 153,
+      "column": 22,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "710dc8ccf5fbb033f481b4a0bb92013efe15b86c90614ff2bac4f6712009548f"
+    },
+    {
+      "file": "src/components/usage/AreaChart.tsx",
+      "line": 153,
+      "column": 46,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "710dc8ccf5fbb033f481b4a0bb92013efe15b86c90614ff2bac4f6712009548f"
+    },
+    {
+      "file": "src/components/usage/AreaChart.tsx",
+      "line": 160,
+      "column": 22,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "20d2048710ad18195c62385c3465a0a731e30f4dc9d501d6087f63b0ae5a80c9"
+    },
+    {
+      "file": "src/components/usage/AreaChart.tsx",
+      "line": 201,
+      "column": 11,
+      "code": "TS2322",
+      "message": "Type 'UsagePoint | undefined' is not assignable to type 'UsagePoint'.",
+      "sourceHash": "d9f2d6e5de0ea769ab7db55e581c0d42ef2dcf7782ea9ba3e35d37162138efed"
+    },
+    {
+      "file": "src/components/usage/Donut.tsx",
+      "line": 53,
+      "column": 10,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "8b63edf151bd16ae73817e538bdab38e23c641d2cd95b86a14fb317e4eb6cabe"
+    },
+    {
+      "file": "src/components/usage/Donut.tsx",
+      "line": 101,
+      "column": 34,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "4a5748669d5ab3585570d7c539cb678939f0b4697ebe1166f0f59cd47232d852"
+    },
+    {
+      "file": "src/components/usage/phone/UsagePhonePage.test.tsx",
+      "line": 132,
+      "column": 66,
+      "code": "TS18048",
+      "message": "'s' is possibly 'undefined'.",
+      "sourceHash": "1c9156bab1e5432d525036c4e794382bd2ad3594ed52d1b5bdfafb39085db49f"
+    },
+    {
+      "file": "src/components/usage/phone/UsagePhonePage.test.tsx",
+      "line": 133,
+      "column": 38,
+      "code": "TS18048",
+      "message": "'s' is possibly 'undefined'.",
+      "sourceHash": "991883e6a87e3846ec8c1eca86fef5b47d561eea2eaf5c8effa34056332b4c5a"
+    },
+    {
+      "file": "src/components/usage/phone/UsagePhonePage.test.tsx",
+      "line": 134,
+      "column": 44,
+      "code": "TS18048",
+      "message": "'s' is possibly 'undefined'.",
+      "sourceHash": "3721c47c1311bf75065dd5f91127bac382a94b616b0693517bac70132c0d69f4"
+    },
+    {
+      "file": "src/components/usage/phone/UsagePhonePage.test.tsx",
+      "line": 166,
+      "column": 47,
+      "code": "TS18048",
+      "message": "'top' is possibly 'undefined'.",
+      "sourceHash": "3c6c7b2fa9ddc4c7031d95363df351d852ed96f06c7acf300da7c70604314ccd"
+    },
+    {
+      "file": "src/components/usage/phone/UsagePhonePage.test.tsx",
+      "line": 168,
+      "column": 25,
+      "code": "TS18048",
+      "message": "'top' is possibly 'undefined'.",
+      "sourceHash": "eace939fb12a81ed77f6cde02e3e1966e2f168057071be99558d250970b01fe0"
+    },
+    {
+      "file": "src/components/workflows/DesktopSchedulePanel.test.tsx",
+      "line": 160,
+      "column": 46,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "424228080055be41bac3b435d09dff263113a57199b46541b37f0f182e876ef1"
+    },
+    {
+      "file": "src/components/workflows/WorkflowSummary.tsx",
+      "line": 567,
+      "column": 53,
+      "code": "TS18048",
+      "message": "'status' is possibly 'undefined'.",
+      "sourceHash": "1b8405fbd44c437e16e6d310491e73c1f98370f1bfacaa777b258fe6e61d5e67"
+    },
+    {
+      "file": "src/components/workflows/WorkflowSummary.tsx",
+      "line": 570,
+      "column": 20,
+      "code": "TS18048",
+      "message": "'status' is possibly 'undefined'.",
+      "sourceHash": "5ecd4a42cc597eb9a1e8b0200ee9fd1f1b5d358ea65e2fdd4e284cc013132dba"
+    },
+    {
+      "file": "src/components/workflows/WorkflowsPage.tsx",
+      "line": 537,
+      "column": 17,
+      "code": "TS18048",
+      "message": "'s' is possibly 'undefined'.",
+      "sourceHash": "e6308f52486b30f95f2d403a93fc9267c50dcc0885dea6c05fe0b0bb539877ea"
+    },
+    {
+      "file": "src/components/workflows/WorkflowsPage.tsx",
+      "line": 538,
+      "column": 8,
+      "code": "TS18048",
+      "message": "'s' is possibly 'undefined'.",
+      "sourceHash": "e646dc48c85461cb730266cc42374a1ce9eedae2be7be3c666c5e6cc59917852"
+    },
+    {
+      "file": "src/components/workflows/phone/WorkflowPhoneRow.test.tsx",
+      "line": 92,
+      "column": 7,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "08d70abd0fd17ffa54e5824e95c10f7b60337836f0b090830fd09945ce09a602"
+    },
+    {
+      "file": "src/components/workflows/phone/WorkflowPhoneRow.test.tsx",
+      "line": 116,
+      "column": 7,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "08d70abd0fd17ffa54e5824e95c10f7b60337836f0b090830fd09945ce09a602"
+    },
+    {
+      "file": "src/hooks/useCloseOnBack.test.tsx",
+      "line": 82,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "5e5ae9e37587b7bbe4c55a99f540bd4d03be6f81728cda2da11c41bad912124c"
+    },
+    {
+      "file": "src/hooks/useCloseOnBack.test.tsx",
+      "line": 83,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "f8e61c9b399780f93f1e84da1500b19d00a52e88b2b3f7bf36396e2302177dc9"
+    },
+    {
+      "file": "src/hooks/useScrollLock.ts",
+      "line": 74,
+      "column": 29,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "c71675b2eac3909f18d0f5d7d75f5691c0a6cb39e4fa318f2ded62a13dd020f8"
+    },
+    {
+      "file": "src/hooks/useScrollLock.ts",
+      "line": 75,
+      "column": 29,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "750393d00f04cb1869ef268c42e8c440bf6494a17cb3de36a2db0fda0ea56dcb"
+    },
+    {
+      "file": "src/hooks/useScrollLock.ts",
+      "line": 76,
+      "column": 32,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "654b42c6a3af07b3f599e8e806cc9ed4db8a2931320fa7412fa91db453528118"
+    },
+    {
+      "file": "src/lib/api.runs.test.ts",
+      "line": 130,
+      "column": 7,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "9ce01029ffe1c87b4feb1ca84ce93768c508be54517fda2bd4e1b8a73b3081e6"
+    },
+    {
+      "file": "src/lib/bazaar.test.ts",
+      "line": 91,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "d3102953d6f3370d2f9d19b224844714168b0750cc6be034fe7d7e5988902de3"
+    },
+    {
+      "file": "src/lib/credits/store.test.ts",
+      "line": 54,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "c6f55d1940dce1de1652fb5f60c5a050df1a489b8cdf23c6dc2b4260fff3c9b1"
+    },
+    {
+      "file": "src/lib/credits/store.test.ts",
+      "line": 55,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "5f73826f8154f79d912c5da7f74839da6449e17fd7558148456561c74fbd9644"
+    },
+    {
+      "file": "src/lib/credits/store.test.ts",
+      "line": 56,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "3f94976502569d4446a6a4564415c37ccc9eb707b3052ebb213753007330cd84"
+    },
+    {
+      "file": "src/lib/credits/store.test.ts",
+      "line": 116,
+      "column": 12,
+      "code": "TS18048",
+      "message": "'p' is possibly 'undefined'.",
+      "sourceHash": "0c6351da3d426789db3b5d9419736283c036bc196227909ae0dd74a4eb6be248"
+    },
+    {
+      "file": "src/lib/credits/store.test.ts",
+      "line": 117,
+      "column": 12,
+      "code": "TS18048",
+      "message": "'p' is possibly 'undefined'.",
+      "sourceHash": "48eeef64e7558ecc9e19f48cd1c247e804c34accabd3ea73b73a47e42f0ae105"
+    },
+    {
+      "file": "src/lib/credits/store.test.ts",
+      "line": 118,
+      "column": 12,
+      "code": "TS18048",
+      "message": "'p' is possibly 'undefined'.",
+      "sourceHash": "49a757da5b456082087c81cefc5e97455175d3670f88e2269a6568c3cb6cd6a7"
+    },
+    {
+      "file": "src/lib/credits/store.test.ts",
+      "line": 127,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "7bc58d1f5d644399f956403c5434a91eb1cbf790fe06c1101ea4d6e2251704d3"
+    },
+    {
+      "file": "src/lib/credits/store.test.ts",
+      "line": 134,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "83a86742e7c897fb69897c401f4b43261c66415ebdc2e63f29804de167993daa"
+    },
+    {
+      "file": "src/lib/cronCadence.test.ts",
+      "line": 198,
+      "column": 38,
+      "code": "TS2345",
+      "message": "Argument of type 'number | undefined' is not assignable to parameter of type 'number'.",
+      "sourceHash": "46bffaf3d8ebedcdf5fee1a38687717820dd159f3a88967976987057f403e558"
+    },
+    {
+      "file": "src/lib/cronCadence.ts",
+      "line": 152,
+      "column": 23,
+      "code": "TS2345",
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'.",
+      "sourceHash": "cd12f572e8609a38907ff0a126452ddcbaa8e6ef19809184e1b17d23836534b1"
+    },
+    {
+      "file": "src/lib/cronCadence.ts",
+      "line": 154,
+      "column": 23,
+      "code": "TS2345",
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'.",
+      "sourceHash": "30b6cc0f599cdac0a880f54b6f7900c5352ef6b1535c21ba1e7dc335b20af06d"
+    },
+    {
+      "file": "src/lib/cronCadence.ts",
+      "line": 174,
+      "column": 42,
+      "code": "TS2345",
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'.",
+      "sourceHash": "50ccf2ba523c00f88725c066507458229b3910afd9cbf25e03d94e6678b54a97"
+    },
+    {
+      "file": "src/lib/cronCadence.ts",
+      "line": 198,
+      "column": 27,
+      "code": "TS2345",
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'.",
+      "sourceHash": "9e076fbc9ad4aed228eae7f9a1484856177a15223447f5fc8fb75e35891c65a1"
+    },
+    {
+      "file": "src/lib/cronCadence.ts",
+      "line": 238,
+      "column": 51,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "edb2ce774ea5f18ba80abd7ea8f882c604ed9d3ff8f091c5dd0c680427c34875"
+    },
+    {
+      "file": "src/lib/data.ts",
+      "line": 1677,
+      "column": 18,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "86762e83bcd517d1b5891a93dd5d24e3f5f764355f77b8362ba76a01d119975d"
+    },
+    {
+      "file": "src/lib/data.ts",
+      "line": 1769,
+      "column": 23,
+      "code": "TS18048",
+      "message": "'s' is possibly 'undefined'.",
+      "sourceHash": "d91ce0a37c5a1f25c48c848e5a202a60a55a048ce65ef209da4016dd682db5ed"
+    },
+    {
+      "file": "src/lib/data.ts",
+      "line": 1770,
+      "column": 28,
+      "code": "TS18048",
+      "message": "'s' is possibly 'undefined'.",
+      "sourceHash": "9aea07c547a37e45851d57ec254a1da3a80d59003e971cf0813b9094e83859a9"
+    },
+    {
+      "file": "src/lib/data.ts",
+      "line": 1773,
+      "column": 25,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "cc75ebb6226642ddce0541fca525094f5d0754d7b36bed1b67e99aefc6c8e810"
+    },
+    {
+      "file": "src/lib/describeSchedule.ts",
+      "line": 61,
+      "column": 52,
+      "code": "TS2538",
+      "message": "Type 'undefined' cannot be used as an index type.",
+      "sourceHash": "0ece68abae42b3ac99e173bdcb0f131cd454faba2f7e05b30ed3aadf99314ab2"
+    },
+    {
+      "file": "src/lib/describeSchedule.ts",
+      "line": 90,
+      "column": 28,
+      "code": "TS2345",
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'.",
+      "sourceHash": "401dfb4689cbb69bd0d8c4299fa0f6e87a2e0747a37ac86f02c8e14cb44a6a94"
+    },
+    {
+      "file": "src/lib/describeSchedule.ts",
+      "line": 92,
+      "column": 15,
+      "code": "TS2345",
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'.",
+      "sourceHash": "601bef75d8c48938505fa483645e3ee6d3d6684b6306656ec1e0a9cecd05be10"
+    },
+    {
+      "file": "src/lib/describeSchedule.ts",
+      "line": 94,
+      "column": 28,
+      "code": "TS2345",
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'.",
+      "sourceHash": "7ba45953268b4d86781b4a6cb99cb718ff579256644abfdc47900cc532d6c001"
+    },
+    {
+      "file": "src/lib/describeSchedule.ts",
+      "line": 99,
+      "column": 19,
+      "code": "TS2345",
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'.",
+      "sourceHash": "a99e23cb55a6f000ae70be3648116bcf82bb15182ebe8a4c36edf3a440bf6a71"
+    },
+    {
+      "file": "src/lib/describeSchedule.ts",
+      "line": 100,
+      "column": 19,
+      "code": "TS2345",
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'.",
+      "sourceHash": "937c1ff880308ac23486e55f0b58b4604004a4940ad5441985e09d751a53cdeb"
+    },
+    {
+      "file": "src/lib/describeSchedule.ts",
+      "line": 125,
+      "column": 31,
+      "code": "TS2345",
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'.",
+      "sourceHash": "3ea704ce6a685a215dd02aede6dcd5a7e51db4d5c37f5e3bc493fec678bf9c8d"
+    },
+    {
+      "file": "src/lib/describeSchedule.ts",
+      "line": 150,
+      "column": 50,
+      "code": "TS18048",
+      "message": "'next' is possibly 'undefined'.",
+      "sourceHash": "045f58b5ea92eb2c07b5e756714548edcc430a339b8a9b2dd91252175931d93b"
+    },
+    {
+      "file": "src/lib/describeSchedule.ts",
+      "line": 161,
+      "column": 42,
+      "code": "TS2345",
+      "message": "Argument of type 'Date | undefined' is not assignable to parameter of type 'Date'.",
+      "sourceHash": "2ae277096fece8c481607a8e42829ff484a6251f961b76ff459316e071bcde60"
+    },
+    {
+      "file": "src/lib/describeSchedule.ts",
+      "line": 174,
+      "column": 21,
+      "code": "TS2345",
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'.",
+      "sourceHash": "8cc891b7bf12c6370324faefdd3559e1e6c919f8cab3d34c9755ee1bf356ff1f"
+    },
+    {
+      "file": "src/lib/describeSchedule.ts",
+      "line": 187,
+      "column": 61,
+      "code": "TS2345",
+      "message": "Argument of type 'Date | undefined' is not assignable to parameter of type 'Date'.",
+      "sourceHash": "ec8e3fb27393dc633a2c21654e2db6edffa473b77a1c9c9a29a29d28a95da936"
+    },
+    {
+      "file": "src/lib/describeWorkflow.test.ts",
+      "line": 103,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "4657db59a64067e762e5245e216907327dda0b75bfa751a2aa63bf3bec30a2ee"
+    },
+    {
+      "file": "src/lib/helixbox.test.ts",
+      "line": 236,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "885a982022d359576cfaf81a990e23d9b414e79e03ced8dd11dcd35bf8d7567e"
+    },
+    {
+      "file": "src/lib/openExternal.test.ts",
+      "line": 72,
+      "column": 5,
+      "code": "TS2722",
+      "message": "Cannot invoke an object which is possibly 'undefined'.",
+      "sourceHash": "0a40c6f2cb4708343e52ac76335670ae73479a6fd3b04fad6f7eea2c7cbd82ee"
+    },
+    {
+      "file": "src/lib/readonly.ts",
+      "line": 111,
+      "column": 11,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "768fe90174ea51aa377524e5df3cc84c6f9c1090b7eb086d31abc2409dbd8cc5"
+    },
+    {
+      "file": "src/lib/readonly.ts",
+      "line": 112,
+      "column": 7,
+      "code": "TS18048",
+      "message": "'p' is possibly 'undefined'.",
+      "sourceHash": "9b7fe7d56741d0df15d5fe8df03c4baef24fc82f726a35e9358cb5a57a678bb1"
+    },
+    {
+      "file": "src/lib/readonly.ts",
+      "line": 112,
+      "column": 23,
+      "code": "TS18048",
+      "message": "'p' is possibly 'undefined'.",
+      "sourceHash": "9b7fe7d56741d0df15d5fe8df03c4baef24fc82f726a35e9358cb5a57a678bb1"
+    },
+    {
+      "file": "src/lib/readonly.ts",
+      "line": 112,
+      "column": 44,
+      "code": "TS18048",
+      "message": "'p' is possibly 'undefined'.",
+      "sourceHash": "9b7fe7d56741d0df15d5fe8df03c4baef24fc82f726a35e9358cb5a57a678bb1"
+    },
+    {
+      "file": "src/lib/readonly.ts",
+      "line": 113,
+      "column": 67,
+      "code": "TS2345",
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'.",
+      "sourceHash": "84432d68d60f55817ba0296cf83640c590741729b7dc5258e462836f0a69af2c"
+    },
+    {
+      "file": "src/lib/runCosts.test.ts",
+      "line": 69,
+      "column": 29,
+      "code": "TS2345",
+      "message": "Argument of type 'StepCost | undefined' is not assignable to parameter of type 'StepCost'.",
+      "sourceHash": "a5daf131f1b8466a874d429ac8ceba6f3bad18af9cc075ecd34c3dd92dc56ddc"
+    },
+    {
+      "file": "src/lib/runCosts.test.ts",
+      "line": 92,
+      "column": 5,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "595c9169fdab26b3194503e9cf3e0e4c6e24593786be45fb691a03f0ba75dbc5"
+    },
+    {
+      "file": "src/lib/runCosts.ts",
+      "line": 94,
+      "column": 20,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "b1f3b5ef152f03347ff32fde80111e2f64c224f99bce44c18918b6b1106ecc20"
+    },
+    {
+      "file": "src/lib/runCosts.ts",
+      "line": 95,
+      "column": 28,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "7ebae0a7a53908dadad0ab21f3687df5cd19a37469b2b1156b8bc89ef1adc8b9"
+    },
+    {
+      "file": "src/lib/runCosts.ts",
+      "line": 96,
+      "column": 51,
+      "code": "TS18048",
+      "message": "'t' is possibly 'undefined'.",
+      "sourceHash": "62514bd6a2899e2e1018bd783dbb024d395e4e39e4269159b6f4c6565bb2d753"
+    },
+    {
+      "file": "src/lib/runDays.test.ts",
+      "line": 34,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "e57eda24949c21d06828dd91520fe3785e05fbc7d32ad1763cf15381fa9b98ae"
+    },
+    {
+      "file": "src/lib/runDays.test.ts",
+      "line": 35,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "ecd6f2b32ed6f59be6ac59f6e61971b141ae68cad94ccbc69a4bafbe05b106c5"
+    },
+    {
+      "file": "src/lib/runDays.test.ts",
+      "line": 36,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "25f8941facbdd5e78339c81528affbe18e0e303aeacd91a099cba64abeb8b9f8"
+    },
+    {
+      "file": "src/lib/runDays.test.ts",
+      "line": 37,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "af22c1e2f9189070145b8ebaa8f86c0f0c62d5950d884f168cfa8288a9d3f0b8"
+    },
+    {
+      "file": "src/lib/runDays.test.ts",
+      "line": 38,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "13010daf3eaf78e317f5cbefc1fbcc8135f2fea5795a8e6ea6de4bd064a1c072"
+    },
+    {
+      "file": "src/lib/runDays.test.ts",
+      "line": 39,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "79c1559544e4ee3fd319c41afa83a98fa22bbd6495c7643a349018d94f3900ec"
+    },
+    {
+      "file": "src/lib/runDays.test.ts",
+      "line": 40,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "ef00d54d677316d393d10b776b5697320f527c62e9110655932937278ea404d9"
+    },
+    {
+      "file": "src/lib/runDays.test.ts",
+      "line": 62,
+      "column": 12,
+      "code": "TS18048",
+      "message": "'group' is possibly 'undefined'.",
+      "sourceHash": "b1bcdb9ba66a7882936fdbec471bb462490aca3984f460bff2940a582439e65f"
+    },
+    {
+      "file": "src/lib/runFixtures.ts",
+      "line": 692,
+      "column": 38,
+      "code": "TS2345",
+      "message": "Argument of type 'StepScript[] | undefined' is not assignable to parameter of type 'StepScript[]'.",
+      "sourceHash": "cb9f1269711b7ed8d76a3c492aca9db0b6dc5fac1a0c73cf57c4ea40bce0518d"
+    },
+    {
+      "file": "src/lib/runProgress.test.ts",
+      "line": 182,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "13b4664792870bb67e3a2f66989423a1e9023859752560d861b92327bc051965"
+    },
+    {
+      "file": "src/lib/runProgress.test.ts",
+      "line": 191,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "439faa74ea034a7fe80c6d2127725e1553b15f20a5d5717ae303ba9ab18550fa"
+    },
+    {
+      "file": "src/lib/runProgress.test.ts",
+      "line": 221,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "13f916dd1b65ca257c4393442d5529b85e85de1a832bdea95fe22e9633ee74bc"
+    },
+    {
+      "file": "src/lib/runProgress.test.ts",
+      "line": 258,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "439faa74ea034a7fe80c6d2127725e1553b15f20a5d5717ae303ba9ab18550fa"
+    },
+    {
+      "file": "src/lib/runProgress.test.ts",
+      "line": 290,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "d4c55e9df990594931468d072cf06c474a701cec419472f30f630a8877550869"
+    },
+    {
+      "file": "src/lib/runProgress.test.ts",
+      "line": 327,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "13f916dd1b65ca257c4393442d5529b85e85de1a832bdea95fe22e9633ee74bc"
+    },
+    {
+      "file": "src/lib/runProgress.test.ts",
+      "line": 328,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "213f9fe8ce001925159ee6f676dd0acf6b669f00d10e563d8fd7bdfebd374ea1"
+    },
+    {
+      "file": "src/lib/runProgress.test.ts",
+      "line": 364,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "35e00788de09121e1f3eb870213b18d8bd0d53d15c49c827cd1bb3e447cad6e3"
+    },
+    {
+      "file": "src/lib/runProgress.test.ts",
+      "line": 365,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "6a8484f28c5b35367728f56051af221e5355a63dab86a9ac5556c145b3e3581a"
+    },
+    {
+      "file": "src/lib/runProgress.test.ts",
+      "line": 387,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "35e00788de09121e1f3eb870213b18d8bd0d53d15c49c827cd1bb3e447cad6e3"
+    },
+    {
+      "file": "src/lib/runProgress.test.ts",
+      "line": 405,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "35e00788de09121e1f3eb870213b18d8bd0d53d15c49c827cd1bb3e447cad6e3"
+    },
+    {
+      "file": "src/lib/runProgress.test.ts",
+      "line": 418,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "35e00788de09121e1f3eb870213b18d8bd0d53d15c49c827cd1bb3e447cad6e3"
+    },
+    {
+      "file": "src/lib/runProgress.ts",
+      "line": 95,
+      "column": 56,
+      "code": "TS2345",
+      "message": "Argument of type 'string | undefined' is not assignable to parameter of type 'string'.",
+      "sourceHash": "856c13ac2607caf9c3b65ba8c07c025a8282a2585846311e5f4fe4093b964ea0"
+    },
+    {
+      "file": "src/lib/scheduleText.ts",
+      "line": 25,
+      "column": 18,
+      "code": "TS18048",
+      "message": "'h' is possibly 'undefined'.",
+      "sourceHash": "d7eb9f04a36c28dcb7255aacff3d533c9eb63dd35cdcc3b8e6cf956c794197a6"
+    },
+    {
+      "file": "src/lib/scheduleText.ts",
+      "line": 26,
+      "column": 15,
+      "code": "TS18048",
+      "message": "'h' is possibly 'undefined'.",
+      "sourceHash": "4bf50e5b8a1233faaf35406d5ea76b976c6efbe09b9ccb6f3ba0a60bd862fa91"
+    },
+    {
+      "file": "src/lib/scheduleText.ts",
+      "line": 26,
+      "column": 35,
+      "code": "TS18048",
+      "message": "'h' is possibly 'undefined'.",
+      "sourceHash": "4bf50e5b8a1233faaf35406d5ea76b976c6efbe09b9ccb6f3ba0a60bd862fa91"
+    },
+    {
+      "file": "src/lib/scheduleText.ts",
+      "line": 51,
+      "column": 80,
+      "code": "TS2345",
+      "message": "Argument of type '(string | undefined)[]' is not assignable to parameter of type 'Iterable<string>'.",
+      "sourceHash": "6f56cc843a01fd271bcff4ff5551130c46cfcf4dba74a33e74cd810f90b8a14e"
+    },
+    {
+      "file": "src/lib/scheduleText.ts",
+      "line": 82,
+      "column": 24,
+      "code": "TS18048",
+      "message": "'weekdays' is possibly 'undefined'.",
+      "sourceHash": "2867e7a71b9bce4b48177de6ba5dafc50ca0f1fe6b38578efff3f359ce9f9493"
+    },
+    {
+      "file": "src/lib/scheduleText.ts",
+      "line": 132,
+      "column": 19,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "373f491d8bb10dda661b8348913f69c61eaa4378ad66f0a4e25ddc192c9b9b70"
+    },
+    {
+      "file": "src/lib/tokens.test.ts",
+      "line": 60,
+      "column": 19,
+      "code": "TS18048",
+      "message": "'r' is possibly 'undefined'.",
+      "sourceHash": "8e7cdf2db3fab004f8ce37ff1eb43575f7197a14710796da3dd6c81f4d7e9fec"
+    },
+    {
+      "file": "src/lib/tokens.test.ts",
+      "line": 60,
+      "column": 32,
+      "code": "TS18048",
+      "message": "'g' is possibly 'undefined'.",
+      "sourceHash": "8e7cdf2db3fab004f8ce37ff1eb43575f7197a14710796da3dd6c81f4d7e9fec"
+    },
+    {
+      "file": "src/lib/tokens.test.ts",
+      "line": 60,
+      "column": 45,
+      "code": "TS18048",
+      "message": "'b' is possibly 'undefined'.",
+      "sourceHash": "8e7cdf2db3fab004f8ce37ff1eb43575f7197a14710796da3dd6c81f4d7e9fec"
+    },
+    {
+      "file": "src/lib/tokens.test.ts",
+      "line": 65,
+      "column": 11,
+      "code": "TS18048",
+      "message": "'hi' is possibly 'undefined'.",
+      "sourceHash": "263d0a85cc8c641952f998aa4d47f79d5903ff281c91831784c5ca9fa1dcbfa4"
+    },
+    {
+      "file": "src/lib/tokens.test.ts",
+      "line": 65,
+      "column": 25,
+      "code": "TS18048",
+      "message": "'lo' is possibly 'undefined'.",
+      "sourceHash": "263d0a85cc8c641952f998aa4d47f79d5903ff281c91831784c5ca9fa1dcbfa4"
+    },
+    {
+      "file": "src/native/back.test.ts",
+      "line": 37,
+      "column": 5,
+      "code": "TS2722",
+      "message": "Cannot invoke an object which is possibly 'undefined'.",
+      "sourceHash": "64ca1a860734bfc252abbec61cd274fef0e727b5bd08a4bc46a1efd6dcb966c2"
+    },
+    {
+      "file": "src/native/back.test.ts",
+      "line": 48,
+      "column": 5,
+      "code": "TS2722",
+      "message": "Cannot invoke an object which is possibly 'undefined'.",
+      "sourceHash": "4404e9946a67c7fd11428ede19a6738bda804ac2d2b205b9afd21331b4016bf5"
+    },
+    {
+      "file": "src/native/push.test.ts",
+      "line": 383,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "a51220ce29d147b5a4df820322b330c54e665481c684590ef90f0863055bcea1"
+    },
+    {
+      "file": "src/native/push.test.ts",
+      "line": 392,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "a51220ce29d147b5a4df820322b330c54e665481c684590ef90f0863055bcea1"
+    },
+    {
+      "file": "src/native/push.test.ts",
+      "line": 401,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "f1b95c91192ed037f1c597af09a4c5ea7d61ea65bf6f870be0f5234843e054aa"
+    },
+    {
+      "file": "src/native/push.test.ts",
+      "line": 409,
+      "column": 12,
+      "code": "TS2532",
+      "message": "Object is possibly 'undefined'.",
+      "sourceHash": "4c8c5f35e6074a459fdc7303e4eb8967e00de839be1ce8f0e400831e5a692add"
+    }
+  ]
+}

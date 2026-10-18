@@ -75,7 +75,7 @@ agentmesh/
 │       │   ├── handlers/   One file per resource (auth, oauth, connector_oauth,
 │       │   │               oauth2creds, workflows, runs, deploy, tools, bazaar,
 │       │   │               payments, usage, secrets, leases, tendril_console,
-│       │   │               x402relay, waitlist)
+│       │   │               x402relay)
 │       │   └── middleware.go  CORS, JWT auth, SSE token fallback
 │       ├── engine/
 │       │   ├── runner.go   Topological executor — parallel level execution
@@ -204,8 +204,8 @@ SUM(users.tendril_credit_usd_micros) + (hours currently metering) <= Tendril poo
 | `POST` | `/auth/signout` | Clears auth cookie |
 | `GET` | `/auth/oauth/:provider` | Start OAuth (`github` or `google`) |
 | `GET` | `/auth/oauth/:provider/callback` | OAuth callback — sets cookie, redirects to frontend |
-| `POST` | `/waitlist` | Join waitlist — body: `{ email }` |
 | `POST` | `/run/:workflowId` | Public webhook trigger (only works on deployed workflows with a trigger node) |
+| `GET` | `/shares/:token` | Read a sanitized workflow snapshot. Missing, expired and revoked links return the same 404. |
 
 ### Protected endpoints (require auth cookie or `Authorization: Bearer <token>`)
 
@@ -217,6 +217,12 @@ SUM(users.tendril_credit_usd_micros) + (hours currently metering) <= Tendril poo
 | `GET` | `/workflows/:id` | Get a workflow (API keys masked in response) |
 | `PUT` | `/workflows/:id` | Update a workflow |
 | `DELETE` | `/workflows/:id` | Delete a workflow |
+| `POST` | `/workflows/import` | Sanitize and atomically create a workflow from `{ name, description?, nodes, edges }`. |
+| `POST` | `/workflows/:id/share` | Freeze a snapshot. Accepts `{ expiresInDays, reuseIfUnchanged }`; zero days means no expiry. Returns 200 for a reused link or 201 for a new link. |
+| `GET` | `/workflows/:id/shares` | List the owner's links for one workflow, including expired and revoked links. |
+| `GET` | `/shares` | List the owner's links across workflows and the active-link limit. |
+| `DELETE` | `/shares/:token` | Revoke an owned link. |
+| `POST` | `/shares/:token/import` | Copy a live snapshot into the caller's workspace as an undeployed draft. |
 | `POST` | `/workflows/:id/deploy` | Provision Algorand wallets for all agent nodes |
 | `GET` | `/workflows/:id/agents/:agentId/balance` | Get agent wallet ALGO balance |
 | `POST` | `/workflows/:id/agents/:agentId/fund` | Fund agent from testnet dispenser |
@@ -241,6 +247,16 @@ For SSE (`GET /runs/:runId/stream`), EventSource can't set headers, so the JWT c
 A workflow is a JSON graph of `WorkflowNode` objects and `WorkflowEdge` objects. Nodes have a `type` (`trigger`, `agent`, `tool402`, `action`), a `config` object, and `inputs`/`outputs` port definitions. Edges connect output ports to input ports.
 
 The full type is in `backend/internal/models/types.go` and mirrored in `frontend/src/lib/types.ts`.
+
+### Sharing a workflow
+
+Each link serves a frozen snapshot from `workflow_shares`. Later edits do not change that snapshot. Revocation or deletion of the owner or workflow makes the link unavailable. An account may have at most 100 active links; the store serializes creation per user before checking this quota.
+
+`SanitizeGraphForShare` rebuilds nodes from portable fields, removing credentials, account bindings, wallets and uploaded file contents. The field-coverage test must classify each new `WorkflowNode` field. Arbitrary prompt text, URLs and ordinary configuration still travel, so the sender must inspect those before sharing. Imports run through the sanitizer again, generate new webhook secrets, and create the graph in one database statement.
+
+Share codes use the same sanitized graph as links. The `am1.` prefix identifies the gzip/base64url format; legacy codes remain readable. The Import dialog previews the contents before creating a copy. Imports are blocked on read-only clients; those clients may still create, copy and revoke links for existing workflows.
+
+The canvas must finish pending saves before sharing or deploying. Snapshot reuse belongs in `Store.CreateWorkflowShare`, where the saved sanitized graph, name and description can be compared under the same transaction lock as creation.
 
 ### agentToolIDs
 
@@ -278,6 +294,8 @@ Each run has a channel in the in-process SSE broker (`internal/sse`). The runner
 | `/auth/callback` | public | OAuth token landing |
 | `/workflows` | protected | Workflow list |
 | `/workflows/:id` | protected | Canvas editor |
+| `/s/:token` | public | Shared workflow preview and import |
+| `/account/links` | protected | Shared-link management |
 
 **Canvas** (`src/components/canvas/`): All rendering is custom SVG — no ReactFlow or similar. `CanvasPage.tsx` owns all state. `CanvasGraph.tsx` handles the SVG surface, drag/drop, and port-to-port wiring. Node components live in `canvas/nodes/index.tsx`.
 
@@ -315,7 +333,7 @@ Each run has a channel in the in-process SSE broker (`internal/sse`). The runner
 | `tool_credentials` | Encrypted per-provider API keys scoped to a workflow |
 | `runs` | `id`, `workflow_id`, `status`, `input`, `output`, `created_at` |
 | `run_logs` | `id`, `run_id`, `node_id`, `level`, `message`, `created_at` |
-| `waitlist` | `id`, `email` (unique), `created_at` |
+| `workflow_shares` | Migration44: token, owner, workflow, frozen name/description/graph, counts, expiry, revocation and creation timestamps. Owner and workflow foreign keys cascade on deletion. |
 
 ---
 

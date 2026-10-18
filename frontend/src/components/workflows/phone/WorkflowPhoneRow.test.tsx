@@ -1,11 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { Workflow } from "@/lib/types";
 import { WorkflowPhoneRow } from "./WorkflowPhoneRow";
 
 const NOW = Date.parse("2026-09-19T10:00:00.000Z");
 
-function renderRow(overrides: Partial<Workflow> = {}) {
+function renderRow(overrides: Partial<Workflow> = {}, onShare?: (id: string) => void) {
   const wf: Workflow = {
     id: "wf-triage",
     name: "Customer Support Triage",
@@ -21,7 +21,7 @@ function renderRow(overrides: Partial<Workflow> = {}) {
   };
   render(
     <ul>
-      <WorkflowPhoneRow workflow={wf} now={NOW} />
+      <WorkflowPhoneRow workflow={wf} now={NOW} onShare={onShare} />
     </ul>,
   );
   return screen.getByRole("listitem");
@@ -30,6 +30,20 @@ function renderRow(overrides: Partial<Workflow> = {}) {
 afterEach(cleanup);
 
 describe("WorkflowPhoneRow", () => {
+  it("shares the selected workflow without nesting the action in either link", () => {
+    const onShare = vi.fn();
+    const card = renderRow({}, onShare);
+    const share = within(card).getByRole("button", { name: "Share Customer Support Triage" });
+
+    expect(share.closest("a")).toBeNull();
+    fireEvent.click(share);
+
+    expect(onShare).toHaveBeenCalledExactlyOnceWith("wf-triage");
+    expect(within(card).getAllByRole("link")).toHaveLength(2);
+    expect(within(card).getByRole("link", { name: "View usage for Customer Support Triage" }).getAttribute("href"))
+      .toBe("/usage?workflow=wf-triage");
+  });
+
   it("opens the workflow and its scoped usage from separate links", () => {
     const card = renderRow();
     expect(
