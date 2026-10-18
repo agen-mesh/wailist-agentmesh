@@ -310,3 +310,27 @@ describe("refreshPurchases failure handling", () => {
     expect(store.readCreditsFlags().purchasesKnown).toBe(true);
   });
 });
+
+describe("account warning threshold", () => {
+  it("keeps exact preference precision and resets it with the account", async () => {
+    const store = await freshStore();
+    expect(store.readCredits().lowBalanceThresholdUSD).toBe(5);
+    store.setAccountThreshold("owner", 1_234_567);
+    expect(store.readCredits().lowBalanceThresholdUSD).toBe(1.234567);
+    store.setAccountThreshold("owner", 0);
+    expect(store.readCredits().lowBalanceThresholdUSD).toBe(0);
+    store.resetCredits();
+    expect(store.readCredits().lowBalanceThresholdUSD).toBe(5);
+    expect(window.localStorage.length).toBe(0);
+  });
+  it("drops prior money data when a different owner is identified", async () => {
+    const store = await freshStore();
+    store.setAccountThreshold("old-owner", 9_000_000);
+    balanceMock.mockResolvedValue(20);
+    await store.refreshBalance();
+    store.setAccountThreshold("new-owner", 2_000_000);
+    expect(store.readCredits().balanceUSD).toBe(0);
+    expect(store.readCreditsFlags().balanceKnown).toBe(false);
+    expect(store.readCredits().lowBalanceThresholdUSD).toBe(2);
+  });
+});

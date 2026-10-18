@@ -30,10 +30,10 @@ export function WorkflowOverview() {
           </button>
         </div>
         <p className={styles.creditBalance}>
-          {balanceKnown ? `$${balanceUSD.toFixed(2)}` : "—"}
+          {balanceKnown ? `$${balanceUSD.toFixed(2)}` : null}
         </p>
-        <p className={styles.creditHint}>
-          {balanceKnown ? "Spent as your agents call paid tools and models." : "Loading balance…"}
+        <p className={styles.creditHint} role={balanceKnown ? undefined : "status"}>
+          {balanceKnown ? "Spent as your agents call paid tools and models." : "Loading balance..."}
         </p>
       </section>
       <UpcomingRuns limit={2} title="Upcoming runs" presentation="overview" />

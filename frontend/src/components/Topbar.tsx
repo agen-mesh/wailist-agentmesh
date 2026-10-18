@@ -105,8 +105,11 @@ export function Topbar() {
       <AppNav
         items={navItems}
         pathname={pathname}
-        onSelect={(item: NavItem) => {
-          if (item.href) router.push(item.href);
+        onSelect={(item: NavItem, options) => {
+          if (item.href) {
+            if (options?.replace) router.replace(item.href);
+            else router.push(item.href);
+          }
         }}
         renderInlineLink={({ item, active, onClick }) => (
           <NavLink label={item.label} active={active} onClick={onClick} />
@@ -223,6 +226,15 @@ export function Topbar() {
                       onClick={() => {
                         setMenuState("closed");
                         router.push("/settings");
+                      }}
+                    >
+                      Settings
+                    </button>
+                    <button
+                      className="profile-menu__item"
+                      onClick={() => {
+                        setMenuState("closed");
+                        router.push("/settings#delete-title");
                       }}
                     >
                       Delete account

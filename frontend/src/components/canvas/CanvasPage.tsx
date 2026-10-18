@@ -20,7 +20,6 @@ import {
   useCredits,
   refreshBalance as refreshCredits,
 } from "@/lib/credits/store";
-import { LOW_BALANCE_THRESHOLD_USD } from "@/lib/credits/fx";
 import { CanvasGraph } from "./CanvasGraph";
 import { PalettePanel } from "./PalettePanel";
 import { Inspector } from "./Inspector";
@@ -32,6 +31,8 @@ import { can } from "@/lib/readonly";
 import { workflowHref } from "@/lib/routes";
 import { ghostBtnSm, primaryBtnSm } from "@/components/ui/buttons";
 import { useIsCompact } from "@/hooks/useIsCompact";
+import { useIsHandheld } from "@/hooks/useIsHandheld";
+import { clampStudioPanelWidth, fitPanels, RAIL_W } from "./studioLayout";
 import { runBlockedReason } from "./runBlocked";
 import {
   isGraphRunnable,
@@ -52,7 +53,6 @@ import { ShareModal } from "@/components/workflows/ShareModal";
 import {
   PALETTE,
   INSPECTOR,
-  clampWidth,
   loadWidths,
   saveWidths,
 } from "./panelSizing";
@@ -64,8 +64,19 @@ interface CanvasPageProps {
 
 export function CanvasPage({ workflowId }: CanvasPageProps) {
   const router = useRouter();
-  const compact = useIsCompact();
   const readOnly = useReadOnly();
+  // Compact (stacked layout + bottom sheet) is now narrow AND handheld, where
+  // it used to be width alone -- a laptop window dragged narrow lost both side
+  // panels. A pointer client keeps three columns at every width and collapses
+  // to rails instead; see studioLayout.ts.
+  //
+  // Note the sheet branch below is currently unreachable: WorkflowRoute sends
+  // every handheld to WorkflowSummary, so `handheld` is always false here.
+  // Kept because the condition encodes the rule -- if a tablet is ever let
+  // into the real editor, the sheet is what it should get.
+  const handheld = useIsHandheld();
+  const narrowViewport = useIsCompact();
+  const compact = narrowViewport && handheld;
   // Whether the narrow-screen wall applies at all. It is about EDITING, not
   // width: dragging nodes really does not work at 375px, so an editor on a
   // narrow window is told so. A viewer has nothing to drag -- viewing is the
@@ -130,6 +141,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
   }, []);
+  const narrowEditorBlocked = isNarrow && canEdit && handheld;
 
   // -- Resizable side panels ------------------------------------------------
   // Widths start at defaults (so SSR and the first client render match), then a
@@ -137,14 +149,35 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
   // clamping can reserve MIN_CANVAS and the opposite panel's width.
   const [paletteW, setPaletteW] = useState(PALETTE.default);
   const [paletteCollapsed, setPaletteCollapsed] = useState(false);
+  // The chat side now collapses the way the palette always could.
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  // The panel last opened from its rail. A preference, not a collapse: it is
+  // only consulted when both are wanted and both will not fit, so widening
+  // the window brings both back. See studioLayout.ts.
+  const [prefer, setPrefer] = useState<"palette" | "inspector" | null>(null);
   const [inspectorW, setInspectorW] = useState(INSPECTOR.default);
   const panelRowRef = useRef<HTMLDivElement | null>(null);
   const rowObserver = useRef<ResizeObserver | null>(null);
+  // State, not just a ref: fitPanels is read during render. 0 = unmeasured.
+  const [rowW, setRowW] = useState(0);
   // Latest widths for the async ResizeObserver callback (avoids stale closures).
   const widthsRef = useRef({ paletteW, inspectorW });
   useEffect(() => {
     widthsRef.current = { paletteW, inspectorW };
   }, [paletteW, inspectorW]);
+  // Read by reflow, which runs from a ResizeObserver and cannot close over
+  // state. A collapsed panel costs RAIL_W, not its full width.
+  const collapsedRef = useRef({ paletteCollapsed, inspectorCollapsed });
+  useEffect(() => {
+    collapsedRef.current = { paletteCollapsed, inspectorCollapsed };
+  }, [paletteCollapsed, inspectorCollapsed]);
+
+  // The widths the reader ASKED for, as distinct from what currently fits.
+  // reflow used to clamp widthsRef and write the result back into it, making
+  // the clamp one-way: narrowing shrank a 320px rail to its 260px minimum and
+  // widening never restored it, so panels ratcheted down over a few resizes.
+  // Clamping the desired width each reflow makes it reversible.
+  const desiredRef = useRef({ paletteW, inspectorW });
 
   const rowWidth = () =>
     panelRowRef.current?.getBoundingClientRect().width ?? 0;
@@ -160,13 +193,23 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     panelRowRef.current = el;
     if (!el) return;
     const saved = loadWidths();
-    if (saved) widthsRef.current = saved;
+    if (saved) {
+      widthsRef.current = saved;
+      desiredRef.current = saved;
+    }
     const reflow = () => {
       const cw = el.getBoundingClientRect().width;
       if (cw <= 0) return;
-      const { paletteW: pw, inspectorW: iw } = widthsRef.current;
-      setPaletteW(clampWidth(pw, PALETTE, cw, iw));
-      setInspectorW(clampWidth(iw, INSPECTOR, cw, pw));
+      // Desired, not current -- see desiredRef above.
+      const { paletteW: pw, inspectorW: iw } = desiredRef.current;
+      const { paletteCollapsed: pc, inspectorCollapsed: ic } =
+        collapsedRef.current;
+      setRowW(cw);
+      // Reserve what the OTHER panel actually occupies. A collapsed panel is
+      // a 26px rail, so reserving its full width left the reader who closed
+      // one to make room for the other with no extra room at all.
+      setPaletteW(clampStudioPanelWidth(pw, PALETTE, cw, ic ? RAIL_W : iw, !ic));
+      setInspectorW(clampStudioPanelWidth(iw, INSPECTOR, cw, pc ? RAIL_W : pw, !pc));
     };
     // Clamp immediately (getBoundingClientRect forces layout) so the initial
     // fit never depends on the observer's async first delivery, then observe
@@ -179,27 +222,54 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     }
   }, []);
 
+  const fit = fitPanels({
+    rowWidth: rowW,
+    paletteW,
+    inspectorW,
+    paletteWanted: !paletteCollapsed && can("workflow.editGraph", readOnly),
+    inspectorWanted: !inspectorCollapsed,
+    prefer,
+  });
+
+  // Dragging reserves only the space occupied by the other visible panel.
   const resizePalette = useCallback((req: number) => {
-    setPaletteW(
-      clampWidth(req, PALETTE, rowWidth(), widthsRef.current.inspectorW),
+    const w = clampStudioPanelWidth(
+      req,
+      PALETTE,
+      rowWidth(),
+      fit.inspector ? widthsRef.current.inspectorW : RAIL_W,
+      fit.inspector,
     );
-  }, []);
+    desiredRef.current = { ...desiredRef.current, paletteW: w };
+    setPaletteW(w);
+  }, [fit.inspector]);
   const resizeInspector = useCallback((req: number) => {
-    setInspectorW(
-      clampWidth(req, INSPECTOR, rowWidth(), widthsRef.current.paletteW),
+    const w = clampStudioPanelWidth(
+      req,
+      INSPECTOR,
+      rowWidth(),
+      fit.palette ? widthsRef.current.paletteW : canEdit ? RAIL_W : 0,
+      fit.palette,
     );
-  }, []);
+    desiredRef.current = { ...desiredRef.current, inspectorW: w };
+    setInspectorW(w);
+  }, [fit.palette, canEdit]);
+  // desiredRef, not widthsRef. widthsRef holds the CLAMPED widths and is only
+  // refreshed by an effect after commit, so persisting it (a) wrote the
+  // pre-change value when called synchronously from a reset, and (b) carried
+  // the narrow-window clamp into storage -- reloading wide then restored the
+  // clamped width as though the reader had chosen it, which is the ratchet
+  // desiredRef exists to stop.
   const persistWidths = useCallback(() => {
-    saveWidths(widthsRef.current);
+    saveWidths(desiredRef.current);
   }, []);
 
   // No state resets here: the route passes key={workflowId}, so navigating to
   // a different workflow remounts this component and every piece of state
   // returns to its initial value (loading=true, selectedId=null, …).
   useEffect(() => {
-    // Skip only when the wall below will actually show. A viewer renders a
-    // real canvas on a narrow screen, so it needs the workflow fetched.
-    if (isNarrow && canEdit) return;
+    // Desktop width changes must not reload over an unsaved graph.
+    if (narrowEditorBlocked) return;
 
     // Guards against a stale response overwriting fresher state: React 18
     // Strict Mode double-invokes this effect in dev (mount → cleanup →
@@ -251,7 +321,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     return () => {
       cancelled = true;
     };
-  }, [workflowId, router, isNarrow, readOnly, canEdit]);
+  }, [workflowId, router, readOnly, narrowEditorBlocked]);
 
   // Auto-save: debounce 1.5s after any change, skip on initial load.
   // pendingSave holds the graph the debounce timer is still sitting on, and
@@ -536,7 +606,8 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     [workflow],
   );
   const missingModel = useMemo(
-    () => (workflow ? agentMissingModel(workflow.nodes, workflow.edges) : false),
+    () =>
+      workflow ? agentMissingModel(workflow.nodes, workflow.edges) : false,
     [workflow],
   );
   const flowLoop = useMemo(
@@ -837,10 +908,11 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     [setWorkflow],
   ) as React.Dispatch<React.SetStateAction<Workflow>>;
 
-  // Below the breakpoint, an EDITOR stops here: no graph, no chat/SSE host.
-  // A viewer does not -- it falls through to the stacked studio and bottom
-  // sheet below, which is what makes a workflow readable on a phone at all.
-  if (isNarrow && canEdit) {
+  // On a narrow HANDHELD an editor stops here. `handheld` is the new part:
+  // the wall was keyed on width alone, so a laptop window under 768px was
+  // told to come back on a bigger screen while holding a mouse. The reason it
+  // gives is about INPUT, not pixels.
+  if (narrowEditorBlocked) {
     return (
       <div style={{ height: "100dvh", background: "var(--bg)" }}>
         <div className="canvas-narrow">
@@ -871,7 +943,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
           background: "var(--bg)",
           color: "var(--fg-dim)",
           fontFamily: "var(--font-mono)",
-          fontSize: 12,
+          fontSize: "var(--t-2)",
         }}
       >
         {workflowId === "new" ? "creating workflow…" : "loading…"}
@@ -917,58 +989,52 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
             paletteNode below). Rendering it here while the row is stacked
             gave it a full-height column of its own and squeezed the canvas
             to zero. */}
-        {/* Collapsed: the column and its resize handle give way to a thin
-            rail, so the canvas gets the full ~280px back without the palette
-            disappearing with no way to bring it back. */}
-        {!compact &&
-          can("workflow.editGraph", readOnly) &&
-          paletteCollapsed && (
-            <button
-              type="button"
-              onClick={() => setPaletteCollapsed(false)}
-              title="Expand the library"
-              aria-label="Expand the library"
-              style={{
-                flexShrink: 0,
-                width: 26,
-                alignSelf: "stretch",
-                background: "var(--bg-elev-1)",
-                border: "none",
-                borderRight: "1px solid var(--border)",
-                color: "var(--fg-muted)",
-                cursor: "pointer",
-                fontSize: 12,
-              }}
-            >
-              ›
-            </button>
-          )}
+        {!compact && can("workflow.editGraph", readOnly) && !fit.palette && (
+          <button
+            type="button"
+            onClick={() => {
+              setPaletteCollapsed(false);
+              setPrefer("palette");
+            }}
+            className="am-studio-rail"
+            title="Expand the library"
+            aria-label="Expand the library"
+            aria-expanded={false}
+          >
+            ›
+          </button>
+        )}
 
-        {!compact &&
-          can("workflow.editGraph", readOnly) &&
-          !paletteCollapsed && (
-            <>
-              <PalettePanel
-                onDragNodeStart={onDragNodeStart}
-                onAddNode={(meta) => addAtCentre.current?.(meta)}
-                width={paletteW}
-                onCollapse={() => setPaletteCollapsed(true)}
-              />
-              <ResizeHandle
-                side="left"
-                value={paletteW}
-                min={PALETTE.min}
-                max={PALETTE.max}
-                ariaLabel="Resize palette panel"
-                onChange={resizePalette}
-                onCommit={persistWidths}
-                onReset={() => {
-                  setPaletteW(PALETTE.default);
-                  persistWidths();
-                }}
-              />
-            </>
-          )}
+        {!compact && can("workflow.editGraph", readOnly) && fit.palette && (
+          <>
+            <PalettePanel
+              onDragNodeStart={onDragNodeStart}
+              onAddNode={(meta) => addAtCentre.current?.(meta)}
+              width={paletteW}
+              onCollapse={() => {
+                setPaletteCollapsed(true);
+                setPrefer(null);
+              }}
+            />
+            <ResizeHandle
+              side="left"
+              value={paletteW}
+              min={PALETTE.min}
+              max={PALETTE.max}
+              ariaLabel="Resize palette panel"
+              onChange={resizePalette}
+              onCommit={persistWidths}
+              onReset={() => {
+                desiredRef.current = {
+                  ...desiredRef.current,
+                  paletteW: PALETTE.default,
+                };
+                setPaletteW(PALETTE.default);
+                persistWidths();
+              }}
+            />
+          </>
+        )}
 
         <ChatConsoleHost
           runId={runId}
@@ -1062,7 +1128,9 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                             reason={blockedReason}
                             deploying={deploying}
                             onDeploy={onDeploy}
-                            onDismiss={() => setDismissedBlock(blockedReason.code)}
+                            onDismiss={() =>
+                              setDismissedBlock(blockedReason.code)
+                            }
                           />
                         ) : undefined
                       }
@@ -1095,6 +1163,22 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                     />
                   )}
                 </div>
+              ) : !fit.inspector ? (
+                // Mirror of the palette's rail.
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInspectorCollapsed(false);
+                    setPrefer("inspector");
+                  }}
+                  className="am-studio-rail"
+                  data-side="right"
+                  title="Expand the chat panel"
+                  aria-label="Expand the chat panel"
+                  aria-expanded={false}
+                >
+                  ‹
+                </button>
               ) : (
                 <>
                   <ResizeHandle
@@ -1106,6 +1190,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                     onChange={resizeInspector}
                     onCommit={persistWidths}
                     onReset={() => {
+                      desiredRef.current = {
+                        ...desiredRef.current,
+                        inspectorW: INSPECTOR.default,
+                      };
                       setInspectorW(INSPECTOR.default);
                       persistWidths();
                     }}
@@ -1133,7 +1221,9 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                           reason={blockedReason}
                           deploying={deploying}
                           onDeploy={onDeploy}
-                          onDismiss={() => setDismissedBlock(blockedReason.code)}
+                          onDismiss={() =>
+                            setDismissedBlock(blockedReason.code)
+                          }
                         />
                       ) : undefined
                     }
@@ -1150,6 +1240,10 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
                     }
                     hasSelection={selected !== null}
                     leaseId={chat.leaseId}
+                    onCollapse={() => {
+                      setInspectorCollapsed(true);
+                      setPrefer(null);
+                    }}
                   />
                 </>
               )}
@@ -1216,7 +1310,7 @@ const nameFieldStyle: React.CSSProperties = {
   border: "none",
   outline: "none",
   color: "var(--fg)",
-  fontSize: 13,
+  fontSize: "var(--t-3)",
   fontWeight: 500,
   fontFamily: "var(--font-sans)",
   // flex-basis "auto", not a fixed px: a fixed basis caps the field at that
@@ -1236,7 +1330,7 @@ const nameFieldStyle: React.CSSProperties = {
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
   padding: "4px 6px",
-  borderRadius: 4,
+  borderRadius: "var(--r-1)",
 };
 
 // formatRunCost turns the low/high micro-dollar band into a short topbar
@@ -1287,8 +1381,8 @@ function CanvasTopbar({
   // financial cluster. The value comes from the backend (the same row the
   // engine debits), so it is only meaningful once that fetch has landed —
   // hence balanceKnown, which separates a real $0 from "not asked yet".
-  const { balanceUSD, balanceKnown, refreshBalance } = useCredits();
-  const lowBalance = balanceKnown && balanceUSD < LOW_BALANCE_THRESHOLD_USD;
+  const { balanceUSD, balanceKnown, refreshBalance, lowBalanceThresholdUSD } = useCredits();
+  const lowBalance = balanceKnown && balanceUSD < lowBalanceThresholdUSD;
   const [shareOpen, setShareOpen] = useState(false);
   const [estimate, setEstimate] = useState<CostEstimate | null>(null);
 
@@ -1316,7 +1410,8 @@ function CanvasTopbar({
   return (
     <div
       style={{
-        height: 52,
+        height: "var(--canvas-bar-height, 52px)",
+        minHeight: 52,
         flexShrink: 0,
         background: "var(--bg-elev-1)",
         borderBottom: "1px solid var(--border)",
@@ -1324,7 +1419,7 @@ function CanvasTopbar({
         alignItems: "center",
         // Tokens, defaulting to the desktop values: see .am-canvas-bar in
         // responsive.css for the phone step.
-        padding: "0 var(--canvas-bar-pad, 14px)",
+        padding: "var(--canvas-bar-pad-y, 0) var(--canvas-bar-pad, 14px)",
         gap: "var(--canvas-bar-gap, 14px)",
       }}
       className="am-canvas-bar"
@@ -1392,7 +1487,7 @@ function CanvasTopbar({
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 14,
+          gap: "var(--s-4)",
           padding: "0 var(--canvas-stats-pad, 14px)",
           borderLeft: "1px solid var(--border)",
           borderRight: "1px solid var(--border)",
@@ -1439,7 +1534,7 @@ function CanvasTopbar({
           <Stat
             label="x402"
             value={workflow.nodes.filter((n) => n.type === "tool402").length}
-            color="#E879F9"
+            color="var(--type-x402)"
           />
         </span>
       </div>
@@ -1490,13 +1585,13 @@ function CanvasTopbar({
         style={{
           width: 28,
           height: 28,
-          borderRadius: 999,
+          borderRadius: "var(--r-full)",
           background: "var(--accent)",
           color: "var(--accent-fg)",
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: 11,
+          fontSize: "var(--t-1)",
           fontWeight: 700,
         }}
       >
@@ -1522,7 +1617,7 @@ function Stat({
       <span
         style={{
           fontFamily: "var(--font-mono)",
-          fontSize: 9,
+          fontSize: "var(--t-0)",
           color: "var(--fg-dim)",
           textTransform: "uppercase",
           letterSpacing: "0.06em",
@@ -1533,14 +1628,20 @@ function Stat({
       <span
         style={{
           fontFamily: "var(--font-sans)",
-          fontSize: 13,
+          fontSize: "var(--t-3)",
           fontWeight: 500,
           color: color ?? "var(--fg)",
         }}
       >
         {value}
         {unit && (
-          <span style={{ color: "var(--fg-dim)", fontSize: 10, marginLeft: 3 }}>
+          <span
+            style={{
+              color: "var(--fg-dim)",
+              fontSize: "var(--t-0)",
+              marginLeft: 3,
+            }}
+          >
             {unit}
           </span>
         )}
@@ -1551,7 +1652,7 @@ function Stat({
 const btnStyle: React.CSSProperties = {
   height: 28,
   padding: "0 12px",
-  fontSize: 12,
+  fontSize: "var(--t-2)",
   fontWeight: 500,
   background: "var(--bg-elev-2)",
   border: "1px solid var(--border-strong)",
@@ -1561,7 +1662,7 @@ const btnStyle: React.CSSProperties = {
   fontFamily: "var(--font-sans)",
   display: "inline-flex",
   alignItems: "center",
-  gap: 4,
+  gap: "var(--s-1)",
   whiteSpace: "nowrap",
   flexShrink: 0,
 };

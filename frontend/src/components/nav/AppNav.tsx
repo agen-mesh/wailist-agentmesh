@@ -1,8 +1,9 @@
 "use client";
 import { Fragment, useEffect, useId, useRef, useState } from "react";
+import { Collapsible } from "radix-ui";
 import { type NavItem, groupNavItems, isNavItemActive } from "@/lib/nav";
 import { useScrollLock } from "@/hooks/useScrollLock";
-import { useCloseOnBack } from "@/hooks/useCloseOnBack";
+import { useSheetHistory } from "@/hooks/useCloseOnBack";
 
 interface AppNavProps {
   items: readonly NavItem[];
@@ -12,7 +13,7 @@ interface AppNavProps {
   actions?: React.ReactNode;
   /** Current pathname, for active state. Landing pages can pass "". */
   pathname: string;
-  onSelect: (item: NavItem) => void;
+  onSelect: (item: NavItem, options?: { replace: boolean }) => void;
   /** Renders the inline links; lets each surface keep its own link styling. */
   renderInlineLink: (args: {
     item: NavItem;
@@ -42,19 +43,8 @@ interface AppNavProps {
 /**
  * The navigation shell for both the marketing and application surfaces.
  *
- * Above the `md` breakpoint it is an ordinary bar with inline links. Below it,
- * the links are replaced by a trigger and a full-height sheet fades in beneath
- * the bar (see the AppNav block in globals.css for the motion, and for why the
- * sheet is fixed rather than a grown bar).
- *
- * Semantics follow the ARIA disclosure pattern, not `role="menu"`: a real
- * <button> with aria-expanded/aria-controls revealing a <nav> of links. A menu
- * role would promise arrow-key traversal that a list of links does not have.
- *
- * Which surface is showing is decided entirely in CSS, so there is no
- * useMediaQuery, no hydration mismatch, and no flash of the wrong layout. The
- * sheet's markup is always rendered; `visibility` (stepped, not interpolated)
- * is what takes it out of hit-testing and the accessibility tree.
+ * Disclosure semantics keep normal link traversal; menu semantics would
+ * promise arrow-key navigation. CSS chooses the visible surface at each width.
  */
 export function AppNav({
   items,
@@ -73,10 +63,7 @@ export function AppNav({
   const sheetRef = useRef<HTMLDivElement>(null);
 
   useScrollLock(open, scrollContainer);
-  // Back closes the sheet rather than leaving the page under it. Every path
-  // that closes the sheet sets `open` to false, and the hook removes its
-  // history entry when that happens, so its return value is not needed.
-  useCloseOnBack(() => setOpen(false), open);
+  const { close, consumeHistoryEntry } = useSheetHistory(() => setOpen(false), open);
 
   // Escape closes and returns focus to the trigger, per the disclosure pattern.
   useEffect(() => {
@@ -84,7 +71,7 @@ export function AppNav({
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       setOpen(false);
-      triggerRef.current?.focus();
+      triggerRef.current?.focus({ preventScroll: true });
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -106,121 +93,127 @@ export function AppNav({
     return () => document.removeEventListener("focusin", onFocusIn);
   }, [open]);
 
-  // Crossing the breakpoint must not play the open animation. The class is
-  // added for one frame around each resize, matching the escape hatch the
-  // reference implementation ships.
-  //
-  // The same crossing must also not leave the sheet open: above the breakpoint
-  // the sheet and the trigger are both display:none, so an `open` that survives
-  // is an invisible scroll lock with no control left to release it. The media
-  // query mirrors the 768px in the AppNav block of globals.css, and its own
-  // `change` event is what closes the sheet — `resize` alone is not enough,
-  // since a viewport can cross the breakpoint without emitting one.
+  // A hidden desktop trigger cannot release a surviving mobile scroll lock.
   useEffect(() => {
-    let raf = 0;
     const mq = window.matchMedia("(max-width: 768px)");
     const closeAboveBreakpoint = () => {
       if (!mq.matches) setOpen(false);
     };
-    const onResize = () => {
-      document.documentElement.classList.add("appnav-block-transitions");
-      closeAboveBreakpoint();
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        document.documentElement.classList.remove("appnav-block-transitions");
-      });
-    };
-    window.addEventListener("resize", onResize);
+    closeAboveBreakpoint();
     mq.addEventListener("change", closeAboveBreakpoint);
-    return () => {
-      window.removeEventListener("resize", onResize);
-      mq.removeEventListener("change", closeAboveBreakpoint);
-      cancelAnimationFrame(raf);
-      document.documentElement.classList.remove("appnav-block-transitions");
-    };
+    return () => mq.removeEventListener("change", closeAboveBreakpoint);
   }, []);
 
   const select = (item: NavItem) => {
-    setOpen(false);
-    onSelect(item);
+    if (item.href && item.href !== pathname) {
+      const replace = consumeHistoryEntry();
+      setOpen(false);
+      onSelect(item, { replace });
+      return;
+    }
+    close();
+    if (!item.href) onSelect(item);
   };
 
   return (
-    <div
-      className={`appnav appnav--${variant}${open ? " appnav--open" : ""}`}
-      data-open={open || undefined}
-    >
-      <div className="appnav__shell">
-        <div className="appnav__bar">
-          {brand}
-          <div className="appnav__spacer" />
-          <nav className="appnav__inline" aria-label="Primary">
-            {/* Keyed here rather than in renderInlineLink: `href` is optional
-                  on a NavItem, so a consumer keying by it silently produces
-                  undefined keys for the landing page's section links. */}
-            {items.map((item) => (
-              <Fragment key={item.label}>
-                {renderInlineLink({
-                  item,
-                  active: isNavItemActive(item, pathname),
-                  onClick: () => select(item),
-                })}
-              </Fragment>
-            ))}
-          </nav>
-          {actions ? <div className="appnav__actions">{actions}</div> : null}
-          <button
-            ref={triggerRef}
-            type="button"
-            className="appnav__trigger"
-            aria-expanded={open}
-            aria-controls={sheetId}
-            aria-label={open ? "Close menu" : "Menu"}
-            onClick={() => setOpen((o) => !o)}
-          >
-            <BurgerIcon open={open} />
-          </button>
-        </div>
+    <Collapsible.Root open={open} onOpenChange={setOpen} asChild>
+      <div
+        className={`appnav appnav--${variant}${open ? " appnav--open" : ""}`}
+        data-open={open || undefined}
+      >
+        <div className="appnav__shell">
+          <div className="appnav__bar">
+            {brand}
+            <div className="appnav__spacer" />
+            <nav className="appnav__inline" aria-label="Primary">
+              {/* Keyed here rather than in renderInlineLink: `href` is optional
+                    on a NavItem, so a consumer keying by it silently produces
+                    undefined keys for the landing page's section links. */}
+              {items.map((item) => (
+                <Fragment key={item.label}>
+                  {renderInlineLink({
+                    item,
+                    active: isNavItemActive(item, pathname),
+                    onClick: () => select(item),
+                  })}
+                </Fragment>
+              ))}
+            </nav>
+            {actions ? <div className="appnav__actions">{actions}</div> : null}
+            <button
+              ref={triggerRef}
+              type="button"
+              className="appnav__trigger"
+              aria-expanded={open}
+              aria-controls={open ? sheetId : undefined}
+              aria-label={open ? "Close menu" : "Menu"}
+              onClick={() => setOpen((o) => !o)}
+            >
+              <BurgerIcon open={open} />
+            </button>
+          </div>
 
-        <div ref={sheetRef} id={sheetId} className="appnav__sheet">
-          <nav aria-label="Primary">
-            {groupNavItems(items).map(({ group, items: groupItems }) => (
-              <div key={group || "_"}>
-                {group ? <div className="appnav__group">{group}</div> : null}
-                <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                  {groupItems.map((item) => (
-                    <li key={item.label}>
-                      <button
-                        type="button"
-                        className="appnav__link"
-                        aria-current={
-                          isNavItemActive(item, pathname) ? "page" : undefined
-                        }
-                        onClick={() => select(item)}
-                      >
-                        {item.label}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </nav>
-          {sheetFooter ? (
-            <div className="appnav__sheet-foot">{sheetFooter}</div>
-          ) : null}
+          <Collapsible.Content asChild>
+            <div
+              ref={sheetRef}
+              id={sheetId}
+              className="appnav__sheet"
+              aria-hidden={!open}
+              inert={!open}
+            >
+              <nav aria-label="Primary">
+                {groupNavItems(items).map(({ group, items: groupItems }) => (
+                  <div key={group || "_"} className="appnav__section">
+                    {group ? <div className="appnav__group">{group}</div> : null}
+                    <ul className="appnav__list">
+                      {groupItems.map((item, index) => (
+                        <li key={item.label}>
+                          <button
+                            type="button"
+                            className="appnav__link"
+                            data-active={isNavItemActive(item, pathname) || undefined}
+                            style={{ animationDelay: `${40 + index * 35}ms` }}
+                            aria-current={
+                              isNavItemActive(item, pathname) ? "page" : undefined
+                            }
+                            onClick={() => select(item)}
+                          >
+                            <span>{item.label}</span>
+                            <svg
+                              className="appnav__chevron"
+                              width="16"
+                              height="16"
+                              viewBox="0 0 16 16"
+                              fill="none"
+                              aria-hidden="true"
+                            >
+                              <path
+                                d="m6 4 4 4-4 4"
+                                stroke="currentColor"
+                                strokeWidth="1.2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </nav>
+              {sheetFooter ? (
+                <div className="appnav__sheet-foot">{sheetFooter}</div>
+              ) : null}
+            </div>
+          </Collapsible.Content>
         </div>
       </div>
-    </div>
+    </Collapsible.Root>
   );
 }
 
-// Two strokes that morph into an X. The endpoints are animated rather than the
-// whole glyph rotated, so the caps stay put and the cross lands centred.
 function BurgerIcon({ open }: { open: boolean }) {
-  const stroke = {
-    transition: "all var(--nav-rate-fade) var(--ease-nav)",
-  } as const;
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
       <line
@@ -231,7 +224,6 @@ function BurgerIcon({ open }: { open: boolean }) {
         stroke="currentColor"
         strokeWidth="1.2"
         strokeLinecap="round"
-        style={stroke}
       />
       <line
         x1="2"
@@ -241,7 +233,6 @@ function BurgerIcon({ open }: { open: boolean }) {
         stroke="currentColor"
         strokeWidth="1.2"
         strokeLinecap="round"
-        style={stroke}
       />
     </svg>
   );

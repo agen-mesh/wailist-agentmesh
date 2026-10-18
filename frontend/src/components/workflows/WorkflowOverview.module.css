@@ -1,13 +1,13 @@
 .overview {
   display: grid;
   grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: var(--s-5);
+  margin-bottom: var(--s-6);
 }
 .credit,
 .upcoming {
   min-width: 0;
-  padding: 16px;
+  padding: var(--s-5);
   border: 1px solid var(--border);
   border-radius: var(--r-3);
   background: var(--bg-elev-1);
@@ -16,15 +16,15 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--s-4);
 }
 .creditLabel {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--s-2);
   color: var(--fg-dim);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--t-0);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -48,7 +48,7 @@
   outline-offset: 3px;
 }
 .creditBalance {
-  margin: 0 0 4px;
+  margin: 0 0 var(--s-1);
   font-family: var(--font-mono);
   font-size: var(--wf-balance-size);
   font-weight: 500;
@@ -58,15 +58,15 @@
 .creditHint {
   margin: 0;
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: var(--t-1);
 }
 .upcoming :global(.upc__title) {
-  margin-bottom: 8px;
+  margin-bottom: var(--s-3);
 }
 .upcomingRow {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--s-5);
   min-height: 36px;
   color: var(--fg);
   text-decoration: none;
@@ -82,13 +82,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--t-3);
 }
 .upcomingTime {
   flex-shrink: 0;
   color: var(--fg-muted);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--t-1);
   font-variant-numeric: tabular-nums;
 }
 @media (hover: hover) {
@@ -98,7 +98,7 @@
   }
 }
 :global(.wfp-page) .overview {
-  margin: 16px 0 4px;
+  margin: var(--s-5) 0 var(--s-1);
 }
 @media (pointer: coarse) and (hover: none) {
   .creditAdd {
@@ -111,7 +111,7 @@
 @media (max-width: 600px) {
   .overview {
     grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
+    gap: var(--s-3);
   }
   .credit {
     position: relative;
@@ -119,11 +119,11 @@
   }
   .creditAdd {
     position: absolute;
-    right: 16px;
+    right: var(--s-5);
     top: 50%;
     transform: translateY(-50%);
   }
   .creditBalance {
-    margin-top: 8px;
+    margin-top: var(--s-3);
   }
 }
