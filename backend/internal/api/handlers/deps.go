@@ -58,9 +58,10 @@ type Deps struct {
 	// (see main.go's relayBaseURL — distinct from BaseURL, which also signs
 	// auth cookies). Needed by the Tendril console's direct-action endpoints
 	// to build their own X402RelayConfig.
-	RelayBaseURL  string
-	JWTSecret     string
-	EncryptionKey string
+	RelayBaseURL      string
+	JWTSecret         string
+	EncryptionKey     string
+	ShareReadRelayKey []byte
 
 	FrontendURL        string
 	GithubClientID     string

@@ -16,7 +16,6 @@ import { IS_NATIVE } from "@/lib/nativeAuth";
 import { openExternal, WEB_BILLING_URL } from "@/lib/openExternal";
 
 const PRESETS_INR = [1000, 5000, 10000, 20000];
-const LOW_BALANCE_USD = 5;
 
 const HOW_IT_WORKS = [
   "Credits are spent as your agents call paid tools, x402 endpoints, and LLM providers.",
@@ -67,6 +66,7 @@ const viewportStyle: React.CSSProperties = {
 export default function BillingPage() {
   const {
     balanceUSD,
+    lowBalanceThresholdUSD,
     balanceKnown,
     balanceLoading,
     balanceFailed,
@@ -238,7 +238,7 @@ export default function BillingPage() {
   // Only call a balance "low" once we've actually read it — before the first
   // fetch lands, balanceUSD is 0 because nothing is known, not because the
   // account is empty.
-  const isLow = balanceKnown && !balanceFailed && balanceUSD < LOW_BALANCE_USD;
+  const isLow = balanceKnown && !balanceFailed && balanceUSD < lowBalanceThresholdUSD;
 
   // A phone gets its own screen rather than the two-column page squeezed:
   // the balance leads, topping up is directly under it, and the rest is flat

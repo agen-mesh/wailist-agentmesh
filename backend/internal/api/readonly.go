@@ -55,6 +55,13 @@ var readOnlyBlocked = []struct {
 	path   *regexp.Regexp
 }{
 	{http.MethodPost, regexp.MustCompile(`^/workflows$`)},
+	// Both import routes create a workflow, so they sit beside POST
+	// /workflows for exactly the same reason. Creating and revoking a share
+	// LINK are deliberately absent: they publish or retract a copy and cannot
+	// change a graph, and handing somebody a link is a thing you do from a
+	// phone.
+	{http.MethodPost, regexp.MustCompile(`^/workflows/import$`)},
+	{http.MethodPost, regexp.MustCompile(`^/shares/[^/]+/import$`)},
 	{http.MethodPut, regexp.MustCompile(`^/workflows/[^/]+$`)},
 	{http.MethodDelete, regexp.MustCompile(`^/workflows/[^/]+$`)},
 	{http.MethodPost, regexp.MustCompile(`^/workflows/[^/]+/deploy$`)},

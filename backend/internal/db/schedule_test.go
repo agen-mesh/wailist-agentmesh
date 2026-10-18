@@ -11,6 +11,21 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// countClaimed reports how many of a sweep's results are the workflow under
+// test. ClaimDueSchedules is global by design, and these tests share a
+// database with each other and with whatever ran before them, so "how many
+// did the sweep return" is never a question one test can answer about
+// itself -- only "was mine in it".
+func countClaimed(claimed []models.Workflow, id string) int {
+	n := 0
+	for _, w := range claimed {
+		if w.ID == id {
+			n++
+		}
+	}
+	return n
+}
+
 // TestClaimDueSchedulesClaimsAndAdvances verifies the core scheduler
 // contract: a deployed workflow whose schedule_next_run_at is in the past
 // is claimed, and its next_run_at is advanced to whatever the caller's
@@ -46,12 +61,18 @@ func TestClaimDueSchedulesClaimsAndAdvances(t *testing.T) {
 		return future, nil
 	}
 
+	// ClaimDueSchedules sweeps every user, so this test's workflow is not
+	// the only row it can return -- TestClaimDueSchedulesSkipsInvalidCron
+	// below deliberately leaves a deployed workflow permanently due (its
+	// nextRun callback fails, so the row is never advanced). Counting the
+	// whole sweep made this test own the entire table and fail the moment
+	// anything else had run against the same database. Count only our own.
 	due, err := store.ClaimDueSchedules(ctx, time.Now(), nextRun)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(due) != 1 || due[0].ID != wf.ID {
-		t.Fatalf("claimed %d workflows, want exactly [%s]", len(due), wf.ID)
+	if countClaimed(due, wf.ID) != 1 {
+		t.Fatalf("claimed %d workflows, want exactly [%s]", countClaimed(due, wf.ID), wf.ID)
 	}
 
 	// A second sweep right away must not re-claim it -- next_run_at was
@@ -60,8 +81,8 @@ func TestClaimDueSchedulesClaimsAndAdvances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(due2) != 0 {
-		t.Fatalf("second sweep claimed %d workflows, want 0 (already advanced past now)", len(due2))
+	if countClaimed(due2, wf.ID) != 0 {
+		t.Fatal("second sweep re-claimed this workflow, want 0 (already advanced past now)")
 	}
 
 	got, err := store.GetWorkflow(ctx, wf.ID)

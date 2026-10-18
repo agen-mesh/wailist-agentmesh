@@ -37,6 +37,16 @@ func setupRunFixture(t *testing.T) (store *db.Store, userID, workflowID, runID s
 	return store, user.ID, wf.ID, run.ID
 }
 
+// tendril_leases.lease_id carries a UNIQUE constraint, and nothing in these
+// tests can remove the rows they insert -- DeleteWorkflow is RESTRICTed by the
+// very lease being tested, which is the point of the first test below. Fixed
+// literals therefore passed once and then failed forever against the same
+// database on tendril_leases_lease_id_key. Unique per insert, the way the
+// credit tests already mint order ids.
+func leaseID(prefix string) string {
+	return fmt.Sprintf("lease_%s_%d", prefix, time.Now().UnixNano())
+}
+
 // tendril_leases.workflow_id must be ON DELETE RESTRICT, not CASCADE
 // (migration 000018): a lease row is the ONLY copy of the encrypted SSH
 // credentials and lease token needed to release a machine that may still be
@@ -50,7 +60,7 @@ func TestDeleteWorkflowRestrictedByTendrilLease(t *testing.T) {
 
 	if _, err := store.InsertTendrilLease(ctx, models.TendrilLease{
 		UserID: userID, WorkflowID: wfID, RunID: runID, NodeID: "n2",
-		LeaseID: "lease_restrict_test", LeaseTokenEnc: "enc-token",
+		LeaseID: leaseID("restrict"), LeaseTokenEnc: "enc-token",
 		TendrilNodeID: "x", RateUSDMicrosPerHour: 1, HoursPurchased: 1,
 		ReservedUSDMicros: 1, FundedUntil: time.Now().Add(time.Hour),
 	}); err != nil {
@@ -66,9 +76,10 @@ func TestTendrilLeaseRoundTripAndRelease(t *testing.T) {
 	store, userID, wfID, runID := setupRunFixture(t)
 	ctx := context.Background()
 
+	wantLeaseID := leaseID("roundtrip")
 	in := models.TendrilLease{
 		UserID: userID, WorkflowID: wfID, RunID: runID, NodeID: "n2",
-		LeaseID: "lease_9k2m", LeaseTokenEnc: "enc-token",
+		LeaseID: wantLeaseID, LeaseTokenEnc: "enc-token",
 		TendrilNodeID: "I8zY887UpE", TendrilNodeLabel: "my-laptop",
 		SSHHost: "bore.pub", SSHPort: 41823, SSHUsername: "root",
 		SSHCommand:   "ssh root@bore.pub -p 41823",
@@ -89,7 +100,7 @@ func TestTendrilLeaseRoundTripAndRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListActiveTendrilLeases: %v", err)
 	}
-	if len(active) != 1 || active[0].LeaseID != "lease_9k2m" {
+	if len(active) != 1 || active[0].LeaseID != wantLeaseID {
 		t.Fatalf("active = %+v", active)
 	}
 	if active[0].LeaseTokenEnc != "enc-token" {
@@ -152,7 +163,7 @@ func TestListExpiredTendrilLeases(t *testing.T) {
 
 	past, err := store.InsertTendrilLease(ctx, models.TendrilLease{
 		UserID: userID, WorkflowID: wfID, RunID: runID, NodeID: "n2",
-		LeaseID: "lease_old", LeaseTokenEnc: "e", TendrilNodeID: "x",
+		LeaseID: leaseID("old"), LeaseTokenEnc: "e", TendrilNodeID: "x",
 		RateUSDMicrosPerHour: 1, HoursPurchased: 0, ReservedUSDMicros: 1,
 		FundedUntil: time.Now().Add(time.Hour),
 	})
@@ -161,18 +172,31 @@ func TestListExpiredTendrilLeases(t *testing.T) {
 	}
 	if _, err := store.InsertTendrilLease(ctx, models.TendrilLease{
 		UserID: userID, WorkflowID: wfID, RunID: runID, NodeID: "n3",
-		LeaseID: "lease_future", LeaseTokenEnc: "e", TendrilNodeID: "x",
+		LeaseID: leaseID("future"), LeaseTokenEnc: "e", TendrilNodeID: "x",
 		RateUSDMicrosPerHour: 1, HoursPurchased: 1, ReservedUSDMicros: 1,
 		FundedUntil: time.Now().Add(time.Hour),
 	}); err != nil {
 		t.Fatalf("insert future: %v", err)
 	}
 
-	expired, err := store.ListExpiredTendrilLeases(ctx, time.Now())
+	// ListExpiredTendrilLeases is deliberately unscoped -- the reaper sweeps
+	// every user -- so the rows this test inserted are not the only ones it
+	// can return. Asserting on the whole result made the test own the entire
+	// table: one leftover expired lease from any earlier run, and it failed.
+	// Narrowing to this fixture's own user keeps exactly what the test is for
+	// (the window that has closed is found, the one still open is not) and
+	// drops the assumption it was never entitled to make.
+	all, err := store.ListExpiredTendrilLeases(ctx, time.Now())
 	if err != nil {
 		t.Fatalf("ListExpiredTendrilLeases: %v", err)
 	}
-	if len(expired) != 1 || expired[0].ID != past.ID {
-		t.Fatalf("expired = %+v, want only lease_old", expired)
+	var mine []models.TendrilLease
+	for _, l := range all {
+		if l.UserID == userID {
+			mine = append(mine, l)
+		}
+	}
+	if len(mine) != 1 || mine[0].ID != past.ID {
+		t.Fatalf("expired for this user = %+v, want only the closed window", mine)
 	}
 }

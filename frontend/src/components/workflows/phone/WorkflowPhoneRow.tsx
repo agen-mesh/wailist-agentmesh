@@ -16,9 +16,11 @@ import { workflowAriaLabel, workflowMeta } from "@/lib/workflowMeta";
 export function WorkflowPhoneRow({
   workflow: wf,
   now,
+  onShare,
 }: {
   workflow: Workflow;
   now: number;
+  onShare?: (id: string) => void;
 }) {
   const meta = workflowMeta(wf, now);
   return (
@@ -48,13 +50,25 @@ export function WorkflowPhoneRow({
           )}
         </p>
       </Link>
-      <Link
-        href={usageHrefForWorkflow(wf.id)}
-        className="wfp-card__usage"
-        aria-label={`View usage for ${wf.name}`}
-      >
-        Usage
-      </Link>
+      <div className="wfp-card__actions">
+        {onShare && (
+          <button
+            type="button"
+            className="wfp-card__usage wfp-card__share"
+            aria-label={`Share ${wf.name}`}
+            onClick={() => onShare(wf.id)}
+          >
+            Share
+          </button>
+        )}
+        <Link
+          href={usageHrefForWorkflow(wf.id)}
+          className="wfp-card__usage"
+          aria-label={`View usage for ${wf.name}`}
+        >
+          Usage
+        </Link>
+      </div>
     </li>
   );
 }

@@ -10,6 +10,7 @@ async function load(native: boolean) {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   vi.resetModules();
 });
 
@@ -58,6 +59,50 @@ describe("workflowHref in the native app", () => {
       "/workflows/app?id=wf-triage",
     );
   });
+});
+
+describe("shareUrl", () => {
+  it.each(["http://127.0.0.1:13061", "https://preview.example.test"])(
+    "keeps the current web origin %s",
+    async (origin) => {
+      const { shareUrl } = await load(false);
+      vi.stubGlobal("window", { location: { origin } });
+
+      expect(shareUrl("copy-token_123456")).toBe(`${origin}/s/copy-token_123456`);
+    },
+  );
+
+  it("uses the public website for a native copy", async () => {
+    const { shareUrl } = await load(true);
+    vi.stubGlobal("window", {
+      location: { origin: "https://localhost" },
+    });
+
+    expect(shareUrl("copy-token_123456")).toBe(
+      "https://www.agent-mesh.app/s/copy-token_123456",
+    );
+  });
+
+  it("keeps a local HTTPS origin when the browser is not native", async () => {
+    const { shareUrl } = await load(false);
+    vi.stubGlobal("window", {
+      location: { origin: "https://localhost" },
+    });
+
+    expect(shareUrl("copy-token_123456")).toBe(
+      "https://localhost/s/copy-token_123456",
+    );
+  });
+
+  it.each([false, true])(
+    "returns a relative URL without a browser (native=%s)",
+    async (native) => {
+      const { shareUrl } = await load(native);
+      vi.stubGlobal("window", undefined);
+
+      expect(shareUrl("copy-token_123456")).toBe("/s/copy-token_123456");
+    },
+  );
 });
 
 describe("safeNextPath", () => {

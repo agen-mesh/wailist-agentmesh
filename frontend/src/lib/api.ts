@@ -13,6 +13,12 @@ import {
   CostEstimate,
   RunPage,
   UpcomingRun,
+  WorkflowNode,
+  WorkflowEdge,
+  WorkflowShare,
+  UserShare,
+  ShareRedactions,
+  ShareImportRequirements,
 } from "./types";
 import { WORKFLOWS, SAMPLE_WORKFLOW, buildUsage } from "./data";
 import {
@@ -89,6 +95,8 @@ export interface AuthUser {
   // GitHub only hand back a verified email, not an organization.
   needsOnboarding: boolean;
   hasPassword?: boolean;
+  createdAt?: string;
+  lowBalanceUsdMicros?: number;
 }
 
 // Thrown by auth.me() when the server answered without confirming a session.
@@ -197,6 +205,19 @@ export const auth = {
     };
   },
 
+  changePassword: async (currentPassword: string, newPassword: string): Promise<void> => {
+    if (!BASE) throw new Error("Password changes require a connected backend.");
+    const res = await apiFetch(`${BASE}/auth/password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    if (res.status !== 204) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error ?? "Could not change password.");
+    }
+  },
+
   signOut: async (): Promise<void> => {
     if (BASE) {
       await apiFetch(`${BASE}/auth/signout`, {
@@ -259,6 +280,40 @@ export const auth = {
 };
 
 // -- Workflows ------------------------------------------------------------
+export interface UserSettings {
+  lowBalanceUsdMicros: number;
+  maxCallSpendUsdMicros: number | null;
+  limits: {
+    minCallSpendUsdMicros: number;
+    maxCallSpendUsdMicros: number;
+    maxLowBalanceUsdMicros: number;
+  };
+}
+
+export type UserSettingsPatch = Partial<Pick<UserSettings, "lowBalanceUsdMicros" | "maxCallSpendUsdMicros">>;
+
+export const settings = {
+  get: async (): Promise<UserSettings> => {
+    if (!BASE) throw new Error("Settings require a connected backend.");
+    const res = await apiFetch(`${BASE}/settings`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "Could not load settings.");
+    return data;
+  },
+  update: async (patch: UserSettingsPatch): Promise<UserSettings> => {
+    assertWritable("PATCH", "/settings");
+    if (!BASE) throw new Error("Settings require a connected backend.");
+    const res = await apiFetch(`${BASE}/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "Could not save settings.");
+    return data;
+  },
+};
+
 export const workflows = {
   // TODO: GET /workflows
   list: async (): Promise<Workflow[]> => {
@@ -650,6 +705,207 @@ export const workflows = {
       return;
     }
     await delay(150);
+  },
+
+  // POST /workflows/import: create a workflow from a graph that came from
+  // somewhere else.
+  //
+  // Deliberately NOT create() + update(). That pair is the canvas's own save
+  // path: it round-trips the canvas's own ciphertext, so PUT passes an
+  // "enc:"-prefixed value through untouched, which is right for the canvas
+  // and wrong for a graph a stranger pasted. This endpoint sanitises
+  // server-side instead, and creates the row in one statement so a failure
+  // cannot leave an empty workflow behind for the browser to clean up.
+  importGraph: async (graph: {
+    name: string;
+    // Optional: a code minted before this field existed carries no
+    // description, and the backend leaves it empty when it is absent.
+    description?: string;
+    nodes: WorkflowNode[];
+    edges: WorkflowEdge[];
+  }): Promise<Workflow> => {
+    assertWritable("POST", "/workflows/import");
+    if (BASE) {
+      const res = await apiFetch(`${BASE}/workflows/import`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(graph),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok)
+        throw new Error(data.error ?? "could not import this workflow");
+      return data;
+    }
+    await delay(300);
+    return {
+      id: `wf-${Date.now()}`,
+      name: graph.name,
+      nodes: graph.nodes,
+      edges: graph.edges,
+    };
+  },
+};
+
+// -- Sharing ----------------------------------------------------------------
+//
+// A share is a frozen, sanitised copy of a workflow that lives behind a token.
+// read() is the only call here that works without a session -- that is the
+// whole point of a link.
+export const shares = {
+  // POST /workflows/:id/share: mint a link. expiresInDays 0 means never.
+  //
+  // reuseIfUnchanged asks the backend to hand back an existing live link when
+  // a new one would hold exactly the same snapshot, so opening the dialog
+  // repeatedly does not leave a trail of links behind. The comparison is on
+  // the sanitised graph, which is why it lives there and not here: a link to
+  // an OLDER version must never be reused, and the dialog cannot tell.
+  create: async (
+    workflowId: string,
+    expiresInDays = 0,
+    reuseIfUnchanged = false,
+  ): Promise<{ share: WorkflowShare; redactions: ShareRedactions }> => {
+    if (BASE) {
+      const res = await apiFetch(`${BASE}/workflows/${workflowId}/share`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expiresInDays, reuseIfUnchanged }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok)
+        throw new Error(data.error ?? "could not create a share link");
+      return data;
+    }
+    await delay(250);
+    const wf = await workflows.get(workflowId);
+    return {
+      share: {
+        token: `mock-${Date.now().toString(36)}`,
+        name: wf.name,
+        graph: { nodes: wf.nodes ?? [], edges: wf.edges ?? [] },
+        nodeCount: wf.nodes?.length ?? 0,
+        edgeCount: wf.edges?.length ?? 0,
+        createdAt: new Date().toISOString(),
+        ...(expiresInDays > 0
+          ? {
+              expiresAt: new Date(
+                Date.now() + expiresInDays * 86_400_000,
+              ).toISOString(),
+            }
+          : {}),
+      },
+      redactions: {
+        apiKeys: 0,
+        secrets: 0,
+        webhookSecrets: 0,
+        uploadedFiles: 0,
+        agentWallets: 0,
+        emailAddresses: 0,
+        connectedAccounts: 0,
+        leasedMachines: 0,
+      },
+    };
+  },
+
+  // Public endpoint; signed-out visitors use the same client.
+  read: async (
+    token: string,
+  ): Promise<{
+    share: WorkflowShare;
+    requirements: ShareImportRequirements;
+  }> => {
+    if (BASE) {
+      const res = await apiFetch(`${BASE}/shares/${encodeURIComponent(token)}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok)
+        throw new Error(data.error ?? "this share link is no longer available");
+      return data;
+    }
+    await delay(200);
+    const wf = JSON.parse(JSON.stringify(SAMPLE_WORKFLOW)) as Workflow;
+    return {
+      share: {
+        token,
+        name: wf.name,
+        graph: { nodes: wf.nodes ?? [], edges: wf.edges ?? [] },
+        nodeCount: wf.nodes?.length ?? 0,
+        edgeCount: wf.edges?.length ?? 0,
+        createdAt: new Date().toISOString(),
+      },
+      requirements: { apiKeys: 0, files: 0, connectedAccounts: 0 },
+    };
+  },
+
+  // GET /workflows/:id/shares: the sharer's own links, revoked ones included.
+  listFor: async (workflowId: string): Promise<WorkflowShare[]> => {
+    if (BASE) {
+      const res = await apiFetch(`${BASE}/workflows/${workflowId}/shares`, {
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "could not load share links");
+      return data.shares ?? [];
+    }
+    await delay(150);
+    return [];
+  },
+
+  // GET /shares: every link this user has out, across every workflow.
+  // The allowance is counted per user, so this is the only view that can
+  // answer "which of my links should I revoke?".
+  listMine: async (): Promise<{ shares: UserShare[]; limit: number }> => {
+    if (BASE) {
+      const res = await apiFetch(`${BASE}/shares`, { credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok)
+        throw new Error(data.error ?? "could not load your share links");
+      return { shares: data.shares ?? [], limit: data.limit ?? 0 };
+    }
+    await delay(150);
+    return { shares: [], limit: 100 };
+  },
+
+  // DELETE /shares/:token
+  revoke: async (token: string): Promise<void> => {
+    if (BASE) {
+      const res = await apiFetch(
+        `${BASE}/shares/${encodeURIComponent(token)}`,
+        {
+          method: "DELETE",
+          credentials: "include",
+        },
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "could not revoke this link");
+      }
+      return;
+    }
+    await delay(150);
+  },
+
+  // POST /shares/:token/import: copy it into the caller's own workspace.
+  importInto: async (token: string): Promise<Workflow> => {
+    assertWritable("POST", `/shares/${token}/import`);
+    if (BASE) {
+      const res = await apiFetch(
+        `${BASE}/shares/${encodeURIComponent(token)}/import`,
+        { method: "POST", credentials: "include" },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok)
+        throw new Error(data.error ?? "could not import this workflow");
+      return data;
+    }
+    await delay(300);
+    const { share } = await shares.read(token);
+    return {
+      id: `wf-${Date.now()}`,
+      name: share.name,
+      nodes: share.graph.nodes,
+      edges: share.graph.edges,
+    };
   },
 };
 
@@ -1165,45 +1421,25 @@ export const oauth2 = {
   connectURL: (provider: string): string => `${BASE}/oauth2/${provider}/start`,
 
   listCredentials: async (
-    provider: string,
+    provider?: string,
   ): Promise<OAuthCredentialSummary[]> => {
     if (!BASE) return []; // No connected-account concept in mock mode.
     const res = await apiFetch(
-      `${BASE}/oauth2/credentials?provider=${encodeURIComponent(provider)}`,
+      `${BASE}/oauth2/credentials${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`,
       { credentials: "include" },
     );
-    if (!res.ok) return [];
-    return res.json().catch(() => []);
+    if (!res.ok) throw new Error("Could not load connected accounts.");
+    return res.json();
   },
 
   deleteCredential: async (id: string): Promise<void> => {
-    if (!BASE) return;
-    await apiFetch(`${BASE}/oauth2/credentials/${encodeURIComponent(id)}`, {
+    assertWritable("DELETE", `/oauth2/credentials/${encodeURIComponent(id)}`);
+    if (!BASE) throw new Error("Disconnecting requires a connected backend.");
+    const res = await apiFetch(`${BASE}/oauth2/credentials/${encodeURIComponent(id)}`, {
       method: "DELETE",
       credentials: "include",
     });
-  },
-};
-
-// -- Waitlist -------------------------------------------------------------
-export const waitlist = {
-  // TODO: POST /waitlist
-  join: async (email: string): Promise<void> => {
-    if (BASE) {
-      // Plain fetch, not apiFetch: this is the one genuinely public endpoint
-      // here, and it must not send credentials. A credentialed cross-origin
-      // request fails outright when CORS_ORIGIN is unset (the wildcard case,
-      // where the server cannot send Allow-Credentials), which would break the
-      // landing page's signup for a deployment where nothing else is wrong.
-      await fetch(`${BASE}/waitlist`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      return;
-    }
-    void email;
-    await delay(600);
+    if (res.status !== 204) throw new Error("Could not disconnect this account. Try again.");
   },
 };
 

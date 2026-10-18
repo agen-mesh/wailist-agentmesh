@@ -11,7 +11,11 @@ const state = vi.hoisted(() => ({
   router: { replace: vi.fn() },
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => state.router }));
-vi.mock("@/hooks/useAuth", () => ({ useAuth: () => state }));
+vi.mock("@/hooks/useAuth", () => ({ useAuth: () => state, getAccountRevision: () => 0, publishAccountThreshold: vi.fn() }));
+vi.mock("@/lib/api", () => ({ settings: { get: () => new Promise(() => {}) } }));
+vi.mock("./sections/Account", () => ({ AccountSection: () => null }));
+vi.mock("./sections/Connections", () => ({ ConnectionsSection: () => null }));
+vi.mock("./sections/Developer", () => ({ DeveloperSection: () => null }));
 vi.mock("@/components/Topbar", () => ({ Topbar: () => <nav>Account navigation</nav> }));
 import { SettingsPage } from "./SettingsPage";
 
@@ -133,5 +137,15 @@ describe("account deletion Settings", () => {
     render(<SettingsPage />);
     await waitFor(() => expect(state.router.replace).toHaveBeenCalledWith("/signin?next=%2Fsettings"));
     expect(screen.queryByLabelText("Type DELETE to confirm")).toBeNull();
+  });
+
+  it("does not carry deletion confirmation or passwords into another account", () => {
+    const view = render(<SettingsPage />);
+    confirm(); password();
+    state.user = { ...state.user!, id: "another-owner", email: "another@example.test" };
+    view.rerender(<SettingsPage />);
+    expect((screen.getByLabelText("Type DELETE to confirm") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Current password") as HTMLInputElement).value).toBe("");
+    expect((screen.getByRole("button", { name: "Delete my account" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
