@@ -7,7 +7,7 @@ require (
 	github.com/algorand/go-algorand-sdk/v2 v2.12.0
 	github.com/andybalholm/cascadia v1.3.5
 	github.com/coder/websocket v1.8.15
-	github.com/go-chi/chi/v5 v5.3.2
+	github.com/go-chi/chi/v5 v5.5.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/google/uuid v1.6.0
