@@ -33,6 +33,7 @@ export type NavItem = {
 /** Primary routes for the authed application shell. */
 export const APP_NAV_ITEMS: readonly NavItem[] = [
   { label: "Workflows", href: "/workflows" },
+  { label: "Arc", href: "/arc" },
   { label: "Bazaar", href: "/bazaar", desktopOnly: true },
   { label: "Usage", href: "/usage" },
   { label: "Credits", href: "/billing" },
@@ -59,6 +60,7 @@ export const HANDHELD_TAB_ITEMS: readonly NavItem[] = [
 export const LANDING_NAV_ITEMS: readonly NavItem[] = [
   { label: "Overview", sectionId: "pillars" },
   { label: "How it works", sectionId: "flow" },
+  { label: "Arc", href: "/arc" },
   { label: "Waitlist", sectionId: "waitlist" },
 ];
 

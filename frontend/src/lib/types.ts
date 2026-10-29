@@ -8,7 +8,8 @@ export type NodeType =
   | "state"
   | "end"
   | "tendril"
-  | "google";
+  | "google"
+  | "arc";
 export type EdgeKind = "flow" | "attach";
 export type PortName = "in" | "out" | "model" | "tools" | "top";
 

@@ -26,6 +26,7 @@ export const NODE_TYPES: Record<string, NodeTypeMeta> = {
   // attach list below doesn't include "google"), so there's no second port
   // set to offer here.
   google: { w: 220, h: 76, ports: ["in", "out"] },
+  arc: { w: 220, h: 84, ports: ["in", "out"] },
 };
 
 // Schedules belong to the workflow. The backend scheduler starts its manual
@@ -619,6 +620,13 @@ export const STATE_TEMPLATES = [
     desc: "Remove a saved value",
     icon: "\u00d7",
   },
+];
+
+export const ARC_TEMPLATES = [
+  { id: "nanopay", name: "Arc Nanopay", desc: "EIP-3009 USDC authorization", icon: "✦" },
+  { id: "transfer", name: "USDC Transfer", desc: "Send USDC on one chain", icon: "→" },
+  { id: "bridge", name: "CCTP Bridge", desc: "Burn and mint USDC cross-chain", icon: "⇄" },
+  { id: "gateway", name: "Gateway Deposit", desc: "Move USDC into the unified balance", icon: "▣" },
 ];
 
 export const END_TEMPLATES = [

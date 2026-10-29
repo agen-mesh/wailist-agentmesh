@@ -52,6 +52,10 @@ const PORT_POS: Record<NodeType, Partial<Record<PortName, PortFn>>> = {
     in: (W, H) => ({ x: 0, y: H / 2 }),
     out: (W, H) => ({ x: W, y: H / 2 }),
   },
+  arc: {
+    in: (W, H) => ({ x: 0, y: H / 2 }),
+    out: (W, H) => ({ x: W, y: H / 2 }),
+  },
   // Same dual-port shape as tool402: "top" for a future agent attach, "in"/
   // "out" for the standalone trigger→rent→end flow this ships today.
   tendril: {
@@ -142,6 +146,7 @@ export function isValidConnection(
           "tool402",
           "tendril",
           "google",
+          "arc",
         ] as NodeType[]
       ).includes(from.type) &&
       (
@@ -154,6 +159,7 @@ export function isValidConnection(
           "tool402",
           "tendril",
           "google",
+          "arc",
         ] as NodeType[]
       ).includes(to.type)
     );

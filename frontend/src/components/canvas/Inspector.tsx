@@ -16,6 +16,7 @@ import {
   AGENT_TEMPLATES,
   TENDRIL_TEMPLATES,
   GOOGLE_TEMPLATES,
+  ARC_TEMPLATES,
   modelTier,
   TIER_FEES,
 } from "@/lib/data";
@@ -207,6 +208,9 @@ export function Inspector({
         )}
         {selected.type === "google" && (
           <GoogleInspector node={selected} onUpdate={onUpdate} />
+        )}
+        {selected.type === "arc" && (
+          <ArcInspector node={selected} onUpdate={onUpdate} />
         )}
       </div>
 
@@ -600,6 +604,11 @@ function nodeMeta(n: WorkflowNode) {
       fg: "var(--info)",
     },
     end: { list: END_TEMPLATES, bg: "var(--bg-elev-3)", fg: "var(--fg)" },
+    arc: {
+      list: ARC_TEMPLATES,
+      bg: "rgba(255, 181, 71, 0.14)",
+      fg: "#FFB547",
+    },
     tendril: {
       list: TENDRIL_TEMPLATES,
       bg: "rgba(232, 121, 249, 0.14)",
@@ -738,6 +747,62 @@ function SecretField({
         }}
       />
     </Field>
+  );
+}
+
+function ArcInspector({
+  node,
+  onUpdate,
+}: {
+  node: WorkflowNode;
+  onUpdate: (n: WorkflowNode) => void;
+}) {
+  return (
+    <>
+      <Field label="Amount (USDC)" hint="6 decimals">
+        <input
+          style={monoInputStyle}
+          value={node.price ?? ""}
+          placeholder="0.01"
+          onChange={(e) => onUpdate({ ...node, price: e.target.value })}
+        />
+      </Field>
+      <Field label="Recipient" hint="hex address">
+        <input
+          style={monoInputStyle}
+          value={node.endpoint ?? ""}
+          placeholder="0x…"
+          onChange={(e) => onUpdate({ ...node, endpoint: e.target.value })}
+        />
+      </Field>
+      <ConfigField
+        node={node}
+        onUpdate={onUpdate}
+        configKey="chain"
+        label="Chain"
+        placeholder="arc-testnet"
+      />
+      <ConfigField
+        node={node}
+        onUpdate={onUpdate}
+        configKey="destChain"
+        label="Destination chain"
+        hint="bridge"
+        placeholder="base-sepolia"
+      />
+      <ConfigField
+        node={node}
+        onUpdate={onUpdate}
+        configKey="broadcast"
+        label="Broadcast"
+        hint="true sends"
+        placeholder="false"
+      />
+      <p style={{ margin: 0, fontSize: "var(--t-1)", color: "var(--fg-muted)", lineHeight: 1.45 }}>
+        USDC settles on the chain. AgentMesh credits are not debited. Leave
+        broadcast off to quote the calldata.
+      </p>
+    </>
   );
 }
 

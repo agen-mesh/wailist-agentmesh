@@ -228,6 +228,10 @@ function HeroSection({
             pathname=""
             scrollContainer={scrollRef}
             onSelect={(item) => {
+              if (item.href) {
+                router.push(item.href);
+                return;
+              }
               if (item.sectionId) scrollToId(item.sectionId);
             }}
             brand={<Logo size={20} />}

@@ -13,6 +13,7 @@ import {
   END_TEMPLATES,
   TENDRIL_TEMPLATES,
   GOOGLE_TEMPLATES,
+  ARC_TEMPLATES,
 } from "@/lib/data";
 import { Pill } from "@/components/ui";
 
@@ -49,6 +50,8 @@ export function CanvasNode(props: NodeProps) {
       return <TendrilNode {...props} />;
     case "google":
       return <GoogleNode {...props} />;
+    case "arc":
+      return <ArcNode {...props} />;
     default:
       return null;
   }
@@ -937,6 +940,56 @@ function ActionNode({
       <SidePort
         side="right"
         color="var(--fg)"
+        node={node}
+        port="out"
+        onHover={() => onPortHover("out")}
+        onLeave={onPortLeave}
+        onMouseDown={(e) => onStartWire(e, "out")}
+      />
+    </NodeShell>
+  );
+}
+
+function ArcNode({
+  node,
+  selected,
+  onMouseDown,
+  onPortHover,
+  onPortLeave,
+  onStartWire,
+}: NodeProps) {
+  const t = NODE_TYPES.arc;
+  const tpl = ARC_TEMPLATES.find((x) => x.id === node.template);
+  const chain = node.config?.chain || "arc-testnet";
+  return (
+    <NodeShell
+      node={node}
+      selected={selected}
+      onMouseDown={onMouseDown}
+      W={t.w}
+      H={t.h}
+      accent="#FFB547"
+    >
+      <NodeHeader
+        icon={node.icon ?? tpl?.icon ?? "✦"}
+        template={node.template}
+        iconBg="rgba(255, 181, 71, 0.16)"
+        iconColor="#FFB547"
+        kicker="arc"
+        title={node.name ?? tpl?.name ?? "Arc"}
+        sub={node.price ? `${node.price} USDC · ${chain}` : (node.sub ?? tpl?.desc)}
+      />
+      <SidePort
+        side="left"
+        color="#FFB547"
+        node={node}
+        port="in"
+        onHover={() => onPortHover("in")}
+        onLeave={onPortLeave}
+      />
+      <SidePort
+        side="right"
+        color="#FFB547"
         node={node}
         port="out"
         onHover={() => onPortHover("out")}

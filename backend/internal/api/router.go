@@ -50,6 +50,14 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	r.Get("/x402/relay/platform-fee", d.X402PlatformFeeInfo)
 	// Same rationale, for nodes.SettleRunTotal's PaymentRequirements.Resource.
 	r.Get("/x402/relay/run-total", d.X402RunTotalInfo)
+	// Arc treasury reads and the x402 challenge are public. Writes that can
+	// broadcast sit in the session group below.
+	r.Get("/arc/chains", d.ArcChains)
+	r.Get("/arc/diagram", d.ArcDiagram)
+	r.Get("/arc/treasury", d.ArcTreasury)
+	r.Post("/arc/quote", d.ArcQuote)
+	r.Get("/x402/arc", d.ArcChallenge)
+	r.Post("/x402/arc", d.ArcSettle)
 
 	// Protected routes — JWT required
 	r.Group(func(r chi.Router) {
@@ -117,6 +125,12 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Post("/payments/cashfree/verify", d.VerifyCashfreePayment)
 		r.Post("/payments/nowpayments/invoice", d.CreateCryptoInvoice)
 		r.Get("/payments/providers", d.PaymentProviders)
+		r.Post("/arc/transfer", d.ArcTransfer)
+		r.Post("/arc/bridge", d.ArcBridge)
+		r.Post("/arc/bridge/complete", d.ArcBridgeComplete)
+		r.Post("/arc/gateway/deposit", d.ArcGatewayDeposit)
+		r.Post("/arc/nanopay", d.ArcNanopay)
+		r.Post("/x402/arc/buy", d.ArcBuy)
 		r.Get("/credits/balance", d.GetCreditBalance)
 		r.Get("/credits/purchases", d.GetCreditPurchases)
 		r.Post("/credits/redeem-coupon", d.RedeemCoupon)

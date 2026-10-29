@@ -8,6 +8,7 @@ import {
   STATE_TEMPLATES,
   END_TEMPLATES,
   GOOGLE_TEMPLATES,
+  ARC_TEMPLATES,
 } from "@/lib/data";
 
 // The Library panel's tab strip and, for each tab, how one of its templates
@@ -134,6 +135,22 @@ export const PALETTE_TABS = [
     }),
   },
   {
+    id: "arc",
+    label: "Arc",
+    items: () => ARC_TEMPLATES,
+    type: "arc",
+    dotColor: "magenta" as const,
+    map: (it: (typeof ARC_TEMPLATES)[0]): Partial<WorkflowNode> => ({
+      type: "arc",
+      template: it.id,
+      name: it.name,
+      icon: it.icon,
+      sub: it.desc,
+      price: "0.01",
+      config: { chain: "arc-testnet", broadcast: "false" },
+    }),
+  },
+  {
     id: "end",
     label: "End",
     items: () => END_TEMPLATES,
@@ -234,5 +251,15 @@ export const CREATE_META: Record<TabId, Partial<WorkflowNode>> = {
     label: "Custom End",
     icon: "■",
     sub: "define your own",
+  },
+  arc: {
+    type: "arc",
+    custom: true,
+    name: "Arc Nanopay",
+    icon: "✦",
+    sub: "USDC on Arc, quote until broadcast",
+    template: "nanopay",
+    price: "0.01",
+    config: { chain: "arc-testnet", broadcast: "false" },
   },
 };

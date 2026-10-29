@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/agentmesh/backend/internal/alert"
+	"github.com/agentmesh/backend/internal/arc"
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/models"
@@ -1924,6 +1925,10 @@ func (r *Runner) executeNode(
 			return nil, err
 		}
 		return result, nil
+	case models.NodeTypeArc:
+		// USDC moves on the chain named by the node. Credits are not charged.
+		// ExecuteArc expands config itself; expandNodeState does not.
+		return nodes.ExecuteArc(ctx, node, rc.State(), arc.LoadConfig())
 	case models.NodeTypeGoogle:
 		if r.googleClientID == "" || r.googleClientSecret == "" {
 			return nil, fmt.Errorf("google: GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET are not configured on this server")

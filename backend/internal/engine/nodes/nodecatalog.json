@@ -2340,6 +2340,180 @@
       ]
     },
     {
+      "type": "arc",
+      "desc": "Settles USDC on Arc and other Circle chains. Quotes stay off-chain until broadcast is true. AgentMesh credits are not debited.",
+      "templates": [
+        {
+          "id": "nanopay",
+          "name": "Arc Nanopay",
+          "desc": "EIP-3009 USDC authorization",
+          "kind": "action",
+          "note": "Broadcast stays off until config.broadcast is true. Settlement is USDC on the chain, not AgentMesh credits. The default chain is Arc testnet. EURC and the Gateway balance are separate from the wallet USDC sum. Algorand is not a CCTP domain.",
+          "fields": [
+            {
+              "key": "endpoint",
+              "where": "field",
+              "label": "Recipient",
+              "hint": "20-byte hex address. Gateway deposit uses the spending key when this is blank.",
+              "placeholder": "0x…"
+            },
+            {
+              "key": "price",
+              "where": "field",
+              "label": "Amount (USDC)",
+              "hint": "up to 6 decimal places",
+              "placeholder": "0.01"
+            },
+            {
+              "key": "chain",
+              "where": "config",
+              "label": "Chain",
+              "placeholder": "arc-testnet"
+            },
+            {
+              "key": "destChain",
+              "where": "config",
+              "label": "Destination chain",
+              "hint": "bridge only",
+              "placeholder": "base-sepolia"
+            },
+            {
+              "key": "broadcast",
+              "where": "config",
+              "label": "Broadcast",
+              "hint": "the string \"true\" submits the transaction"
+            }
+          ]
+        },
+        {
+          "id": "transfer",
+          "name": "USDC Transfer",
+          "desc": "Send USDC on one chain",
+          "kind": "action",
+          "note": "Broadcast stays off until config.broadcast is true. Settlement is USDC on the chain, not AgentMesh credits. The default chain is Arc testnet. EURC and the Gateway balance are separate from the wallet USDC sum. Algorand is not a CCTP domain.",
+          "fields": [
+            {
+              "key": "endpoint",
+              "where": "field",
+              "label": "Recipient",
+              "hint": "20-byte hex address. Gateway deposit uses the spending key when this is blank.",
+              "placeholder": "0x…"
+            },
+            {
+              "key": "price",
+              "where": "field",
+              "label": "Amount (USDC)",
+              "hint": "up to 6 decimal places",
+              "placeholder": "0.01"
+            },
+            {
+              "key": "chain",
+              "where": "config",
+              "label": "Chain",
+              "placeholder": "arc-testnet"
+            },
+            {
+              "key": "destChain",
+              "where": "config",
+              "label": "Destination chain",
+              "hint": "bridge only",
+              "placeholder": "base-sepolia"
+            },
+            {
+              "key": "broadcast",
+              "where": "config",
+              "label": "Broadcast",
+              "hint": "the string \"true\" submits the transaction"
+            }
+          ]
+        },
+        {
+          "id": "bridge",
+          "name": "CCTP Bridge",
+          "desc": "Burn and mint USDC cross-chain",
+          "kind": "action",
+          "note": "Broadcast stays off until config.broadcast is true. Settlement is USDC on the chain, not AgentMesh credits. The default chain is Arc testnet. EURC and the Gateway balance are separate from the wallet USDC sum. Algorand is not a CCTP domain.",
+          "fields": [
+            {
+              "key": "endpoint",
+              "where": "field",
+              "label": "Recipient",
+              "hint": "20-byte hex address. Gateway deposit uses the spending key when this is blank.",
+              "placeholder": "0x…"
+            },
+            {
+              "key": "price",
+              "where": "field",
+              "label": "Amount (USDC)",
+              "hint": "up to 6 decimal places",
+              "placeholder": "0.01"
+            },
+            {
+              "key": "chain",
+              "where": "config",
+              "label": "Chain",
+              "placeholder": "arc-testnet"
+            },
+            {
+              "key": "destChain",
+              "where": "config",
+              "label": "Destination chain",
+              "hint": "bridge only",
+              "placeholder": "base-sepolia"
+            },
+            {
+              "key": "broadcast",
+              "where": "config",
+              "label": "Broadcast",
+              "hint": "the string \"true\" submits the transaction"
+            }
+          ]
+        },
+        {
+          "id": "gateway",
+          "name": "Gateway Deposit",
+          "desc": "Move USDC into the unified balance",
+          "kind": "action",
+          "note": "Broadcast stays off until config.broadcast is true. Settlement is USDC on the chain, not AgentMesh credits. The default chain is Arc testnet. EURC and the Gateway balance are separate from the wallet USDC sum. Algorand is not a CCTP domain.",
+          "fields": [
+            {
+              "key": "endpoint",
+              "where": "field",
+              "label": "Recipient",
+              "hint": "20-byte hex address. Gateway deposit uses the spending key when this is blank.",
+              "placeholder": "0x…"
+            },
+            {
+              "key": "price",
+              "where": "field",
+              "label": "Amount (USDC)",
+              "hint": "up to 6 decimal places",
+              "placeholder": "0.01"
+            },
+            {
+              "key": "chain",
+              "where": "config",
+              "label": "Chain",
+              "placeholder": "arc-testnet"
+            },
+            {
+              "key": "destChain",
+              "where": "config",
+              "label": "Destination chain",
+              "hint": "bridge only",
+              "placeholder": "base-sepolia"
+            },
+            {
+              "key": "broadcast",
+              "where": "config",
+              "label": "Broadcast",
+              "hint": "the string \"true\" submits the transaction"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "type": "end",
       "desc": "Where the run finishes.",
       "templates": [

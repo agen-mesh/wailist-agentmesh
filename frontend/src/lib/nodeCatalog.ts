@@ -27,6 +27,7 @@ import {
   STATE_TEMPLATES,
   TENDRIL_TEMPLATES,
   END_TEMPLATES,
+  ARC_TEMPLATES,
 } from "./data";
 import {
   CONNECTOR_CONFIG_FIELDS,
@@ -444,6 +445,24 @@ export function buildNodeCatalog(): NodeCatalog {
             : t.action === "rent"
               ? [{ key: "tendrilHours", where: "field" as const, label: "Hours", placeholder: "1" }]
               : [],
+      })),
+    },
+    {
+      type: "arc",
+      desc: "Settles USDC on Arc and other Circle chains. Quotes stay off-chain until broadcast is true. AgentMesh credits are not debited.",
+      templates: ARC_TEMPLATES.map((t) => ({
+        id: t.id,
+        name: t.name,
+        desc: t.desc,
+        kind: kindOf("arc", t.id),
+        note: "Broadcast stays off until config.broadcast is true. Settlement is USDC on the chain, not AgentMesh credits. The default chain is Arc testnet. EURC and the Gateway balance are separate from the wallet USDC sum. Algorand is not a CCTP domain.",
+        fields: [
+          { key: "endpoint", where: "field" as const, label: "Recipient", hint: "20-byte hex address. Gateway deposit uses the spending key when this is blank.", placeholder: "0x…" },
+          { key: "price", where: "field" as const, label: "Amount (USDC)", hint: "up to 6 decimal places", placeholder: "0.01" },
+          { key: "chain", where: "config" as const, label: "Chain", placeholder: "arc-testnet" },
+          { key: "destChain", where: "config" as const, label: "Destination chain", hint: "bridge only", placeholder: "base-sepolia" },
+          { key: "broadcast", where: "config" as const, label: "Broadcast", hint: 'the string "true" submits the transaction' },
+        ],
       })),
     },
     {
