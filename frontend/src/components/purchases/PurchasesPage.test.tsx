@@ -8,10 +8,11 @@ const api = vi.hoisted(() => ({
   beginIdentity: vi.fn(), decideOrder: vi.fn(), prepareAuthorization: vi.fn(), submitAuthorization: vi.fn(),
   reconcileOrder: vi.fn(), cancelOrder: vi.fn(),
 }));
+const providerForm = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/purchase", () => ({ purchaseAPI: api }));
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ loading: false, signedIn: true, user: { id: "account-a" }, offline: false, retry: vi.fn() }) }));
 vi.mock("@/components/Topbar", () => ({ Topbar: () => <header>AgentMesh</header> }));
-vi.mock("./ProviderOfferForm", () => ({ ProviderOfferForm: () => null }));
+vi.mock("./ProviderOfferForm", () => ({ ProviderOfferForm: (props: { disabled: boolean }) => { providerForm(props); return null; } }));
 import { PurchasesPage } from "./PurchasesPage";
 
 let stored: PurchaseOrder;
@@ -74,7 +75,7 @@ describe("purchase action sequence", () => {
     await screen.findByText("Payment outcome unresolved");
     expect(screen.queryByRole("button", { name: "Sign exact payment" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancel unsigned order" })).toBeNull();
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Reconcile original order" })));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Reconcile original order" })); });
     await screen.findByText("Service complete");
     expect(api.prepareAuthorization).toHaveBeenCalledOnce();
     expect(api.submitAuthorization).toHaveBeenCalledOnce();
@@ -88,5 +89,22 @@ describe("purchase action sequence", () => {
     expect((screen.getByRole("button", { name: "Approve 0.01 USDC" }) as HTMLButtonElement).disabled).toBe(true);
     expect(api.prepareAuthorization).not.toHaveBeenCalled();
     expect(screen.queryByText("Service complete")).toBeNull();
+  });
+
+  it("keeps Arkiv discovery, inspection and provider publishing available without World checkout", async () => {
+    window.history.replaceState(null, "", "/purchases");
+    api.config.mockResolvedValue({ ...config, enabled: false, worldAvailable: false, arkivAvailable: true, blockedReasons: ["World is not configured"] });
+    api.wallet.mockResolvedValue(null); api.allowance.mockRejectedValue(new Error("Wallet not linked"));
+    render(<PurchasesPage />);
+    await screen.findByText("Checkout is unavailable.");
+    const inspect = screen.getByRole("button", { name: "Inspect service and price" });
+    expect((inspect as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Refresh discovery" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(providerForm.mock.lastCall?.[0].disabled).toBe(false);
+    fireEvent.click(inspect);
+    expect(screen.getByText("Required service input schema")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Create exact order" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(api.beginIdentity).not.toHaveBeenCalled();
+    expect(api.prepareAuthorization).not.toHaveBeenCalled();
   });
 });

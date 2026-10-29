@@ -283,7 +283,7 @@ export function PurchasesPage() {
       {config?.evidenceMode === "simulation" && <div className={styles.warning} role="status">Local simulation. Identity, payment and merchant results in this mode do not establish live identity assurance or onchain settlement.</div>}
       {config?.evidenceMode === "live" && <p className={styles.notice}>Live adapter configuration, Arc testnet. Each operation still needs a confirmed response. World sandbox or demo identity assurance is not production person assurance.</p>}
       {configError && <p className={styles.error} role="alert">{configError}</p>}
-      {config && !config.enabled && <section className={styles.warning} aria-label="Purchase configuration unavailable"><strong>Purchases are unavailable.</strong><ul>{config.blockedReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></section>}
+      {config && !config.enabled && <section className={styles.warning} aria-label="Purchase configuration unavailable"><strong>Checkout is unavailable.</strong><p>You can still inspect returned service offers. Provider publishing uses its own wallet and Arkiv connection.</p><ul>{config.blockedReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></section>}
       {error && <p className={styles.error} role="alert">{error}</p>}
       {busy && <p className={styles.notice} role="status">{busy}...</p>}
       <div className={styles.grid}>
@@ -328,7 +328,7 @@ export function PurchasesPage() {
                   <p className={styles.mono} style={{ margin: 0 }}>Owner / payee: {offer.owner}</p>
                   <p className={styles.muted} style={{ margin: 0 }}>Version {offer.version} · Valid until {offer.validUntil}<br />Arkiv block {offer.observedBlock} observed; expires at {offer.expiresAtBlock}.</p>
                   {unavailable && <p className={styles.warning}>{unavailable}</p>}
-                  <button className={styles.secondary} disabled={Boolean(busy) || !ready || Boolean(unavailable) || Boolean(offersError) || unresolved} onClick={() => { setSelected(offer); setMaxCost(usdc(offer.priceMicros)); setRequestText("{}"); }}>Inspect service and price</button>
+                  <button className={styles.secondary} disabled={Boolean(busy) || Boolean(offersError)} onClick={() => { setSelected(offer); setMaxCost(usdc(offer.priceMicros)); setRequestText("{}"); }}>Inspect service and price</button>
                 </li>;
               })}
             </ul>}
