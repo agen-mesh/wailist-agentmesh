@@ -2,12 +2,14 @@ package nodes
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"strings"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/arc"
 	"github.com/agentmesh/backend/internal/models"
+	"github.com/agentmesh/backend/internal/testutil"
 )
 
 func arcTestConfig() arc.Config {
@@ -69,5 +71,50 @@ func TestDryRunRefusesArcBroadcast(t *testing.T) {
 	ok, reason = DryRunExecutes(models.WorkflowNode{Type: models.NodeTypeArc, Template: "nanopay"})
 	if !ok || reason != "" {
 		t.Fatalf("quote dry run = %v %q", ok, reason)
+	}
+}
+
+func TestArcNodeCannotGrantOperatorAuthority(t *testing.T) {
+	t.Setenv("ARC_OPERATOR_USER_IDS", "owner")
+	t.Setenv("ARC_SPEND_PRIVATE_KEY", "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+	rpc := &testutil.ArcRPC{}
+	testutil.UseArcRPC(t, rpc)
+	node := models.WorkflowNode{Type: models.NodeTypeArc, Template: "transfer", Price: "1", Endpoint: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+		Config: map[string]string{"broadcast": "true", "operator": "true", "userID": "owner", "worldVerified": "true"}}
+	state := map[string]any{"userID": "owner", "role": "operator", "operator": true, "worldVerified": true}
+	_, err := ExecuteArc(context.Background(), node, state, arc.LoadConfig())
+	if !errors.Is(err, arc.ErrOperatorRequired) || rpc.Calls.Load() != 0 || IsRetryable(err) {
+		t.Fatalf("forged authority: %v calls=%d", err, rpc.Calls.Load())
+	}
+}
+
+func TestArcNodePendingIsNotSuccess(t *testing.T) {
+	t.Setenv("ARC_OPERATOR_USER_IDS", "owner")
+	t.Setenv("ARC_SPEND_PRIVATE_KEY", "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+	ctx, cancel := context.WithCancel(arc.WithPrincipal(context.Background(), "owner"))
+	defer cancel()
+	rpc := &testutil.ArcRPC{Pending: true, OnReceipt: cancel}
+	testutil.UseArcRPC(t, rpc)
+	node := models.WorkflowNode{Type: models.NodeTypeArc, Template: "transfer", Price: "1", Endpoint: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC", Config: map[string]string{"broadcast": "true"}}
+	out, err := ExecuteArc(ctx, node, nil, arc.LoadConfig())
+	if !errors.Is(err, ErrSettlementIndeterminate) || IsRetryable(err) || rpc.Sends.Load() != 1 {
+		t.Fatalf("pending: %v sends=%d", err, rpc.Sends.Load())
+	}
+	res := out.(arc.Result)
+	if res.Status != "pending" || res.TxHash == "" || !strings.Contains(err.Error(), res.TxHash) {
+		t.Fatalf("pending identity: %+v %v", res, err)
+	}
+}
+
+func TestArcDryRunRejectsUnresolvedBroadcast(t *testing.T) {
+	for _, flag := range []string{"true", "TRUE", " {{input.broadcast}} ", "{{operator}}", "1"} {
+		if ok, _ := DryRunExecutes(models.WorkflowNode{Type: models.NodeTypeArc, Config: map[string]string{"broadcast": flag}}); ok {
+			t.Errorf("dryrun accepted %q", flag)
+		}
+	}
+	for _, flag := range []string{"", " false ", "FALSE"} {
+		if ok, reason := DryRunExecutes(models.WorkflowNode{Type: models.NodeTypeArc, Config: map[string]string{"broadcast": flag}}); !ok {
+			t.Errorf("dryrun rejected quote %q: %s", flag, reason)
+		}
 	}
 }
