@@ -1,0 +1,141 @@
+package simulation_test
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/agentmesh/backend/internal/world"
+	"github.com/agentmesh/backend/internal/world/simulation"
+)
+
+func TestControlledApplicationIssuer(t *testing.T) {
+	issuer, err := simulation.New("http://127.0.0.1:8000/purchases/world/callback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(issuer.Close)
+	registration := issuer.Registration()
+	if registration.Issuer != world.SandboxIssuer {
+		t.Fatal("simulator selected a live environment")
+	}
+	for _, outcome := range []simulation.Outcome{simulation.Success, simulation.Denied, simulation.Stale} {
+		t.Run(string(outcome), func(t *testing.T) {
+			if err := issuer.SetOutcome(outcome); err != nil {
+				t.Fatal(err)
+			}
+			store := &memoryStore{rows: make(map[string]*row)}
+			client, err := world.New(context.Background(), world.Config{Enabled: true, Environment: world.Sandbox, Issuer: registration.Issuer,
+				ClientID: registration.ClientID, ClientSecret: registration.ClientSecret, RedirectURI: registration.RedirectURI}, store, issuer.HTTPClient())
+			if err != nil {
+				t.Fatal(err)
+			}
+			binding := world.Binding{AccountID: "synthetic-account", OrderID: "synthetic-order", IntentHash: strings.Repeat("a", 64), ExpectedSubject: simulation.Subject}
+			auth, err := client.Begin(context.Background(), binding)
+			if err != nil {
+				t.Fatal(err)
+			}
+			browserURL, err := issuer.BrowserURL(auth.AuthorizationURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			browser := &http.Client{Timeout: time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+			response, err := browser.Get(browserURL)
+			if err != nil {
+				t.Fatal("local browser request failed")
+			}
+			defer response.Body.Close()
+			if response.StatusCode != http.StatusFound {
+				t.Fatal("local issuer did not return a callback")
+			}
+			callback, err := url.Parse(response.Header.Get("Location"))
+			if err != nil {
+				t.Fatal("invalid local callback")
+			}
+			evidence, err := client.Callback(context.Background(), binding, callback.Query())
+			switch outcome {
+			case simulation.Success:
+				if err != nil || !evidence.Demo || evidence.Environment != world.Sandbox || evidence.Subject != simulation.Subject || !store.completed {
+					t.Fatal("real client rejected controlled success")
+				}
+			case simulation.Denied:
+				if !errors.Is(err, world.ErrDenied) || evidence.AttemptID != "" || store.completed {
+					t.Fatal("denial yielded evidence")
+				}
+			case simulation.Stale:
+				if !errors.Is(err, world.ErrToken) || evidence.AttemptID != "" || store.completed {
+					t.Fatal("stale authentication yielded evidence")
+				}
+			}
+			if _, err := client.Callback(context.Background(), binding, callback.Query()); !errors.Is(err, world.ErrAttemptUnavailable) {
+				t.Fatal("simulated callback replay accepted")
+			}
+		})
+	}
+	for _, target := range []string{"https://auth.world.org/.well-known/openid-configuration", "https://attacker.example/token"} {
+		if _, err := issuer.HTTPClient().Get(target); err == nil {
+			t.Fatal("simulation transport accepted an external issuer")
+		}
+	}
+	if _, err := issuer.BrowserURL("https://auth.world.org/authorize"); err == nil {
+		t.Fatal("production browser URL rewritten")
+	}
+	if err := issuer.SetOutcome("production"); err == nil {
+		t.Fatal("unsupported outcome accepted")
+	}
+}
+
+func TestSimulationConfiguration(t *testing.T) {
+	for _, redirect := range []string{"https://app.example/purchases/world/callback", "http://localhost.attacker.example/purchases/world/callback", "http://localhost/other", "http://localhost/purchases/world/callback?next=external"} {
+		if issuer, err := simulation.New(redirect); err == nil {
+			issuer.Close()
+			t.Fatal("unsafe simulation redirect accepted")
+		}
+	}
+}
+
+type row struct {
+	attempt  world.Attempt
+	consumed bool
+}
+type memoryStore struct {
+	mu        sync.Mutex
+	rows      map[string]*row
+	completed bool
+}
+
+func (s *memoryStore) Create(_ context.Context, a world.Attempt) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rows[a.StateHash] = &row{attempt: a}
+	return nil
+}
+func (s *memoryStore) Consume(_ context.Context, hash string, b world.Binding, now time.Time) (world.Attempt, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r := s.rows[hash]
+	if r == nil || r.consumed || r.attempt.Binding != b || !now.Before(r.attempt.ExpiresAt) {
+		return world.Attempt{}, world.ErrAttemptUnavailable
+	}
+	r.consumed = true
+	return r.attempt, nil
+}
+func (s *memoryStore) Complete(_ context.Context, id string, e world.Evidence, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.rows {
+		if r.attempt.ID == id && r.consumed && !s.completed && e.Binding == r.attempt.Binding && now.Before(e.ValidUntil) {
+			s.completed = true
+			return nil
+		}
+	}
+	return world.ErrAttemptUnavailable
+}
+func (s *memoryStore) Cancel(context.Context, string, world.Binding, time.Time) error {
+	return world.ErrAttemptUnavailable
+}
