@@ -183,7 +183,8 @@ func TypedData(o Order) map[string]any {
 }
 
 func View(o Order, now time.Time) map[string]any {
-	v := map[string]any{"id": o.ID, "intentHash": o.IntentHash, "state": o.State, "offer": o.Offer, "payer": o.Intent.Payer, "payee": o.Intent.Payee, "chainId": o.Intent.ChainID, "asset": o.Intent.Asset, "amountMicros": o.Intent.AmountMicros, "maxMicros": o.Intent.MaxMicros, "method": o.Intent.Method, "resource": o.Intent.Resource, "requestDigest": o.Intent.RequestDigest, "quoteDigest": o.Intent.QuoteDigest, "deadline": Deadline(o), "canApprove": o.State == AwaitingApproval && o.IdentityVerifiedAt != nil && now.Before(Deadline(o)), "canAuthorize": o.State == Approved && now.Before(Deadline(o)), "canCancel": o.SignatureReleasedAt == nil && (o.State == AwaitingIdentity || o.State == AwaitingApproval || o.State == Approved), "canReconcile": o.SignatureReleasedAt != nil && o.State != Completed && o.State != Expired}
+	freshIdentity := o.IdentityVerifiedAt != nil && o.IdentityValidUntil != nil && now.Before(*o.IdentityValidUntil)
+	v := map[string]any{"id": o.ID, "intentHash": o.IntentHash, "state": o.State, "offer": o.Offer, "payer": o.Intent.Payer, "payee": o.Intent.Payee, "chainId": o.Intent.ChainID, "asset": o.Intent.Asset, "amountMicros": o.Intent.AmountMicros, "maxMicros": o.Intent.MaxMicros, "method": o.Intent.Method, "resource": o.Intent.Resource, "requestDigest": o.Intent.RequestDigest, "quoteDigest": o.Intent.QuoteDigest, "deadline": Deadline(o), "canApprove": o.State == AwaitingApproval && freshIdentity && now.Before(Deadline(o)), "canAuthorize": o.State == Approved && freshIdentity && now.Before(Deadline(o).Add(-10*time.Second)), "canCancel": o.SignatureReleasedAt == nil && (o.State == AwaitingIdentity || o.State == AwaitingApproval || o.State == Approved), "canReconcile": o.SignatureReleasedAt != nil && o.State != Completed && o.State != Expired}
 	if o.IdentityVerifiedAt != nil {
 		v["identityVerifiedAt"] = o.IdentityVerifiedAt
 	}

@@ -121,6 +121,7 @@ type Order struct {
 	MerchantAccepted    bool            `json:"merchantAccepted"`
 	CreatedAt           time.Time       `json:"createdAt"`
 	IdentityVerifiedAt  *time.Time      `json:"identityVerifiedAt,omitempty"`
+	IdentityValidUntil  *time.Time      `json:"identityValidUntil,omitempty"`
 	ApprovedAt          *time.Time      `json:"approvedAt,omitempty"`
 	SignatureReleasedAt *time.Time      `json:"signatureReleasedAt,omitempty"`
 	AuthorizationBlock  string          `json:"authorizationBlock,omitempty"`
