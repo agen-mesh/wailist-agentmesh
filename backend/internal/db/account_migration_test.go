@@ -61,11 +61,11 @@ func TestAccountMigrationUpgradeAndRollback(t *testing.T) {
 		}
 	}
 	for range 2 {
-		if err := m.Up(); err != nil {
-			t.Fatalf("upgrade to 41: %v", err)
+		if err := m.Migrate(42); err != nil {
+			t.Fatalf("upgrade to 42: %v", err)
 		}
 		version, dirty, err := m.Version()
-		if err != nil || version != 41 || dirty {
+		if err != nil || version != 42 || dirty {
 			t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
 		}
 		for _, table := range []string{"workflows", "tool_credentials", "x402_run_fundings"} {
@@ -83,8 +83,12 @@ func TestAccountMigrationUpgradeAndRollback(t *testing.T) {
 				t.Fatalf("new orphan allowed: %s", sql)
 			}
 		}
-		if err := m.Steps(-1); err != nil {
+		if err := m.Migrate(40); err != nil {
 			t.Fatalf("rollback to 40: %v", err)
+		}
+		var purchaseTableRemains bool
+		if err := conn.QueryRow(t.Context(), `SELECT to_regclass('purchase_orders') IS NOT NULL`).Scan(&purchaseTableRemains); err != nil || purchaseTableRemains {
+			t.Fatalf("purchase table survived rollback: %v %v", purchaseTableRemains, err)
 		}
 		for _, index := range []string{"idx_x402_run_fundings_run_id", "idx_x402_relay_settlements_run_funding_id"} {
 			var exists bool
