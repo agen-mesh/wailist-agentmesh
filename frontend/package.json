@@ -12,6 +12,7 @@
     "gen:node-catalog": "UPDATE_NODE_CATALOG=1 vitest run src/lib/nodeCatalog.sync.test.ts"
   },
   "dependencies": {
+    "@arkiv-network/sdk": "0.8.1",
     "@capacitor/app": "^8.1.1",
     "@capacitor/browser": "^8.0.4",
     "@capacitor/core": "^8.5.2",
@@ -40,7 +41,8 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "simple-icons": "^16.30.0",
-    "tailwind-merge": "^3.7.0"
+    "tailwind-merge": "^3.7.0",
+    "viem": "2.57.13"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
