@@ -51,6 +51,10 @@ type grant struct {
 	outcome                    Outcome
 }
 
+type Observations struct {
+	TokenRequests uint64 `json:"token_requests"`
+}
+
 type Issuer struct {
 	server       *httptest.Server
 	registration Registration
@@ -58,6 +62,7 @@ type Issuer struct {
 	mu           sync.Mutex
 	outcome      Outcome
 	codes        map[string]grant
+	observations Observations
 }
 
 // New accepts only the local callback and creates all synthetic credentials.
@@ -92,6 +97,12 @@ func New(redirectURI string) (*Issuer, error) {
 
 func (i *Issuer) Registration() Registration { return i.registration }
 func (i *Issuer) Close()                     { i.server.Close() }
+
+func (i *Issuer) Observations() Observations {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.observations
+}
 
 func (i *Issuer) SetOutcome(outcome Outcome) error {
 	if outcome != Success && outcome != Denied && outcome != Stale {
@@ -163,6 +174,11 @@ func (i *Issuer) serve(w http.ResponseWriter, r *http.Request) {
 	case "/authorize":
 		i.authorize(w, r)
 	case "/token":
+		if r.Method == http.MethodPost {
+			i.mu.Lock()
+			i.observations.TokenRequests++
+			i.mu.Unlock()
+		}
 		i.token(w, r)
 	default:
 		http.NotFound(w, r)

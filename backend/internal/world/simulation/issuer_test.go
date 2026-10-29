@@ -24,10 +24,17 @@ func TestControlledApplicationIssuer(t *testing.T) {
 	if registration.Issuer != world.SandboxIssuer {
 		t.Fatal("simulator selected a live environment")
 	}
+	if issuer.Observations().TokenRequests != 0 {
+		t.Fatal("new issuer has token requests")
+	}
 	for _, outcome := range []simulation.Outcome{simulation.Success, simulation.Denied, simulation.Stale} {
 		t.Run(string(outcome), func(t *testing.T) {
+			before := issuer.Observations().TokenRequests
 			if err := issuer.SetOutcome(outcome); err != nil {
 				t.Fatal(err)
+			}
+			if issuer.Observations().TokenRequests != before {
+				t.Fatal("outcome change erased token request history")
 			}
 			store := &memoryStore{rows: make(map[string]*row)}
 			client, err := world.New(context.Background(), world.Config{Enabled: true, Environment: world.Sandbox, Issuer: registration.Issuer,
@@ -72,8 +79,18 @@ func TestControlledApplicationIssuer(t *testing.T) {
 					t.Fatal("stale authentication yielded evidence")
 				}
 			}
+			expected := before
+			if outcome != simulation.Denied {
+				expected++
+			}
+			if issuer.Observations().TokenRequests != expected {
+				t.Fatal("token observations do not match actual exchanges")
+			}
 			if _, err := client.Callback(context.Background(), binding, callback.Query()); !errors.Is(err, world.ErrAttemptUnavailable) {
 				t.Fatal("simulated callback replay accepted")
+			}
+			if issuer.Observations().TokenRequests != expected {
+				t.Fatal("callback replay performed another token exchange")
 			}
 		})
 	}
@@ -87,6 +104,23 @@ func TestControlledApplicationIssuer(t *testing.T) {
 	}
 	if err := issuer.SetOutcome("production"); err == nil {
 		t.Fatal("unsupported outcome accepted")
+	}
+	before := issuer.Observations().TokenRequests
+	response, err := issuer.HTTPClient().Post(registration.Issuer+"/token", "application/x-www-form-urlencoded", strings.NewReader("grant_type=authorization_code"))
+	if err != nil {
+		t.Fatal("local rejected exchange request failed")
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusUnauthorized || issuer.Observations().TokenRequests != before+1 {
+		t.Fatal("rejected token POST was not counted")
+	}
+	response, err = issuer.HTTPClient().Get(registration.Issuer + "/token")
+	if err != nil {
+		t.Fatal("local unsupported token method request failed")
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusBadRequest || issuer.Observations().TokenRequests != before+1 {
+		t.Fatal("non-POST request counted as a token exchange")
 	}
 }
 

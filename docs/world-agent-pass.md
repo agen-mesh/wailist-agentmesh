@@ -77,6 +77,8 @@ Return the browser only to an application-controlled purchase view derived from 
 
 `SetOutcome(simulation.Success)`, `Denied`, or `Stale` controls subsequent simulated authentications. Success still requires genuine local code exchange, PKCE and RSA validation by the real client. Denial yields no evidence; stale mode issues a new token carrying an hour-old authentication time. The fixture supports only synthetic Basic client authentication; the independent package test issuer also exercises POST and private-key JWT methods.
 
+`Observations().TokenRequests` counts actual local token POST receipts, including rejected exchanges. It contains no payloads or credentials and never resets when `SetOutcome` changes. The private verification wrapper must map this count to `counters["world.token"]` and preserve it across scenario changes.
+
 Central startup must select this factory only for an explicit controlled simulation with scratch application data and synthetic wallets. The actual UI must display the simulation mode throughout the journey. Simulator evidence always uses sandbox identity labels and must never satisfy a production-only policy. This is a test service, with process-local issuer grants; the application's attempt store still needs the real durable central adapter.
 
 ## Local verification and observed feedback
