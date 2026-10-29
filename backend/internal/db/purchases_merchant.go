@@ -23,14 +23,10 @@ func merchantRecord(raw []byte, err error) (merchant.Record, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return merchant.Record{}, merchant.ErrNotFound
 	}
-	var r merchant.Record
 	if err != nil {
-		return r, err
+		return merchant.Record{}, err
 	}
-	if err = json.Unmarshal(raw, &r); err != nil {
-		return r, err
-	}
-	return r, nil
+	return restoreMerchant(raw)
 }
 func (m *MerchantStore) Get(ctx context.Context, id string) (merchant.Record, error) {
 	var raw []byte
@@ -39,7 +35,7 @@ func (m *MerchantStore) Get(ctx context.Context, id string) (merchant.Record, er
 }
 func (m *MerchantStore) Accept(ctx context.Context, s merchant.Snapshot) (merchant.Record, error) {
 	r := merchant.Record{Snapshot: s, State: merchant.Accepted, AcceptedAt: time.Now().UTC()}
-	raw, err := json.Marshal(r)
+	raw, err := encodeMerchant(r)
 	if err != nil {
 		return r, err
 	}
@@ -87,7 +83,7 @@ func (m *MerchantStore) Claim(ctx context.Context, id, intent string, event merc
 	}
 	r.State = merchant.Started
 	r.Payment = &event
-	raw, err = json.Marshal(r)
+	raw, err = encodeMerchant(r)
 	if err != nil {
 		return r, false, err
 	}
@@ -123,7 +119,7 @@ func (m *MerchantStore) Finish(ctx context.Context, id, intent string, out merch
 	r.State = out.State
 	r.Result = out.Result
 	r.FailureCode = out.FailureCode
-	raw, err = json.Marshal(r)
+	raw, err = encodeMerchant(r)
 	if err != nil {
 		return r, err
 	}

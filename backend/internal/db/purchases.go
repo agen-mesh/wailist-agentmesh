@@ -27,8 +27,8 @@ func decodeOrder(raw []byte, err error) (purchase.Order, error) {
 	if err != nil {
 		return purchase.Order{}, fmt.Errorf("purchase journal read: %w", err)
 	}
-	var o purchase.Order
-	if err = json.Unmarshal(raw, &o); err != nil {
+	o, err := restoreOrder(raw)
+	if err != nil {
 		return o, fmt.Errorf("purchase journal decode: %w", err)
 	}
 	return o, nil
@@ -44,7 +44,7 @@ func (p *PurchaseStore) ByRequest(ctx context.Context, account, request string) 
 	return decodeOrder(raw, err)
 }
 func (p *PurchaseStore) Create(ctx context.Context, o purchase.Order) (purchase.Order, bool, error) {
-	raw, err := json.Marshal(o)
+	raw, err := encodeOrder(o)
 	if err != nil {
 		return o, false, err
 	}
@@ -83,7 +83,7 @@ func (p *PurchaseStore) Update(ctx context.Context, account, id string, fn func(
 	if string(before) != string(after) || o.ID != id || o.AccountID != account || purchase.Digest(after) != o.IntentHash {
 		return o, purchase.ErrConflict
 	}
-	raw, err = json.Marshal(o)
+	raw, err = encodeOrder(o)
 	if err != nil {
 		return o, err
 	}

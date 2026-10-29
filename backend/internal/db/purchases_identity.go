@@ -160,7 +160,7 @@ func (p *PurchaseIdentityStore) Complete(ctx context.Context, id string, e world
 	o.IdentityVerifiedAt = &e.AuthenticatedAt
 	o.IdentityValidUntil = &e.ValidUntil
 	o.State = purchase.AwaitingApproval
-	raw, err = json.Marshal(o)
+	raw, err = encodeOrder(o)
 	if err != nil {
 		return err
 	}
@@ -202,7 +202,7 @@ func (p *PurchaseIdentityStore) Cancel(ctx context.Context, id string, b world.B
 		if o.State == purchase.AwaitingApproval || o.State == purchase.Approved {
 			o.State = purchase.AwaitingIdentity
 		}
-		raw, err = json.Marshal(o)
+		raw, err = encodeOrder(o)
 		if err != nil {
 			return err
 		}

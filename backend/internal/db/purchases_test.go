@@ -154,10 +154,11 @@ func TestPurchaseJournalRollbackAndEventUniqueness(t *testing.T) {
 }
 
 func TestPurchaseMerchantClaimSurvivesRestartWithoutSecondExecution(t *testing.T) {
-	store, _, _, _ := journalFixture(t)
+	f := newDurableMerchantFixture(t)
+	store := f.store
 	m := store.MerchantPurchases()
-	id := uuid.NewString()
-	snapshot := merchant.Snapshot{OrderID: id, IntentHash: purchase.Digest([]byte(id)), CanonicalIntent: json.RawMessage(`{}`), Request: json.RawMessage(`{"text":"scratch"}`)}
+	id := f.order.ID
+	snapshot := f.snapshot
 	if _, err := m.Accept(t.Context(), snapshot); err != nil {
 		t.Fatal(err)
 	}
