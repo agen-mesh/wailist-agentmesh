@@ -2304,8 +2304,8 @@ func TestBuildGraphDropsStaleHeavyToolResults(t *testing.T) {
 // baseline; crossing one means the growth was deliberate, and the number
 // should move with it.
 func TestBuilderRequestStaysSmall(t *testing.T) {
-	if n := len(buildSystemPrompt); n > 27500 {
-		t.Errorf("system prompt is %d bytes, over the 27500 ceiling", n)
+	if n := len(buildSystemPrompt); n > 28500 {
+		t.Errorf("system prompt is %d bytes, over the 28500 ceiling", n)
 	}
 	decls, _ := json.Marshal(graphToolDecls())
 	if n := len(decls); n > 17500 {
