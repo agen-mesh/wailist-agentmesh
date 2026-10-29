@@ -126,7 +126,7 @@ function Diagram() {
 
 export function ArcPage() {
   const [chains, setChains] = useState<ChainsPayload | null>(null);
-  const [loadError, setLoadError] = useState("");
+  const [loadError, setLoadError] = useState(BASE ? "" : "Set NEXT_PUBLIC_API_URL so this page can reach the treasury API. The diagram still describes the flow.");
   const [address, setAddress] = useState("");
   const [algo, setAlgo] = useState("");
   const [treasury, setTreasury] = useState<Treasury | null>(null);
@@ -139,10 +139,7 @@ export function ArcPage() {
   const [output, setOutput] = useState("");
 
   useEffect(() => {
-    if (!BASE) {
-      setLoadError("Set NEXT_PUBLIC_API_URL so this page can reach the treasury API. The diagram still describes the flow.");
-      return;
-    }
+    if (!BASE) return;
     let live = true;
     apiFetch(`${BASE}/arc/chains`)
       .then(async (res) => {
