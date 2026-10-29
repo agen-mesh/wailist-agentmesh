@@ -19,7 +19,21 @@ describe("exact purchase terms", () => {
   it("accepts the exact prepared authorization even when field-object key order differs", () => {
     const prepared = authorization();
     prepared.typedData.types.TransferWithAuthorization = prepared.typedData.types.TransferWithAuthorization.map(({ name, type }) => ({ type, name }));
+    prepared.typedData.types.EIP712Domain = prepared.typedData.types.EIP712Domain.map(({ name, type }) => ({ type, name }));
     expect(() => assertAuthorizationMatches(order(), prepared, PAYER, TEST_NOW)).not.toThrow();
+  });
+
+  it.each(["name", "version", "chainId", "verifyingContract"])("rejects a domain schema that omits %s", (field) => {
+    const prepared = authorization();
+    prepared.typedData.types.EIP712Domain = prepared.typedData.types.EIP712Domain.filter(({ name }) => name !== field);
+    expect(() => assertAuthorizationMatches(order(), prepared, PAYER, TEST_NOW)).toThrow();
+  });
+
+  it("rejects a missing, mistyped or reordered domain schema", () => {
+    const missing = authorization(); delete missing.typedData.types.EIP712Domain;
+    const mistyped = authorization(); mistyped.typedData.types.EIP712Domain[2].type = "uint128";
+    const reordered = authorization(); reordered.typedData.types.EIP712Domain.reverse();
+    for (const prepared of [missing, mistyped, reordered]) expect(() => assertAuthorizationMatches(order(), prepared, PAYER, TEST_NOW)).toThrow();
   });
 
   it.each(["to", "from", "value", "validBefore", "validAfter", "nonce"] as const)("rejects a changed authorization %s", (field) => {

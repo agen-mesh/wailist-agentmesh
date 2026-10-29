@@ -63,6 +63,13 @@ function integer(value: unknown): bigint {
   throw new Error("Invalid payment authorization amount or time.");
 }
 
+function exactFields(value: unknown, expected: { name: string; type: string }[]): boolean {
+  return Array.isArray(value) && value.length === expected.length && value.every((field: unknown, index: number) => {
+    const entry = object(field);
+    return Object.keys(entry).length === 2 && entry.name === expected[index].name && entry.type === expected[index].type;
+  });
+}
+
 export function assertAuthorizationMatches(reviewed: PurchaseOrder, prepared: PurchaseAuthorization, account: string, now = Date.now()): void {
   const order = prepared.order;
   if (immutableOrder(reviewed) !== immutableOrder(order)) throw new Error("Order terms changed. Review a new order before signing.");
@@ -82,12 +89,12 @@ export function assertAuthorizationMatches(reviewed: PurchaseOrder, prepared: Pu
     { name: "from", type: "address" }, { name: "to", type: "address" }, { name: "value", type: "uint256" },
     { name: "validAfter", type: "uint256" }, { name: "validBefore", type: "uint256" }, { name: "nonce", type: "bytes32" },
   ];
-  const fields = types.TransferWithAuthorization;
-  const sameFields = Array.isArray(fields) && fields.length === expected.length && fields.every((field: unknown, index: number) => {
-    const entry = object(field);
-    return Object.keys(entry).length === 2 && entry.name === expected[index].name && entry.type === expected[index].type;
-  });
-  if (typed.primaryType !== "TransferWithAuthorization" || !sameFields ||
+  const domainFields = [
+    { name: "name", type: "string" }, { name: "version", type: "string" },
+    { name: "chainId", type: "uint256" }, { name: "verifyingContract", type: "address" },
+  ];
+  if (typed.primaryType !== "TransferWithAuthorization" || !exactFields(types.TransferWithAuthorization, expected) ||
+    !exactFields(types.EIP712Domain, domainFields) ||
     integer(domain.chainId) !== BigInt(ARC_CHAIN) || typeof domain.verifyingContract !== "string" ||
     domain.verifyingContract.toLowerCase() !== ARC_ASSET || typeof domain.name !== "string" || !domain.name ||
     typeof domain.version !== "string" || !domain.version || typeof message.from !== "string" ||
