@@ -83,7 +83,7 @@ func (a *simulationApp) controls() http.Handler {
 			}
 			caps.Features["app_restart"] = a.restart != nil
 			caps.Features["restart"] = a.restart != nil
-			controlJSON(w, map[string]any{"evidenceMode": "simulation", "features": caps.Features, "offerKey": a.fixture.OfferKey(), "merchantResource": simulationResource, "priceMicros": "10000", "controlsVersion": "1", "scenarioStatePolicy": "preserve-chain-and-journal", "restartStatePolicy": "preserve-chain-database-and-private-context", "worldSubjectPolicy": "scenario subject retained across fault changes"})
+			controlJSON(w, map[string]any{"evidenceMode": "simulation", "bootId": a.bootID, "features": caps.Features, "offerKey": a.fixture.OfferKey(), "merchantResource": simulationResource, "priceMicros": "10000", "controlsVersion": "1", "scenarioStatePolicy": "preserve-chain-and-journal", "restartStatePolicy": "preserve-chain-database-and-private-context", "worldSubjectPolicy": "scenario subject retained across fault changes"})
 		case "/__verify__/restart":
 			var body struct {
 				PreserveDatabase bool `json:"preserveDatabase"`

@@ -37,6 +37,7 @@ import (
 	"github.com/agentmesh/backend/internal/world"
 	worldsim "github.com/agentmesh/backend/internal/world/simulation"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -69,6 +70,7 @@ type simulationApp struct {
 	merchantFault string
 	counters      map[string]int
 	restart       chan struct{}
+	bootID        string
 }
 
 func main() {
@@ -146,7 +148,7 @@ func run() error {
 		return err
 	}
 	defer issuer.Close()
-	app := &simulationApp{state: state, stateFile: stateFile, chainFile: chainFile, fixture: fixture, issuer: issuer, store: store, pool: pool, frontend: *frontend, counters: map[string]int{}, restart: make(chan struct{}, 1)}
+	app := &simulationApp{state: state, stateFile: stateFile, chainFile: chainFile, fixture: fixture, issuer: issuer, store: store, pool: pool, frontend: *frontend, counters: map[string]int{}, restart: make(chan struct{}, 1), bootID: uuid.NewString()}
 	if app.state.Subject == "" {
 		app.state.Subject = "scenario-" + state.JWT[:24]
 	}
