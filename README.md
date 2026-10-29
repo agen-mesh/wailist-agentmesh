@@ -99,3 +99,7 @@ Want to publish a paid API that AgentMesh agents can discover and pay for? See t
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md) to get started — it covers local setup, the API surface, the DB schema, and the test layout.
 
 **Hacktoberfest:** this repo is opted in. During October, merged or `hacktoberfest-accepted` PRs count toward your total. Look for issues labelled `good first issue` and `hacktoberfest`, and read the Hacktoberfest section of `CONTRIBUTING.md` first.
+
+## Service purchases
+
+The `/purchases` page connects Arkiv offer discovery, order-bound World verification and customer-authorized Arc testnet USDC payments. Checkout defaults off until its prerequisites are configured. See [setup, durable boundaries and simulation limits](docs/arc-purchases.md). Local simulation is labelled separately from live network evidence; no event or Studio provenance is implied.

@@ -10,19 +10,17 @@ Startup owns environment loading and injects `world.Config`. This module does no
 
 | Setting | Contract |
 | --- | --- |
-| `WORLD_OIDC_ENABLED` | Defaults to `false`. A disabled `Config` validates without network access; `world.New` returns `ErrDisabled`. |
-| `WORLD_OIDC_ENVIRONMENT` | Required when enabled: `sandbox` or `production`. |
-| `WORLD_OIDC_ISSUER` | Required exact match: `https://sandbox.auth.world.org` for sandbox, `https://auth.world.org` for production. No custom issuer or trailing slash. |
-| `WORLD_OIDC_CLIENT_ID` | The client registered in the selected environment. |
-| `WORLD_OIDC_REDIRECT_URI` | The exact registered backend callback, including scheme, host, port, case and path. Planned route: `https://<backend-host>/purchases/world/callback`. No query or fragment. HTTPS is required except explicitly registered sandbox loopback HTTP callbacks. |
-| `WORLD_OIDC_TOKEN_AUTH_METHOD` | Defaults to `client_secret_basic`. Also supports `client_secret_post` and `private_key_jwt`; must match registration and discovery. Public clients are rejected. |
-| `WORLD_OIDC_CLIENT_SECRET` | Required only for Basic or POST authentication. Private backend configuration. |
-| `WORLD_OIDC_PRIVATE_KEY_PEM` | Required only for private-key JWT authentication. RSA PKCS#1 or PKCS#8 PEM, 2048 to 8192 bits. Register only its public JWKS. |
-| `WORLD_OIDC_PRIVATE_KEY_ID` | Required with private-key JWT; selects the registered key. |
-| `WORLD_OIDC_ATTEMPT_TTL_SECONDS` | Defaults to 300, maximum 300. Positive durations only after defaults. |
-| `WORLD_OIDC_MAX_AUTH_AGE_SECONDS` | Defaults to 300, maximum 300. Rechecked through evidence expiry before execution. |
-| `WORLD_OIDC_CLOCK_SKEW_SECONDS` | Defaults to 30, maximum 30. Zero selects the default. Token expiration itself has no grace period. |
-| `WORLD_OIDC_REQUIRED_ACR` | Defaults to `https://world.org/oidc/acr/orb`. `https://world.org/oidc/acr/orb-face` is accepted only if discovery advertises it. |
+| `ARC_PURCHASE_ENABLED` | Defaults to `false`. Central startup keeps checkout disabled until all purchase prerequisites exist. |
+| `WORLD_ENVIRONMENT` | Required when enabled: `sandbox` or `production`. Startup derives the exact official issuer from this value. |
+| `WORLD_CLIENT_ID` | The client registered in the selected environment. |
+| `WORLD_REDIRECT_URI` | The exact registered backend callback, including scheme, host, port, case and path: `https://<backend-host>/purchases/world/callback`. No query or fragment. HTTPS is required except registered sandbox loopback HTTP callbacks. |
+| `WORLD_CLIENT_AUTH_METHOD` | Defaults to `client_secret_basic`. Also supports `client_secret_post` and `private_key_jwt`; must match registration and discovery. Public clients are rejected. |
+| `WORLD_CLIENT_SECRET` | Required only for Basic or POST authentication. Private backend configuration. |
+| `WORLD_PRIVATE_KEY_PEM` | Required only for private-key JWT authentication. RSA PKCS#1 or PKCS#8 PEM, 2048 to 8192 bits. Register only its public JWKS. |
+| `WORLD_PRIVATE_KEY_ID` | Required with private-key JWT; selects the registered key. |
+| `WORLD_REQUIRED_ACR` | Defaults to `https://world.org/oidc/acr/orb`. `https://world.org/oidc/acr/orb-face` is accepted only if discovery advertises it. |
+
+The integration uses fixed module defaults of 300 seconds for attempt lifetime and maximum authentication age, and 30 seconds for clock skew. It does not load separate environment variables for these limits or a custom issuer. Token expiration itself has no grace period.
 
 Keep registration credentials and identity mappings separate by environment. Never expose these private settings through frontend environment variables, API configuration responses, request logging, or receipts. Missing required settings or unsupported discovery must keep the purchase identity feature unavailable.
 
@@ -75,7 +73,7 @@ Return the browser only to an application-controlled purchase view derived from 
 
 `Registration()` supplies the synthetic issuer/client/callback settings. Construct the real `world.Client` with `Environment=world.Sandbox` and `HTTPClient()` as its injected transport. `BrowserURL(authorizationURL)` maps only that fixture's sandbox authorization endpoint to the loopback issuer. The transport rejects production and arbitrary external hosts. There is no production configuration bypass or environment-variable switch in the module.
 
-`SetOutcome(simulation.Success)`, `Denied`, or `Stale` controls subsequent simulated authentications. Success still requires genuine local code exchange, PKCE and RSA validation by the real client. Denial yields no evidence; stale mode issues a new token carrying an hour-old authentication time. The fixture supports only synthetic Basic client authentication; the independent package test issuer also exercises POST and private-key JWT methods.
+`SupportedOutcomes()` lists success, denial, stale authentication, wrong audience, nonce or issuer, expired token, missing or future authentication time, invalid signature and token endpoint error. The selected outcome and subject are captured when authorization starts. Success requires local code exchange, PKCE and RSA validation by the real client. `SetSubject` changes future grants only. The fixture supports synthetic Basic client authentication; independent package tests also exercise POST and private-key JWT methods.
 
 `Observations().TokenRequests` counts actual local token POST receipts, including rejected exchanges. It contains no payloads or credentials and never resets when `SetOutcome` changes. The private verification wrapper must map this count to `counters["world.token"]` and preserve it across scenario changes.
 
