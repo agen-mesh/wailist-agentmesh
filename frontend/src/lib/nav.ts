@@ -34,6 +34,7 @@ export type NavItem = {
 export const APP_NAV_ITEMS: readonly NavItem[] = [
   { label: "Workflows", href: "/workflows" },
   { label: "Arc", href: "/arc" },
+  { label: "Purchases", href: "/purchases" },
   { label: "Bazaar", href: "/bazaar", desktopOnly: true },
   { label: "Usage", href: "/usage" },
   { label: "Credits", href: "/billing" },

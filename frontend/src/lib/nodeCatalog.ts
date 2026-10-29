@@ -466,6 +466,19 @@ export function buildNodeCatalog(): NodeCatalog {
       })),
     },
     {
+      type: "purchase",
+      desc: "Buy an Arkiv service using a separately approved customer Arc authorization.",
+      templates: [{
+        id: "service", name: "Service Purchase", desc: "Arkiv offer with customer approval", kind: "action",
+        note: "Waits for wallet linking, fresh World verification and explicit approval. Resume reuses the same order. Never supplies shared-wallet authority.",
+        fields: [
+          { key: "offerKey", where: "config", label: "Arkiv offer key" },
+          { key: "maxMicros", where: "config", label: "Maximum USDC micros", placeholder: "10000" },
+          { key: "request", where: "config", label: "Request JSON", hint: "blank uses the previous step text" },
+        ],
+      }],
+    },
+    {
       type: "end",
       desc: "Where the run finishes.",
       templates: END_TEMPLATES.map((t) => ({

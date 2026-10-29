@@ -51,6 +51,7 @@ export function CanvasNode(props: NodeProps) {
     case "google":
       return <GoogleNode {...props} />;
     case "arc":
+    case "purchase":
       return <ArcNode {...props} />;
     default:
       return null;
@@ -975,9 +976,9 @@ function ArcNode({
         template={node.template}
         iconBg="rgba(255, 181, 71, 0.16)"
         iconColor="#FFB547"
-        kicker="arc"
+        kicker={node.type === "purchase" ? "purchase" : "arc"}
         title={node.name ?? tpl?.name ?? "Arc"}
-        sub={node.price ? `${node.price} USDC · ${chain}` : (node.sub ?? tpl?.desc)}
+        sub={node.type === "purchase" ? "Customer approval required" : (node.price ? `${node.price} USDC · ${chain}` : (node.sub ?? tpl?.desc))}
       />
       <SidePort
         side="left"

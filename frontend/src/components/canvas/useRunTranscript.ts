@@ -25,7 +25,7 @@ export interface LogEvent {
   nodeType: string;
   // "degraded": a read step failed and the run carried on with an error
   // payload rather than stopping (backend: engine.Runner, nodes.IsDegradable).
-  status: "running" | "success" | "failed" | "stopped" | "degraded";
+  status: "running" | "waiting" | "success" | "failed" | "stopped" | "degraded";
   output: unknown;
   durationMs: number;
   ts: string;
@@ -99,6 +99,7 @@ interface CachedRun {
   // that was fixed by a resume before the cache write doesn't come back
   // from the dead on the next reload.
   deadLetters?: DeadLetterRun[];
+  waiting?: boolean;
 }
 
 function readCachedRun(workflowId: string | undefined): CachedRun | null {
@@ -188,7 +189,7 @@ export interface RunTranscript {
 }
 
 export function useRunTranscript({
-  runId,
+  runId: requestedRunId,
   running,
   onRunComplete,
   workflowId,
@@ -196,12 +197,13 @@ export function useRunTranscript({
 }: UseRunTranscriptArgs): RunTranscript {
   // With no live run, start from this workflow's cached last transcript so
   // reopening it still shows what happened, instead of an empty console.
-  const cached = runId ? null : readCachedRun(workflowId);
+  const cached = requestedRunId ? null : readCachedRun(workflowId);
+  const runId = requestedRunId ?? (cached?.waiting ? cached.runId : null);
   const [logs, setLogs] = useState<LogEvent[]>(cached?.logs ?? []);
   const [elapsed, setElapsed] = useState<number | null>(
     cached?.elapsed ?? null,
   );
-  const [done, setDone] = useState(!!cached);
+  const [done, setDone] = useState(!!cached && !cached.waiting);
   const [stopped, setStopped] = useState(false);
   const [deadLetters, setDeadLetters] = useState<DeadLetterRun[]>(
     cached?.deadLetters ?? [],
@@ -363,7 +365,7 @@ export function useRunTranscript({
           // Every settled status, not a hand-listed pair: this is the path
           // that repairs a transcript when an SSE event was dropped, so a
           // status missing here is a step the console never learns about.
-          if (!isSettledLogStatus(l.status)) continue;
+          if (!isSettledLogStatus(l.status) && l.status !== "waiting") continue;
           if (
             next.some(
               (e) =>
@@ -457,15 +459,9 @@ export function useRunTranscript({
         }
         await new Promise((r) => setTimeout(r, 2000));
       }
-      // Budget exhausted without ever seeing a terminal status. The run may
-      // still be going server-side, but the UI must not hang on "working…"
-      // forever with no way out -- surface it as done with whatever partial
-      // transcript was collected, same as a manual stop, rather than
-      // silently returning and leaving the composer locked.
+      // A polling timeout is not evidence that a waiting purchase completed.
       if (!cancelled) {
         clearInterval(timerRef.current!);
-        setDone(true);
-        completeOnce();
       }
     };
 
@@ -514,6 +510,12 @@ export function useRunTranscript({
       void reconcile();
     });
 
+    es.addEventListener("waiting", () => {
+      es.close();
+      setDone(false);
+      void reconcile();
+    });
+
     // A dropped stream says nothing about the run. EventSource fires onerror
     // on any transient hiccup (including its own reconnect attempts), and
     // treating that as "finished" reported "run complete · 1/1 nodes
@@ -548,6 +550,7 @@ export function useRunTranscript({
   // still in esRef then -- so without the completed check every successful
   // run was marked stopped and its chat turn said "Run stopped" (#67).
   useEffect(() => {
+    if (!requestedRunId) return;
     if (
       !isExternalStop({
         running,
@@ -562,7 +565,7 @@ export function useRunTranscript({
     setStopped(true);
     setDone(true);
     completeOnce();
-  }, [running, completeOnce]);
+  }, [running, requestedRunId, completeOnce]);
 
   // No client-side settlement recording here any more. The engine writes one
   // run_logs row per settlement as it happens (see runner.go's publish loop),
@@ -620,12 +623,15 @@ export function useRunTranscript({
   // reconciled set (including any steps the live stream missed), not a
   // partial mid-run snapshot.
   useEffect(() => {
-    if (!done || !runId || logs.length === 0) return;
+    const latestPurchase = [...logs].reverse().find((log) => log.nodeType === "purchase");
+    const waiting = !done && latestPurchase?.status === "waiting";
+    if ((!done && !waiting) || !runId || logs.length === 0) return;
     writeCachedRun(workflowId, {
       runId,
       logs,
       elapsed,
       deadLetters: visibleDeadLetters,
+      waiting,
     });
   }, [done, runId, logs, elapsed, workflowId, visibleDeadLetters]);
 

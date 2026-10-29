@@ -9,6 +9,7 @@ import {
   END_TEMPLATES,
   GOOGLE_TEMPLATES,
   ARC_TEMPLATES,
+  PURCHASE_TEMPLATES,
 } from "@/lib/data";
 
 // The Library panel's tab strip and, for each tab, how one of its templates
@@ -17,6 +18,14 @@ import {
 // so living here is what makes it testable at all (same split as
 // panelSizing.ts / viewport.ts and their tests).
 export const PALETTE_TABS = [
+  {
+    id: "purchases", label: "Purchases", items: () => PURCHASE_TEMPLATES,
+    type: "purchase", dotColor: "magenta" as const,
+    map: (it: (typeof PURCHASE_TEMPLATES)[0]): Partial<WorkflowNode> => ({
+      type: "purchase", template: it.id, name: it.name, icon: it.icon, sub: it.desc,
+      config: { offerKey: "", maxMicros: "10000", request: "" },
+    }),
+  },
   {
     id: "triggers",
     label: "Triggers",
@@ -174,6 +183,7 @@ export type TabId = (typeof PALETTE_TABS)[number]["id"];
 // TypeError instead of a build failure. Keyed this way, adding a tab without a
 // create-row -- or leaving one behind after removing a tab -- does not compile.
 export const CREATE_META: Record<TabId, Partial<WorkflowNode>> = {
+  purchases: { type: "purchase", template: "service", name: "Service Purchase", icon: "$", sub: "Customer approval required", config: { offerKey: "", maxMicros: "10000", request: "" } },
   triggers: {
     type: "trigger",
     custom: true,

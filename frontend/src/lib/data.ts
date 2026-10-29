@@ -27,7 +27,12 @@ export const NODE_TYPES: Record<string, NodeTypeMeta> = {
   // set to offer here.
   google: { w: 220, h: 76, ports: ["in", "out"] },
   arc: { w: 220, h: 84, ports: ["in", "out"] },
+  purchase: { w: 220, h: 84, ports: ["in", "out"] },
 };
+
+export const PURCHASE_TEMPLATES = [
+  { id: "service", name: "Service Purchase", desc: "Arkiv offer with customer approval", icon: "$" },
+];
 
 // Schedules belong to the workflow. The backend scheduler starts its manual
 // trigger, so a separate cron trigger is not offered in the palette.

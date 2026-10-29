@@ -212,6 +212,17 @@ export function Inspector({
         {selected.type === "arc" && (
           <ArcInspector node={selected} onUpdate={onUpdate} />
         )}
+        {selected.type === "purchase" && (
+          <div style={{ padding: 16, display: "grid", gap: 12 }}>
+            <p>The run waits for wallet linking, fresh identity verification, approval, and confirmed payment.</p>
+            <a href="/purchases">Discover offers and manage purchases</a>
+            {[["offerKey", "Arkiv offer key"], ["maxMicros", "Maximum USDC micros"], ["request", "Request JSON (blank uses the previous step text)"]].map(([key, label]) => (
+              <label key={key} style={{ display: "grid", gap: 4 }}>{label}
+                <input value={selected.config?.[key] ?? ""} onChange={(event) => onUpdate({ ...selected, config: { ...selected.config, [key]: event.target.value } })} />
+              </label>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ padding: 16, borderTop: "1px solid var(--border)" }}>
