@@ -150,6 +150,9 @@ func (s *Service) Result(ctx context.Context, orderID, intentHash string) (Recor
 	if !validState(r.State) || (r.State == Completed && (len(r.Result) == 0 || !json.Valid(r.Result))) {
 		return Record{}, fmt.Errorf("%w: stored result", ErrUnknown)
 	}
+	if r.State != Completed {
+		r.Result = nil
+	}
 	return cloneRecord(r), nil
 }
 
@@ -184,6 +187,7 @@ func (s *Service) Fulfill(ctx context.Context, orderID, intentHash string, event
 			return Record{}, err
 		}
 		r.State = Unknown
+		r.Payment = &event
 		return r, fmt.Errorf("%w: claim outcome", ErrUnknown)
 	}
 	if !sameSnapshot(claimed.Snapshot, r.Snapshot) || !validState(claimed.State) {
