@@ -22,25 +22,32 @@ import (
 
 // Config is the process-wide Arc setup. The private key is never serialised.
 type Config struct {
-	Network    Network
-	MaxMicros  *big.Int
-	StudioURL  string
-	Escrow     string
-	PayTo      string
-	GatewayURL string
-	IrisURL    string
-	Key        *ecdsa.PrivateKey
-	Address    common.Address
-	KeyError   string
-	Warnings   []string
+	Network         Network
+	MaxMicros       *big.Int
+	StudioURL       string
+	Escrow          string
+	PayTo           string
+	GatewayURL      string
+	IrisURL         string
+	Key             *ecdsa.PrivateKey
+	Address         common.Address
+	KeyError        string
+	Warnings        []string
+	operatorUserIDs map[string]struct{}
 }
 
 // LoadConfig reads ARC_* from the environment. An unusable key is reported
 // on KeyError and does not stop balance reads.
 func LoadConfig() Config {
 	cfg := Config{
-		Network:   ParseNetwork(os.Getenv("ARC_NETWORK")),
-		StudioURL: strings.TrimSpace(os.Getenv("ARC_STUDIO_URL")),
+		Network:         ParseNetwork(os.Getenv("ARC_NETWORK")),
+		StudioURL:       strings.TrimSpace(os.Getenv("ARC_STUDIO_URL")),
+		operatorUserIDs: make(map[string]struct{}),
+	}
+	for _, id := range strings.Split(os.Getenv("ARC_OPERATOR_USER_IDS"), ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			cfg.operatorUserIDs[id] = struct{}{}
+		}
 	}
 	maxRaw := strings.TrimSpace(os.Getenv("ARC_MAX_USDC"))
 	if maxRaw == "" {
@@ -331,6 +338,11 @@ func (p prepared) quote(domain string) Result {
 // Execute prepares a request and, when Broadcast is set, signs and submits it
 // with the platform key. The key pays gas. On Arc that gas is USDC.
 func Execute(ctx context.Context, caller Caller, cfg Config, req Request) (Result, error) {
+	if req.Broadcast {
+		if err := cfg.requireOperator(ctx); err != nil {
+			return Result{}, err
+		}
+	}
 	p, err := Prepare(cfg, req)
 	if err != nil {
 		return Result{}, err
@@ -344,30 +356,36 @@ func Execute(ctx context.Context, caller Caller, cfg Config, req Request) (Resul
 		}
 		return Result{}, errors.New("arc spending key is not configured")
 	}
+	var result Result
 	switch p.op {
 	case "transfer":
-		return submitOne(ctx, caller, cfg, p, p.callTo, p.call)
+		result, err = submitOne(ctx, caller, cfg, p, p.callTo, p.call)
 	case "nanopay":
-		return submitNanopay(ctx, caller, cfg, p)
+		result, err = submitNanopay(ctx, caller, cfg, p)
 	case "bridge", "gateway":
-		return submitApproved(ctx, caller, cfg, p)
+		result, err = submitApproved(ctx, caller, cfg, p)
 	default:
 		return Result{}, fmt.Errorf("unknown arc operation %q", p.op)
 	}
+	if err != nil {
+		return result, fmt.Errorf("%w: %w", ErrSubmissionUncertain, err)
+	}
+	return result, nil
 }
 
 func submitOne(ctx context.Context, caller Caller, cfg Config, p prepared, to common.Address, data []byte) (Result, error) {
 	hash, err := SendContract(ctx, caller, p.chain, cfg.Key, to, data)
-	if err != nil {
-		return Result{}, err
-	}
-	status, receiptErr := ReceiptStatus(ctx, caller, p.chain, hash)
 	res := p.quote("on-chain")
-	res.Status = status
 	res.TxHash = hash
 	res.Explorer = p.chain.TxURL(hash)
 	res.From = cfg.Address.Hex()
 	res.Note = ""
+	if err != nil {
+		res.Status = "pending"
+		return res, err
+	}
+	status, receiptErr := ReceiptStatus(ctx, caller, p.chain, hash)
+	res.Status = status
 	if receiptErr != nil && status == "reverted" {
 		return res, receiptErr
 	}
@@ -389,7 +407,9 @@ func submitApproved(ctx context.Context, caller Caller, cfg Config, p prepared) 
 	if current.Cmp(p.amount) < 0 {
 		approveHash, err = SendContract(ctx, caller, p.chain, cfg.Key, p.approveTo, p.approve)
 		if err != nil {
-			return Result{}, err
+			res.Status = "pending"
+			res.ApproveTx = approveHash
+			return res, err
 		}
 		status, receiptErr := ReceiptStatus(ctx, caller, p.chain, approveHash)
 		if receiptErr != nil {
@@ -530,6 +550,9 @@ type Payment struct {
 // SettlePayment checks an EIP-3009 payment and submits it from the relayer.
 // The signer pays the USDC. The relayer pays the gas.
 func SettlePayment(ctx context.Context, caller Caller, cfg Config, raw string, price *big.Int) (Result, error) {
+	if err := cfg.requireOperator(ctx); err != nil {
+		return Result{}, err
+	}
 	if !cfg.WalletConfigured() {
 		return Result{}, errors.New("arc spending key is not configured")
 	}
@@ -979,6 +1002,9 @@ func ParseIris(body []byte) (message, attestation, status string, err error) {
 
 // CompleteBridge submits receiveMessage once Iris has attested the burn.
 func CompleteBridge(ctx context.Context, caller Caller, client *http.Client, cfg Config, srcID, dstID, txHash string) (Result, error) {
+	if err := cfg.requireOperator(ctx); err != nil {
+		return Result{}, err
+	}
 	src, err := resolve(cfg, srcID)
 	if err != nil {
 		return Result{}, err
@@ -1016,7 +1042,10 @@ func CompleteBridge(ctx context.Context, caller Caller, client *http.Client, cfg
 	}
 	hash, err := SendContract(ctx, caller, dst, cfg.Key, common.HexToAddress(dst.MessageTransmitter), data)
 	if err != nil {
-		return Result{}, err
+		res.Status = "pending"
+		res.TxHash = hash
+		res.Explorer = dst.TxURL(hash)
+		return res, err
 	}
 	mintStatus, receiptErr := ReceiptStatus(ctx, caller, dst, hash)
 	res.Status = mintStatus

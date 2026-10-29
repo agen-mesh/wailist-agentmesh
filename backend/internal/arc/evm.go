@@ -419,7 +419,7 @@ func SendContract(ctx context.Context, caller Caller, chain Chain, key *ecdsa.Pr
 	}
 	var hash string
 	if err := caller.Call(ctx, chain.RPC, "eth_sendRawTransaction", []any{encodeHex(raw)}, &hash); err != nil {
-		return "", err
+		return signed.Hash().Hex(), err
 	}
 	if hash == "" {
 		hash = signed.Hash().Hex()

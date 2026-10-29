@@ -41,7 +41,7 @@ type arcChainView struct {
 // ArcChains lists the chains for the server's network. A query network
 // switches the list for a read. It never returns the spending key.
 func (d *Deps) ArcChains(w http.ResponseWriter, r *http.Request) {
-	cfg := arc.LoadConfig()
+	cfg := d.arcConfig()
 	if q := strings.TrimSpace(r.URL.Query().Get("network")); q != "" {
 		cfg.Network = arc.ParseNetwork(q)
 	}
@@ -73,7 +73,7 @@ func (d *Deps) ArcChains(w http.ResponseWriter, r *http.Request) {
 
 // ArcDiagram is the architecture the treasury page draws.
 func (d *Deps) ArcDiagram(w http.ResponseWriter, r *http.Request) {
-	cfg := arc.LoadConfig()
+	cfg := d.arcConfig()
 	body := arc.Diagram()
 	body["studioURL"] = cfg.StudioURL
 	body["network"] = cfg.Network
@@ -83,7 +83,7 @@ func (d *Deps) ArcDiagram(w http.ResponseWriter, r *http.Request) {
 // ArcTreasury reads ERC-20 USDC across the configured chains. Gateway and
 // EURC come back as their own figures.
 func (d *Deps) ArcTreasury(w http.ResponseWriter, r *http.Request) {
-	cfg := arc.LoadConfig()
+	cfg := d.arcConfig()
 	if q := strings.TrimSpace(r.URL.Query().Get("network")); q != "" {
 		cfg.Network = arc.ParseNetwork(q)
 	}
@@ -105,7 +105,7 @@ func (d *Deps) ArcQuote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Broadcast = false
-	writeArcResult(w, r, body.Op, body, false)
+	d.writeArcResult(w, r, body.Op, body, false)
 }
 
 func (d *Deps) ArcTransfer(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +130,7 @@ func (d *Deps) arcOp(w http.ResponseWriter, r *http.Request, op string) {
 		respond.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeArcResult(w, r, op, body, body.Broadcast)
+	d.writeArcResult(w, r, op, body, body.Broadcast)
 }
 
 // ArcBridgeComplete asks Iris for the burn attestation and submits
@@ -141,10 +141,10 @@ func (d *Deps) ArcBridgeComplete(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	cfg := arc.LoadConfig()
+	cfg := d.arcConfig()
 	res, err := arc.CompleteBridge(r.Context(), arc.HTTPCaller{}, nil, cfg, body.Chain, body.DestChain, body.TxHash)
 	if err != nil {
-		code := http.StatusBadRequest
+		code := arcErrorStatus(err)
 		if res.Status == "pending" {
 			code = http.StatusAccepted
 			respond.JSON(w, code, res)
@@ -158,7 +158,7 @@ func (d *Deps) ArcBridgeComplete(w http.ResponseWriter, r *http.Request) {
 
 // ArcChallenge is the public 402 for an Arc nanopayment.
 func (d *Deps) ArcChallenge(w http.ResponseWriter, r *http.Request) {
-	cfg := arc.LoadConfig()
+	cfg := d.arcConfig()
 	var amount *big.Int
 	if raw := strings.TrimSpace(r.URL.Query().Get("amount")); raw != "" {
 		parsed, err := arc.ParseUSDCMicros(raw)
@@ -181,9 +181,9 @@ func (d *Deps) ArcChallenge(w http.ResponseWriter, r *http.Request) {
 }
 
 // ArcSettle accepts an x402 exact payment and submits the authorization.
-// The payment itself is the credential. The relayer pays gas.
+// Operator authority is required because the relayer pays gas.
 func (d *Deps) ArcSettle(w http.ResponseWriter, r *http.Request) {
-	cfg := arc.LoadConfig()
+	cfg := d.arcConfig()
 	raw := r.Header.Get("X-Payment")
 	if raw == "" {
 		b, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
@@ -207,11 +207,8 @@ func (d *Deps) ArcSettle(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := arc.SettlePayment(r.Context(), arc.HTTPCaller{}, cfg, raw, price)
 	if err != nil {
-		code := http.StatusBadRequest
-		if strings.Contains(err.Error(), "not configured") {
-			code = http.StatusServiceUnavailable
-		}
-		if res.Status == "pending" && res.TxHash != "" {
+		code := arcErrorStatus(err)
+		if res.Status == "pending" && (res.TxHash != "" || res.ApproveTx != "") {
 			respond.JSON(w, http.StatusAccepted, res)
 			return
 		}
@@ -228,18 +225,18 @@ func (d *Deps) ArcBuy(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	cfg := arc.LoadConfig()
+	cfg := d.arcConfig()
 	if body.To == "" {
 		body.To = cfg.PayTo
 	}
 	if body.Amount == "" {
 		body.Amount = "0.01"
 	}
-	writeArcResult(w, r, "nanopay", body, true)
+	d.writeArcResult(w, r, "nanopay", body, true)
 }
 
-func writeArcResult(w http.ResponseWriter, r *http.Request, op string, body arcBody, broadcast bool) {
-	cfg := arc.LoadConfig()
+func (d *Deps) writeArcResult(w http.ResponseWriter, r *http.Request, op string, body arcBody, broadcast bool) {
+	cfg := d.arcConfig()
 	res, err := arc.Execute(r.Context(), arc.HTTPCaller{}, cfg, arc.Request{
 		Op:          op,
 		ChainID:     body.Chain,
@@ -249,11 +246,8 @@ func writeArcResult(w http.ResponseWriter, r *http.Request, op string, body arcB
 		Broadcast:   broadcast,
 	})
 	if err != nil {
-		code := http.StatusBadRequest
-		if strings.Contains(err.Error(), "not configured") {
-			code = http.StatusServiceUnavailable
-		}
-		if res.Status == "pending" && res.TxHash != "" {
+		code := arcErrorStatus(err)
+		if res.Status == "pending" && (res.TxHash != "" || res.ApproveTx != "") {
 			respond.JSON(w, http.StatusAccepted, res)
 			return
 		}
@@ -267,6 +261,16 @@ func writeArcResult(w http.ResponseWriter, r *http.Request, op string, body arcB
 	respond.JSON(w, code, res)
 }
 
+func arcErrorStatus(err error) int {
+	if errors.Is(err, arc.ErrOperatorRequired) {
+		return http.StatusForbidden
+	}
+	if strings.Contains(err.Error(), "not configured") {
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusBadRequest
+}
+
 func readArcBody(r *http.Request) (arcBody, error) {
 	var body arcBody
 	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
@@ -274,4 +278,11 @@ func readArcBody(r *http.Request) (arcBody, error) {
 		return arcBody{}, errors.New("invalid request body")
 	}
 	return body, nil
+}
+
+func (d *Deps) arcConfig() arc.Config {
+	if d.ArcConfig == nil {
+		return arc.Config{}
+	}
+	return *d.ArcConfig
 }

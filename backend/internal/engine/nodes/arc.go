@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -44,10 +45,22 @@ func ExecuteArc(ctx context.Context, node models.WorkflowNode, state map[string]
 		Amount:      amount,
 		Broadcast:   broadcast,
 	})
+	if errors.Is(err, arc.ErrSubmissionUncertain) {
+		return res, fmt.Errorf("%w: tx=%s approval=%s: %w", ErrSettlementIndeterminate, res.TxHash, res.ApproveTx, err)
+	}
 	if err != nil {
 		return nil, err
 	}
+	if broadcast && res.Status != "success" {
+		return res, fmt.Errorf("%w: Arc broadcast status %q, tx=%s approval=%s requires reconciliation", ErrSettlementIndeterminate, res.Status, res.TxHash, res.ApproveTx)
+	}
 	return res, nil
+}
+
+// Interpolated flags can change with workflow state; only literals prove a quote.
+func ArcMayBroadcast(node models.WorkflowNode) bool {
+	flag := strings.TrimSpace(node.Config["broadcast"])
+	return flag != "" && !strings.EqualFold(flag, "false")
 }
 
 func cfgString(node models.WorkflowNode, key string, state map[string]any) string {

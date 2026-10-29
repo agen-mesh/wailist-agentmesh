@@ -130,7 +130,7 @@ func (d *Deps) startRun(w http.ResponseWriter, r *http.Request, workflowID, trig
 	}
 
 	d.Broker.Create(run.ID)
-	d.Engine.Start(wf, run)
+	d.Engine.StartWithContext(ctx, wf, run)
 
 	respond.JSON(w, http.StatusAccepted, map[string]string{"runId": run.ID})
 }

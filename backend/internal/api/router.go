@@ -7,9 +7,14 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/agentmesh/backend/internal/api/handlers"
+	"github.com/agentmesh/backend/internal/arc"
 )
 
 func NewRouter(d *handlers.Deps) http.Handler {
+	if d.ArcConfig == nil {
+		cfg := arc.LoadConfig()
+		d.ArcConfig = &cfg
+	}
 	r := chi.NewRouter()
 	r.Use(chimw.Logger)
 	r.Use(chimw.Recoverer)
@@ -57,7 +62,6 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	r.Get("/arc/treasury", d.ArcTreasury)
 	r.Post("/arc/quote", d.ArcQuote)
 	r.Get("/x402/arc", d.ArcChallenge)
-	r.Post("/x402/arc", d.ArcSettle)
 
 	// Protected routes — JWT required
 	r.Group(func(r chi.Router) {
@@ -131,6 +135,7 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Post("/arc/gateway/deposit", d.ArcGatewayDeposit)
 		r.Post("/arc/nanopay", d.ArcNanopay)
 		r.Post("/x402/arc/buy", d.ArcBuy)
+		r.Post("/x402/arc", d.ArcSettle)
 		r.Get("/credits/balance", d.GetCreditBalance)
 		r.Get("/credits/purchases", d.GetCreditPurchases)
 		r.Post("/credits/redeem-coupon", d.RedeemCoupon)

@@ -59,6 +59,7 @@ type Runner struct {
 	tendrilSession           *tendril.Session
 	googleClientID           string
 	googleClientSecret       string
+	arcConfig                arc.Config
 	// runBilling accumulates each run's non-tool402 billable total (run.ID
 	// -> *int64, in USD micros) so it can be settled as one lump-sum x402
 	// payment at the end of Run -- see addRunBilling and settleRunTotal.
@@ -85,6 +86,7 @@ func NewRunner(
 		platformSpendEncMnemonic: platformSpendEncMnemonic,
 		encryptionKey:            encryptionKey,
 		x402:                     x402Cfg,
+		arcConfig:                arc.LoadConfig(),
 	}
 }
 
@@ -390,7 +392,8 @@ func nodeMayHaveRealSideEffect(nodeType models.NodeType, template, method string
 	}
 	return nodes.BillableFlatFee(nodeType, template) ||
 		nodeType == models.NodeTypeTool402 ||
-		nodeType == models.NodeTypeTendril
+		nodeType == models.NodeTypeTendril ||
+		nodeType == models.NodeTypeArc
 }
 
 // nodeConfigHash returns a stable hash of node's functionally-relevant
@@ -913,7 +916,11 @@ func (r *Runner) debitAgentFee(ctx context.Context, wf models.Workflow, run mode
 // supersede whatever else was running. The scheduler must NOT get this
 // behavior -- see StartIfNotRunning below.
 func (r *Runner) Start(wf models.Workflow, run models.Run) {
-	ctx, cancel := context.WithCancel(context.Background())
+	r.StartWithContext(context.Background(), wf, run)
+}
+
+func (r *Runner) StartWithContext(requestCtx context.Context, wf models.Workflow, run models.Run) {
+	ctx, cancel := context.WithCancel(arc.DetachedPrincipal(requestCtx))
 	gen := r.registry.register(wf.ID, cancel)
 	go r.Run(ctx, wf, run, gen)
 }
@@ -992,7 +999,7 @@ func (r *Runner) StartResume(ctx context.Context, wf models.Workflow, run models
 	if err != nil || !claimed {
 		return false, err
 	}
-	rctx, cancel := context.WithCancel(context.Background())
+	rctx, cancel := context.WithCancel(arc.DetachedPrincipal(ctx))
 	// registerIfAbsent, NOT register: run.ID is an OLD failed/stopped run
 	// being resumed, which says nothing about whether wf.ID has some OTHER
 	// run currently in flight (a manual trigger, a schedule, or another
@@ -1147,15 +1154,24 @@ func (r *Runner) Resume(ctx context.Context, wf models.Workflow, run models.Run,
 	defer r.broker.Close(run.ID)
 	defer r.registry.deregister(wf.ID, gen)
 
-	if !force {
-		deadLetters, err := r.store.GetDeadLetterRuns(ctx, run.ID)
-		if err != nil {
-			log.Printf("resume: loading dead letters failed, run=%s: %v", run.ID, err)
-			r.finishRun(wf, run, models.RunStatusFailed)
-			return
-		}
-		for _, dl := range deadLetters {
-			if dl.PaymentRisk {
+	arcNodes := make(map[string]bool)
+	for _, node := range wf.Nodes {
+		arcNodes[node.ID] = node.Type == models.NodeTypeArc
+	}
+	deadLetters, err := r.store.GetDeadLetterRuns(ctx, run.ID)
+	if err != nil {
+		log.Printf("resume: loading dead letters failed, run=%s: %v", run.ID, err)
+		r.finishRun(wf, run, models.RunStatusFailed)
+		return
+	}
+	for _, dl := range deadLetters {
+		if dl.PaymentRisk {
+			if arcNodes[dl.NodeID] {
+				criticalAlert(wf, run, "resume refused: Arc payment requires reconciliation; force cannot replay it", nil, "nodeId", dl.NodeID)
+				r.finishRun(wf, run, models.RunStatusFailed)
+				return
+			}
+			if !force {
 				criticalAlert(wf, run, "resume refused: payment-risk dead-letter row present, force required", nil, "nodeId", dl.NodeID)
 				r.finishRun(wf, run, models.RunStatusFailed)
 				return
@@ -1183,6 +1199,22 @@ func (r *Runner) Resume(ctx context.Context, wf models.Workflow, run models.Run,
 		log.Printf("resume: loading prior node state failed, run=%s: %v", run.ID, err)
 		r.finishRun(wf, run, models.RunStatusFailed)
 		return
+	}
+	for nodeID, prior := range states {
+		if !arcNodes[nodeID] && prior.NodeType != models.NodeTypeArc {
+			continue
+		}
+		settled := false
+		if prior.Status == models.LogStatusSuccess {
+			out, _ := prior.Output.(map[string]any)
+			settled = out["status"] == "success" || out["status"] == "quoted"
+		}
+		denied := prior.Status == models.LogStatusFailed && prior.Output == arc.ErrOperatorRequired.Error()
+		if !settled && !denied {
+			criticalAlert(wf, run, "resume refused: prior Arc attempt requires reconciliation; force cannot replay it", nil, "nodeId", nodeID)
+			r.finishRun(wf, run, models.RunStatusFailed)
+			return
+		}
 	}
 
 	if !force {
@@ -1356,7 +1388,7 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 				}
 
 				start := time.Now()
-				logEntry, _ := r.store.InsertRunLog(ctx, models.RunLog{
+				logEntry, logErr := r.store.InsertRunLog(ctx, models.RunLog{
 					RunID:     run.ID,
 					StepIndex: idx,
 					NodeID:    n.ID,
@@ -1374,6 +1406,10 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 				var execErr error
 				attempts := 0
 				for {
+					if logErr != nil && n.Type == models.NodeTypeArc && nodes.ArcMayBroadcast(n) {
+						execErr = fmt.Errorf("Arc broadcast refused: record initial run log: %w", logErr)
+						break
+					}
 					attempts++
 					result, execErr = r.executeNode(ctx, n, attachMap, walletByAgent, rc.forNode(msgPreds[n.ID]), run, wf)
 					// A sibling in this same parallel level already failed the
@@ -1928,7 +1964,7 @@ func (r *Runner) executeNode(
 	case models.NodeTypeArc:
 		// USDC moves on the chain named by the node. Credits are not charged.
 		// ExecuteArc expands config itself; expandNodeState does not.
-		return nodes.ExecuteArc(ctx, node, rc.State(), arc.LoadConfig())
+		return nodes.ExecuteArc(ctx, node, rc.State(), r.arcConfig)
 	case models.NodeTypeGoogle:
 		if r.googleClientID == "" || r.googleClientSecret == "" {
 			return nil, fmt.Errorf("google: GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET are not configured on this server")

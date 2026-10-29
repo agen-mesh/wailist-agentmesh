@@ -104,7 +104,7 @@ func DryRunExecutes(n models.WorkflowNode) (bool, string) {
 	case models.NodeTypeGoogle:
 		return false, "it needs the user's Google account"
 	case models.NodeTypeArc:
-		if strings.EqualFold(strings.TrimSpace(n.Config["broadcast"]), "true") {
+		if ArcMayBroadcast(n) {
 			return false, "it would broadcast a USDC transaction"
 		}
 		return true, ""
