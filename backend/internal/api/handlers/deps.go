@@ -46,6 +46,7 @@ type USDCSigner interface {
 var _ USDCSigner = (*wallet.Service)(nil)
 
 type Deps struct {
+	Purchases *PurchaseRuntime
 	ArcConfig *arc.Config
 	Store     *db.Store
 	// WorkflowStatsLoader overrides the detail endpoint's stats read when set.

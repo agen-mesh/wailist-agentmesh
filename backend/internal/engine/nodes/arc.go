@@ -2,12 +2,14 @@ package nodes
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/agentmesh/backend/internal/arc"
 	"github.com/agentmesh/backend/internal/models"
+	"github.com/agentmesh/backend/internal/purchase"
 )
 
 // ExecuteArc quotes or broadcasts one Arc treasury step.
@@ -55,6 +57,18 @@ func ExecuteArc(ctx context.Context, node models.WorkflowNode, state map[string]
 		return res, fmt.Errorf("%w: Arc broadcast status %q, tx=%s approval=%s requires reconciliation", ErrSettlementIndeterminate, res.Status, res.TxHash, res.ApproveTx)
 	}
 	return res, nil
+}
+
+func PurchaseRequest(node models.WorkflowNode, state map[string]any, message string) (purchase.CreateRequest, error) {
+	body := ExpandState(node.Config["request"], state)
+	if body == "" {
+		raw, err := json.Marshal(map[string]string{"text": message})
+		if err != nil {
+			return purchase.CreateRequest{}, err
+		}
+		body = string(raw)
+	}
+	return purchase.CreateRequest{OfferKey: node.Config["offerKey"], MaxMicros: node.Config["maxMicros"], Request: json.RawMessage(body)}, nil
 }
 
 // Interpolated flags can change with workflow state; only literals prove a quote.

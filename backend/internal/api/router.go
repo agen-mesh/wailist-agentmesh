@@ -16,7 +16,7 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		d.ArcConfig = &cfg
 	}
 	r := chi.NewRouter()
-	r.Use(chimw.Logger)
+	r.Use(purchaseSafeLogger)
 	r.Use(chimw.Recoverer)
 	r.Use(corsMiddleware)
 
@@ -62,6 +62,10 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	r.Get("/arc/treasury", d.ArcTreasury)
 	r.Post("/arc/quote", d.ArcQuote)
 	r.Get("/x402/arc", d.ArcChallenge)
+	r.Get("/purchases/world/callback", d.PurchaseWorldCallback)
+	if d.Purchases != nil && d.Purchases.Merchant != nil {
+		r.Mount("/merchant", d.Purchases.Merchant)
+	}
 
 	// Protected routes — JWT required
 	r.Group(func(r chi.Router) {
@@ -69,6 +73,22 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		// Pass-through unless WEB_READONLY_MODE is set; see readonly.go.
 		r.Use(NewReadOnlyMiddleware())
 		r.Use(requireAccount(d.Store))
+		r.Get("/purchases/config", d.PurchaseConfig)
+		r.Get("/purchases/offers", d.PurchaseOffers)
+		r.Post("/purchases/offers/preflight", d.PurchasePreflight)
+		r.Get("/purchases/wallet", d.PurchaseWallet)
+		r.Post("/purchases/wallet/challenge", d.PurchaseWalletChallenge)
+		r.Post("/purchases/wallet/link", d.PurchaseWalletLink)
+		r.Get("/purchases/allowance", d.PurchaseAllowance)
+		r.Post("/purchases/allowance", d.PurchaseAllowance)
+		r.Post("/purchases", d.PurchaseCreate)
+		r.Get("/purchases/{purchaseId}", d.PurchaseGet)
+		r.Post("/purchases/{purchaseId}/identity", d.PurchaseIdentity)
+		r.Post("/purchases/{purchaseId}/decision", d.PurchaseDecision)
+		r.Post("/purchases/{purchaseId}/authorization", d.PurchaseAuthorization)
+		r.Post("/purchases/{purchaseId}/submit", d.PurchaseSubmit)
+		r.Post("/purchases/{purchaseId}/reconcile", d.PurchaseReconcile)
+		r.Post("/purchases/{purchaseId}/cancel", d.PurchaseCancel)
 
 		r.Get("/auth/me", d.Me)
 		r.Patch("/auth/me", d.UpdateProfile)
@@ -191,4 +211,20 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	})
 
 	return r
+}
+
+func purchaseSafeLogger(next http.Handler) http.Handler {
+	regular := chimw.Logger(next)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/purchases/world/callback" {
+			regular.ServeHTTP(w, r)
+			return
+		}
+		logged := r.Clone(r.Context())
+		logged.RequestURI = r.URL.EscapedPath()
+		logged.URL.RawQuery = ""
+		chimw.Logger(http.HandlerFunc(func(w http.ResponseWriter, entry *http.Request) {
+			next.ServeHTTP(w, r.WithContext(entry.Context()))
+		})).ServeHTTP(w, logged)
+	})
 }
