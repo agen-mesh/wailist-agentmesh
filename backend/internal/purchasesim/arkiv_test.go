@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/agentmesh/backend/internal/arkiv"
+	"github.com/agentmesh/backend/internal/merchant"
 )
 
 type handlerTransport struct{ handler http.Handler }
@@ -36,12 +37,12 @@ func TestArkivProductionReaderAndRevalidation(t *testing.T) {
 			f.config.Now = time.Now
 			f.Reset()
 			c := offerClient(t, f)
-			page, err := c.Query(context.Background(), arkiv.QueryOptions{Capability: "summarize", MaxPriceMicros: 1000000})
+			page, err := c.Query(context.Background(), arkiv.QueryOptions{Capability: merchant.Capability, MaxPriceMicros: 1000000})
 			if err != nil || len(page.Offers) != 1 || page.Rejected != 0 {
 				t.Fatalf("valid fixture rejected: %v", err)
 			}
 			accepted := page.Offers[0]
-			if accepted.EntityKey != f.OfferKey() || accepted.Owner != f.config.Payee || accepted.PriceMicros != 1000000 || accepted.Payload.Endpoint != f.config.Resource || accepted.ExpiresAtBlock == accepted.ValidUntil {
+			if accepted.EntityKey != f.OfferKey() || accepted.Owner != f.config.Payee || accepted.PriceMicros != 1000000 || accepted.Payload.Endpoint != f.config.Resource || accepted.ExpiresAtBlock == accepted.ValidUntil || accepted.Capability != merchant.Capability {
 				t.Fatal("offer snapshot terms mismatch")
 			}
 			setFaults(t, f, Faults{Arkiv: mode})

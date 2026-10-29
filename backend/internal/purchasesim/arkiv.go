@@ -63,7 +63,7 @@ func (f *Fixture) reviseOffer(mode string) {
 		panic("static simulation offer is not serializable")
 	}
 	e := entity{Key: f.OfferKey(), Owner: owner, CreatedAt: hexQuantity(4096), UpdatedAt: hexQuantity(head), ExpiresAt: hexQuantity(expires), ContentType: "application/json", Payload: hexutil.Encode(encoded), Attributes: []attribute{
-		{"project", "str", "agentmesh-mumbai"}, {"kind", "str", "service-offer-v1"}, {"capability", "str", "summarize"},
+		{"project", "str", "agentmesh-mumbai"}, {"kind", "str", "service-offer-v1"}, {"capability", "str", "text.digest.v1"},
 		{"settlement_chain", "u64", hexQuantity(ArcChainID)}, {"asset", "addr", Asset}, {"price_micros", "u64", hexQuantity(f.price.Uint64())},
 		{"version", "u64", hexQuantity(version)}, {"status", "str", "active"}, {"valid_until", "u64", hexQuantity(until)},
 	}}
