@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PurchaseOrder } from "@/lib/purchase";
+import type { PurchaseAllowance, PurchaseOrder } from "@/lib/purchase";
 import { authorization, config, offer, order, PAYER, TEST_NOW } from "./test-fixtures";
 
 const api = vi.hoisted(() => ({
@@ -9,22 +9,27 @@ const api = vi.hoisted(() => ({
   reconcileOrder: vi.fn(), cancelOrder: vi.fn(),
 }));
 const providerForm = vi.hoisted(() => vi.fn());
+const session = vi.hoisted(() => ({ accountId: "account-a" }));
 vi.mock("@/lib/purchase", () => ({ purchaseAPI: api }));
-vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ loading: false, signedIn: true, user: { id: "account-a" }, offline: false, retry: vi.fn() }) }));
+vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ loading: false, signedIn: true, user: { id: session.accountId }, offline: false, retry: vi.fn() }) }));
 vi.mock("@/components/Topbar", () => ({ Topbar: () => <header>AgentMesh</header> }));
 vi.mock("./ProviderOfferForm", () => ({ ProviderOfferForm: (props: { disabled: boolean }) => { providerForm(props); return null; } }));
 import { PurchasesPage } from "./PurchasesPage";
 
 let stored: PurchaseOrder;
+let budget: PurchaseAllowance;
 let walletRequest: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  vi.clearAllMocks(); vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(TEST_NOW);
+  vi.resetAllMocks(); vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(TEST_NOW);
+  session.accountId = "account-a";
+  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
   sessionStorage.clear(); window.history.replaceState(null, "", "/purchases?order=order-1&success=true");
   stored = order({ state: "awaiting_approval", approvedAt: undefined, canApprove: true, canAuthorize: false });
   api.config.mockResolvedValue(config); api.offers.mockResolvedValue({ offers: [offer()] });
   api.wallet.mockResolvedValue({ address: PAYER, verifiedAt: "2026-11-05T11:00:00Z" });
-  api.allowance.mockResolvedValue({ wallet: PAYER, chainId: config.chainId, asset: config.asset, limitMicros: "1000000", reservedMicros: "0", consumedMicros: "0", availableMicros: "1000000" });
+  budget = { wallet: PAYER, chainId: config.chainId, asset: config.asset, limitMicros: "50000", reservedMicros: "0", consumedMicros: "0", availableMicros: "50000" };
+  api.allowance.mockImplementation(async () => ({ ...budget }));
   api.getOrder.mockImplementation(async () => stored);
   api.decideOrder.mockImplementation(async (_id, _hash, decision) => {
     stored = decision === "approve" ? order() : order({ state: "denied", approvedAt: undefined, canAuthorize: false, canCancel: false });
@@ -40,7 +45,7 @@ beforeEach(() => {
   Object.defineProperty(window, "ethereum", { configurable: true, value: { request: walletRequest } });
 });
 
-afterEach(() => { cleanup(); vi.useRealTimers(); Reflect.deleteProperty(window, "ethereum"); });
+afterEach(() => { cleanup(); vi.useRealTimers(); Reflect.deleteProperty(window, "ethereum"); Reflect.deleteProperty(document, "visibilityState"); });
 
 describe("purchase action sequence", () => {
   it("does not approve or sign because a World return URL says success", async () => {
@@ -106,5 +111,112 @@ describe("purchase action sequence", () => {
     expect((screen.getByRole("button", { name: "Create exact order" }) as HTMLButtonElement).disabled).toBe(true);
     expect(api.beginIdentity).not.toHaveBeenCalled();
     expect(api.prepareAuthorization).not.toHaveBeenCalled();
+  });
+});
+
+describe("authoritative spending-limit refresh", () => {
+  it("shows consumed funds after payment completes without a reload", async () => {
+    stored = order();
+    api.submitAuthorization.mockImplementation(async () => {
+      budget = { ...budget, consumedMicros: "10000", availableMicros: "40000" };
+      stored = { ...authorization().order, state: "completed", result: "Service delivered", canReconcile: false };
+      return stored;
+    });
+    render(<PurchasesPage />);
+    await screen.findByText("0.05 available · 0 reserved · 0 spent");
+    fireEvent.click(screen.getByRole("button", { name: "Sign exact payment" }));
+    await screen.findByText("Service complete");
+    await screen.findByText("0.04 available · 0 reserved · 0.01 spent");
+    expect(api.submitAuthorization).toHaveBeenCalledOnce();
+  });
+
+  it("refreshes reserved funds when background order polling observes release", async () => {
+    stored = order();
+    render(<PurchasesPage />);
+    await screen.findByText("0.05 available · 0 reserved · 0 spent");
+    stored = authorization().order;
+    budget = { ...budget, reservedMicros: "10000", availableMicros: "40000" };
+    fireEvent(document, new Event("visibilitychange"));
+    await screen.findByText("Authorization prepared");
+    await screen.findByText("0.04 available · 0.01 reserved · 0 spent");
+    expect(api.prepareAuthorization).not.toHaveBeenCalled();
+    expect(api.submitAuthorization).not.toHaveBeenCalled();
+  });
+
+  it("refreshes released reservations after explicit reconciliation", async () => {
+    stored = { ...authorization().order, state: "payment_unknown" };
+    budget = { ...budget, reservedMicros: "10000", availableMicros: "40000" };
+    api.reconcileOrder.mockImplementation(async () => {
+      stored = { ...stored, state: "expired", canReconcile: false };
+      budget = { ...budget, reservedMicros: "0", availableMicros: "50000" };
+      return stored;
+    });
+    render(<PurchasesPage />);
+    await screen.findByText("0.04 available · 0.01 reserved · 0 spent");
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile original order" }));
+    await screen.findByText("Order expired");
+    await screen.findByText("0.05 available · 0 reserved · 0 spent");
+  });
+
+  it("reads the reservation even when preparation and the order refresh lose their responses", async () => {
+    stored = order();
+    api.prepareAuthorization.mockImplementation(async () => {
+      budget = { ...budget, reservedMicros: "10000", availableMicros: "40000" };
+      api.getOrder.mockRejectedValue(new Error("Order response lost"));
+      throw new Error("Preparation response lost");
+    });
+    render(<PurchasesPage />);
+    await screen.findByText("0.05 available · 0 reserved · 0 spent");
+    fireEvent.click(screen.getByRole("button", { name: "Sign exact payment" }));
+    await screen.findByText("Preparation response lost");
+    await screen.findByText("0.04 available · 0.01 reserved · 0 spent");
+    expect(api.submitAuthorization).not.toHaveBeenCalled();
+  });
+
+  it("removes stale figures when the ledger read fails after a state change", async () => {
+    stored = order();
+    render(<PurchasesPage />);
+    await screen.findByText("0.05 available · 0 reserved · 0 spent");
+    api.allowance.mockRejectedValue(new Error("Ledger unavailable"));
+    stored = { ...authorization().order, state: "payment_unknown" };
+    fireEvent(document, new Event("visibilitychange"));
+    await screen.findByText(/Your spending limit could not be refreshed/);
+    expect(screen.queryByText("0.05 available · 0 reserved · 0 spent")).toBeNull();
+    expect(screen.getByText("Payment outcome unresolved")).toBeTruthy();
+  });
+
+  it("does not replace a newer ledger response with an older delayed read", async () => {
+    stored = order();
+    render(<PurchasesPage />);
+    await screen.findByText("0.05 available · 0 reserved · 0 spent");
+    let finishOld!: (value: PurchaseAllowance) => void;
+    api.allowance.mockImplementationOnce(() => new Promise<PurchaseAllowance>((resolve) => { finishOld = resolve; }));
+    stored = authorization().order;
+    fireEvent(document, new Event("visibilitychange"));
+    await waitFor(() => expect(finishOld).toBeTypeOf("function"));
+    stored = { ...stored, state: "completed", result: "Service delivered", canReconcile: false };
+    budget = { ...budget, consumedMicros: "10000", availableMicros: "40000" };
+    fireEvent(document, new Event("visibilitychange"));
+    await screen.findByText("0.04 available · 0 reserved · 0.01 spent");
+    await act(async () => { finishOld({ ...budget, consumedMicros: "0", reservedMicros: "10000" }); });
+    expect(screen.getByText("0.04 available · 0 reserved · 0.01 spent")).toBeTruthy();
+  });
+
+  it("ignores the previous account's delayed ledger response", async () => {
+    stored = order();
+    const view = render(<PurchasesPage />);
+    await screen.findByText("0.05 available · 0 reserved · 0 spent");
+    let finishOld!: (value: PurchaseAllowance) => void;
+    api.allowance.mockImplementationOnce(() => new Promise<PurchaseAllowance>((resolve) => { finishOld = resolve; }));
+    stored = authorization().order;
+    fireEvent(document, new Event("visibilitychange"));
+    await waitFor(() => expect(finishOld).toBeTypeOf("function"));
+    session.accountId = "account-b";
+    budget = { ...budget, limitMicros: "200000", availableMicros: "200000" };
+    api.getOrder.mockRejectedValue(new Error("Order belongs to another account"));
+    view.rerender(<PurchasesPage />);
+    await screen.findByText("0.2 available · 0 reserved · 0 spent");
+    await act(async () => { finishOld({ ...budget, limitMicros: "50000", availableMicros: "40000", reservedMicros: "10000" }); });
+    expect(screen.getByText("0.2 available · 0 reserved · 0 spent")).toBeTruthy();
   });
 });
