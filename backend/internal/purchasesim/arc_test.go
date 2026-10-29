@@ -267,3 +267,51 @@ func TestPendingNonceOrderAndMiningDeadline(t *testing.T) {
 		t.Fatal("expired pending authorization was consumed")
 	}
 }
+
+func TestExternalConsumedWithoutEventControl(t *testing.T) {
+	for _, fault := range []string{"none", "consumed_without_event"} {
+		t.Run(fault, func(t *testing.T) {
+			f, _ := testFixture(t)
+			setFaults(t, f, Faults{RPC: fault})
+			a := testAuthorization(t, f, 1)
+			raw, hash := signedTransaction(t, packAuthorization(t, a), 3, 0, nil)
+			before := f.Observations()
+			got, err := f.SubmitExternal(raw)
+			if err != nil || got != hash.Hex() {
+				t.Fatal("external authorization submission rejected")
+			}
+			after := f.Observations()
+			if after.ConsumedAuthorizations-before.ConsumedAuthorizations != 1 || after.SendAttempts != 0 || after.ExternalAttempts != 1 || len(after.ExternalTransactionHashes) != 1 || after.ExternalTransactionHashes[0] != hash.Hex() {
+				t.Fatal("external consumption counters mismatch")
+			}
+			call := append(crypto.Keccak256([]byte("authorizationState(address,bytes32)"))[:4], common.LeftPadBytes(a.From.Bytes(), 32)...)
+			call = append(call, a.Nonce.Bytes()...)
+			state := result[string](t, rpc(t, f.ArcHandler(), "eth_call", map[string]string{"to": Asset, "data": hexutil.Encode(call)}, "latest"))
+			if state != hexutil.Encode(common.LeftPadBytes([]byte{1}, 32)) {
+				t.Fatal("submitted payer authorization nonce was not consumed")
+			}
+			receipt := result[*types.Receipt](t, rpc(t, f.ArcHandler(), "eth_getTransactionReceipt", hash.Hex()))
+			logs := result[[]*types.Log](t, rpc(t, f.ArcHandler(), "eth_getLogs", map[string]any{"address": Asset, "fromBlock": "0x100"}))
+			wantLogs := 2
+			if fault == "consumed_without_event" {
+				wantLogs = 0
+			}
+			if receipt == nil || receipt.Status != 1 || receipt.TxHash != hash || len(receipt.Logs) != wantLogs || len(logs) != wantLogs {
+				t.Fatalf("external fault produced incorrect receipt/query event count, expected %d", wantLogs)
+			}
+			if fault == "none" && (receipt.Logs[0].Topics[2] != a.Nonce || new(big.Int).SetBytes(receipt.Logs[1].Data).Cmp(a.Value) != 0) {
+				t.Fatal("positive external control has no exact transfer")
+			}
+			if _, err := f.SubmitExternal(raw); err != nil {
+				t.Fatal("identical external retry rejected")
+			}
+			after = f.Observations()
+			if after.ConsumedAuthorizations != 1 || after.UniqueTransactions != 1 || after.SendAttempts != 0 || after.ExternalAttempts != 2 || len(after.ExternalTransactionHashes) != 1 {
+				t.Fatal("external retry changed payment identity or own-send count")
+			}
+			if !f.Capabilities().Features["arc.external_consumed_without_event"] {
+				t.Fatal("external nonce-only capability is not advertised")
+			}
+		})
+	}
+}

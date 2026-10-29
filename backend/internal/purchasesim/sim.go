@@ -164,6 +164,7 @@ func (f *Fixture) SetFaults(faults Faults) error {
 
 func (f *Fixture) Capabilities() Capabilities {
 	features := map[string]bool{"arc.signed_dynamic_fee": true, "arc.external_relayer": true, "arc.log_filters": true, "state.restore": true, "arkiv.read": true, "arkiv.write": false, "merchant.execute": false}
+	features["arc.external_consumed_without_event"] = true
 	for _, name := range rpcFaults {
 		features["rpc."+name] = true
 	}

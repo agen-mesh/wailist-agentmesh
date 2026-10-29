@@ -198,7 +198,11 @@ func (f *Fixture) SubmitExternal(rawSignedHex string) (string, error) {
 	defer f.mu.Unlock()
 	f.obs.ExternalAttempts++
 	before := len(f.state.Transactions)
-	hash, err := f.acceptRaw(rawSignedHex, "none")
+	outcome := "none"
+	if f.faults.RPC == "consumed_without_event" {
+		outcome = f.faults.RPC
+	}
+	hash, err := f.acceptRaw(rawSignedHex, outcome)
 	if err == nil && len(f.state.Transactions) > before {
 		f.obs.ExternalTransactionHashes = append(f.obs.ExternalTransactionHashes, hash)
 	}
