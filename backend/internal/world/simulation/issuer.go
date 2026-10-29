@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"sync"
 	"time"
 )
@@ -28,10 +29,22 @@ const (
 type Outcome string
 
 const (
-	Success Outcome = "success"
-	Denied  Outcome = "denied"
-	Stale   Outcome = "stale"
+	Success         Outcome = "success"
+	Denied          Outcome = "denied"
+	Stale           Outcome = "stale"
+	WrongAudience   Outcome = "wrong_audience"
+	WrongNonce      Outcome = "wrong_nonce"
+	WrongIssuer     Outcome = "wrong_issuer"
+	Expired         Outcome = "expired"
+	MissingAuthTime Outcome = "missing_auth_time"
+	FutureAuth      Outcome = "future_auth"
+	BadSignature    Outcome = "bad_signature"
+	TokenError      Outcome = "token_endpoint_error"
 )
+
+func SupportedOutcomes() []Outcome {
+	return []Outcome{Success, Denied, Stale, WrongAudience, WrongNonce, WrongIssuer, Expired, MissingAuthTime, FutureAuth, BadSignature, TokenError}
+}
 
 var errSimulation = errors.New("world simulation: invalid local configuration or request")
 
@@ -46,7 +59,7 @@ func (Registration) String() string   { return "world.simulation.Registration{pr
 func (Registration) GoString() string { return "world.simulation.Registration{private}" }
 
 type grant struct {
-	nonce, challenge           string
+	nonce, challenge, subject  string
 	authenticatedAt, expiresAt time.Time
 	outcome                    Outcome
 }
@@ -61,6 +74,7 @@ type Issuer struct {
 	key          *rsa.PrivateKey
 	mu           sync.Mutex
 	outcome      Outcome
+	subject      string
 	codes        map[string]grant
 	observations Observations
 }
@@ -88,7 +102,7 @@ func New(redirectURI string) (*Issuer, error) {
 	if err != nil {
 		return nil, errSimulation
 	}
-	i := &Issuer{key: key, outcome: Success, codes: make(map[string]grant), registration: Registration{
+	i := &Issuer{key: key, outcome: Success, subject: Subject, codes: make(map[string]grant), registration: Registration{
 		Issuer: issuerURL, ClientID: "local-simulation-" + clientID, ClientSecret: clientSecret, RedirectURI: redirectURI,
 	}}
 	i.server = httptest.NewServer(http.HandlerFunc(i.serve))
@@ -104,8 +118,25 @@ func (i *Issuer) Observations() Observations {
 	return i.observations
 }
 
+// SetSubject changes only future authorizations; existing codes and observations
+// remain intact so changing scenarios cannot erase prior behavior.
+func (i *Issuer) SetSubject(subject string) error {
+	if len(subject) == 0 || len(subject) > 255 {
+		return errSimulation
+	}
+	for _, c := range subject {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.' || c == ':') {
+			return errSimulation
+		}
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.subject = subject
+	return nil
+}
+
 func (i *Issuer) SetOutcome(outcome Outcome) error {
-	if outcome != Success && outcome != Denied && outcome != Stale {
+	if !slices.Contains(SupportedOutcomes(), outcome) {
 		return errSimulation
 	}
 	i.mu.Lock()
@@ -225,7 +256,7 @@ func (i *Issuer) authorize(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "simulation_capacity", 503)
 			return
 		}
-		i.codes[code] = grant{nonce: q.Get("nonce"), challenge: q.Get("code_challenge"), authenticatedAt: now, expiresAt: now.Add(5 * time.Minute), outcome: i.outcome}
+		i.codes[code] = grant{nonce: q.Get("nonce"), challenge: q.Get("code_challenge"), subject: i.subject, authenticatedAt: now, expiresAt: now.Add(5 * time.Minute), outcome: i.outcome}
 		callback.Set("code", code)
 	}
 	i.mu.Unlock()
@@ -263,20 +294,41 @@ func (i *Issuer) token(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid_grant", 400)
 		return
 	}
+	if g.outcome == TokenError {
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, map[string]string{"error": "invalid_grant"})
+		return
+	}
 	now := time.Now()
-	authTime := g.authenticatedAt
-	if g.outcome == Stale {
-		authTime = now.Add(-time.Hour)
+	claims := map[string]any{"iss": issuerURL, "sub": g.subject, "aud": i.registration.ClientID, "exp": now.Add(5 * time.Minute).Unix(), "iat": now.Unix(),
+		"nonce": g.nonce, "auth_time": g.authenticatedAt.Unix(), "acr": orbACR, "amr": []string{"pop"}}
+	switch g.outcome {
+	case Stale:
+		claims["auth_time"] = now.Add(-time.Hour).Unix()
+	case WrongAudience:
+		claims["aud"] = "local-simulation-other-client"
+	case WrongNonce:
+		claims["nonce"] = "local-simulation-wrong-nonce"
+	case WrongIssuer:
+		claims["iss"] = "https://auth.world.org"
+	case Expired:
+		claims["exp"] = now.Add(-time.Minute).Unix()
+	case MissingAuthTime:
+		delete(claims, "auth_time")
+	case FutureAuth:
+		claims["auth_time"] = now.Add(time.Hour).Unix()
 	}
 	header, _ := json.Marshal(map[string]any{"alg": "RS256", "kid": "local-simulation-key", "typ": "JWT"})
-	claims, _ := json.Marshal(map[string]any{"iss": issuerURL, "sub": Subject, "aud": i.registration.ClientID, "exp": now.Add(5 * time.Minute).Unix(), "iat": now.Unix(),
-		"nonce": g.nonce, "auth_time": authTime.Unix(), "acr": orbACR, "amr": []string{"pop"}})
-	unsigned := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(claims)
+	payload, _ := json.Marshal(claims)
+	unsigned := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(payload)
 	digest := sha256.Sum256([]byte(unsigned))
 	signature, err := rsa.SignPKCS1v15(rand.Reader, i.key, crypto.SHA256, digest[:])
 	if err != nil {
 		http.Error(w, "simulation_signing", 500)
 		return
+	}
+	if g.outcome == BadSignature {
+		signature[0] ^= 0x80
 	}
 	writeJSON(w, map[string]any{"id_token": unsigned + "." + base64.RawURLEncoding.EncodeToString(signature), "access_token": "local-simulation-only", "token_type": "Bearer", "expires_in": 300})
 }

@@ -27,7 +27,8 @@ func TestControlledApplicationIssuer(t *testing.T) {
 	if issuer.Observations().TokenRequests != 0 {
 		t.Fatal("new issuer has token requests")
 	}
-	for _, outcome := range []simulation.Outcome{simulation.Success, simulation.Denied, simulation.Stale} {
+	publicKey := fixturePublicKey(t, issuer.HTTPClient(), registration.Issuer)
+	for _, outcome := range simulation.SupportedOutcomes() {
 		t.Run(string(outcome), func(t *testing.T) {
 			before := issuer.Observations().TokenRequests
 			if err := issuer.SetOutcome(outcome); err != nil {
@@ -37,8 +38,11 @@ func TestControlledApplicationIssuer(t *testing.T) {
 				t.Fatal("outcome change erased token request history")
 			}
 			store := &memoryStore{rows: make(map[string]*row)}
+			httpClient := issuer.HTTPClient()
+			observer := &observingTransport{next: httpClient.Transport}
+			httpClient.Transport = observer
 			client, err := world.New(context.Background(), world.Config{Enabled: true, Environment: world.Sandbox, Issuer: registration.Issuer,
-				ClientID: registration.ClientID, ClientSecret: registration.ClientSecret, RedirectURI: registration.RedirectURI}, store, issuer.HTTPClient())
+				ClientID: registration.ClientID, ClientSecret: registration.ClientSecret, RedirectURI: registration.RedirectURI}, store, httpClient)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -64,6 +68,9 @@ func TestControlledApplicationIssuer(t *testing.T) {
 			if err != nil {
 				t.Fatal("invalid local callback")
 			}
+			if err := issuer.SetOutcome(simulation.Success); err != nil {
+				t.Fatal(err)
+			}
 			evidence, err := client.Callback(context.Background(), binding, callback.Query())
 			switch outcome {
 			case simulation.Success:
@@ -74,11 +81,20 @@ func TestControlledApplicationIssuer(t *testing.T) {
 				if !errors.Is(err, world.ErrDenied) || evidence.AttemptID != "" || store.completed {
 					t.Fatal("denial yielded evidence")
 				}
-			case simulation.Stale:
+			case simulation.TokenError:
+				if !errors.Is(err, world.ErrProvider) || err.Error() != world.ErrProvider.Error() || evidence.AttemptID != "" || store.completed {
+					t.Fatal("provider failure yielded evidence or an unsanitized error")
+				}
+			default:
 				if !errors.Is(err, world.ErrToken) || evidence.AttemptID != "" || store.completed {
-					t.Fatal("stale authentication yielded evidence")
+					t.Fatal("invalid authentication yielded evidence")
 				}
 			}
+			authorization, err := url.Parse(auth.AuthorizationURL)
+			if err != nil {
+				t.Fatal("invalid local authorization URL")
+			}
+			assertObservedToken(t, outcome, observer.snapshot(), publicKey, registration.ClientID, authorization.Query().Get("nonce"))
 			expected := before
 			if outcome != simulation.Denied {
 				expected++
@@ -130,6 +146,93 @@ func TestSimulationConfiguration(t *testing.T) {
 			issuer.Close()
 			t.Fatal("unsafe simulation redirect accepted")
 		}
+	}
+}
+
+func TestScenarioIdentityIsolation(t *testing.T) {
+	issuer, err := simulation.New("http://127.0.0.1:8000/purchases/world/callback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(issuer.Close)
+	registration := issuer.Registration()
+	authorize := func(accountID string) func() world.Evidence {
+		t.Helper()
+		store := &memoryStore{rows: make(map[string]*row)}
+		client, err := world.New(context.Background(), world.Config{Enabled: true, Environment: world.Sandbox, Issuer: registration.Issuer,
+			ClientID: registration.ClientID, ClientSecret: registration.ClientSecret, RedirectURI: registration.RedirectURI}, store, issuer.HTTPClient())
+		if err != nil {
+			t.Fatal(err)
+		}
+		binding := world.Binding{AccountID: accountID, OrderID: "synthetic-order", IntentHash: strings.Repeat("a", 64), AllowEnrollment: true}
+		auth, err := client.Begin(context.Background(), binding)
+		if err != nil {
+			t.Fatal(err)
+		}
+		browserURL, err := issuer.BrowserURL(auth.AuthorizationURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		browser := &http.Client{Timeout: time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		response, err := browser.Get(browserURL)
+		if err != nil {
+			t.Fatal("local browser request failed")
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusFound {
+			t.Fatal("local issuer did not return a callback")
+		}
+		callback, err := url.Parse(response.Header.Get("Location"))
+		if err != nil {
+			t.Fatal("invalid local callback")
+		}
+		return func() world.Evidence {
+			t.Helper()
+			before := issuer.Observations().TokenRequests
+			evidence, err := client.Callback(context.Background(), binding, callback.Query())
+			if err != nil || !evidence.Demo || evidence.Environment != world.Sandbox || !store.completed {
+				t.Fatal("real client rejected scenario authentication")
+			}
+			if _, err := client.Callback(context.Background(), binding, callback.Query()); !errors.Is(err, world.ErrAttemptUnavailable) {
+				t.Fatal("scenario callback replay accepted")
+			}
+			if issuer.Observations().TokenRequests != before+1 {
+				t.Fatal("scenario callback did not perform exactly one exchange")
+			}
+			return evidence
+		}
+	}
+	original := authorize("original-account")
+	if err := issuer.SetSubject("local-simulation-scenario-one"); err != nil {
+		t.Fatal(err)
+	}
+	first := authorize("first-account")
+	same := authorize("first-account")
+	if original().Subject != simulation.Subject {
+		t.Fatal("scenario rotation changed an existing code identity")
+	}
+	firstSubject := first().Subject
+	if firstSubject == "" || firstSubject == simulation.Subject || same().Subject != firstSubject {
+		t.Fatal("scenario identity was not distinct and stable")
+	}
+	for _, subject := range []string{"", strings.Repeat("s", 256), "subject\n", "subject other", "subject/other"} {
+		if err := issuer.SetSubject(subject); err == nil {
+			t.Fatal("invalid synthetic subject accepted")
+		}
+	}
+	if authorize("first-account")().Subject != firstSubject {
+		t.Fatal("invalid subject change altered the active scenario")
+	}
+	before := issuer.Observations().TokenRequests
+	if err := issuer.SetSubject("local-simulation-scenario-two"); err != nil {
+		t.Fatal(err)
+	}
+	if issuer.Observations().TokenRequests != before {
+		t.Fatal("scenario rotation erased exchange observations")
+	}
+	secondSubject := authorize("second-account")().Subject
+	if secondSubject == "" || secondSubject == firstSubject || secondSubject == simulation.Subject {
+		t.Fatal("fresh scenario reused a prior identity")
 	}
 }
 
