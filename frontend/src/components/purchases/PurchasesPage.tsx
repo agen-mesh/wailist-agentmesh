@@ -25,6 +25,7 @@ export function PurchasesPage() {
   const [offersError, setOffersError] = useState("");
   const [wallet, setWallet] = useState<PurchaseWallet | null>(null);
   const [allowance, setAllowance] = useState<PurchaseAllowance | null>(null);
+  const [allowanceError, setAllowanceError] = useState("");
   const [accountError, setAccountError] = useState("");
   const [provider, setProvider] = useState<BrowserWallet | null>(null);
   const [account, setAccount] = useState("");
@@ -42,8 +43,24 @@ export function PurchasesPage() {
   const [now, setNow] = useState(() => Date.now());
   const locked = useRef(false);
   const accountEpoch = useRef(0);
+  const allowanceRequest = useRef(0);
   const requestId = useRef<{ terms: string; id: string } | null>(null);
   const current = usePurchaseOrder(auth.user?.id, Boolean(busy));
+
+  const refreshAllowance = useCallback(async (resetLimit = false) => {
+    const epoch = accountEpoch.current;
+    const ticket = ++allowanceRequest.current;
+    setAllowance(null); setAllowanceError("");
+    try {
+      const budget = await purchaseAPI.allowance();
+      if (epoch !== accountEpoch.current || ticket !== allowanceRequest.current) return;
+      setAllowance(budget);
+      if (resetLimit) setLimit(usdc(budget.limitMicros));
+    } catch {
+      if (epoch !== accountEpoch.current || ticket !== allowanceRequest.current) return;
+      setAllowanceError("Your spending limit could not be refreshed. Use Refresh account to check the server ledger.");
+    }
+  }, []);
 
   const inspectWallet = useCallback(async () => {
     const next = browserWallet();
@@ -84,25 +101,35 @@ export function PurchasesPage() {
     void Promise.resolve().then(async () => {
       if (!live) return;
       setConfig(null); setWallet(null); setAllowance(null); setOffers([]); setSelected(null);
-      setError(""); setAccountError(""); setOffersError(""); setConfigError("");
+      setError(""); setAccountError(""); setAllowanceError(""); setOffersError(""); setConfigError("");
       setOffersLoading(true); setLimit(""); requestId.current = null;
       if (!auth.user?.id) return;
-      const [settings, listing, linked, budget] = await Promise.allSettled([
-        purchaseAPI.config(), purchaseAPI.offers(), purchaseAPI.wallet(), purchaseAPI.allowance(),
+      const [settings, listing, linked] = await Promise.allSettled([
+        purchaseAPI.config(), purchaseAPI.offers(), purchaseAPI.wallet(),
       ]);
       if (!live) return;
       if (settings.status === "fulfilled") setConfig(settings.value);
       else setConfigError("Purchase services are unavailable. No payment actions can start.");
       if (listing.status === "fulfilled") setOffers(listing.value.offers);
       else setOffersError("Live service discovery could not be read. Retry to check current offers.");
-      if (linked.status === "fulfilled") setWallet(linked.value);
+      if (linked.status === "fulfilled") {
+        if (linked.value) await refreshAllowance(true);
+        if (!live) return;
+        setWallet(linked.value);
+      }
       else setAccountError("Your linked payment wallet could not be confirmed.");
-      if (budget.status === "fulfilled") { setAllowance(budget.value); setLimit(usdc(budget.value.limitMicros)); }
-      else if (linked.status === "fulfilled" && linked.value) setAccountError("Your purchase allowance could not be confirmed. Refresh before signing.");
       setOffersLoading(false);
     });
     return () => { live = false; accountEpoch.current += 1; };
-  }, [auth.user?.id]);
+  }, [auth.user?.id, refreshAllowance]);
+
+  useEffect(() => {
+    if (!wallet?.address || !current.order?.signatureReleasedAt) return;
+    let live = true;
+    void Promise.resolve().then(() => { if (live) void refreshAllowance(); });
+    return () => { live = false; };
+  }, [wallet?.address, current.order?.id, current.order?.state, current.order?.signatureReleasedAt,
+    current.order?.txHash, current.order?.paymentEvent?.logIndex, refreshAllowance]);
 
   async function run(label: string, action: (isCurrent: () => boolean) => Promise<void>) {
     if (locked.current || !auth.signedIn) return;
@@ -144,34 +171,32 @@ export function PurchasesPage() {
       if (!isCurrent()) return;
       const linked = await purchaseAPI.linkWallet(challenge.id, signature);
       if (!isCurrent()) return;
+      await refreshAllowance(true);
+      if (!isCurrent()) return;
       setWallet(linked); setAccountError("");
       await inspectWallet();
-      try {
-        const budget = await purchaseAPI.allowance();
-        if (isCurrent()) { setAllowance(budget); setLimit(usdc(budget.limitMicros)); }
-      } catch { if (isCurrent()) setAccountError("Wallet linked. The spending limit could not be loaded; retry before purchasing."); }
     });
   }
 
   async function refreshAccount() {
     await run("Refreshing account", async (isCurrent) => {
-      const [linked, budget, settings] = await Promise.allSettled([purchaseAPI.wallet(), purchaseAPI.allowance(), purchaseAPI.config()]);
+      const [linked, settings] = await Promise.allSettled([purchaseAPI.wallet(), purchaseAPI.config()]);
       if (!isCurrent()) return;
       if (settings.status === "fulfilled") { setConfig(settings.value); setConfigError(""); }
       else { setConfig(null); setConfigError("Purchase services are unavailable. No payment actions can start."); }
       if (linked.status === "fulfilled") setWallet(linked.value);
       else setWallet(null);
-      if (budget.status === "fulfilled") setAllowance(budget.value);
-      else setAllowance(null);
-      setAccountError(linked.status === "rejected" || (linked.value && budget.status === "rejected") ? "The linked wallet or purchase limit could not be confirmed." : "");
+      setAccountError(linked.status === "rejected" ? "The linked wallet could not be confirmed." : "");
+      if (linked.status === "fulfilled" && linked.value) await refreshAllowance();
+      else { allowanceRequest.current += 1; setAllowance(null); setAllowanceError(""); }
     });
   }
 
   async function saveLimit(event: FormEvent) {
     event.preventDefault();
     await run("Saving spending limit", async (isCurrent) => {
-      const budget = await purchaseAPI.setAllowance(toMicros(limit));
-      if (isCurrent()) { setAllowance(budget); setAccountError(""); }
+      try { await purchaseAPI.setAllowance(toMicros(limit)); }
+      finally { if (isCurrent()) await refreshAllowance(); }
     });
   }
 
@@ -241,7 +266,7 @@ export function PurchasesPage() {
         if (!isCurrent()) return;
         const next = await purchaseAPI.submitAuthorization(order.id, signature);
         if (isCurrent()) current.accept(next);
-      } finally { if (isCurrent()) await current.refresh(order.id); }
+      } finally { if (isCurrent()) await Promise.all([current.refresh(order.id), refreshAllowance()]); }
     });
   }
 
@@ -251,7 +276,7 @@ export function PurchasesPage() {
     await run("Reconciling original order", async (isCurrent) => {
       current.invalidate();
       try { const next = await purchaseAPI.reconcileOrder(id); if (isCurrent()) current.accept(next); }
-      finally { if (isCurrent()) await current.refresh(id); }
+      finally { if (isCurrent()) await Promise.all([current.refresh(id), refreshAllowance()]); }
     });
   }
 
@@ -261,13 +286,13 @@ export function PurchasesPage() {
       if (!order.canCancel || order.signatureReleasedAt) throw new Error("Authorization may already be usable. Reconcile this order instead of cancelling.");
       current.invalidate();
       try { const next = await purchaseAPI.cancelOrder(order.id); if (isCurrent()) current.accept(next); }
-      finally { if (isCurrent()) await current.refresh(order.id); }
+      finally { if (isCurrent()) await Promise.all([current.refresh(order.id), refreshAllowance()]); }
     });
   }
 
   const unresolved = Boolean(current.order?.signatureReleasedAt) && !["completed", "denied", "cancelled"].includes(current.order?.state ?? "");
   const accountMatches = Boolean(wallet && account) && wallet?.address.toLowerCase() === account.toLowerCase();
-  const ready = Boolean(config?.enabled && wallet && !accountError && auth.signedIn);
+  const ready = Boolean(config?.enabled && wallet && allowance && !accountError && !allowanceError && auth.signedIn);
   const arkivRPC = process.env.NEXT_PUBLIC_ARKIV_RPC_URL;
 
   return <><Topbar /><main className={styles.page}>
@@ -307,6 +332,8 @@ export function PurchasesPage() {
               <label className={styles.field}>AgentMesh spending limit (USDC)<input className={styles.input} inputMode="decimal" value={limit} onChange={(event) => setLimit(event.target.value)} required /></label>
               <p className={styles.muted}>This limit applies to AgentMesh purchases. It does not constrain transactions made elsewhere from your wallet.</p>
               {allowance && <p className={styles.muted}>{usdc(allowance.availableMicros)} available · {usdc(allowance.reservedMicros)} reserved · {usdc(allowance.consumedMicros)} spent</p>}
+              {!allowance && !allowanceError && <p className={styles.muted} role="status">Refreshing spending limit...</p>}
+              {allowanceError && <p className={styles.error} role="alert">{allowanceError}</p>}
               <button className={styles.secondary} disabled={Boolean(busy) || !limit} type="submit">Set purchase limit</button>
             </form>}
           </section>
