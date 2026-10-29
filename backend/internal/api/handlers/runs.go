@@ -113,6 +113,10 @@ func (d *Deps) startRun(w http.ResponseWriter, r *http.Request, workflowID, trig
 	// way to avoid.
 	run, err := d.Store.CreateRunWithCooldown(ctx, workflowID, triggeredBy, inputJSON, runTriggerCooldown)
 	if err != nil {
+		if errors.Is(err, db.ErrPurchaseWaiting) {
+			respond.Error(w, http.StatusConflict, "This workflow has a waiting purchase; resume or stop that run")
+			return
+		}
 		var cooldownErr *db.ErrRunOnCooldown
 		if errors.As(err, &cooldownErr) {
 			// math.Ceil, not %.0f (which rounds to nearest): the caller must
