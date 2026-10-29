@@ -25,19 +25,25 @@ type Client struct {
 }
 
 func NewClient(rpcURL string, policy EndpointPolicy) (*Client, error) {
+	return NewClientWithHTTP(rpcURL, policy, nil)
+}
+
+func NewClientWithHTTP(rpcURL string, policy EndpointPolicy, transport *http.Client) (*Client, error) {
 	if rpcURL == "" || policy == nil {
 		return nil, ErrUnconfigured
 	}
 	if httpsURLSyntax(rpcURL) != nil {
 		return nil, fmt.Errorf("invalid arkiv RPC URL: %w", ErrEndpoint)
 	}
-	return &Client{
-		rpcURL: rpcURL, policy: policy, now: time.Now,
-		http: &http.Client{
-			Timeout:       10 * time.Second,
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		},
-	}, nil
+	client := &http.Client{Timeout: 10 * time.Second}
+	if transport != nil {
+		*client = *transport
+	}
+	if client.Timeout <= 0 || client.Timeout > 10*time.Second {
+		client.Timeout = 10 * time.Second
+	}
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &Client{rpcURL: rpcURL, policy: policy, now: time.Now, http: client}, nil
 }
 
 type QueryOptions struct {
