@@ -84,7 +84,14 @@ func NewRunner(
 	platformSpendEncMnemonic string,
 	encryptionKey string,
 	x402Cfg X402Config,
+	arcSnapshot ...arc.Config,
 ) *Runner {
+	var arcConfig arc.Config
+	if len(arcSnapshot) > 0 {
+		arcConfig = arcSnapshot[0]
+	} else {
+		arcConfig = arc.LoadConfig()
+	}
 	return &Runner{
 		store:                    store,
 		broker:                   broker,
@@ -94,7 +101,7 @@ func NewRunner(
 		platformSpendEncMnemonic: platformSpendEncMnemonic,
 		encryptionKey:            encryptionKey,
 		x402:                     x402Cfg,
-		arcConfig:                arc.LoadConfig(),
+		arcConfig:                arcConfig,
 	}
 }
 
