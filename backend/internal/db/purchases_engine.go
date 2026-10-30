@@ -52,8 +52,8 @@ func (s *Store) StopWaitingPurchaseRuns(ctx context.Context, workflowID string) 
 	return tag.RowsAffected() > 0, err
 }
 
-func (p *PurchaseStore) Pending(ctx context.Context) ([]purchase.Order, error) {
-	rows, err := p.store.pool.Query(ctx, `SELECT payload FROM purchase_orders WHERE state IN ('authorization_released','submitting','payment_unknown','paid','fulfilling','fulfillment_unknown') OR (coalesce(payload->>'signedEnvelope','') <> '' AND coalesce(payload->>'relayConfirmed','false') <> 'true') ORDER BY updated_at LIMIT 30`)
+func (p *PurchaseStore) Pending(ctx context.Context, after string) ([]purchase.Order, error) {
+	rows, err := p.store.pool.Query(ctx, `SELECT payload FROM purchase_orders WHERE id > coalesce(nullif($1,'')::uuid,'00000000-0000-0000-0000-000000000000'::uuid) AND (state IN ('authorization_released','submitting','payment_unknown','paid','fulfilling','fulfillment_unknown') OR (coalesce(payload->>'signedEnvelope','') <> '' AND coalesce(payload->>'relayConfirmed','false') <> 'true')) ORDER BY id LIMIT 30`, after)
 	if err != nil {
 		return nil, err
 	}

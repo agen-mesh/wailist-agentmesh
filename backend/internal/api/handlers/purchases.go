@@ -470,23 +470,34 @@ func (d *Deps) RunPurchaseReconciler(ctx context.Context) {
 	}
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
+	cursor := ""
 	for {
-		orders, err := d.Store.Purchases().Pending(ctx)
-		if err == nil {
-			for _, order := range orders {
-				step, cancel := context.WithTimeout(ctx, 12*time.Second)
-				o, _ := d.Purchases.Service.Reconcile(step, order.AccountID, order.ID)
-				d.wakePurchase(step, o)
-				cancel()
-				if ctx.Err() != nil {
-					return
-				}
-			}
-		}
+		cursor = d.reconcilePurchaseBatch(ctx, cursor)
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
 	}
+}
+
+func (d *Deps) reconcilePurchaseBatch(ctx context.Context, cursor string) string {
+	orders, err := d.Store.Purchases().Pending(ctx, cursor)
+	if err != nil {
+		return cursor
+	}
+	for _, order := range orders {
+		step, cancel := context.WithTimeout(ctx, 12*time.Second)
+		o, _ := d.Purchases.Service.Reconcile(step, order.AccountID, order.ID)
+		d.wakePurchase(step, o)
+		cancel()
+		cursor = order.ID
+		if ctx.Err() != nil {
+			return cursor
+		}
+	}
+	if len(orders) < 30 {
+		return ""
+	}
+	return cursor
 }
