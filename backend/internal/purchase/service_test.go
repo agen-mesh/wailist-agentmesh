@@ -115,12 +115,15 @@ func (m *testMerchant) Fulfill(context.Context, Order) (json.RawMessage, string,
 }
 
 type testRail struct {
-	mu      sync.Mutex
-	sent    atomic.Int32
-	journal *memoryJournal
-	event   *PaymentEvent
-	expired bool
-	lost    bool
+	mu              sync.Mutex
+	sent            atomic.Int32
+	recoveryCalls   atomic.Int32
+	settlementReads atomic.Int32
+	journal         *memoryJournal
+	event           *PaymentEvent
+	expired         bool
+	lost            bool
+	recoveryErr     error
 }
 
 func (r *testRail) Check(context.Context) error            { return nil }
@@ -143,12 +146,16 @@ func (r *testRail) Broadcast(_ context.Context, raw, hash string) error {
 	return nil
 }
 func (r *testRail) Reconcile(context.Context, Order) (Settlement, error) {
+	r.settlementReads.Add(1)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return Settlement{Event: r.event, ExpiredUnused: r.expired}, nil
 }
 func (r *testRail) Recover(context.Context, Order, string, string) (bool, error) {
-	return true, nil
+	r.recoveryCalls.Add(1)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.recoveryErr == nil, r.recoveryErr
 }
 func serviceFixture(t *testing.T) (*Service, *memoryJournal, *testRail, *testMerchant) {
 	t.Helper()
@@ -262,6 +269,91 @@ func TestExpiredUnusedReleasesReservationWithoutRefund(t *testing.T) {
 		t.Fatal("unused expiration changed principal")
 	}
 }
+
+func TestReconcileObservesSettlementDuringRelayUncertainty(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		paid, expired      bool
+		state              State
+		reserved, consumed int
+		fulfillments       int32
+	}{
+		{name: "confirmed_external_payment", paid: true, state: Completed, consumed: 1, fulfillments: 1},
+		{name: "confirmed_unused_expiry", expired: true, state: Expired},
+		{name: "unresolved_authorization", state: PaymentUnknown, reserved: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, j, r, m := serviceFixture(t)
+			o, err := s.ReleaseAuthorization(t.Context(), j.o.AccountID, j.o.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.lost = true
+			o, err = s.Submit(t.Context(), o.AccountID, o.ID, signOrder(t, o))
+			if !errors.Is(err, ErrUncertain) || o.SignedEnvelope == "" || o.TxHash == "" {
+				t.Fatal("missing persisted uncertain relay")
+			}
+			persisted := o
+			r.recoveryErr = ErrUncertain
+			r.expired = tc.expired
+			if tc.paid {
+				r.event = &PaymentEvent{ChainID: ChainID, TxHash: "external-relayer-hash", LogIndex: "4", BlockHash: "confirmed-block", BlockNumber: "260"}
+			}
+			for attempt := 0; attempt < 3; attempt++ {
+				o, err = s.Reconcile(t.Context(), o.AccountID, o.ID)
+				if tc.state == PaymentUnknown {
+					if !errors.Is(err, ErrUncertain) {
+						t.Fatalf("unresolved payment error: %v", err)
+					}
+				} else if err != nil {
+					t.Fatalf("authoritative settlement blocked by relay recovery: %v", err)
+				}
+				if o.State != tc.state || j.reserved != tc.reserved || j.consumed != tc.consumed || m.calls.Load() != tc.fulfillments {
+					t.Fatalf("settlement effects: state=%s reserved=%d consumed=%d fulfilled=%d", o.State, j.reserved, j.consumed, m.calls.Load())
+				}
+				if o.SignedEnvelope != persisted.SignedEnvelope || o.TxHash != persisted.TxHash || o.RelayConfirmed || j.nonce != 1 || r.sent.Load() != 1 {
+					t.Fatal("settlement changed the unresolved original relay")
+				}
+				if tc.paid && (o.PaymentEvent == nil || o.PaymentEvent.TxHash != r.event.TxHash) {
+					t.Fatal("external payment identity was not retained")
+				}
+			}
+			if r.recoveryCalls.Load() != 3 || r.settlementReads.Load() == 0 {
+				t.Fatal("relay uncertainty prevented authoritative settlement reads")
+			}
+			r.recoveryErr = nil
+			o, err = s.Reconcile(t.Context(), o.AccountID, o.ID)
+			if tc.state == PaymentUnknown && !errors.Is(err, ErrUncertain) || tc.state != PaymentUnknown && err != nil {
+				t.Fatalf("later recovery error: %v", err)
+			}
+			if !o.RelayConfirmed || o.State != tc.state || o.SignedEnvelope != persisted.SignedEnvelope || o.TxHash != persisted.TxHash || j.reserved != tc.reserved || j.consumed != tc.consumed || m.calls.Load() != tc.fulfillments || r.sent.Load() != 1 || j.nonce != 1 {
+				t.Fatal("later recovery repeated settlement or changed its original envelope")
+			}
+		})
+	}
+}
+
+func TestReconcileRejectsInvalidRelayBeforeSettlement(t *testing.T) {
+	s, j, r, m := serviceFixture(t)
+	o, err := s.ReleaseAuthorization(t.Context(), j.o.AccountID, j.o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.lost = true
+	o, err = s.Submit(t.Context(), o.AccountID, o.ID, signOrder(t, o))
+	if !errors.Is(err, ErrUncertain) {
+		t.Fatal(err)
+	}
+	r.recoveryErr = ErrDenied
+	r.expired = true
+	if _, err = s.Reconcile(t.Context(), o.AccountID, o.ID); !errors.Is(err, ErrDenied) {
+		t.Fatalf("invalid relay accepted: %v", err)
+	}
+	if r.settlementReads.Load() != 0 || j.reserved != 1 || j.consumed != 0 || m.calls.Load() != 0 || j.o.State != PaymentUnknown {
+		t.Fatal("integrity denial changed settlement")
+	}
+}
+
 func TestDisabledOrChangedOfferCannotRelease(t *testing.T) {
 	s, j, r, _ := serviceFixture(t)
 	s.Enabled = false
