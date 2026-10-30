@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -312,7 +313,7 @@ func (s *Service) Reconcile(ctx context.Context, account, id string) (Order, err
 		return Order{}, err
 	}
 	o, err = s.recoverRelay(ctx, o)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrUncertain) {
 		return o, err
 	}
 	if o.State == Completed || o.State == Expired || o.State == PaidToolFailed {

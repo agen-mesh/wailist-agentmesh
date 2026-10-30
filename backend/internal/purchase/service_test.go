@@ -333,24 +333,37 @@ func TestReconcileObservesSettlementDuringRelayUncertainty(t *testing.T) {
 	}
 }
 
-func TestReconcileRejectsInvalidRelayBeforeSettlement(t *testing.T) {
-	s, j, r, m := serviceFixture(t)
-	o, err := s.ReleaseAuthorization(t.Context(), j.o.AccountID, j.o.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.lost = true
-	o, err = s.Submit(t.Context(), o.AccountID, o.ID, signOrder(t, o))
-	if !errors.Is(err, ErrUncertain) {
-		t.Fatal(err)
-	}
-	r.recoveryErr = ErrDenied
-	r.expired = true
-	if _, err = s.Reconcile(t.Context(), o.AccountID, o.ID); !errors.Is(err, ErrDenied) {
-		t.Fatalf("invalid relay accepted: %v", err)
-	}
-	if r.settlementReads.Load() != 0 || j.reserved != 1 || j.consumed != 0 || m.calls.Load() != 0 || j.o.State != PaymentUnknown {
-		t.Fatal("integrity denial changed settlement")
+func TestReconcilePreservesNonRetryableRecoveryFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		recoveryErr error
+		journalFail bool
+	}{
+		{name: "invalid_envelope", recoveryErr: ErrDenied},
+		{name: "disabled_configuration", recoveryErr: ErrDisabled},
+		{name: "confirmation_persistence_failure", journalFail: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, j, r, m := serviceFixture(t)
+			o, err := s.ReleaseAuthorization(t.Context(), j.o.AccountID, j.o.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.lost = true
+			o, err = s.Submit(t.Context(), o.AccountID, o.ID, signOrder(t, o))
+			if !errors.Is(err, ErrUncertain) {
+				t.Fatal(err)
+			}
+			r.recoveryErr = tc.recoveryErr
+			r.expired = true
+			j.fail = tc.journalFail
+			if _, err = s.Reconcile(t.Context(), o.AccountID, o.ID); err == nil || tc.recoveryErr != nil && !errors.Is(err, tc.recoveryErr) {
+				t.Fatalf("nonretryable recovery failure changed: %v", err)
+			}
+			if r.settlementReads.Load() != 0 || j.reserved != 1 || j.consumed != 0 || m.calls.Load() != 0 || j.o.State != PaymentUnknown || j.o.RelayConfirmed {
+				t.Fatal("nonretryable recovery failure changed settlement")
+			}
+		})
 	}
 }
 
