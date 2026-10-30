@@ -127,6 +127,7 @@ type Order struct {
 	AuthorizationBlock  string          `json:"authorizationBlock,omitempty"`
 	TxHash              string          `json:"txHash,omitempty"`
 	SignedEnvelope      string          `json:"signedEnvelope,omitempty"`
+	RelayConfirmed      bool            `json:"relayConfirmed,omitempty"`
 	PaymentEvent        *PaymentEvent   `json:"paymentEvent,omitempty"`
 	Result              json.RawMessage `json:"result,omitempty"`
 	Reason              string          `json:"reason,omitempty"`
@@ -214,5 +215,6 @@ type Rail interface {
 	IsEOA(context.Context, string) error
 	Prepare(context.Context, Order, string) (Prepared, error)
 	Broadcast(context.Context, string, string) error
+	Recover(context.Context, Order, string, string) (bool, error)
 	Reconcile(context.Context, Order) (Settlement, error)
 }

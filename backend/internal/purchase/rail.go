@@ -1,6 +1,7 @@
 package purchase
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
@@ -197,6 +198,72 @@ func (r *ArcRail) Broadcast(ctx context.Context, raw, hash string) error {
 		return ErrUncertain
 	}
 	return nil
+}
+
+func (r *ArcRail) Recover(ctx context.Context, o Order, raw, signature string) (bool, error) {
+	b, err := hex.DecodeString(strings.TrimPrefix(raw, "0x"))
+	var tx types.Transaction
+	if err != nil || tx.UnmarshalBinary(b) != nil || tx.Hash().Hex() != o.TxHash || tx.ChainId().Cmp(big.NewInt(ChainID)) != 0 || tx.To() == nil || *tx.To() != common.HexToAddress(Asset) || tx.Value().Sign() != 0 {
+		return false, ErrDenied
+	}
+	a, err := Authorization(o, signature)
+	if err != nil {
+		return false, ErrDenied
+	}
+	data, err := arc.AuthorizationData(a)
+	if err != nil || !bytes.Equal(data, tx.Data()) {
+		return false, ErrDenied
+	}
+	sender, err := types.Sender(types.LatestSignerForChainID(big.NewInt(ChainID)), &tx)
+	if err != nil {
+		return false, ErrDenied
+	}
+	if err = r.Check(ctx); err != nil {
+		return false, err
+	}
+	confirmed, _, err := r.confirmed(ctx)
+	if err != nil {
+		return false, err
+	}
+	var count string
+	if err = r.call(ctx, "eth_getTransactionCount", []any{sender.Hex(), fmt.Sprintf("0x%x", confirmed)}, &count); err != nil {
+		return false, err
+	}
+	nonce, err := hexUint(count)
+	if err != nil {
+		return false, err
+	}
+	if nonce > tx.Nonce() {
+		return true, nil
+	}
+	var known *struct {
+		Hash string `json:"hash"`
+	}
+	if err = r.call(ctx, "eth_getTransactionByHash", []any{o.TxHash}, &known); err != nil {
+		return false, err
+	}
+	if known != nil {
+		if !strings.EqualFold(known.Hash, o.TxHash) {
+			return false, ErrUncertain
+		}
+		return false, nil
+	}
+	if err = r.call(ctx, "eth_getTransactionCount", []any{sender.Hex(), "latest"}, &count); err != nil {
+		return false, err
+	}
+	nonce, err = hexUint(count)
+	if err != nil {
+		return false, err
+	}
+	if nonce > tx.Nonce() {
+		return false, nil
+	}
+	if nonce < tx.Nonce() {
+		return false, ErrUncertain
+	}
+	// Even after authorization expiry, these exact bytes can consume the missing
+	// sender nonce through a reverted transaction without a replacement payment.
+	return false, r.Broadcast(ctx, raw, o.TxHash)
 }
 
 type rpcLog struct {

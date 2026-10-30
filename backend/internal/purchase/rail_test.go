@@ -25,6 +25,100 @@ type railFixture struct {
 	filters []map[string]any
 }
 
+type relayRecoveryCaller struct {
+	*railFixture
+	confirmedNonce, latestNonce   uint64
+	known, lookupError, wrongHash bool
+	raw                           string
+}
+
+func (f *relayRecoveryCaller) Call(ctx context.Context, endpoint, method string, args []any, out any) error {
+	var value any
+	switch method {
+	case "eth_getTransactionCount":
+		n := f.confirmedNonce
+		if args[1] == "latest" {
+			n = f.latestNonce
+		}
+		value = fmt.Sprintf("0x%x", n)
+	case "eth_getTransactionByHash":
+		if f.lookupError {
+			return errors.New("transaction lookup unavailable")
+		}
+		if f.known {
+			hash := args[0].(string)
+			if f.wrongHash {
+				hash = "other-hash"
+			}
+			value = map[string]string{"hash": hash}
+		}
+	case "eth_sendRawTransaction":
+		f.sends++
+		f.raw = args[0].(string)
+		data, _ := hex.DecodeString(strings.TrimPrefix(f.raw, "0x"))
+		value = crypto.Keccak256Hash(data).Hex()
+	default:
+		return f.railFixture.Call(ctx, endpoint, method, args, out)
+	}
+	b, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, out)
+}
+
+func TestArcRelayRecoveryRequiresExactMissingTransaction(t *testing.T) {
+	for _, scenario := range []string{"missing", "known_pending", "confirmed_nonce", "latest_consumed", "earlier_nonce_missing", "lookup_error", "wrong_lookup_hash", "changed_hash", "changed_envelope", "changed_signature", "expired_authorization"} {
+		t.Run(scenario, func(t *testing.T) {
+			rail, fixture, order := newRailFixture(t)
+			signature := signOrder(t, order)
+			prepared, err := rail.Prepare(t.Context(), order, signature)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, hash, err := prepared.Sign(7)
+			if err != nil {
+				t.Fatal(err)
+			}
+			order.TxHash = hash
+			caller := &relayRecoveryCaller{railFixture: fixture, confirmedNonce: 7, latestNonce: 7}
+			rail.Caller = caller
+			wantSend, wantConfirmed, wantError := 0, false, false
+			switch scenario {
+			case "missing":
+				wantSend = 1
+			case "known_pending":
+				caller.known = true
+			case "confirmed_nonce":
+				caller.confirmedNonce, wantConfirmed = 8, true
+			case "latest_consumed":
+				caller.latestNonce = 8
+			case "earlier_nonce_missing":
+				caller.latestNonce, wantError = 6, true
+			case "lookup_error":
+				caller.lookupError, wantError = true, true
+			case "wrong_lookup_hash":
+				caller.known, caller.wrongHash, wantError = true, true, true
+			case "changed_hash":
+				order.TxHash, wantError = "different", true
+			case "changed_envelope":
+				raw, wantError = "0x0102", true
+			case "changed_signature":
+				signature, wantError = signOrder(t, protocolOrder(t)), true
+			case "expired_authorization":
+				fixture.stamp, wantSend = Deadline(order).Add(time.Hour).Unix(), 1
+			}
+			confirmed, err := rail.Recover(t.Context(), order, raw, signature)
+			if (err != nil) != wantError || confirmed != wantConfirmed || caller.sends != wantSend {
+				t.Fatalf("recovery result confirmed=%v error=%v sends=%d", confirmed, err, caller.sends)
+			}
+			if wantSend == 1 && caller.raw != raw {
+				t.Fatal("recovery changed committed bytes")
+			}
+		})
+	}
+}
+
 func (f *railFixture) Call(_ context.Context, _ string, method string, args []any, out any) error {
 	var value any
 	switch method {

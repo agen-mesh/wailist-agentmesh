@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -146,6 +147,9 @@ func (r *testRail) Reconcile(context.Context, Order) (Settlement, error) {
 	defer r.mu.Unlock()
 	return Settlement{Event: r.event, ExpiredUnused: r.expired}, nil
 }
+func (r *testRail) Recover(context.Context, Order, string, string) (bool, error) {
+	return true, nil
+}
 func serviceFixture(t *testing.T) (*Service, *memoryJournal, *testRail, *testMerchant) {
 	t.Helper()
 	o := protocolOrder(t)
@@ -159,7 +163,7 @@ func serviceFixture(t *testing.T) (*Service, *memoryJournal, *testRail, *testMer
 	j := &memoryJournal{o: o}
 	r := &testRail{journal: j}
 	m := &testMerchant{}
-	s := &Service{Enabled: true, Store: j, Catalog: testCatalog{}, Merchant: m, Identity: testIdentity{}, Rail: r, Domain: "https://app.example", Seal: func(s string) (string, error) { return "sealed:" + s, nil }, Open: func(s string) (string, error) { return s, nil }, Now: func() time.Time { return now }}
+	s := &Service{Enabled: true, Store: j, Catalog: testCatalog{}, Merchant: m, Identity: testIdentity{}, Rail: r, Domain: "https://app.example", Seal: func(s string) (string, error) { return "sealed:" + s, nil }, Open: func(s string) (string, error) { return strings.TrimPrefix(s, "sealed:"), nil }, Now: func() time.Time { return now }}
 	return s, j, r, m
 }
 

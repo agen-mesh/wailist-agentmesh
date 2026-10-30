@@ -170,6 +170,9 @@ func (l *purchaseLedger) RelayNonce(relayer string, observed uint64) (uint64, er
 	if uint64(next) < observed {
 		next = int64(observed)
 	}
+	if uint64(next) > observed {
+		return 0, purchase.ErrUncertain
+	}
 	if next == math.MaxInt64 {
 		return 0, purchase.ErrDenied
 	}

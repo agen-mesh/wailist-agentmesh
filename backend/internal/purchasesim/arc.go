@@ -262,12 +262,15 @@ func (f *Fixture) arcRPC(method string, params []json.RawMessage) (any, error) {
 			return nil, err
 		}
 		return f.acceptRaw(raw, f.faults.RPC)
-	case "eth_getTransactionReceipt":
+	case "eth_getTransactionByHash", "eth_getTransactionReceipt":
 		hash, err := textParam(params, 0)
 		if err != nil || len(params) != 1 || !isHash(hash) {
 			return nil, errParams
 		}
 		tx := f.state.Transactions[common.HexToHash(hash)]
+		if tx != nil && method == "eth_getTransactionByHash" {
+			return map[string]any{"hash": tx.Tx.Hash().Hex()}, nil
+		}
 		if tx == nil || tx.Receipt == nil {
 			return nil, nil
 		}

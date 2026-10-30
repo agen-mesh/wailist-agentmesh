@@ -2,6 +2,7 @@ package purchasesim
 
 import (
 	"bytes"
+	"encoding/json"
 	"math/big"
 	"testing"
 	"time"
@@ -12,6 +13,37 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 )
+
+func TestTransactionLookupDistinguishesMissingPendingAndConfirmed(t *testing.T) {
+	f, _ := testFixture(t)
+	a := testAuthorization(t, f, 1)
+	raw, hash := signedTransaction(t, packAuthorization(t, a), 2, 0, nil)
+	lookup := func(want bool) {
+		t.Helper()
+		response := rpc(t, f.ArcHandler(), "eth_getTransactionByHash", hash.Hex())
+		var known *struct {
+			Hash string `json:"hash"`
+		}
+		if response.Error != nil || json.Unmarshal(response.Result, &known) != nil || (known != nil) != want || known != nil && known.Hash != hash.Hex() {
+			t.Fatal("transaction lookup did not reflect actual ledger")
+		}
+	}
+	lookup(false)
+	if err := f.SetFaults(Faults{RPC: "pending"}); err != nil {
+		t.Fatal(err)
+	}
+	if response := rpc(t, f.ArcHandler(), "eth_sendRawTransaction", raw); response.Error != nil {
+		t.Fatal("pending fixture submission rejected")
+	}
+	lookup(true)
+	if err := f.SetFaults(Faults{}); err != nil {
+		t.Fatal(err)
+	}
+	lookup(true)
+	if f.Observations().SendAttempts != 0 || f.Observations().UniqueTransactions != 1 {
+		t.Fatal("lookup changed transaction ledger")
+	}
+}
 
 func TestSignedTransactionRejectsInvalidTerms(t *testing.T) {
 	cases := []struct {

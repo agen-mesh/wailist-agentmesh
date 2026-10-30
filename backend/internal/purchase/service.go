@@ -285,7 +285,7 @@ func (s *Service) Submit(ctx context.Context, account, id, signature string) (Or
 	if err != nil {
 		return o, err
 	}
-	// A committed submitting state is the only dispatch admission. It is never reopened.
+	// Recovery can dispatch only this committed envelope, never a replacement.
 	broadcastErr := s.Rail.Broadcast(ctx, raw, o.TxHash)
 	updated, err := s.Store.Update(ctx, account, id, func(current *Order, _ Ledger) error {
 		if current.State == Submitting {
@@ -310,6 +310,10 @@ func (s *Service) Reconcile(ctx context.Context, account, id string) (Order, err
 	o, err := s.Store.Get(ctx, account, id)
 	if err != nil {
 		return Order{}, err
+	}
+	o, err = s.recoverRelay(ctx, o)
+	if err != nil {
+		return o, err
 	}
 	if o.State == Completed || o.State == Expired || o.State == PaidToolFailed {
 		return o, nil
@@ -359,6 +363,40 @@ func (s *Service) Reconcile(ctx context.Context, account, id string) (Order, err
 		}
 	}
 	return s.fulfill(ctx, o)
+}
+
+func (s *Service) recoverRelay(ctx context.Context, o Order) (Order, error) {
+	if o.SignedEnvelope == "" || o.RelayConfirmed {
+		return o, nil
+	}
+	if o.SignatureReleasedAt == nil || o.TxHash == "" {
+		return o, ErrDenied
+	}
+	plain, err := s.Open(o.SignedEnvelope)
+	if err != nil {
+		return o, ErrUncertain
+	}
+	var envelope struct {
+		Raw       string `json:"raw"`
+		Signature string `json:"signature"`
+	}
+	if json.Unmarshal([]byte(plain), &envelope) != nil {
+		return o, ErrDenied
+	}
+	confirmed, err := s.Rail.Recover(ctx, o, envelope.Raw, envelope.Signature)
+	if err != nil {
+		return o, fmt.Errorf("recover committed relay: %w", err)
+	}
+	if !confirmed {
+		return o, nil
+	}
+	return s.Store.Update(ctx, o.AccountID, o.ID, func(current *Order, _ Ledger) error {
+		if current.TxHash != o.TxHash || current.SignedEnvelope != o.SignedEnvelope {
+			return ErrConflict
+		}
+		current.RelayConfirmed = true
+		return nil
+	})
 }
 
 func (s *Service) fulfill(ctx context.Context, o Order) (Order, error) {
