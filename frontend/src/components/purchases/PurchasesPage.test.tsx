@@ -6,7 +6,7 @@ import { authorization, config, offer, order, PAYER, TEST_NOW } from "./test-fix
 const api = vi.hoisted(() => ({
   config: vi.fn(), offers: vi.fn(), wallet: vi.fn(), allowance: vi.fn(), getOrder: vi.fn(),
   beginIdentity: vi.fn(), decideOrder: vi.fn(), prepareAuthorization: vi.fn(), submitAuthorization: vi.fn(),
-  reconcileOrder: vi.fn(), cancelOrder: vi.fn(),
+  reconcileOrder: vi.fn(), cancelOrder: vi.fn(), createOrder: vi.fn(),
 }));
 const providerForm = vi.hoisted(() => vi.fn());
 const session = vi.hoisted(() => ({ accountId: "account-a" }));
@@ -218,5 +218,84 @@ describe("authoritative spending-limit refresh", () => {
     await screen.findByText("0.2 available · 0 reserved · 0 spent");
     await act(async () => { finishOld({ ...budget, limitMicros: "50000", availableMicros: "40000", reservedMicros: "10000" }); });
     expect(screen.getByText("0.2 available · 0 reserved · 0 spent")).toBeTruthy();
+  });
+});
+
+describe("new purchases after confirmed unused expiry", () => {
+  function allowNewOrder() {
+    api.createOrder.mockImplementation(async () => {
+      stored = order({ id: "order-2", intentHash: `0x${"6".repeat(64)}`, state: "awaiting_identity",
+        identityVerifiedAt: undefined, approvedAt: undefined, canApprove: false, canAuthorize: false });
+      return stored;
+    });
+  }
+
+  async function createSelectedOrder() {
+    const create = screen.getByRole("button", { name: "Create exact order" });
+    await waitFor(() => expect((create as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(create);
+    await screen.findByText("Fresh verification needed");
+    expect(api.createOrder).toHaveBeenCalledExactlyOnceWith({
+      offerKey: offer().key, request: {}, maxMicros: "10000", clientRequestId: expect.any(String),
+    });
+    expect(new URL(window.location.href).searchParams.get("order")).toBe("order-2");
+    expect(api.prepareAuthorization).not.toHaveBeenCalled();
+    expect(api.submitAuthorization).not.toHaveBeenCalled();
+  }
+
+  it("allows a new order after restoring server-confirmed expired-unused state", async () => {
+    stored = { ...authorization().order, state: "expired", deadline: "2026-11-05T11:59:59Z", canReconcile: false,
+      reason: "Authorization expired unused at a confirmed chain block" };
+    allowNewOrder();
+    const first = render(<PurchasesPage />);
+    await screen.findByText("Order expired");
+    first.unmount();
+    render(<PurchasesPage />);
+    await screen.findByText("Order expired");
+    await screen.findByText("0.05 available · 0 reserved · 0 spent");
+    expect(stored.signatureReleasedAt).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Inspect service and price" }));
+    await createSelectedOrder();
+  });
+
+  it("allows a new order once reconciliation confirms expiry and releases the reservation", async () => {
+    stored = { ...authorization().order, state: "payment_unknown", deadline: "2026-11-05T11:59:59Z" };
+    budget = { ...budget, reservedMicros: "10000", availableMicros: "40000" };
+    api.reconcileOrder.mockImplementation(async () => {
+      stored = { ...stored, state: "expired", canReconcile: false,
+        reason: "Authorization expired unused at a confirmed chain block" };
+      budget = { ...budget, reservedMicros: "0", availableMicros: "50000" };
+      return stored;
+    });
+    allowNewOrder();
+    render(<PurchasesPage />);
+    await screen.findByText("0.04 available · 0.01 reserved · 0 spent");
+    fireEvent.click(screen.getByRole("button", { name: "Inspect service and price" }));
+    expect((screen.getByRole("button", { name: "Create exact order" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile original order" }));
+    await screen.findByText("Order expired");
+    await screen.findByText("0.05 available · 0 reserved · 0 spent");
+    expect(stored.signatureReleasedAt).toBeTruthy();
+    await createSelectedOrder();
+  });
+
+  it.each([
+    { label: "released authorization after its local deadline", state: "authorization_released", deadline: "2026-11-05T11:59:59Z" },
+    { label: "pending submission after its local deadline", state: "submitting", deadline: "2026-11-05T11:59:59Z" },
+    { label: "unknown payment before its deadline", state: "payment_unknown", deadline: "2026-11-05T12:10:00Z" },
+    { label: "unknown payment after its local deadline", state: "payment_unknown", deadline: "2026-11-05T11:59:59Z" },
+  ] as const)("keeps a new purchase blocked for $label", async ({ state, deadline }) => {
+    stored = { ...authorization().order, state, deadline };
+    budget = { ...budget, reservedMicros: "10000", availableMicros: "40000" };
+    render(<PurchasesPage />);
+    await screen.findByText("0.04 available · 0.01 reserved · 0 spent");
+    fireEvent.click(screen.getByRole("button", { name: "Inspect service and price" }));
+    const create = screen.getByRole("button", { name: "Create exact order" });
+    expect((create as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(create);
+    expect(api.createOrder).not.toHaveBeenCalled();
+    expect(screen.queryByText("Order expired")).toBeNull();
+    expect(api.prepareAuthorization).not.toHaveBeenCalled();
+    expect(api.submitAuthorization).not.toHaveBeenCalled();
   });
 });
