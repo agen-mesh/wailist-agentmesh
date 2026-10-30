@@ -131,8 +131,7 @@ func TestCompletedPurchaseWakesAfterSlowSiblingAndRestart(t *testing.T) {
 		t.Fatal("engine did not persist waiting after the early completion")
 	}
 	// Recreate the process-local runner and reconciler after the lost wake.
-	restarted := *d
-	restarted.Engine = engine.NewRunner(d.Store, sse.NewBroker(), nil, "", "", "", engine.X402Config{}, arc.Config{})
+	restarted := &Deps{Store: d.Store, Purchases: d.Purchases, Engine: engine.NewRunner(d.Store, sse.NewBroker(), nil, "", "", "", engine.X402Config{}, arc.Config{})}
 	restarted.Engine.SetPurchases(d.Purchases.Service)
 	restarted.reconcilePurchaseBatch(t.Context(), prefix+"000000000000")
 	deadline = time.Now().Add(3 * time.Second)
