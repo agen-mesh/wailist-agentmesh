@@ -66,6 +66,8 @@ Build the frontend with `NEXT_PUBLIC_API_URL=/api` and `BACKEND_URL=http://127.0
 
 Preserve the database, private directory, merchant resource and provider address together across restart. Scenario controls reset counters and faults while preserving transaction nonces, receipts and consumed authorizations. Private serialized chain state includes signed transaction bytes and must never be published. Unsupported controls remain blocked. The local Arkiv fixture does not implement SDK offer writes; successful wallet-unit simulations are not live publication evidence.
 
+For controlled unused-expiry checks, `--quote-ttl 45s` shortens new quotes only. The default remains five minutes; permitted values are whole seconds from 31 seconds through 15 minutes. Wait past the stored deadline and confirm new chain blocks before reconciliation. This flag does not advance the clock or rewrite an existing order. The `before_accept` RPC fault rejects a new transaction before ledger mutation, enabling exact-envelope recovery checks after the fault is cleared.
+
 ## External setup still required
 
 Register a World client and exact callback, configure its permitted environment and client authentication, then observe a genuine sign-in without recording codes, state, tokens or secrets. Create an Arc Studio project if available and record its actual creation date and URL. Provision only an approved disposable testnet relayer and customer wallet for later network checks. Publish and read a real provider-owned Arkiv offer, then separately verify payment and merchant result with actual receipts. None of these steps is established by a local passing test.

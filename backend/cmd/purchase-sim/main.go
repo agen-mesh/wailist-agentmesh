@@ -97,11 +97,15 @@ func run() error {
 	listen := flag.String("listen", "127.0.0.1:8104", "loopback application listener")
 	frontend := flag.String("frontend", "http://127.0.0.1:3104", "loopback frontend origin")
 	callback := flag.String("world-callback", "", "exact loopback API or frontend proxy callback")
+	quoteTTL := flag.Duration("quote-ttl", 5*time.Minute, "simulation quote lifetime, 31s through 15m in whole seconds")
 	directory := flag.String("state-dir", "", "owned private directory retained for restart checks")
 	flag.Parse()
 	front, err := url.Parse(*frontend)
 	if err != nil || front.Scheme != "http" || !loopbackAddress(front.Host) || front.Path != "" || front.RawQuery != "" || !loopbackAddress(*listen) || *directory == "" {
 		return errors.New("invalid simulation boundaries")
+	}
+	if *quoteTTL < 31*time.Second || *quoteTTL > 15*time.Minute || *quoteTTL%time.Second != 0 {
+		return errors.New("invalid simulation quote lifetime")
 	}
 	databaseURL := os.Getenv("PURCHASE_SIM_DATABASE_URL")
 	cfg, err := pgxpool.ParseConfig(databaseURL)
@@ -191,7 +195,7 @@ func run() error {
 	}
 	public := ed25519.PrivateKey(private).Public().(ed25519.PublicKey)
 	merchantStore := &controlledMerchantStore{Store: store.MerchantPurchases(), app: app}
-	merchantService, err := merchant.New(merchant.Config{Resource: simulationResource, Payee: payee, AmountMicros: "10000", Capability: merchant.Capability, PrivateKey: private, Execute: app.execute}, merchantStore, rail.MerchantVerifier)
+	merchantService, err := merchant.New(merchant.Config{Resource: simulationResource, Payee: payee, AmountMicros: "10000", Capability: merchant.Capability, PrivateKey: private, QuoteTTL: *quoteTTL, Execute: app.execute}, merchantStore, rail.MerchantVerifier)
 	if err != nil {
 		return err
 	}
