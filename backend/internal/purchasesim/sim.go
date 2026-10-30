@@ -122,7 +122,7 @@ func (f *Fixture) Reset() {
 	f.reviseOffer("none")
 }
 
-var rpcFaults = []string{"none", "lost_response", "pending", "consumed_without_event", "wrong_domain", "wrong_chain", "reverted", "wrong_transfer"}
+var rpcFaults = []string{"none", "before_accept", "lost_response", "pending", "consumed_without_event", "wrong_domain", "wrong_chain", "reverted", "wrong_transfer"}
 var arkivFaults = []string{"none", "changed", "expired", "empty", "changed_owner", "changed_version", "changed_payload", "native_expired", "utc_expired"}
 
 func known(list []string, value string) bool {

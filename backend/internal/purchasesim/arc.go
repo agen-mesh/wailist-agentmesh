@@ -166,6 +166,9 @@ func (f *Fixture) acceptRaw(raw, outcome string) (string, error) {
 	if _, reserved := f.state.Reserved[key]; reserved {
 		return "", errors.New("authorization has a pending transaction")
 	}
+	if outcome == "before_accept" {
+		return "", errors.New("simulation rejection before transaction acceptance")
+	}
 	seenAuth := false
 	for _, prior := range f.state.Transactions {
 		if authKey(prior.Authorization) == key {
