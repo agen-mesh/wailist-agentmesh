@@ -62,7 +62,6 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	r.Get("/arc/treasury", d.ArcTreasury)
 	r.Post("/arc/quote", d.ArcQuote)
 	r.Get("/x402/arc", d.ArcChallenge)
-	r.Get("/purchases/world/callback", d.PurchaseWorldCallback)
 	if d.Purchases != nil && d.Purchases.Merchant != nil {
 		r.Mount("/merchant", d.Purchases.Merchant)
 	}
@@ -73,6 +72,7 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		// Pass-through unless WEB_READONLY_MODE is set; see readonly.go.
 		r.Use(NewReadOnlyMiddleware())
 		r.Use(requireAccount(d.Store))
+		r.Get("/purchases/world/callback", d.PurchaseWorldCallback)
 		r.Get("/purchases/config", d.PurchaseConfig)
 		r.Get("/purchases/offers", d.PurchaseOffers)
 		r.Post("/purchases/offers/preflight", d.PurchasePreflight)

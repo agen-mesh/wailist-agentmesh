@@ -39,7 +39,7 @@ func TestPurchaseCallbackQueryIsHiddenBeforeLogEntryCreation(t *testing.T) {
 	router := NewRouter(&handlers.Deps{ArcConfig: &arc.Config{}, JWTSecret: "scratch-only"})
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, httptest.NewRequest("GET", "/purchases/world/callback?code=code-sentinel&state=state-sentinel", nil))
-	if rr.Code != http.StatusServiceUnavailable || strings.Contains(rr.Body.String()+output.String(), "sentinel") {
+	if rr.Code != http.StatusUnauthorized || strings.Contains(rr.Body.String()+output.String(), "sentinel") {
 		t.Fatal("actual router exposed callback details")
 	}
 }

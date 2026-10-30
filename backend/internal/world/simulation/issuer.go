@@ -83,7 +83,7 @@ type Issuer struct {
 // Central startup must call it only in explicitly labelled local simulation mode.
 func New(redirectURI string) (*Issuer, error) {
 	u, err := url.Parse(redirectURI)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.EscapedPath() != "/purchases/world/callback" {
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.EscapedPath() != "/purchases/world/callback" && u.EscapedPath() != "/api/purchases/world/callback") {
 		return nil, errSimulation
 	}
 	ip := net.ParseIP(u.Hostname())

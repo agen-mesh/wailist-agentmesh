@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -34,6 +35,12 @@ type PurchaseRuntime struct {
 	Merchant         http.Handler
 	ValidateEndpoint func(context.Context, string) error
 	PublicConfig     map[string]any
+}
+
+const purchaseWorldStateCookie = "purchase_world_state"
+
+func (d *Deps) purchaseWorldCookie(value string, expires time.Time, maxAge int) *http.Cookie {
+	return &http.Cookie{Name: purchaseWorldStateCookie, Value: value, Path: "/", Expires: expires, MaxAge: maxAge, HttpOnly: true, Secure: strings.HasPrefix(d.BaseURL, "https://"), SameSite: http.SameSiteLaxMode}
 }
 
 func (d *Deps) SetupPurchases(ctx context.Context, c config.Purchase) error {
@@ -329,6 +336,7 @@ func (d *Deps) PurchaseGet(w http.ResponseWriter, r *http.Request) {
 	purchaseResult(w, o, err)
 }
 func (d *Deps) PurchaseIdentity(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Referrer-Policy", "no-referrer")
 	s, account, ok := d.purchaseService(w, r)
 	if !ok {
 		return
@@ -338,6 +346,18 @@ func (d *Deps) PurchaseIdentity(w http.ResponseWriter, r *http.Request) {
 		purchaseError(w, err)
 		return
 	}
+	redirect, err := url.Parse(a.AuthorizationURL)
+	if err != nil || len(redirect.Query()["state"]) != 1 {
+		purchaseError(w, purchase.ErrDenied)
+		return
+	}
+	state := redirect.Query().Get("state")
+	maxAge := int(time.Until(a.ExpiresAt) / time.Second)
+	if _, err = world.HashState(state); err != nil || maxAge <= 0 || maxAge > 300 {
+		purchaseError(w, purchase.ErrDenied)
+		return
+	}
+	http.SetCookie(w, d.purchaseWorldCookie(state, a.ExpiresAt, maxAge))
 	respond.JSON(w, http.StatusOK, a)
 }
 func (d *Deps) PurchaseDecision(w http.ResponseWriter, r *http.Request) {
@@ -402,16 +422,23 @@ func (d *Deps) PurchaseCancel(w http.ResponseWriter, r *http.Request) {
 func (d *Deps) PurchaseWorldCallback(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
+	account, _ := r.Context().Value(CtxUserID).(string)
+	if account == "" {
+		respond.Error(w, http.StatusUnauthorized, "Sign in to complete identity verification")
+		return
+	}
 	if d.Purchases == nil || d.Purchases.Identity == nil {
 		respond.Error(w, http.StatusServiceUnavailable, "Identity verification is not configured")
 		return
 	}
 	query, err := url.ParseQuery(r.URL.RawQuery)
-	if err != nil {
+	cookies := r.CookiesNamed(purchaseWorldStateCookie)
+	if err != nil || len(query["state"]) != 1 || len(cookies) != 1 || cookies[0].Value == "" || subtle.ConstantTimeCompare([]byte(cookies[0].Value), []byte(query.Get("state"))) != 1 {
 		respond.Error(w, http.StatusBadRequest, "Invalid identity callback")
 		return
 	}
-	id, err := d.Purchases.Identity.Callback(r.Context(), query)
+	http.SetCookie(w, d.purchaseWorldCookie("", time.Unix(1, 0), -1))
+	id, err := d.Purchases.Identity.Callback(r.Context(), account, query)
 	if err != nil {
 		respond.Error(w, http.StatusBadRequest, "Identity verification was rejected or expired; return to the order to start again")
 		return

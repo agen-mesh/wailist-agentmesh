@@ -96,6 +96,7 @@ func loopbackAddress(raw string) bool {
 func run() error {
 	listen := flag.String("listen", "127.0.0.1:8104", "loopback application listener")
 	frontend := flag.String("frontend", "http://127.0.0.1:3104", "loopback frontend origin")
+	callback := flag.String("world-callback", "", "exact loopback API or frontend proxy callback")
 	directory := flag.String("state-dir", "", "owned private directory retained for restart checks")
 	flag.Parse()
 	front, err := url.Parse(*frontend)
@@ -143,7 +144,13 @@ func run() error {
 		return err
 	}
 	base := "http://" + *listen
-	issuer, err := worldsim.New(base + "/purchases/world/callback")
+	if *callback == "" {
+		*callback = base + "/purchases/world/callback"
+	}
+	if *callback != base+"/purchases/world/callback" && *callback != *frontend+"/api/purchases/world/callback" {
+		return errors.New("callback must use the configured API or frontend origin")
+	}
+	issuer, err := worldsim.New(*callback)
 	if err != nil {
 		return err
 	}

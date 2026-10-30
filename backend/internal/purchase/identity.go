@@ -35,12 +35,12 @@ func (w *WorldIdentity) Begin(ctx context.Context, o Order) (IdentityStart, erro
 	}
 	return IdentityStart{AuthorizationURL: a.AuthorizationURL, ExpiresAt: a.ExpiresAt}, nil
 }
-func (w *WorldIdentity) Callback(ctx context.Context, query url.Values) (string, error) {
-	if len(query["state"]) != 1 {
+func (w *WorldIdentity) Callback(ctx context.Context, account string, query url.Values) (string, error) {
+	if account == "" || len(query["state"]) != 1 {
 		return "", ErrDenied
 	}
 	b, err := w.Store.Resolve(ctx, query.Get("state"))
-	if err != nil {
+	if err != nil || b.AccountID != account {
 		return "", ErrDenied
 	}
 	_, err = w.Client.Callback(ctx, b, query)

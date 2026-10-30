@@ -55,7 +55,7 @@ func TestConfig(t *testing.T) {
 			}
 		})
 	}
-	for _, redirect := range []string{"http://localhost:8000/callback", "http://127.0.0.1:8000/callback", "http://[::1]:8000/callback", "https://app.example/exact%2Fcallback"} {
+	for _, redirect := range []string{"http://localhost:8000/callback", "http://127.0.0.1:8000/callback", "http://[::1]:8000/callback", "https://app.example/exact%2Fcallback", "https://app.example/api/purchases/world/callback"} {
 		c := f.cfg
 		c.RedirectURI = redirect
 		if err := c.Validate(); err != nil {

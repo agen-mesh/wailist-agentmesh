@@ -141,6 +141,11 @@ func TestControlledApplicationIssuer(t *testing.T) {
 }
 
 func TestSimulationConfiguration(t *testing.T) {
+	issuer, err := simulation.New("http://127.0.0.1:3104/api/purchases/world/callback")
+	if err != nil {
+		t.Fatal("exact local proxy callback rejected")
+	}
+	issuer.Close()
 	for _, redirect := range []string{"https://app.example/purchases/world/callback", "http://localhost.attacker.example/purchases/world/callback", "http://localhost/other", "http://localhost/purchases/world/callback?next=external"} {
 		if issuer, err := simulation.New(redirect); err == nil {
 			issuer.Close()

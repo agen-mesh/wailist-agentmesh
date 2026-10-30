@@ -8,7 +8,7 @@ This implementation was started before the November 5 to 7 event. Local simulati
 
 1. Link an EOA using an expiring account-bound wallet challenge. Set an allowance in integer USDC micros. One USDC is `1000000` micros.
 2. Select an Arkiv offer. The server validates typed attributes, native block expiry, UTC validity, owner/payee equality, endpoint policy, and the entire normalized snapshot. It obtains a signed merchant quote and persists the accepted immutable request.
-3. Complete World authorization for that order. The callback verifies the issuer, audience, signature, nonce, PKCE, fresh authentication time and required verification level. Stored identity state binds the account, order and intent. It does not approve payment.
+3. Complete World authorization for that order. The callback first requires the initiating browser state cookie and the same authenticated account, then verifies the issuer, audience, signature, nonce, PKCE, fresh authentication time and required verification level. Stored identity state binds the account, order and intent. It does not approve payment.
 4. Approve the exact order. Requesting signable data revalidates the offer and chain, atomically reserves allowance, records an event-search anchor and marks signature release before returning typed data.
 5. Sign the stored EIP-3009 transfer. Its nonce is the intent hash. The random order salt is a separate input to the versioned canonical intent. The server stores encrypted signed transaction bytes and the transaction hash before broadcasting once.
 6. Reconcile a confirmed `AuthorizationUsed` and matching `Transfer` event, including transactions submitted by another relayer. A consumed nonce without the exact event remains unknown. Event identity can fund only one order. The merchant durably claims execution and exposes result lookup by order and intent.
@@ -37,7 +37,7 @@ See [the environment example](../backend/.env.example). Configuration is loaded 
 | `PURCHASE_MERCHANT_PRICE_MICROS` | Exact positive integer price for the configured merchant. |
 | `WORLD_ENVIRONMENT` | `sandbox` or `production`, never selected by a request. |
 | `WORLD_CLIENT_ID` | Registered World client identifier. |
-| `WORLD_REDIRECT_URI` | Exact registered backend callback ending `/purchases/world/callback`. |
+| `WORLD_REDIRECT_URI` | Exact registered public callback: frontend `/api/purchases/world/callback` when using the proxy, or direct API `/purchases/world/callback`. |
 | `WORLD_CLIENT_AUTH_METHOD` | Default `client_secret_basic`, registered `client_secret_post`, or registered `private_key_jwt`. |
 | `WORLD_CLIENT_SECRET` | Required with the default client authentication method. |
 | `WORLD_PRIVATE_KEY_PEM`, `WORLD_PRIVATE_KEY_ID` | Registered client signing key and key ID for `private_key_jwt`. |
@@ -48,6 +48,8 @@ See [the environment example](../backend/.env.example). Configuration is loaded 
 The controlled merchant serves `/merchant/quote`, `/merchant/accept`, `/merchant/fulfill` and `/merchant/results/{orderId}` at the resource's origin. Merchant requests use the internal bearer. Public endpoints undergo DNS validation and address-pinned dialing; redirects and private destinations are rejected. Callback logging removes query values before the request logger creates its entry.
 
 Frontend builds read `NEXT_PUBLIC_API_URL=/api`, server-only `BACKEND_URL`, and public `NEXT_PUBLIC_ARKIV_RPC_URL` for provider wallet writes. The browser RPC must be suitable for public inclusion and point to Tiramisu. It is separate from the backend's `ARKIV_RPC_URL`. A missing browser RPC leaves provider publication unavailable.
+
+Register the callback on the same browser host that receives identity-start requests and the authentication cookie. With `NEXT_PUBLIC_API_URL=/api`, use `https://<frontend-host>/api/purchases/world/callback`. Direct API clients use `https://<backend-host>/purchases/world/callback` and must keep that host's authenticated browser session. The short-lived `purchase_world_state` cookie is host-only, HttpOnly, SameSite=Lax, and scoped to `/`; HTTPS startup configuration marks it Secure. A callback without either cookie cannot complete enrollment.
 
 Migration `000042` runs through normal application startup. It adds order, allowance, wallet, identity attempt, merchant claim and payment-event constraints. Back up any non-scratch database before a separately approved deployment. No deployment is part of local verification.
 
@@ -60,7 +62,7 @@ set -x PURCHASE_SIM_DATABASE_URL '<owned loopback scratch URL>'
 go run ./cmd/purchase-sim --listen 127.0.0.1:8104 --frontend http://127.0.0.1:3104 --state-dir '<private directory>'
 ```
 
-Build the frontend with `NEXT_PUBLIC_API_URL=/api` and `BACKEND_URL=http://127.0.0.1:8104`, then serve it on `127.0.0.1:3104`. The page visibly identifies simulation mode. The private `/__verify__/capabilities` endpoint lists supported faults. Controls and ephemeral wallets are available only in this separate executable. No production route exposes them.
+Build the frontend with `NEXT_PUBLIC_API_URL=/api` and `BACKEND_URL=http://127.0.0.1:8104`, then serve it on `127.0.0.1:3104`. For the frontend proxy flow, also pass `--world-callback http://127.0.0.1:3104/api/purchases/world/callback` to the simulator. The page visibly identifies simulation mode. The private `/__verify__/capabilities` endpoint lists supported faults. Controls and ephemeral wallets are available only in this separate executable. No production route exposes them.
 
 Preserve the database, private directory, merchant resource and provider address together across restart. Scenario controls reset counters and faults while preserving transaction nonces, receipts and consumed authorizations. Private serialized chain state includes signed transaction bytes and must never be published. Unsupported controls remain blocked. The local Arkiv fixture does not implement SDK offer writes; successful wallet-unit simulations are not live publication evidence.
 
