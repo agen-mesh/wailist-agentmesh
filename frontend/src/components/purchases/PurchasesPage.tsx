@@ -290,7 +290,7 @@ export function PurchasesPage() {
     });
   }
 
-  const unresolved = Boolean(current.order?.signatureReleasedAt) && !["completed", "denied", "cancelled"].includes(current.order?.state ?? "");
+  const unresolved = Boolean(current.order?.signatureReleasedAt) && !["completed", "denied", "cancelled", "expired"].includes(current.order?.state ?? "");
   const accountMatches = Boolean(wallet && account) && wallet?.address.toLowerCase() === account.toLowerCase();
   const ready = Boolean(config?.enabled && wallet && allowance && !accountError && !allowanceError && auth.signedIn);
   const arkivRPC = process.env.NEXT_PUBLIC_ARKIV_RPC_URL;
