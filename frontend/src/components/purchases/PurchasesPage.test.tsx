@@ -175,7 +175,7 @@ describe("authoritative spending-limit refresh", () => {
 
   it("removes stale figures when the ledger read fails after a state change", async () => {
     stored = order();
-    render(<PurchasesPage />);
+    await act(async () => { render(<PurchasesPage />); });
     await screen.findByText("0.05 available · 0 reserved · 0 spent");
     api.allowance.mockRejectedValue(new Error("Ledger unavailable"));
     stored = { ...authorization().order, state: "payment_unknown" };
