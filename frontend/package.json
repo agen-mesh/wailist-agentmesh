@@ -12,7 +12,7 @@
     "gen:node-catalog": "UPDATE_NODE_CATALOG=1 vitest run src/lib/nodeCatalog.sync.test.ts"
   },
   "dependencies": {
-    "@arkiv-network/sdk": "0.8.1",
+    "@arkiv-network/sdk": "1.0.0",
     "@capacitor/app": "^8.1.1",
     "@capacitor/browser": "^8.0.4",
     "@capacitor/core": "^8.5.2",

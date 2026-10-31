@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@arkiv-network/sdk':
-        specifier: 0.8.1
-        version: 0.8.1(typescript@6.0.3)(viem@2.57.13(typescript@6.0.3)(zod@4.5.4))
+        specifier: 1.0.0
+        version: 1.0.0(typescript@6.0.3)(viem@2.57.13(typescript@6.0.3)(zod@4.5.4))
       '@capacitor/app':
         specifier: ^8.1.1
         version: 8.1.1(@capacitor/core@8.5.2)
@@ -160,8 +160,8 @@ packages:
     resolution: {integrity: sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==}
     engines: {node: '>=10'}
 
-  '@arkiv-network/sdk@0.8.1':
-    resolution: {integrity: sha512-J2Qn7OOPZet5qGtN2XwLkSEnzk70FZCYDNclS/a4vrYBmsW4xgblTXWrczZXAhD2x4unSgGQwqpGZkBta/x7ow==}
+  '@arkiv-network/sdk@1.0.0':
+    resolution: {integrity: sha512-UadvpitgdDJMhrFLveEJrsG4dFbI7uh01T+NE7d4mFBha7CDXT1jeiiepwDgFgsbkBnXlJkohrlt9mz2DbNYrw==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
       typescript: '>=5.0.0'
@@ -1992,10 +1992,6 @@ packages:
   braces@3.0.3:
     resolution: {integrity: sha512-yQbXgO/OSZVD2IsiLlro+7Hf6Q18EJrKSEsdoMzKePKXct3gvD8oLcOQdIzGupr5Fj+EDe8gO/lxc1BzfMpxvA==}
     engines: {node: '>=8'}
-
-  brotli-wasm@3.0.1:
-    resolution: {integrity: sha512-U3K72/JAi3jITpdhZBqzSUq+DUY697tLxOuFXB+FpAE/Ug+5C3VZrv4uA674EUZHxNAuQ9wETXNqQkxZD6oL4A==}
-    engines: {node: '>=v18.0.0'}
 
   browserslist@4.28.2:
     resolution: {integrity: sha512-48xSriZYYg+8qXna9kwqjIVzuQxi+KYWp2+5nCYnYKPTr0LvD89Jqk2Or5ogxz0NUMfIjhh2lIUX/LyX9B4oIg==}
@@ -3928,9 +3924,8 @@ snapshots:
 
   '@alloc/quick-lru@5.2.0': {}
 
-  '@arkiv-network/sdk@0.8.1(typescript@6.0.3)(viem@2.57.13(typescript@6.0.3)(zod@4.5.4))':
+  '@arkiv-network/sdk@1.0.0(typescript@6.0.3)(viem@2.57.13(typescript@6.0.3)(zod@4.5.4))':
     dependencies:
-      brotli-wasm: 3.0.1
       viem: 2.57.13(typescript@6.0.3)(zod@4.5.4)
     optionalDependencies:
       typescript: 6.0.3
@@ -5732,8 +5727,6 @@ snapshots:
   braces@3.0.3:
     dependencies:
       fill-range: 7.1.1
-
-  brotli-wasm@3.0.1: {}
 
   browserslist@4.28.2:
     dependencies:
