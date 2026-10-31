@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/agentmesh/backend/internal/arkiv"
 	"github.com/agentmesh/backend/internal/config"
 	"github.com/agentmesh/backend/internal/purchase"
 )
@@ -31,6 +33,9 @@ func TestArkivDiscoveryRemainsAvailableWithoutWorldCheckout(t *testing.T) {
 	if d.Purchases.Service != nil || d.Purchases.PublicConfig["enabled"] != false || d.Purchases.PublicConfig["arkivAvailable"] != true || d.Purchases.PublicConfig["worldAvailable"] != false {
 		t.Fatal("checkout and discovery capabilities collapsed")
 	}
+	if d.Purchases.PublicConfig["arkivChainId"] != arkiv.ChainID {
+		t.Fatal("discovery omitted its fixed catalog network")
+	}
 	d.Purchases.Catalog = discoveryOnly{}
 	d.Purchases.ValidateEndpoint = func(context.Context, string) error { return nil }
 	request := func(method, path, body string) *http.Request {
@@ -50,6 +55,14 @@ func TestArkivDiscoveryRemainsAvailableWithoutWorldCheckout(t *testing.T) {
 	d.PurchaseCreate(rr, request("POST", "/purchases", `{"worldVerified":true,"operator":true}`))
 	if rr.Code != 503 {
 		t.Fatal("body flags enabled protected checkout")
+	}
+}
+
+func TestRetiredOfferExplainsRecreationWithoutChangingConflictStatus(t *testing.T) {
+	rr := httptest.NewRecorder()
+	purchaseError(rr, errors.Join(purchase.ErrConflict, purchase.ErrRetiredOffer))
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "Cancel this unsigned order, refresh discovery and create a new order") {
+		t.Fatal("retired network did not provide the unsigned-order migration boundary")
 	}
 }
 

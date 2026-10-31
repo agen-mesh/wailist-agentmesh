@@ -3,6 +3,8 @@ package purchase
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -10,6 +12,8 @@ import (
 )
 
 type ArkivCatalog struct{ Client *arkiv.Client }
+
+var ErrRetiredOffer = errors.New("offer belongs to another Arkiv network")
 
 func offerFromArkiv(s arkiv.OfferSnapshot) Offer {
 	schema, _ := json.Marshal(s.Payload.InputSchema)
@@ -51,6 +55,9 @@ func (a ArkivCatalog) Revalidate(ctx context.Context, o Offer) error {
 	}
 	current, err := a.Client.Revalidate(ctx, s)
 	if err != nil {
+		if errors.Is(err, arkiv.ErrSnapshotNetwork) {
+			return fmt.Errorf("%w: %w", ErrRetiredOffer, err)
+		}
 		return err
 	}
 	if current.SnapshotHash != o.SnapshotHash {

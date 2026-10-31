@@ -172,7 +172,7 @@ func (s *Service) Decide(ctx context.Context, account, id, intent, decision stri
 			return Order{}, err
 		}
 		if err = s.Catalog.Revalidate(ctx, o.Offer); err != nil {
-			return Order{}, ErrConflict
+			return Order{}, fmt.Errorf("%w: %w", ErrConflict, err)
 		}
 	}
 	return s.Store.Update(ctx, account, id, func(o *Order, _ Ledger) error {

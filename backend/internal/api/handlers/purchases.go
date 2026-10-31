@@ -44,7 +44,7 @@ func (d *Deps) purchaseWorldCookie(value string, expires time.Time, maxAge int) 
 }
 
 func (d *Deps) SetupPurchases(ctx context.Context, c config.Purchase) error {
-	public := map[string]any{"enabled": false, "blockedReasons": c.BlockedReasons, "chainId": purchase.ChainID, "asset": purchase.Asset, "rpcUrl": "https://rpc.testnet.arc.network", "merchantCapability": merchant.Capability, "arkivAvailable": false, "worldAvailable": false, "evidenceMode": "live"}
+	public := map[string]any{"enabled": false, "blockedReasons": c.BlockedReasons, "chainId": purchase.ChainID, "asset": purchase.Asset, "rpcUrl": "https://rpc.testnet.arc.network", "merchantCapability": merchant.Capability, "arkivAvailable": false, "arkivChainId": arkiv.ChainID, "worldAvailable": false, "evidenceMode": "live"}
 	policy := purchase.NewEndpointPolicy()
 	d.Purchases = &PurchaseRuntime{PublicConfig: public, ValidateEndpoint: policy.Validate}
 	if c.ArkivRPCURL != "" {
@@ -131,7 +131,7 @@ func (d *Deps) SetupPurchases(ctx context.Context, c config.Purchase) error {
 func (d *Deps) PurchaseConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if d.Purchases == nil {
-		respond.JSON(w, http.StatusOK, map[string]any{"enabled": false, "blockedReasons": []string{"Purchases are not configured"}, "chainId": purchase.ChainID, "asset": purchase.Asset, "rpcUrl": "", "merchantCapability": "text.digest.v1", "arkivAvailable": false, "worldAvailable": false, "evidenceMode": "live"})
+		respond.JSON(w, http.StatusOK, map[string]any{"enabled": false, "blockedReasons": []string{"Purchases are not configured"}, "chainId": purchase.ChainID, "asset": purchase.Asset, "rpcUrl": "", "merchantCapability": "text.digest.v1", "arkivAvailable": false, "arkivChainId": arkiv.ChainID, "worldAvailable": false, "evidenceMode": "live"})
 		return
 	}
 	respond.JSON(w, http.StatusOK, d.Purchases.PublicConfig)
@@ -173,6 +173,8 @@ func purchaseError(w http.ResponseWriter, err error) {
 		status, message = http.StatusNotFound, "Purchase not found"
 	case errors.Is(err, purchase.ErrDenied):
 		status, message = http.StatusForbidden, "Purchase authorization denied"
+	case errors.Is(err, purchase.ErrRetiredOffer):
+		status, message = http.StatusConflict, "This offer belongs to another Arkiv network. Cancel this unsigned order, refresh discovery and create a new order from a current listing"
 	case errors.Is(err, purchase.ErrConflict):
 		status, message = http.StatusConflict, "Purchase state changed; reload the order"
 	case errors.Is(err, purchase.ErrUncertain):
