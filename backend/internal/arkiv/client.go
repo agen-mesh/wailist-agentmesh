@@ -50,19 +50,21 @@ type QueryOptions struct {
 	Capability     string
 	MaxPriceMicros uint64
 	Limit          uint64
-	Cursor         string
-	AtBlock        uint64
+	Offset         uint64
 }
 
 type OfferPage struct {
 	Offers      []OfferSnapshot `json:"offers"`
 	Rejected    int             `json:"rejected"`
-	Cursor      string          `json:"cursor,omitempty"`
+	Offset      uint64          `json:"offset,string"`
 	BlockNumber uint64          `json:"block_number,string"`
 	Query       string          `json:"query"`
 }
 
 func (c *Client) Query(ctx context.Context, options QueryOptions) (OfferPage, error) {
+	if options.Limit > 50 {
+		return OfferPage{}, ErrInvalidOffer
+	}
 	expression := DiscoveryQuery
 	if options.Capability != "" {
 		if !capabilityRE.MatchString(options.Capability) {
@@ -73,15 +75,12 @@ func (c *Client) Query(ctx context.Context, options QueryOptions) (OfferPage, er
 	if options.MaxPriceMicros > 0 {
 		expression += " AND price_micros <= u64(" + strconv.FormatUint(options.MaxPriceMicros, 10) + ")"
 	}
-	head, err := c.head(ctx)
+	expression += " ORDER BY $key ASC"
+	raw, at, head, err := c.query(ctx, expression, options)
 	if err != nil {
 		return OfferPage{}, err
 	}
-	raw, at, cursor, err := c.query(ctx, expression, options, head)
-	if err != nil {
-		return OfferPage{}, err
-	}
-	page := OfferPage{Offers: []OfferSnapshot{}, BlockNumber: at, Cursor: cursor, Query: expression}
+	page := OfferPage{Offers: []OfferSnapshot{}, BlockNumber: at, Offset: options.Offset, Query: expression}
 	seen := make(map[string]bool, len(raw))
 	for _, entity := range raw {
 		snapshot, err := parseOffer(ctx, entity, head, c.now(), c.policy)
@@ -110,13 +109,7 @@ func (c *Client) Get(ctx context.Context, entityKey string) (OfferSnapshot, erro
 	if !hexBytes(entityKey, 32) {
 		return OfferSnapshot{}, ErrInvalidOffer
 	}
-	head, err := c.head(ctx)
-	if err != nil {
-		return OfferSnapshot{}, err
-	}
-	// The SDK also implements getEntity through a key predicate. Pinning the
-	// query to the observed block gives terms and native expiry one context.
-	entities, _, _, err := c.query(ctx, "$key = key("+strings.ToLower(entityKey)+")", QueryOptions{Limit: 1}, head)
+	entities, at, head, err := c.query(ctx, "$key = key("+strings.ToLower(entityKey)+")", QueryOptions{Limit: 1})
 	if err != nil {
 		return OfferSnapshot{}, err
 	}
@@ -127,13 +120,16 @@ func (c *Client) Get(ctx context.Context, entityKey string) (OfferSnapshot, erro
 	if err != nil {
 		return OfferSnapshot{}, err
 	}
-	if !strings.EqualFold(snapshot.EntityKey, entityKey) {
+	if !strings.EqualFold(snapshot.EntityKey, entityKey) || snapshot.UpdatedAtBlock > at {
 		return OfferSnapshot{}, ErrRPC
 	}
 	return snapshot, nil
 }
 
 func (c *Client) Revalidate(ctx context.Context, stored OfferSnapshot) (OfferSnapshot, error) {
+	if stored.ArkivChainID != ChainID {
+		return OfferSnapshot{}, ErrSnapshotNetwork
+	}
 	digest, err := snapshotDigest(stored)
 	if err != nil || !hexBytes(stored.SnapshotHash, 32) || digest != stored.SnapshotHash {
 		return OfferSnapshot{}, ErrInvalidOffer
@@ -170,42 +166,37 @@ func (c *Client) head(ctx context.Context) (uint64, error) {
 	return head, nil
 }
 
-func (c *Client) query(ctx context.Context, expression string, options QueryOptions, head uint64) ([]json.RawMessage, uint64, string, error) {
+func (c *Client) query(ctx context.Context, expression string, options QueryOptions) ([]json.RawMessage, uint64, uint64, error) {
 	if options.Limit == 0 {
 		options.Limit = 20
 	}
-	if options.Limit > 50 || len(options.Cursor) > 2048 || (options.Cursor != "" && options.AtBlock == 0) {
-		return nil, 0, "", ErrInvalidOffer
+	before, err := c.head(ctx)
+	if err != nil {
+		return nil, 0, 0, err
 	}
-	at := head
-	if options.AtBlock != 0 {
-		if options.AtBlock > head {
-			return nil, 0, "", ErrInvalidOffer
-		}
-		at = options.AtBlock
-	}
-	projection := map[string]bool{"key": true, "owner": true, "updatedAt": true, "expiresAt": true, "contentType": true, "payload": true, "attributes": true}
-	params := map[string]any{"select": projection, "limit": fmt.Sprintf("0x%x", options.Limit), "atBlock": fmt.Sprintf("0x%x", at)}
-	if options.Cursor != "" {
-		params["cursor"] = options.Cursor
-	}
+	projection := map[string]bool{"key": true, "owner": true, "updatedAt": true, "expiresAt": true, "attributes": true}
+	params := map[string]any{"select": projection, "limit": fmt.Sprintf("0x%x", options.Limit), "offset": fmt.Sprintf("0x%x", options.Offset)}
 	var result struct {
 		Data        []json.RawMessage `json:"data"`
 		BlockNumber string            `json:"blockNumber"`
-		Cursor      json.RawMessage   `json:"cursor"`
 	}
 	if err := c.call(ctx, "arkiv_query", []any{expression, params}, &result); err != nil {
-		return nil, 0, "", err
+		return nil, 0, 0, err
 	}
 	block, err := quantity(result.BlockNumber)
-	var cursor string
-	if len(result.Cursor) > 0 && (bytes.Equal(result.Cursor, []byte("null")) || json.Unmarshal(result.Cursor, &cursor) != nil || cursor == "") {
-		return nil, 0, "", ErrRPC
+	if err != nil || block < before || result.Data == nil || uint64(len(result.Data)) > options.Limit {
+		return nil, 0, 0, ErrRPC
 	}
-	if err != nil || block != at || result.Data == nil || uint64(len(result.Data)) > options.Limit || len(cursor) > 2048 || (cursor != "" && cursor == options.Cursor) {
-		return nil, 0, "", ErrRPC
+	// Rabdi has no historical reads. Check expiry against a fresh head after
+	// the latest query, allowing the chain to advance while the request runs.
+	after, err := c.head(ctx)
+	if err != nil {
+		return nil, 0, 0, err
 	}
-	return result.Data, block, cursor, nil
+	if block > after {
+		return nil, 0, 0, ErrRPC
+	}
+	return result.Data, block, after, nil
 }
 
 func (c *Client) call(ctx context.Context, method string, params []any, target any) error {

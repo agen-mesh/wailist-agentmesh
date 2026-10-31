@@ -17,16 +17,18 @@ const fixtureOwner = "0x2222222222222222222222222222222222222222"
 const fixturePayload = `{"endpoint":"https://merchant.example/tool","method":"POST","payee":"0x2222222222222222222222222222222222222222","input_schema":{"type":"object","properties":{"prompt":{"type":"string"}},"required":["prompt"],"additionalProperties":false}}`
 
 // Independently authored wire fixture follows the documented JSON-RPC shape.
-// It is not a response from Tiramisu and is not encoded by the production writer.
+// It is not a live response and is not encoded by the production writer.
 func fixtureEntity() json.RawMessage {
 	return json.RawMessage(strings.ReplaceAll(`{
 		"key":"0x1111111111111111111111111111111111111111111111111111111111111111",
 		"owner":"0x2222222222222222222222222222222222222222",
 		"createdAt":"0xf00","updatedAt":"0xff0","expiresAt":"0x1200",
-		"contentType":"application/json","payload":"PAYLOAD_HEX",
 		"attributes":[
+			{"name":"arkiv.schema","type":"str","value":"agentmesh.service-offer.v2"},
+			{"name":"content_type","type":"str","value":"application/json"},
+			{"name":"payload","type":"bytes","value":"PAYLOAD_HEX"},
 			{"name":"project","type":"str","value":"agentmesh-mumbai"},
-			{"name":"kind","type":"str","value":"service-offer-v1"},
+			{"name":"kind","type":"str","value":"service-offer-v2"},
 			{"name":"capability","type":"str","value":"summarize"},
 			{"name":"settlement_chain","type":"u64","value":"0x4cef52"},
 			{"name":"asset","type":"addr","value":"0x3600000000000000000000000000000000000000"},
@@ -64,7 +66,7 @@ func setAttribute(entity map[string]any, name, kind string, value any) {
 }
 
 func setPayload(entity map[string]any, raw string) {
-	entity["payload"] = "0x" + hex.EncodeToString([]byte(raw))
+	setAttribute(entity, "payload", "bytes", "0x"+hex.EncodeToString([]byte(raw)))
 }
 
 func fixturePolicy(_ context.Context, endpoint string) error {
@@ -80,7 +82,7 @@ func TestOfferWireFixtureAndExactIntegerUnits(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := sha256.Sum256([]byte(fixturePayload))
-	if snapshot.EntityKey != fixtureKey || snapshot.Owner != fixtureOwner || snapshot.Payload.Payee != snapshot.Owner || snapshot.PriceMicros != 1000000 || snapshot.SettlementChain != 5042002 || snapshot.Asset != SettlementAsset || snapshot.ExpiresAtBlock != 4608 || snapshot.ValidUntil != 2000000000 || snapshot.ContentHash != "0x"+hex.EncodeToString(hash[:]) {
+	if snapshot.ArkivChainID != 7794095 || snapshot.EntityKey != fixtureKey || snapshot.Owner != fixtureOwner || snapshot.Payload.Payee != snapshot.Owner || snapshot.PriceMicros != 1000000 || snapshot.SettlementChain != 5042002 || snapshot.Asset != SettlementAsset || snapshot.ExpiresAtBlock != 4608 || snapshot.ValidUntil != 2000000000 || snapshot.ContentHash != "0x"+hex.EncodeToString(hash[:]) {
 		t.Fatalf("unexpected parsed snapshot: %+v", snapshot)
 	}
 	raw := editedEntity(t, func(e map[string]any) { setAttribute(e, "price_micros", "u64", "0xffffffffffffffff") })
@@ -102,10 +104,19 @@ func TestOfferRejectsMalformedAndUnsafeRecords(t *testing.T) {
 	}{
 		{"key", func(e map[string]any) { e["key"] = "0x12" }, ErrInvalidOffer},
 		{"owner", func(e map[string]any) { e["owner"] = "0x0000000000000000000000000000000000000000" }, ErrInvalidOffer},
-		{"content type", func(e map[string]any) { e["contentType"] = "text/html" }, ErrInvalidOffer},
-		{"invalid hex", func(e map[string]any) { e["payload"] = "0xzz" }, ErrInvalidOffer},
-		{"invalid utf8", func(e map[string]any) { e["payload"] = "0xff" }, ErrInvalidOffer},
-		{"huge payload", func(e map[string]any) { e["payload"] = "0x" + strings.Repeat("00", maxPayloadBytes+1) }, ErrInvalidOffer},
+		{"content type", func(e map[string]any) { setAttribute(e, "content_type", "str", "text/html") }, ErrInvalidOffer},
+		{"invalid hex", func(e map[string]any) { setAttribute(e, "payload", "bytes", "0xzz") }, ErrInvalidOffer},
+		{"invalid utf8", func(e map[string]any) { setAttribute(e, "payload", "bytes", "0xff") }, ErrInvalidOffer},
+		{"wrong payload type", func(e map[string]any) { setAttribute(e, "payload", "str", "0x00") }, ErrInvalidOffer},
+		{"huge payload", func(e map[string]any) {
+			setAttribute(e, "payload", "bytes", "0x"+strings.Repeat("00", maxPayloadBytes+1))
+		}, ErrInvalidOffer},
+		{"legacy wire", func(e map[string]any) {
+			e["attributes"] = e["attributes"].([]any)[3:]
+			e["contentType"] = "application/json"
+			e["payload"] = "0x" + hex.EncodeToString([]byte(fixturePayload))
+		}, ErrInvalidOffer},
+		{"wrong schema", func(e map[string]any) { setAttribute(e, "arkiv.schema", "str", "agentmesh.service-offer.v1") }, ErrInvalidOffer},
 		{"native expiry equal", func(e map[string]any) { e["expiresAt"] = "0x1000" }, ErrExpired},
 		{"native expiry earlier", func(e map[string]any) { e["expiresAt"] = "0xfff" }, ErrExpired},
 		{"native expiry not timestamp", func(e map[string]any) { e["expiresAt"] = 2000000000 }, ErrInvalidOffer},
