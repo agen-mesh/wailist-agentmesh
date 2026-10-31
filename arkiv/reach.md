@@ -4,6 +4,6 @@ AgentMesh already has a workflow execution backend and a browser workflow editor
 
 The intended users are service providers publishing expiring offers and customers selecting a service for a separately approved purchase. The combined integration owns the discovery page and purchase journey; this isolated module does not demonstrate that journey yet.
 
-No measured active-user count, organization count, adoption rate, revenue, writer count or external distribution figure was provided or established in this work. No such metric is claimed. The independent exact public query returned zero matching offers at the recorded observation block.
+No measured active-user count, organization count, adoption rate, revenue, writer count or external distribution figure was provided or established in this work. No such metric is claimed. The historical Tiramisu v1 public query returned zero matching offers at its recorded observation block; it establishes no Rabdi adoption or availability.
 
-All code and documentation in this leaf began on 2026-10-30 Asia/Kolkata (2026-10-29 UTC), before the event. Public repository licensing, any event-specific new work and successful live usage must be established separately. Existing product code and these pre-event additions must be disclosed as prior work.
+The original leaf began on 2026-10-30 Asia/Kolkata (2026-10-29 UTC); Rabdi migration preparation occurred on 2026-10-31. Public repository licensing, any event-specific new work and successful live usage must be established separately. Existing product code and these pre-event additions must be disclosed as prior work.
