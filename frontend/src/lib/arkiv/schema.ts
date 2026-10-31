@@ -1,11 +1,12 @@
-export const ARKIV_CHAIN_ID = 7738577;
-export const ARKIV_RPC_URL = "https://rpc.tiramisu.db-chain.testnet.arkiv.network";
+export const ARKIV_CHAIN_ID = 7794095;
+export const ARKIV_RPC_URL = "https://rpc.rabdi.db-chain.testnet.arkiv.network";
 export const ARC_CHAIN_ID = 5042002;
 export const ARC_ASSET = "0x3600000000000000000000000000000000000000";
 export const OFFER_PROJECT = "agentmesh-mumbai";
-export const OFFER_KIND = "service-offer-v1";
+export const OFFER_KIND = "service-offer-v2";
+export const OFFER_SCHEMA = "agentmesh.service-offer.v2";
 export const DISCOVERY_QUERY =
-  "project = str('agentmesh-mumbai') AND kind = str('service-offer-v1') AND settlement_chain = u64(5042002) AND status = str('active')";
+  "arkiv.schema = str('agentmesh.service-offer.v2') AND project = str('agentmesh-mumbai') AND kind = str('service-offer-v2') AND settlement_chain = u64(5042002) AND status = str('active')";
 
 export type InputSchema = {
   type: "object";
