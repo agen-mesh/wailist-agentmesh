@@ -139,6 +139,10 @@ func assertObservedToken(t *testing.T, outcome simulation.Outcome, observation t
 	if claims["iss"] != expectedIssuer || claims["aud"] != expectedAudience || claims["nonce"] != expectedNonce || claims["sub"] != simulation.Subject {
 		t.Fatal("issuer fault did not preserve the intended claim bindings")
 	}
+	methods, ok := claims["amr"].([]any)
+	if claims["acr"] != world.OrbACR || !ok || len(methods) != 2 || methods[0] != "pop" || methods[1] != "iris" {
+		t.Fatal("issuer fault changed the documented Orb assurance shape")
+	}
 	now := float64(time.Now().Unix())
 	expiresAt, ok := claims["exp"].(float64)
 	if !ok || (outcome == simulation.Expired && expiresAt >= now) || (outcome != simulation.Expired && expiresAt <= now) {

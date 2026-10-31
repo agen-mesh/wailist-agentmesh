@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -76,6 +77,9 @@ func TestControlledApplicationIssuer(t *testing.T) {
 			case simulation.Success:
 				if err != nil || !evidence.Demo || evidence.Environment != world.Sandbox || evidence.Subject != simulation.Subject || !store.completed {
 					t.Fatal("real client rejected controlled success")
+				}
+				if evidence.ACR != world.OrbACR || evidence.AuthenticationKind != "world_proof" || !slices.Equal(evidence.AMR, []string{"pop", "iris"}) {
+					t.Fatal("controlled success did not validate the documented Orb methods")
 				}
 			case simulation.Denied:
 				if !errors.Is(err, world.ErrDenied) || evidence.AttemptID != "" || store.completed {

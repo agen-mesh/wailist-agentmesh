@@ -233,7 +233,7 @@ func (f *issuerFixture) redeem(w http.ResponseWriter, r *http.Request) {
 	}
 	claims := map[string]any{"iss": f.cfg.Issuer, "sub": "fixture-subject", "aud": f.cfg.ClientID,
 		"iat": f.now.Unix(), "exp": f.now.Add(5 * time.Minute).Unix(), "auth_time": f.now.Unix(),
-		"nonce": g.nonce, "acr": OrbACR, "amr": []string{"pop"}}
+		"nonce": g.nonce, "acr": OrbACR, "amr": []string{"pop", "iris"}}
 	if f.payload != nil {
 		f.payload(claims)
 	}

@@ -301,7 +301,7 @@ func (i *Issuer) token(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	claims := map[string]any{"iss": issuerURL, "sub": g.subject, "aud": i.registration.ClientID, "exp": now.Add(5 * time.Minute).Unix(), "iat": now.Unix(),
-		"nonce": g.nonce, "auth_time": g.authenticatedAt.Unix(), "acr": orbACR, "amr": []string{"pop"}}
+		"nonce": g.nonce, "auth_time": g.authenticatedAt.Unix(), "acr": orbACR, "amr": []string{"pop", "iris"}}
 	switch g.outcome {
 	case Stale:
 		claims["auth_time"] = now.Add(-time.Hour).Unix()
