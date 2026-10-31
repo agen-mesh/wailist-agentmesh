@@ -81,24 +81,44 @@ type queryResult struct {
 	Block string                       `json:"blockNumber"`
 }
 
-func TestArkivTypedFiltersProjectionAndHistoricalBlock(t *testing.T) {
+func TestArkivRabdiFiltersProjectionAndLatestOffset(t *testing.T) {
 	f, _ := testFixture(t)
 	h := f.ArkivHandler()
 	if result[string](t, rpc(t, h, "eth_chainId")) != hexQuantity(ArkivChainID) {
 		t.Fatal("wrong Arkiv chain")
 	}
 	head := result[string](t, rpc(t, h, "eth_blockNumber"))
-	projection := map[string]any{"key": true, "owner": true, "expiresAt": true, "payload": true, "attributes": true}
+	projection := map[string]any{"key": true, "owner": true, "expiresAt": true, "updatedAt": true, "attributes": true}
 	q := func(expression string, options map[string]any) queryResult {
 		return result[queryResult](t, rpc(t, h, "arkiv_query", expression, options))
 	}
-	page := q(arkiv.DiscoveryQuery, map[string]any{"select": projection, "atBlock": head, "limit": "0x1"})
+	page := q(arkiv.DiscoveryQuery+" ORDER BY $key ASC", map[string]any{"select": projection, "offset": "0x0", "limit": "0x1"})
 	if len(page.Data) != 1 || page.Block != head {
 		t.Fatal("exact discovery query missing row")
 	}
 	var attrs []attribute
-	if json.Unmarshal(page.Data[0]["attributes"], &attrs) != nil || len(attrs) != 9 {
+	if json.Unmarshal(page.Data[0]["attributes"], &attrs) != nil || len(attrs) != 12 {
 		t.Fatal("typed attributes missing")
+	}
+	payloadValue := func(row map[string]json.RawMessage) string {
+		var values []attribute
+		if err := json.Unmarshal(row["attributes"], &values); err != nil {
+			t.Fatal(err)
+		}
+		for _, value := range values {
+			if value.Name == "payload" && value.Type == "bytes" {
+				return value.Value
+			}
+		}
+		t.Fatal("payload bytes attribute missing")
+		return ""
+	}
+	originalPayload := payloadValue(page.Data[0])
+	if _, exists := page.Data[0]["payload"]; exists {
+		t.Fatal("fixture retained the retired top-level payload field")
+	}
+	if len(q(arkiv.DiscoveryQuery, map[string]any{"offset": "0x1"}).Data) != 0 {
+		t.Fatal("offset repeated the first entity")
 	}
 	for _, filter := range []string{"project = str('wrong')", "settlement_chain = u64(1)", "settlement_chain = str('5042002')", "price_micros < u64(1000000)", "capability = str('other')", "$key = key(0x0000000000000000000000000000000000000000000000000000000000000000)"} {
 		if len(q(filter, nil).Data) != 0 {
@@ -113,7 +133,7 @@ func TestArkivTypedFiltersProjectionAndHistoricalBlock(t *testing.T) {
 	for _, filter := range []string{"project='agentmesh-mumbai'", "price_micros = u64(-1)", "price_micros = u64(18446744073709551616)", "* OR *", "project = str('x') OR status = str('active')"} {
 		requireError(t, rpc(t, h, "arkiv_query", filter))
 	}
-	for _, options := range []map[string]any{{"limit": "0x0"}, {"limit": "0xc9"}, {"atBlock": "0xffff"}, {"cursor": "not-present"}, {"select": map[string]any{"unknown": true}}, {"ignored": true}} {
+	for _, options := range []map[string]any{{"limit": "0x0"}, {"limit": "0x33"}, {"offset": "invalid"}, {"atBlock": head}, {"cursor": "not-present"}, {"select": map[string]any{"payload": true}}, {"select": map[string]any{"contentType": true}}, {"select": map[string]any{"unknown": true}}, {"ignored": true}} {
 		requireError(t, rpc(t, h, "arkiv_query", "*", options))
 	}
 	only := q("*", map[string]any{"select": map[string]any{"key": true, "attributes": map[string]bool{"price_micros": true}}})
@@ -124,22 +144,20 @@ func TestArkivTypedFiltersProjectionAndHistoricalBlock(t *testing.T) {
 		t.Fatal("attribute projection ignored")
 	}
 	setFaults(t, f, Faults{Arkiv: "changed_payload"})
-	historical := q("*", map[string]any{"select": projection, "atBlock": head})
 	current := q("*", map[string]any{"select": projection})
-	if string(historical.Data[0]["payload"]) != string(page.Data[0]["payload"]) || string(current.Data[0]["payload"]) == string(page.Data[0]["payload"]) {
-		t.Fatal("atBlock did not select historical revision")
+	if payloadValue(current.Data[0]) == originalPayload {
+		t.Fatal("latest query retained the old payload")
 	}
+	requireError(t, rpc(t, h, "arkiv_query", "*", map[string]any{"select": projection, "atBlock": head}))
 	if err := f.AdvanceBlocks(0, 300); err != nil {
 		t.Fatal(err)
 	}
-	if len(q("*", nil).Data) != 0 || len(q("*", map[string]any{"atBlock": head}).Data) != 1 {
-		t.Fatal("native expiry did not follow query block")
+	if len(q("*", nil).Data) != 0 {
+		t.Fatal("native expiry did not follow the current block")
 	}
-	if got := result[*entity](t, rpc(t, h, "arkiv_getEntity", f.OfferKey())); got != nil {
-		t.Fatal("expired entity returned")
+	if len(q("$key = key("+f.OfferKey()+")", map[string]any{"select": projection}).Data) != 0 {
+		t.Fatal("expired entity returned by its key")
 	}
-	if got := result[*entity](t, rpc(t, h, "arkiv_getEntity", f.OfferKey(), head)); got == nil || got.Key != f.OfferKey() {
-		t.Fatal("historical key read missing")
-	}
+	requireError(t, rpc(t, h, "arkiv_getEntity", f.OfferKey(), head))
 	requireError(t, rpc(t, h, "arkiv_createEntity", map[string]string{"payload": "0x"}))
 }

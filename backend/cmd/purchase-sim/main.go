@@ -219,7 +219,7 @@ func run() error {
 	broker := sse.NewBroker()
 	runner := engine.NewRunner(store, broker, nil, base, "", "", engine.X402Config{}, arc.Config{})
 	runner.SetPurchases(service)
-	deps := &handlers.Deps{Store: store, Broker: broker, Engine: runner, ArcConfig: &arc.Config{}, BaseURL: base, FrontendURL: *frontend, JWTSecret: state.JWT, EncryptionKey: state.Encryption, Purchases: &handlers.PurchaseRuntime{Service: service, Catalog: service.Catalog, Identity: identity, ValidateEndpoint: policy, PublicConfig: map[string]any{"enabled": true, "blockedReasons": []string{}, "chainId": purchase.ChainID, "asset": purchase.Asset, "rpcUrl": base + "/__verify__/arc", "merchantCapability": merchant.Capability, "arkivAvailable": true, "worldAvailable": true, "evidenceMode": "simulation"}}}
+	deps := &handlers.Deps{Store: store, Broker: broker, Engine: runner, ArcConfig: &arc.Config{}, BaseURL: base, FrontendURL: *frontend, JWTSecret: state.JWT, EncryptionKey: state.Encryption, Purchases: &handlers.PurchaseRuntime{Service: service, Catalog: service.Catalog, Identity: identity, ValidateEndpoint: policy, PublicConfig: map[string]any{"enabled": true, "blockedReasons": []string{}, "chainId": purchase.ChainID, "asset": purchase.Asset, "rpcUrl": base + "/__verify__/arc", "merchantCapability": merchant.Capability, "arkivAvailable": true, "arkivChainId": arkiv.ChainID, "worldAvailable": true, "evidenceMode": "simulation"}}}
 	router := api.NewRouter(deps)
 	mux := http.NewServeMux()
 	mux.Handle("/__verify__/", app.controls())

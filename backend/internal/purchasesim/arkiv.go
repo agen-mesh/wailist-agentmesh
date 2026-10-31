@@ -23,14 +23,12 @@ type offerRevision struct {
 	Entity entity
 }
 type entity struct {
-	Key         string      `json:"key"`
-	Owner       string      `json:"owner"`
-	CreatedAt   string      `json:"createdAt"`
-	UpdatedAt   string      `json:"updatedAt"`
-	ExpiresAt   string      `json:"expiresAt"`
-	ContentType string      `json:"contentType"`
-	Payload     string      `json:"payload"`
-	Attributes  []attribute `json:"attributes"`
+	Key        string      `json:"key"`
+	Owner      string      `json:"owner"`
+	CreatedAt  string      `json:"createdAt"`
+	UpdatedAt  string      `json:"updatedAt"`
+	ExpiresAt  string      `json:"expiresAt"`
+	Attributes []attribute `json:"attributes"`
 }
 
 func (f *Fixture) OfferKey() string { return fixtureHash("offer:" + f.identity()).Hex() }
@@ -62,10 +60,12 @@ func (f *Fixture) reviseOffer(mode string) {
 	if err != nil {
 		panic("static simulation offer is not serializable")
 	}
-	e := entity{Key: f.OfferKey(), Owner: owner, CreatedAt: hexQuantity(4096), UpdatedAt: hexQuantity(head), ExpiresAt: hexQuantity(expires), ContentType: "application/json", Payload: hexutil.Encode(encoded), Attributes: []attribute{
-		{"project", "str", "agentmesh-mumbai"}, {"kind", "str", "service-offer-v1"}, {"capability", "str", "text.digest.v1"},
+	e := entity{Key: f.OfferKey(), Owner: owner, CreatedAt: hexQuantity(4096), UpdatedAt: hexQuantity(head), ExpiresAt: hexQuantity(expires), Attributes: []attribute{
+		{"arkiv.schema", "str", "agentmesh.service-offer.v2"},
+		{"project", "str", "agentmesh-mumbai"}, {"kind", "str", "service-offer-v2"}, {"capability", "str", "text.digest.v1"},
 		{"settlement_chain", "u64", hexQuantity(ArcChainID)}, {"asset", "addr", Asset}, {"price_micros", "u64", hexQuantity(f.price.Uint64())},
 		{"version", "u64", hexQuantity(version)}, {"status", "str", "active"}, {"valid_until", "u64", hexQuantity(until)},
+		{"content_type", "str", "application/json"}, {"payload", "bytes", hexutil.Encode(encoded)},
 	}}
 	f.state.Offers = append(f.state.Offers, offerRevision{head, mode == "empty", e})
 }
@@ -92,29 +92,6 @@ func (f *Fixture) arkivRPC(method string, params []json.RawMessage) (any, error)
 		return hexQuantity(ArkivChainID), nil
 	case "eth_blockNumber":
 		return hexQuantity(f.state.ArkivHead), nil
-	case "arkiv_getEntity":
-		f.obs.ArkivQueries++
-		key, err := textParam(params, 0)
-		if err != nil || !isHash(key) || len(params) > 2 {
-			return nil, errParams
-		}
-		at := f.state.ArkivHead
-		if len(params) == 2 {
-			var tag string
-			if json.Unmarshal(params[1], &tag) == nil {
-				at, err = blockTag(tag, f.state.ArkivHead)
-			} else {
-				err = json.Unmarshal(params[1], &at)
-			}
-			if err != nil || at > f.state.ArkivHead {
-				return nil, errParams
-			}
-		}
-		e := f.offerAt(at)
-		if e == nil || !strings.EqualFold(e.Key, key) {
-			return nil, nil
-		}
-		return e, nil
 	case "arkiv_query":
 		f.obs.ArkivQueries++
 		expression, err := textParam(params, 0)
@@ -122,10 +99,9 @@ func (f *Fixture) arkivRPC(method string, params []json.RawMessage) (any, error)
 			return nil, errParams
 		}
 		var options struct {
-			Select  map[string]json.RawMessage `json:"select"`
-			Limit   string                     `json:"limit"`
-			AtBlock string                     `json:"atBlock"`
-			Cursor  string                     `json:"cursor"`
+			Select map[string]json.RawMessage `json:"select"`
+			Limit  string                     `json:"limit"`
+			Offset string                     `json:"offset"`
 		}
 		if len(params) == 2 && string(params[1]) != "null" {
 			d := json.NewDecoder(bytes.NewReader(params[1]))
@@ -134,19 +110,16 @@ func (f *Fixture) arkivRPC(method string, params []json.RawMessage) (any, error)
 				return nil, errParams
 			}
 		}
-		if options.Cursor != "" {
-			return nil, errors.New("simulation query has no further cursor")
-		}
-		limit, at := uint64(20), f.state.ArkivHead
+		limit, offset, at := uint64(20), uint64(0), f.state.ArkivHead
 		if options.Limit != "" {
 			limit, err = blockTag(options.Limit, f.state.ArkivHead)
-			if err != nil || limit == 0 || limit > 200 {
+			if err != nil || limit == 0 || limit > 50 {
 				return nil, errParams
 			}
 		}
-		if options.AtBlock != "" {
-			at, err = blockTag(options.AtBlock, f.state.ArkivHead)
-			if err != nil || at > f.state.ArkivHead {
+		if options.Offset != "" {
+			offset, err = blockTag(options.Offset, f.state.ArkivHead)
+			if err != nil {
 				return nil, errParams
 			}
 		}
@@ -159,7 +132,7 @@ func (f *Fixture) arkivRPC(method string, params []json.RawMessage) (any, error)
 			return nil, err
 		}
 		data := []any{}
-		if e := f.offerAt(at); e != nil && matchesPredicates(*e, predicates) {
+		if e := f.offerAt(at); e != nil && offset == 0 && matchesPredicates(*e, predicates) {
 			row, err := projectEntity(*e, options.Select)
 			if err != nil {
 				return nil, err
@@ -174,9 +147,10 @@ func (f *Fixture) arkivRPC(method string, params []json.RawMessage) (any, error)
 
 type predicate struct{ name, op, kind, value string }
 
-var predicateRE = regexp.MustCompile(`^([a-z_][a-z0-9_]*|\$(?:key|owner|expiresAt|createdAt|contentType))\s*(=|<=|>=|<|>)\s*(str|u64|addr|key)\((.*)\)$`)
+var predicateRE = regexp.MustCompile(`^([a-z_][a-z0-9_.]*|\$(?:key|owner|expiresAt|createdAt))\s*(=|<=|>=|<|>)\s*(str|u64|addr|key)\((.*)\)$`)
 
 func parsePredicates(expression string) ([]predicate, error) {
+	expression = strings.TrimSuffix(expression, " ORDER BY $key ASC")
 	if expression == "*" {
 		return nil, nil
 	}
@@ -217,7 +191,7 @@ func parsePredicates(expression string) ([]predicate, error) {
 }
 
 func matchesPredicates(e entity, predicates []predicate) bool {
-	values := map[string]attribute{"$key": {"", "key", e.Key}, "$owner": {"", "addr", e.Owner}, "$expiresAt": {"", "u64", e.ExpiresAt}, "$createdAt": {"", "u64", e.CreatedAt}, "$contentType": {"", "str", e.ContentType}}
+	values := map[string]attribute{"$key": {"", "key", e.Key}, "$owner": {"", "addr", e.Owner}, "$expiresAt": {"", "u64", e.ExpiresAt}, "$createdAt": {"", "u64", e.CreatedAt}}
 	for _, a := range e.Attributes {
 		values[a.Name] = a
 	}
@@ -246,7 +220,7 @@ func matchesPredicates(e entity, predicates []predicate) bool {
 }
 
 func projectEntity(e entity, selects map[string]json.RawMessage) (map[string]any, error) {
-	fields := map[string]any{"key": e.Key, "owner": e.Owner, "createdAt": e.CreatedAt, "updatedAt": e.UpdatedAt, "expiresAt": e.ExpiresAt, "contentType": e.ContentType, "payload": e.Payload, "attributes": e.Attributes}
+	fields := map[string]any{"key": e.Key, "owner": e.Owner, "createdAt": e.CreatedAt, "updatedAt": e.UpdatedAt, "expiresAt": e.ExpiresAt, "attributes": e.Attributes}
 	if selects == nil {
 		return map[string]any{"key": e.Key}, nil
 	}

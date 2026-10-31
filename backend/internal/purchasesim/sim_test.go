@@ -206,7 +206,7 @@ func TestPrivateStateSurvivesFreshInstance(t *testing.T) {
 	if got := result[string](t, rpc(t, g.ArcHandler(), "eth_sendRawTransaction", raw)); got != hash.Hex() || g.Observations().UniqueTransactions != 2 {
 		t.Fatal("restore replay changed payment")
 	}
-	for _, bad := range [][]byte{[]byte(`{}`), append(append([]byte{}, data...), byte('x')), bytes.Replace(data, []byte(`"Version":1`), []byte(`"Version":2`), 1)} {
+	for _, bad := range [][]byte{[]byte(`{}`), append(append([]byte{}, data...), byte('x')), bytes.Replace(data, []byte(`"Version":2`), []byte(`"Version":1`), 1)} {
 		if g.RestoreState(bad) == nil {
 			t.Fatal("corrupt state accepted")
 		}

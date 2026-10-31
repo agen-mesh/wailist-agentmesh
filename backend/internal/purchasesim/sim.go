@@ -22,7 +22,7 @@ import (
 )
 
 const ArcChainID = 5042002
-const ArkivChainID = 7738577
+const ArkivChainID = 7794095
 const Asset = "0x3600000000000000000000000000000000000000"
 
 var errParams = errors.New("invalid simulation RPC parameters")
@@ -281,7 +281,7 @@ type persistedState struct {
 func (f *Fixture) MarshalState() ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	data, err := json.Marshal(persistedState{1, f.identity(), f.state, f.faults, f.obs})
+	data, err := json.Marshal(persistedState{2, f.identity(), f.state, f.faults, f.obs})
 	if err != nil {
 		return nil, fmt.Errorf("encode simulation state: %w", err)
 	}
@@ -296,7 +296,7 @@ func (f *Fixture) RestoreState(data []byte) error {
 	d := json.NewDecoder(bytes.NewReader(data))
 	d.DisallowUnknownFields()
 	var trailing any
-	if d.Decode(&saved) != nil || d.Decode(&trailing) != io.EOF || saved.Version != 1 || saved.Identity != f.identity() || !known(rpcFaults, saved.Faults.RPC) || !known(arkivFaults, saved.Faults.Arkiv) {
+	if d.Decode(&saved) != nil || d.Decode(&trailing) != io.EOF || saved.Version != 2 || saved.Identity != f.identity() || !known(rpcFaults, saved.Faults.RPC) || !known(arkivFaults, saved.Faults.Arkiv) {
 		return errors.New("invalid simulation state")
 	}
 	s := saved.State
