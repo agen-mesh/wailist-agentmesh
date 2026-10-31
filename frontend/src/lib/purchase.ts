@@ -14,6 +14,7 @@ export interface PurchaseConfig {
   rpcUrl: string;
   merchantCapability: string;
   arkivAvailable: boolean;
+  arkivChainId: number;
   worldAvailable: boolean;
   evidenceMode: "live" | "simulation";
 }

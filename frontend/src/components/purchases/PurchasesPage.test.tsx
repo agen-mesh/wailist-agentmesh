@@ -48,6 +48,22 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); Reflect.deleteProperty(window, "ethereum"); Reflect.deleteProperty(document, "visibilityState"); });
 
 describe("purchase action sequence", () => {
+  it.each([7738577, 1, undefined])("blocks provider publishing when catalog chain %s differs from the browser", async (arkivChainId) => {
+    api.config.mockResolvedValue({ ...config, arkivChainId });
+    await act(async () => { render(<PurchasesPage />); });
+    expect(screen.getByText("Provider publishing is unavailable because the browser and catalog networks differ.")).toBeTruthy();
+    expect(providerForm.mock.lastCall?.[0].disabled).toBe(true);
+    expect(api.prepareAuthorization).not.toHaveBeenCalled();
+    expect(api.submitAuthorization).not.toHaveBeenCalled();
+  });
+
+  it("shows the Rabdi migration boundary and enables a matching provider catalog", async () => {
+    await act(async () => { render(<PurchasesPage />); });
+    expect(screen.getByText(/Tiramisu listings do not carry over to Rabdi/)).toBeTruthy();
+    expect(providerForm.mock.lastCall?.[0].disabled).toBe(false);
+    expect(screen.queryByText("Provider publishing is unavailable because the browser and catalog networks differ.")).toBeNull();
+  });
+
   it("does not approve or sign because a World return URL says success", async () => {
     render(<PurchasesPage />);
     await screen.findByRole("button", { name: "Approve 0.01 USDC" });

@@ -80,10 +80,10 @@ export function ProviderOfferForm({ provider, walletRevision, rpcURL, disabled, 
     <details className={styles.details}>
       <summary>Publish a service offer</summary>
       <p className={styles.muted}>Your provider wallet owns the public Arkiv listing and receives the Arc payment at the same address. Listing ownership does not certify merchant reliability.</p>
-      <p className={styles.notice} role="status">{wallet.status === "ready" ? `Arkiv Tiramisu connected. Current block ${wallet.currentBlock}.` : wallet.message}</p>
+      <p className={styles.notice} role="status">{wallet.status === "ready" ? `Arkiv Rabdi connected. Current block ${wallet.currentBlock}.` : wallet.message}</p>
       {wallet.status === "ready" && <p className={styles.mono}>Provider / payee: {wallet.account}</p>}
-      <button className={styles.secondary} type="button" onClick={() => void connect()} disabled={busy || disabled || !provider || !rpcURL}>Connect provider wallet on Tiramisu</button>
-      <p className={styles.muted}>Publishing uses test GLM. Switching to Tiramisu changes the connected wallet network; customer payments require Arc testnet.</p>
+      <button className={styles.secondary} type="button" onClick={() => void connect()} disabled={busy || disabled || !provider || !rpcURL}>Connect provider wallet on Rabdi</button>
+      <p className={styles.muted}>Publishing uses test tGLM. Switching to Rabdi changes the connected wallet network; customer payments require Arc testnet.</p>
       {simulation && <p className={styles.warning}>The app is in simulation mode. Any explicitly submitted Arkiv wallet transaction is a separate testnet write, not a simulated service payment.</p>}
       <form onSubmit={(event) => void publish(event)}>
         <fieldset disabled={busy || disabled || wallet.status !== "ready" || uncertain} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>

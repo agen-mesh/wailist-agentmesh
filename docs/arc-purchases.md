@@ -23,7 +23,7 @@ See [the environment example](../backend/.env.example). Configuration is loaded 
 
 | Variable | Purpose |
 | --- | --- |
-| `ARKIV_RPC_URL` | Trusted HTTPS Arkiv Tiramisu RPC, chain `7738577`. Enables discovery independently. |
+| `ARKIV_RPC_URL` | Trusted HTTPS Arkiv Rabdi RPC, chain `7794095`. Enables discovery independently. |
 | `ARC_PURCHASE_ENABLED` | Must be `true` to enable checkout. Defaults off. |
 | `ARC_PURCHASE_RPC_URL` | Trusted HTTPS Arc testnet RPC, chain `5042002`. |
 | `ARC_PURCHASE_RELAYER_PRIVATE_KEY` | Dedicated gas relayer key. Separate from `ARC_SPEND_PRIVATE_KEY`. |
@@ -47,7 +47,11 @@ See [the environment example](../backend/.env.example). Configuration is loaded 
 
 The controlled merchant serves `/merchant/quote`, `/merchant/accept`, `/merchant/fulfill` and `/merchant/results/{orderId}` at the resource's origin. Merchant requests use the internal bearer. Public endpoints undergo DNS validation and address-pinned dialing; redirects and private destinations are rejected. Callback logging removes query values before the request logger creates its entry.
 
-Frontend builds read `NEXT_PUBLIC_API_URL=/api`, server-only `BACKEND_URL`, and public `NEXT_PUBLIC_ARKIV_RPC_URL` for provider wallet writes. The browser RPC must be suitable for public inclusion and point to Tiramisu. It is separate from the backend's `ARKIV_RPC_URL`. A missing browser RPC leaves provider publication unavailable.
+Frontend builds read `NEXT_PUBLIC_API_URL=/api`, server-only `BACKEND_URL`, and public `NEXT_PUBLIC_ARKIV_RPC_URL` for provider wallet writes. The browser RPC must be suitable for public inclusion and point to Rabdi. It is separate from the backend's `ARKIV_RPC_URL`; never copy a private backend access key into a public build variable. A missing browser RPC or different catalog chain leaves provider publication unavailable. Backend configuration changes require a restart; public frontend settings require a new build.
+
+Rabdi is the fixed supported Arkiv network. The [current network reference](https://docs.arkiv.network/networks/rabdi/) identifies chain `7794095`; the [migration guide](https://docs.arkiv.network/networks/older-networks/) states that Tiramisu was replaced and its entities do not carry over. Changing only an RPC URL does not migrate existing listings. Providers must publish and confirm a new Rabdi listing before customers can discover it.
+
+New snapshots bind `arkiv_chain_id` under the `agentmesh-arkiv-snapshot-v2` digest domain. A stored snapshot with a missing or different catalog chain is rejected before a new approval or signature release, without querying the same entity key on Rabdi. Cancel an unsigned old order and create a new order from a current listing. Existing order, source, quote and intent commitments are never rewritten. Already released Arc authorizations retain their original identity and reconcile against the original payment intent without requiring new catalog discovery.
 
 Register the callback on the same browser host that receives identity-start requests and the authentication cookie. With `NEXT_PUBLIC_API_URL=/api`, use `https://<frontend-host>/api/purchases/world/callback`. Direct API clients use `https://<backend-host>/purchases/world/callback` and must keep that host's authenticated browser session. The short-lived `purchase_world_state` cookie is host-only, HttpOnly, SameSite=Lax, and scoped to `/`; HTTPS startup configuration marks it Secure. A callback without either cookie cannot complete enrollment.
 
@@ -65,6 +69,8 @@ go run ./cmd/purchase-sim --listen 127.0.0.1:8104 --frontend http://127.0.0.1:31
 Build the frontend with `NEXT_PUBLIC_API_URL=/api` and `BACKEND_URL=http://127.0.0.1:8104`, then serve it on `127.0.0.1:3104`. For the frontend proxy flow, also pass `--world-callback http://127.0.0.1:3104/api/purchases/world/callback` to the simulator. The page visibly identifies simulation mode. The private `/__verify__/capabilities` endpoint lists supported faults. Controls and ephemeral wallets are available only in this separate executable. No production route exposes them.
 
 Preserve the database, private directory, merchant resource and provider address together across restart. Scenario controls reset counters and faults while preserving transaction nonces, receipts and consumed authorizations. Private serialized chain state includes signed transaction bytes and must never be published. Unsupported controls remain blocked. The local Arkiv fixture does not implement SDK offer writes; successful wallet-unit simulations are not live publication evidence.
+
+The Rabdi fixture uses private state format version 2 and rejects saved Tiramisu fixture state. Start migration checks with a new scratch database and private context together. Do not reset a chain behind an existing purchase journal. This simulation boundary does not rewrite production orders or migrate public entities.
 
 For controlled unused-expiry checks, `--quote-ttl 45s` shortens new quotes only. The default remains five minutes; permitted values are whole seconds from 31 seconds through 15 minutes. Wait past the stored deadline and confirm new chain blocks before reconciliation. This flag does not advance the clock or rewrite an existing order. The `before_accept` RPC fault rejects a new transaction before ledger mutation, enabling exact-envelope recovery checks after the fault is cleared.
 

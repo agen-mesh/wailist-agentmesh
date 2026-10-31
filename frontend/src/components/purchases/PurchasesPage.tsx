@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Topbar } from "@/components/Topbar";
 import { useAuth } from "@/hooks/useAuth";
 import { purchaseAPI, type PurchaseAllowance, type PurchaseConfig, type PurchaseOffer, type PurchaseOrder, type PurchaseWallet } from "@/lib/purchase";
+import { ARKIV_CHAIN_ID } from "@/lib/arkiv/schema";
 import { ARC_CHAIN, assertAuthorizationMatches, expired, immutableOrder, offerUnavailable, toMicros, usdc } from "./format";
 import { browserWallet, checkWallet, signPurchase, signWalletChallenge, switchWalletChain, walletAccount, walletChain, type BrowserWallet } from "./wallet";
 import { usePurchaseOrder } from "./usePurchaseOrder";
@@ -294,6 +295,7 @@ export function PurchasesPage() {
   const accountMatches = Boolean(wallet && account) && wallet?.address.toLowerCase() === account.toLowerCase();
   const ready = Boolean(config?.enabled && wallet && allowance && !accountError && !allowanceError && auth.signedIn);
   const arkivRPC = process.env.NEXT_PUBLIC_ARKIV_RPC_URL;
+  const catalogNetworkMatches = config?.arkivChainId === ARKIV_CHAIN_ID;
 
   return <><Topbar /><main className={styles.page}>
     <header className={styles.hero}>
@@ -340,7 +342,8 @@ export function PurchasesPage() {
 
           <section className={styles.card} aria-label="Discover service offers">
             <h2>Live service offers</h2>
-            <p className={styles.muted}>{config?.evidenceMode === "simulation" ? "Simulation catalogue. It does not establish a live Arkiv read." : "Read from Arkiv through the purchase service. Ownership and expiry are checked again before spending."}</p>
+            <p className={styles.muted}>{config?.evidenceMode === "simulation" ? "Simulation catalogue for Arkiv Rabdi. It does not establish a live Arkiv read." : "Read from Arkiv Rabdi through the purchase service. Ownership and expiry are checked again before spending."}</p>
+            <p className={styles.notice}>Tiramisu listings do not carry over to Rabdi. For an unsigned order from the old network, cancel it and create a new order from a current listing. Reconcile any already released payment using its original order.</p>
             <form onSubmit={(event) => { event.preventDefault(); void refreshOffers(); }}>
               <label className={styles.field}>Capability<input className={styles.input} value={capability} onChange={(event) => setCapability(event.target.value)} placeholder="All available capabilities" /></label>
               <label className={styles.field}>Maximum offer price (USDC)<input className={styles.input} inputMode="decimal" value={priceFilter} onChange={(event) => setPriceFilter(event.target.value)} placeholder="No price filter" /></label>
@@ -360,7 +363,8 @@ export function PurchasesPage() {
               })}
             </ul>}
           </section>
-          <ProviderOfferForm provider={provider} walletRevision={walletRevision} rpcURL={arkivRPC} disabled={Boolean(busy) || !config?.arkivAvailable} simulation={config?.evidenceMode === "simulation"} onWalletChange={() => void inspectWallet()} onPublished={refreshOffers} />
+          {config?.arkivAvailable && !catalogNetworkMatches && <p className={styles.error} role="alert">Provider publishing is unavailable because the browser and catalog networks differ.</p>}
+          <ProviderOfferForm provider={provider} walletRevision={walletRevision} rpcURL={arkivRPC} disabled={Boolean(busy) || !config?.arkivAvailable || !catalogNetworkMatches} simulation={config?.evidenceMode === "simulation"} onWalletChange={() => void inspectWallet()} onPublished={refreshOffers} />
         </div>
         <div className={styles.stack}>
           {current.error && <div className={styles.error} role="alert">{current.error}<div className={styles.row}><button className={styles.secondary} disabled={Boolean(busy)} onClick={() => void current.refresh()}>Retry order refresh</button></div></div>}
