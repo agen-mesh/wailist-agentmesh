@@ -128,6 +128,8 @@ func authenticationKind(acr string, amr []string) string {
 	methods := slices.Clone(amr)
 	slices.Sort(methods)
 	switch {
+	case acr == OrbACR && slices.Equal(methods, []string{"iris", "pop"}):
+		return "world_proof"
 	case acr == OrbACR && slices.Equal(methods, []string{"pop"}):
 		return "world_proof"
 	case acr == OrbACR && slices.Equal(methods, []string{"mfa", "pop", "user"}):
