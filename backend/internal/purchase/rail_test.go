@@ -192,7 +192,7 @@ func newRailFixture(t *testing.T) (*ArcRail, *railFixture, Order) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &ArcRail{Caller: f, RPC: "https://controlled.invalid", Key: key, MaxGasWei: big.NewInt(10000000), Confirmations: 2}, f, o
+	return &ArcRail{Caller: f, RPC: "https://controlled.invalid", Key: key, MaxGasWei: big.NewInt(100_000_000_000_000_000), Confirmations: 2}, f, o
 }
 
 func TestArcRailReconcilesAnotherRelayerFromStoredAnchor(t *testing.T) {
@@ -259,8 +259,9 @@ func TestArcRailPersistsLocallyComputableTransactionIdentity(t *testing.T) {
 	}
 	encoded, _ := hex.DecodeString(strings.TrimPrefix(raw, "0x"))
 	var tx types.Transaction
-	if err = tx.UnmarshalBinary(encoded); err != nil || tx.Hash().Hex() != hash || tx.Nonce() != 9 || tx.ChainId().Int64() != ChainID || !strings.EqualFold(tx.To().Hex(), Asset) {
-		t.Fatal("signed transaction differs from persisted identity")
+	floor := big.NewInt(20_000_000_000)
+	if err = tx.UnmarshalBinary(encoded); err != nil || tx.Hash().Hex() != hash || tx.Nonce() != 9 || tx.ChainId().Int64() != ChainID || !strings.EqualFold(tx.To().Hex(), Asset) || tx.GasTipCap().Cmp(floor) < 0 || tx.GasFeeCap().Cmp(floor) < 0 || tx.GasFeeCap().Cmp(tx.GasTipCap()) < 0 {
+		t.Fatalf("signed transaction differs from persisted identity: tip=%s fee=%s err=%v", tx.GasTipCap(), tx.GasFeeCap(), err)
 	}
 	if f.sends != 0 {
 		t.Fatal("preparation broadcast before journal commit")

@@ -62,6 +62,9 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	r.Get("/arc/treasury", d.ArcTreasury)
 	r.Post("/arc/quote", d.ArcQuote)
 	r.Get("/x402/arc", d.ArcChallenge)
+	// The signer pays the USDC and the relayer pays gas. The amount cap still
+	// applies. Operator allowlist stays on the authenticated spend routes.
+	r.Post("/x402/arc", d.ArcSettle)
 	if d.Purchases != nil && d.Purchases.Merchant != nil {
 		r.Mount("/merchant", d.Purchases.Merchant)
 	}
@@ -155,7 +158,6 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Post("/arc/gateway/deposit", d.ArcGatewayDeposit)
 		r.Post("/arc/nanopay", d.ArcNanopay)
 		r.Post("/x402/arc/buy", d.ArcBuy)
-		r.Post("/x402/arc", d.ArcSettle)
 		r.Get("/credits/balance", d.GetCreditBalance)
 		r.Get("/credits/purchases", d.GetCreditPurchases)
 		r.Post("/credits/redeem-coupon", d.RedeemCoupon)

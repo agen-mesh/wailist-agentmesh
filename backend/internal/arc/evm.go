@@ -374,31 +374,20 @@ func SendContract(ctx context.Context, caller Caller, chain Chain, key *ecdsa.Pr
 	if gas.Cmp(big.NewInt(100_000)) < 0 {
 		gas = big.NewInt(100_000)
 	}
-	tip := big.NewInt(1_000_000_000)
+	var priority *big.Int
 	if err := caller.Call(ctx, chain.RPC, "eth_maxPriorityFeePerGas", []any{}, &tipHex); err == nil {
 		if parsed, perr := parseHex(tipHex); perr == nil && parsed.Sign() > 0 {
-			tip = parsed
+			priority = parsed
 		}
 	}
 	var priceHex string
-	feeCap := new(big.Int).Set(tip)
+	var gasPrice *big.Int
 	if err := caller.Call(ctx, chain.RPC, "eth_gasPrice", []any{}, &priceHex); err == nil {
 		if parsed, perr := parseHex(priceHex); perr == nil && parsed.Sign() > 0 {
-			feeCap = new(big.Int).Mul(parsed, big.NewInt(2))
+			gasPrice = parsed
 		}
 	}
-	if chain.ChainID == 5042 || chain.ChainID == 5042002 {
-		floor := big.NewInt(20_000_000_000)
-		if tip.Cmp(floor) < 0 {
-			tip = floor
-		}
-		if feeCap.Cmp(floor) < 0 {
-			feeCap = new(big.Int).Set(floor)
-		}
-	}
-	if feeCap.Cmp(tip) < 0 {
-		feeCap = new(big.Int).Set(tip)
-	}
+	tip, feeCap := FeeSuggestion(chain.ChainID, priority, gasPrice)
 	tx := types.NewTx(&types.DynamicFeeTx{
 		ChainID:   big.NewInt(chain.ChainID),
 		Nonce:     nonce.Uint64(),
@@ -419,12 +408,70 @@ func SendContract(ctx context.Context, caller Caller, chain Chain, key *ecdsa.Pr
 	}
 	var hash string
 	if err := caller.Call(ctx, chain.RPC, "eth_sendRawTransaction", []any{encodeHex(raw)}, &hash); err != nil {
-		return signed.Hash().Hex(), err
+		if submissionAccepted(err) {
+			return signed.Hash().Hex(), fmt.Errorf("%w: %w", ErrSubmissionUncertain, err)
+		}
+		return "", err
 	}
 	if hash == "" {
 		hash = signed.Hash().Hex()
 	}
 	return hash, nil
+}
+
+// FeeSuggestion builds the EIP-1559 tip and fee cap. priorityFee and gasPrice
+// may be nil when the RPC omitted them. On Arc chain ids 5042 and 5042002
+// both values are at least 20 gwei, which is the chain's minimum base fee.
+func FeeSuggestion(chainID int64, priorityFee, gasPrice *big.Int) (tip, feeCap *big.Int) {
+	tip = big.NewInt(1_000_000_000)
+	if priorityFee != nil && priorityFee.Sign() > 0 {
+		tip = new(big.Int).Set(priorityFee)
+	}
+	feeCap = new(big.Int).Set(tip)
+	if gasPrice != nil && gasPrice.Sign() > 0 {
+		feeCap = new(big.Int).Mul(gasPrice, big.NewInt(2))
+	}
+	if chainID == 5042 || chainID == 5042002 {
+		floor := big.NewInt(20_000_000_000)
+		if tip.Cmp(floor) < 0 {
+			tip = new(big.Int).Set(floor)
+		}
+		if feeCap.Cmp(floor) < 0 {
+			feeCap = new(big.Int).Set(floor)
+		}
+	}
+	if feeCap.Cmp(tip) < 0 {
+		feeCap = new(big.Int).Set(tip)
+	}
+	return tip, feeCap
+}
+
+// submissionAccepted reports whether a failed eth_sendRawTransaction may
+// still have entered the node's pool. A definitive reject has no live hash.
+func submissionAccepted(err error) bool {
+	if err == nil {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "already known") || strings.Contains(msg, "known transaction") {
+		return true
+	}
+	for _, hint := range []string{
+		"nonce too low", "nonce too high", "insufficient funds", "intrinsic gas",
+		"exceeds block gas limit", "underpriced", "max fee per gas less than block base fee",
+		"invalid sender", "execution reverted", "vm execution error", "txpool is full",
+	} {
+		if strings.Contains(msg, hint) {
+			return false
+		}
+	}
+	if strings.Contains(msg, "http 502") || strings.Contains(msg, "http 503") || strings.Contains(msg, "http 504") {
+		return true
+	}
+	if strings.Contains(msg, "http 4") || strings.Contains(msg, "arc: rpc eth_sendrawtransaction:") {
+		return false
+	}
+	return true
 }
 
 // ReceiptStatus polls until the transaction is final or the wait expires.

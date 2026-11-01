@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -182,6 +183,27 @@ func TestDeleteAccountGuards(t *testing.T) {
 	assertAccountRows(t, s, owner, 1)
 	if err := s.DeleteAccount(t.Context(), uuid.NewString(), ""); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("missing account: %v", err)
+	}
+}
+
+func TestDeleteAccountBlocksPurchaseHistory(t *testing.T) {
+	s := accountTestStore(t)
+	owner := accountFixture(t, s)
+	address := "0x" + strings.Repeat("ab", 20)
+	if _, err := s.pool.Exec(t.Context(), `INSERT INTO purchase_wallets (account_id, address) VALUES ($1, $2)`, owner, address); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := s.pool.Exec(context.Background(), `DELETE FROM purchase_wallets WHERE account_id = $1`, owner); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := s.DeleteAccount(t.Context(), owner, "hash"); !errors.Is(err, ErrPurchaseHistory) {
+		t.Fatalf("purchase history: %v", err)
+	}
+	assertAccountRows(t, s, owner, 1)
+	if exists, err := s.UserExists(t.Context(), owner); err != nil || !exists {
+		t.Fatalf("account lost: %v %v", exists, err)
 	}
 }
 

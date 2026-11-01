@@ -68,6 +68,9 @@ func LoadConfig() Config {
 			cfg.Address = crypto.PubkeyToAddress(key.PublicKey)
 		}
 	}
+	if cfg.Key != nil && len(cfg.operatorUserIDs) == 0 {
+		cfg.Warnings = append(cfg.Warnings, "ARC_OPERATOR_USER_IDS is empty while the Arc spending key is set; workflow owners can broadcast their own Arc nodes, and direct transfers, bridges, and nanopays stay denied")
+	}
 	if pay := strings.TrimSpace(os.Getenv("ARC_PAYTO")); common.IsHexAddress(pay) {
 		cfg.PayTo = common.HexToAddress(pay).Hex()
 	} else if cfg.Address != (common.Address{}) {
@@ -368,26 +371,63 @@ func Execute(ctx context.Context, caller Caller, cfg Config, req Request) (Resul
 		return Result{}, fmt.Errorf("unknown arc operation %q", p.op)
 	}
 	if err != nil {
-		return result, fmt.Errorf("%w: %w", ErrSubmissionUncertain, err)
+		if submissionUncertain(result, err) && !errors.Is(err, ErrSubmissionUncertain) {
+			err = fmt.Errorf("%w: %w", ErrSubmissionUncertain, err)
+		}
+		// A confirmed revert already has a receipt. Keep that hash. Only a
+		// submission the node never accepted loses its hash.
+		if submissionUncertain(result, err) || result.Status == "reverted" {
+			return result, err
+		}
+		result.TxHash = ""
+		result.ApproveTx = ""
+		result.Explorer = ""
+		if result.Status == "pending" || result.Status == "quoted" {
+			result.Status = "rejected"
+		}
+		return result, err
 	}
 	return result, nil
+}
+
+func submissionUncertain(result Result, err error) bool {
+	if errors.Is(err, ErrSubmissionUncertain) {
+		return true
+	}
+	return result.Status == "pending" && (result.TxHash != "" || result.ApproveTx != "")
 }
 
 func submitOne(ctx context.Context, caller Caller, cfg Config, p prepared, to common.Address, data []byte) (Result, error) {
 	hash, err := SendContract(ctx, caller, p.chain, cfg.Key, to, data)
 	res := p.quote("on-chain")
-	res.TxHash = hash
-	res.Explorer = p.chain.TxURL(hash)
 	res.From = cfg.Address.Hex()
 	res.Note = ""
+	if hash == "" {
+		if err == nil {
+			err = errors.New("arc: transaction was not accepted")
+		}
+		return res, err
+	}
+	res.TxHash = hash
+	res.Explorer = p.chain.TxURL(hash)
 	if err != nil {
 		res.Status = "pending"
+		if !errors.Is(err, ErrSubmissionUncertain) {
+			err = fmt.Errorf("%w: %w", ErrSubmissionUncertain, err)
+		}
 		return res, err
 	}
 	status, receiptErr := ReceiptStatus(ctx, caller, p.chain, hash)
 	res.Status = status
-	if receiptErr != nil && status == "reverted" {
+	if status == "reverted" {
 		return res, receiptErr
+	}
+	if receiptErr != nil || status != "success" {
+		res.Status = "pending"
+		if receiptErr == nil {
+			receiptErr = errors.New("arc: inclusion unknown")
+		}
+		return res, fmt.Errorf("%w: %w", ErrSubmissionUncertain, receiptErr)
 	}
 	return res, nil
 }
@@ -407,21 +447,28 @@ func submitApproved(ctx context.Context, caller Caller, cfg Config, p prepared) 
 	if current.Cmp(p.amount) < 0 {
 		approveHash, err = SendContract(ctx, caller, p.chain, cfg.Key, p.approveTo, p.approve)
 		if err != nil {
+			if approveHash == "" {
+				return res, err
+			}
 			res.Status = "pending"
 			res.ApproveTx = approveHash
+			if !errors.Is(err, ErrSubmissionUncertain) {
+				err = fmt.Errorf("%w: %w", ErrSubmissionUncertain, err)
+			}
 			return res, err
 		}
 		status, receiptErr := ReceiptStatus(ctx, caller, p.chain, approveHash)
-		if receiptErr != nil {
+		res.ApproveTx = approveHash
+		if status == "reverted" {
 			res.Status = status
-			res.ApproveTx = approveHash
 			return res, receiptErr
 		}
-		if status == "pending" {
+		if receiptErr != nil || status == "pending" {
 			res.Status = "pending"
-			res.ApproveTx = approveHash
-			res.Note = "Approval is still pending. Submit the burn again once it is final."
-			return res, nil
+			if receiptErr == nil {
+				receiptErr = errors.New("arc: inclusion unknown")
+			}
+			return res, fmt.Errorf("%w: %w", ErrSubmissionUncertain, receiptErr)
 		}
 	}
 	sent, err := submitOne(ctx, caller, cfg, p, p.callTo, p.call)
@@ -548,11 +595,10 @@ type Payment struct {
 }
 
 // SettlePayment checks an EIP-3009 payment and submits it from the relayer.
-// The signer pays the USDC. The relayer pays the gas.
+// The signer pays the USDC. The relayer pays the gas. The amount cap still
+// applies. This is the public x402 settle path, so it does not require an
+// operator. Direct spends of the platform key keep the allowlist.
 func SettlePayment(ctx context.Context, caller Caller, cfg Config, raw string, price *big.Int) (Result, error) {
-	if err := cfg.requireOperator(ctx); err != nil {
-		return Result{}, err
-	}
 	if !cfg.WalletConfigured() {
 		return Result{}, errors.New("arc spending key is not configured")
 	}
@@ -1042,9 +1088,15 @@ func CompleteBridge(ctx context.Context, caller Caller, client *http.Client, cfg
 	}
 	hash, err := SendContract(ctx, caller, dst, cfg.Key, common.HexToAddress(dst.MessageTransmitter), data)
 	if err != nil {
+		if hash == "" {
+			return res, err
+		}
 		res.Status = "pending"
 		res.TxHash = hash
 		res.Explorer = dst.TxURL(hash)
+		if !errors.Is(err, ErrSubmissionUncertain) {
+			err = fmt.Errorf("%w: %w", ErrSubmissionUncertain, err)
+		}
 		return res, err
 	}
 	mintStatus, receiptErr := ReceiptStatus(ctx, caller, dst, hash)

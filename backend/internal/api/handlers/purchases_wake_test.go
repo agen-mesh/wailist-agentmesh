@@ -133,7 +133,7 @@ func TestCompletedPurchaseWakesAfterSlowSiblingAndRestart(t *testing.T) {
 	// Recreate the process-local runner and reconciler after the lost wake.
 	restarted := &Deps{Store: d.Store, Purchases: d.Purchases, Engine: engine.NewRunner(d.Store, sse.NewBroker(), nil, "", "", "", engine.X402Config{}, arc.Config{})}
 	restarted.Engine.SetPurchases(d.Purchases.Service)
-	restarted.reconcilePurchaseBatch(t.Context(), prefix+"000000000000")
+	restarted.reconcilePurchaseBatch(t.Context(), prefix+"000000000000", "purchase-reconcile-test")
 	deadline = time.Now().Add(3 * time.Second)
 	for {
 		current, err = d.Store.GetRun(t.Context(), run.ID)
@@ -148,7 +148,7 @@ func TestCompletedPurchaseWakesAfterSlowSiblingAndRestart(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	restarted.reconcilePurchaseBatch(t.Context(), prefix+"000000000000")
+	restarted.reconcilePurchaseBatch(t.Context(), prefix+"000000000000", "purchase-reconcile-test")
 	logs, err := d.Store.GetRunLogs(t.Context(), run.ID)
 	if err != nil {
 		t.Fatal(err)

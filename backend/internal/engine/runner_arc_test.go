@@ -77,11 +77,11 @@ func TestArcRunnerStartAndResumeAuthority(t *testing.T) {
 		{"default deny", "start", "owner", "", false},
 		{"operator start", "start", "owner", "owner", true},
 		{"member start", "start", "member", "owner", false},
-		{"owner field is not authority", "legacy", "", "owner", false},
-		{"scheduled start", "scheduled", "", "owner", false},
+		{"workflow owner start", "legacy", "", "", true},
+		{"scheduled owner start", "scheduled", "", "", true},
 		{"operator resume", "resume", "owner", "owner", true},
 		{"forced member resume", "resume", "member", "owner", false},
-		{"forged context resume", "resume", "", "owner", false},
+		{"unattended resume", "resume", "", "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("ARC_OPERATOR_USER_IDS", tc.policy)
@@ -98,10 +98,8 @@ func TestArcRunnerStartAndResumeAuthority(t *testing.T) {
 			case "start":
 				runner.StartWithContext(ctx, wf, run)
 			case "legacy":
-				wf.UserID = "owner"
 				runner.Start(wf, run)
 			case "scheduled":
-				wf.UserID = "owner"
 				if !runner.StartIfNotRunning(wf, run) {
 					t.Fatal("schedule not admitted")
 				}
@@ -180,10 +178,12 @@ func TestArcRunnerLegacyUncertainStatesRefuseForcedResume(t *testing.T) {
 		name   string
 		status models.LogStatus
 		output any
+		replay bool
 	}{
-		{"running", models.LogStatusRunning, nil},
-		{"failed without dead letter", models.LogStatusFailed, "connection lost"},
-		{"legacy pending success", models.LogStatusSuccess, map[string]any{"status": "pending", "txHash": "0x123"}},
+		{"running", models.LogStatusRunning, nil, true},
+		{"failed without dead letter", models.LogStatusFailed, "connection lost", true},
+		{"confirmed revert", models.LogStatusFailed, "arc: transaction 0x123 reverted", true},
+		{"legacy pending success", models.LogStatusSuccess, map[string]any{"status": "pending", "txHash": "0x123"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("ARC_OPERATOR_USER_IDS", "owner")
@@ -209,6 +209,13 @@ func TestArcRunnerLegacyUncertainStatesRefuseForcedResume(t *testing.T) {
 			run.Status = models.RunStatusFailed
 			if claimed, err := runner.StartResume(arc.WithPrincipal(context.Background(), "owner"), wf, run, true); !claimed || err != nil {
 				t.Fatalf("resume: %v %v", claimed, err)
+			}
+			if tc.replay {
+				waitArcRun(t, runner, store, wf, run, models.RunStatusSuccess)
+				if rpc.Sends.Load() != 1 {
+					t.Fatalf("resumable prior attempt sends=%d", rpc.Sends.Load())
+				}
+				return
 			}
 			waitArcRun(t, runner, store, wf, run, models.RunStatusFailed)
 			if rpc.Calls.Load() != 0 {

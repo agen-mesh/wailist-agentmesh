@@ -1,4 +1,5 @@
 BEGIN;
+DROP TABLE IF EXISTS purchase_reconcile_lease;
 DROP TABLE purchase_merchant_events;
 DROP TABLE purchase_merchant_orders;
 DROP TABLE purchase_identities;

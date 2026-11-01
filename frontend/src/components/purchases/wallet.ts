@@ -40,22 +40,28 @@ export async function checkWallet(wallet: BrowserWallet, account: string, chainI
   }
 }
 
-export async function switchWalletChain(wallet: BrowserWallet, chainId: number, rpcURL?: string): Promise<void> {
+function httpsOrigin(value: string, label: string): URL {
+  const url = new URL(value);
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
+    throw new Error(`A public Arc ${label} is needed to add this network to the wallet.`);
+  }
+  return url;
+}
+
+export async function switchWalletChain(wallet: BrowserWallet, chainId: number, rpcURL?: string, explorerURL?: string): Promise<void> {
   if (await walletChain(wallet) === chainId) return;
   const chainHex = `0x${chainId.toString(16)}`;
   try {
     await wallet.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainHex }] });
   } catch (error) {
-    if (!error || typeof error !== "object" || !("code" in error) || error.code !== 4902 || chainId !== 5042002 || !rpcURL) throw error;
-    const rpc = new URL(rpcURL);
-    if (rpc.protocol !== "https:" || rpc.username || rpc.password || rpc.search || rpc.hash) {
-      throw new Error("A public Arc testnet RPC is needed to add this network to the wallet.");
-    }
-    await wallet.request({ method: "wallet_addEthereumChain", params: [{
-      chainId: chainHex, chainName: "Arc Testnet", rpcUrls: [rpc.href],
+    if (!error || typeof error !== "object" || !("code" in error) || error.code !== 4902 || !rpcURL) throw error;
+    const rpc = httpsOrigin(rpcURL, "RPC");
+    const chain: { chainId: string; chainName: string; rpcUrls: string[]; nativeCurrency: { name: string; symbol: string; decimals: number }; blockExplorerUrls?: string[] } = {
+      chainId: chainHex, chainName: chainId === 5042002 ? "Arc Testnet" : "Arc", rpcUrls: [rpc.href],
       nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
-      blockExplorerUrls: ["https://testnet.arcscan.app"],
-    }] });
+    };
+    if (explorerURL) chain.blockExplorerUrls = [httpsOrigin(explorerURL, "explorer").origin];
+    await wallet.request({ method: "wallet_addEthereumChain", params: [chain] });
     await wallet.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainHex }] });
   }
   if (await walletChain(wallet) !== chainId) throw new Error("The wallet network did not change.");

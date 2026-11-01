@@ -24,6 +24,7 @@ type ArcRPC struct {
 	Hash         atomic.Value
 	Signer       atomic.Value
 	LoseResponse bool
+	RejectSend   string
 	Pending      bool
 	OnReceipt    func()
 }
@@ -80,6 +81,9 @@ func (f *ArcRPC) Call(_ context.Context, _ string, method string, params []any, 
 		f.Sends.Add(1)
 		f.Hash.Store(tx.Hash().Hex())
 		f.Signer.Store(signer.Hex())
+		if f.RejectSend != "" {
+			return errors.New(f.RejectSend)
+		}
 		if f.LoseResponse {
 			return errors.New("fixture: response lost after accepting transaction")
 		}

@@ -81,7 +81,7 @@ func NewIntent(o Order, wallet string, max string, now time.Time) (Intent, strin
 		return Intent{}, "", fmt.Errorf("price exceeds approved maximum")
 	}
 	q := o.Quote
-	if o.Offer.ChainID != ChainID || !strings.EqualFold(o.Offer.Asset, Asset) || q.ChainID != ChainID || !strings.EqualFold(q.Asset, Asset) || !strings.EqualFold(q.Payee, payee) || q.AmountMicros != o.Offer.PriceMicros || q.Method != "POST" || o.Offer.Method != "POST" || q.Resource != o.Offer.Endpoint || q.RequestDigest != Digest(o.Request) || q.ID == "" || q.Proof == "" {
+	if err := matchesEnabledChain(o.Offer.ChainID, o.Offer.Asset); err != nil || q.ChainID != o.Offer.ChainID || !strings.EqualFold(q.Asset, o.Offer.Asset) || !strings.EqualFold(q.Payee, payee) || q.AmountMicros != o.Offer.PriceMicros || q.Method != "POST" || o.Offer.Method != "POST" || q.Resource != o.Offer.Endpoint || q.RequestDigest != Digest(o.Request) || q.ID == "" || q.Proof == "" {
 		return Intent{}, "", fmt.Errorf("merchant challenge does not match offer and request")
 	}
 	deadline := q.Deadline.UTC().Truncate(time.Second)
@@ -104,7 +104,7 @@ func NewIntent(o Order, wallet string, max string, now time.Time) (Intent, strin
 	if err != nil {
 		return Intent{}, "", err
 	}
-	i := Intent{Version: Protocol, OrderID: o.ID, AccountID: o.AccountID, WorkflowID: o.Intent.WorkflowID, RunID: o.Intent.RunID, NodeID: o.Intent.NodeID, Invocation: o.Intent.Invocation, OfferKey: o.Offer.Key, OfferOwner: owner, OfferVersion: o.Offer.Version, OfferContentHash: o.Offer.ContentHash, OfferSnapshotHash: o.Offer.SnapshotHash, Payer: payer, Payee: payee, ChainID: ChainID, Asset: Asset, AmountMicros: o.Offer.PriceMicros, MaxMicros: max, Method: "POST", Resource: q.Resource, RequestDigest: q.RequestDigest, QuoteDigest: Digest(quoteBytes), OrderSalt: "0x" + hex.EncodeToString(salt), ValidAfter: strconv.FormatInt(now.Add(-30*time.Second).Unix(), 10), ValidBefore: strconv.FormatInt(deadline.Unix(), 10)}
+	i := Intent{Version: Protocol, OrderID: o.ID, AccountID: o.AccountID, WorkflowID: o.Intent.WorkflowID, RunID: o.Intent.RunID, NodeID: o.Intent.NodeID, Invocation: o.Intent.Invocation, OfferKey: o.Offer.Key, OfferOwner: owner, OfferVersion: o.Offer.Version, OfferContentHash: o.Offer.ContentHash, OfferSnapshotHash: o.Offer.SnapshotHash, Payer: payer, Payee: payee, ChainID: o.Offer.ChainID, Asset: common.HexToAddress(o.Offer.Asset).Hex(), AmountMicros: o.Offer.PriceMicros, MaxMicros: max, Method: "POST", Resource: q.Resource, RequestDigest: q.RequestDigest, QuoteDigest: Digest(quoteBytes), OrderSalt: "0x" + hex.EncodeToString(salt), ValidAfter: strconv.FormatInt(now.Add(-30*time.Second).Unix(), 10), ValidBefore: strconv.FormatInt(deadline.Unix(), 10)}
 	b, err := json.Marshal(i)
 	if err != nil {
 		return Intent{}, "", err
@@ -149,7 +149,10 @@ func Authorization(o Order, signature string) (arc.Authorization, error) {
 	a.V = v + 27
 	copy(a.R[:], sig[:32])
 	copy(a.S[:], sig[32:64])
-	signer, err := arc.RecoverAuthorizationSigner("USDC", "2", ChainID, common.HexToAddress(Asset), a)
+	if err := matchesEnabledChain(o.Intent.ChainID, o.Intent.Asset); err != nil {
+		return a, ErrDenied
+	}
+	signer, err := arc.RecoverAuthorizationSigner("USDC", "2", o.Intent.ChainID, common.HexToAddress(o.Intent.Asset), a)
 	if err != nil || signer != a.From {
 		return a, ErrDenied
 	}
@@ -179,12 +182,12 @@ func VerifyWallet(c WalletChallenge, signature string, now time.Time) error {
 
 func TypedData(o Order) map[string]any {
 	field := func(name, kind string) map[string]string { return map[string]string{"name": name, "type": kind} }
-	return map[string]any{"domain": map[string]any{"name": "USDC", "version": "2", "chainId": ChainID, "verifyingContract": Asset}, "types": map[string]any{"EIP712Domain": []any{field("name", "string"), field("version", "string"), field("chainId", "uint256"), field("verifyingContract", "address")}, "TransferWithAuthorization": []any{field("from", "address"), field("to", "address"), field("value", "uint256"), field("validAfter", "uint256"), field("validBefore", "uint256"), field("nonce", "bytes32")}}, "primaryType": "TransferWithAuthorization", "message": map[string]any{"from": o.Intent.Payer, "to": o.Intent.Payee, "value": o.Intent.AmountMicros, "validAfter": o.Intent.ValidAfter, "validBefore": o.Intent.ValidBefore, "nonce": o.IntentHash}}
+	return map[string]any{"domain": map[string]any{"name": "USDC", "version": "2", "chainId": o.Intent.ChainID, "verifyingContract": o.Intent.Asset}, "types": map[string]any{"EIP712Domain": []any{field("name", "string"), field("version", "string"), field("chainId", "uint256"), field("verifyingContract", "address")}, "TransferWithAuthorization": []any{field("from", "address"), field("to", "address"), field("value", "uint256"), field("validAfter", "uint256"), field("validBefore", "uint256"), field("nonce", "bytes32")}}, "primaryType": "TransferWithAuthorization", "message": map[string]any{"from": o.Intent.Payer, "to": o.Intent.Payee, "value": o.Intent.AmountMicros, "validAfter": o.Intent.ValidAfter, "validBefore": o.Intent.ValidBefore, "nonce": o.IntentHash}}
 }
 
 func View(o Order, now time.Time) map[string]any {
 	freshIdentity := o.IdentityVerifiedAt != nil && o.IdentityValidUntil != nil && now.Before(*o.IdentityValidUntil)
-	v := map[string]any{"id": o.ID, "intentHash": o.IntentHash, "state": o.State, "offer": o.Offer, "payer": o.Intent.Payer, "payee": o.Intent.Payee, "chainId": o.Intent.ChainID, "asset": o.Intent.Asset, "amountMicros": o.Intent.AmountMicros, "maxMicros": o.Intent.MaxMicros, "method": o.Intent.Method, "resource": o.Intent.Resource, "requestDigest": o.Intent.RequestDigest, "quoteDigest": o.Intent.QuoteDigest, "deadline": Deadline(o), "canApprove": o.State == AwaitingApproval && freshIdentity && now.Before(Deadline(o)), "canAuthorize": o.State == Approved && freshIdentity && now.Before(Deadline(o).Add(-10*time.Second)), "canCancel": o.SignatureReleasedAt == nil && (o.State == AwaitingIdentity || o.State == AwaitingApproval || o.State == Approved), "canReconcile": o.SignatureReleasedAt != nil && o.State != Completed && o.State != Expired}
+	v := map[string]any{"id": o.ID, "intentHash": o.IntentHash, "state": o.State, "offer": o.Offer, "payer": o.Intent.Payer, "payee": o.Intent.Payee, "chainId": o.Intent.ChainID, "asset": o.Intent.Asset, "amountMicros": o.Intent.AmountMicros, "maxMicros": o.Intent.MaxMicros, "method": o.Intent.Method, "resource": o.Intent.Resource, "requestDigest": o.Intent.RequestDigest, "quoteDigest": o.Intent.QuoteDigest, "deadline": Deadline(o), "refundPolicy": RefundPolicy, "canApprove": o.State == AwaitingApproval && freshIdentity && now.Before(Deadline(o)), "canAuthorize": o.State == Approved && freshIdentity && now.Before(Deadline(o).Add(-10*time.Second)), "canCancel": o.SignatureReleasedAt == nil && (o.State == AwaitingIdentity || o.State == AwaitingApproval || o.State == Approved), "canReconcile": o.SignatureReleasedAt != nil && o.State != Completed && o.State != Expired}
 	if o.IdentityVerifiedAt != nil {
 		v["identityVerifiedAt"] = o.IdentityVerifiedAt
 	}

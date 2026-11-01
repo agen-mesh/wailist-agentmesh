@@ -42,7 +42,7 @@ export function OrderPanel({ order, config, account, busy, stale, now, onIdentit
   const pastDeadline = expired(order.deadline, now);
   const disabled = busy || stale || !config?.enabled;
   const walletMatches = Boolean(account) && account.toLowerCase() === order.payer.toLowerCase();
-  const link = receiptURL(order);
+  const link = receiptURL(order, config?.explorerUrl, config?.chainId);
   const paymentVerified = order.paymentEvent?.chainId === order.chainId && order.paymentEvent?.txHash === order.txHash;
   const identityStep = !released && (order.state === "awaiting_identity" || order.state === "awaiting_approval");
 
@@ -85,6 +85,7 @@ export function OrderPanel({ order, config, account, busy, stale, now, onIdentit
       </details>
 
       {!released && !["denied", "cancelled", "expired", "completed"].includes(order.state) && <>
+        {order.refundPolicy && <p className={styles.warning}>{order.refundPolicy}</p>}
         <div className={styles.step}>
           <h3>1. Fresh human verification</h3>
           <p className={styles.muted}>{order.identityVerifiedAt ? `Verified at ${order.identityVerifiedAt}. The server checks freshness before approval.` : "Agent Pass must verify this order's account and intent."} Verification does not prove wallet ownership or approve a payment.</p>

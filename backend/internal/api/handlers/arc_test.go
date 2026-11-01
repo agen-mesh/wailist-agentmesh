@@ -25,14 +25,14 @@ func TestArcHTTPRunnerPrincipalHandoff(t *testing.T) {
 		allowed          bool
 	}{
 		{"operator start", "owner", "start", true},
-		{"member start", "dev", "start", false},
+		{"workflow owner start", "dev", "start", true},
 		{"operator resume", "owner", "resume", true},
-		{"member forced resume", "dev", "resume", false},
-		{"webhook with operator token", "owner", "webhook", false},
+		{"workflow owner resume", "dev", "resume", true},
+		{"webhook uses workflow owner", "owner", "webhook", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("ARC_NETWORK", "testnet")
-			t.Setenv("ARC_OPERATOR_USER_IDS", "owner")
+			t.Setenv("ARC_OPERATOR_USER_IDS", "platform-ops")
 			t.Setenv("ARC_SPEND_PRIVATE_KEY", "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 			t.Setenv("WEB_READONLY_MODE", "")
 			d := testDeps(t)
@@ -201,7 +201,7 @@ func TestArcRawRoutesEnforceOperatorAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	routes := []string{"/arc/transfer", "/arc/bridge", "/arc/bridge/complete", "/arc/gateway/deposit", "/arc/nanopay", "/x402/arc/buy", "/x402/arc"}
+	routes := []string{"/arc/transfer", "/arc/bridge", "/arc/bridge/complete", "/arc/gateway/deposit", "/arc/nanopay", "/x402/arc/buy"}
 	for _, route := range routes {
 		t.Run(route, func(t *testing.T) {
 			for _, tc := range []struct {
@@ -233,14 +233,17 @@ func TestArcRawRoutesEnforceOperatorAuthority(t *testing.T) {
 			req.AddCookie(&http.Cookie{Name: "agentmesh_token", Value: api.TestMakeToken(d.JWTSecret, "owner")})
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
-			if route == "/x402/arc" {
-				if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "recipient") || rpc.Sends.Load() != before {
-					t.Fatalf("operator settlement validation: %d %s", w.Code, w.Body.String())
-				}
-			} else if w.Code != http.StatusOK || rpc.Sends.Load() <= before {
+			if w.Code != http.StatusOK || rpc.Sends.Load() <= before {
 				t.Fatalf("operator: %d %s sends=%d", w.Code, w.Body.String(), rpc.Sends.Load()-before)
 			}
 		})
+	}
+	before := rpc.Sends.Load()
+	req := httptest.NewRequest(http.MethodPost, "/x402/arc", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "recipient") || rpc.Sends.Load() != before {
+		t.Fatalf("anonymous settle: %d %s", w.Code, w.Body.String())
 	}
 }
 
@@ -252,7 +255,7 @@ func TestArcRouterPolicyIsDefaultDenyAndLoadedOnce(t *testing.T) {
 	d.JWTSecret = "arc-route-test"
 	router := api.NewRouter(d)
 	t.Setenv("ARC_OPERATOR_USER_IDS", "owner")
-	for _, route := range []string{"/arc/transfer", "/x402/arc", "/arc/bridge/complete", "/x402/arc/buy"} {
+	for _, route := range []string{"/arc/transfer", "/arc/bridge/complete", "/x402/arc/buy"} {
 		req := httptest.NewRequest(http.MethodPost, route, strings.NewReader(`{"broadcast":true}`))
 		req.Header.Set("Authorization", "Bearer "+api.TestMakeToken(d.JWTSecret, "owner"))
 		w := httptest.NewRecorder()
@@ -260,6 +263,12 @@ func TestArcRouterPolicyIsDefaultDenyAndLoadedOnce(t *testing.T) {
 		if w.Code != http.StatusForbidden {
 			t.Fatalf("%s: %d %s", route, w.Code, w.Body.String())
 		}
+	}
+	req := httptest.NewRequest(http.MethodPost, "/x402/arc", strings.NewReader(`{"broadcast":true}`))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "not configured") {
+		t.Fatalf("public settle without a key: %d %s", w.Code, w.Body.String())
 	}
 }
 

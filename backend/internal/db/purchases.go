@@ -253,3 +253,24 @@ func (p *PurchaseStore) SetAllowance(ctx context.Context, account, wallet, limit
 	}
 	return p.Allowance(ctx, account, wallet)
 }
+
+// ClaimPurchaseReconcile takes or renews the single purchase reconcile lease.
+// The row update works through a transaction-mode pooler. A session advisory
+// lock does not, because the lock and unlock can land on different backends.
+func (s *Store) ClaimPurchaseReconcile(ctx context.Context, holder string, ttl time.Duration) (bool, error) {
+	if holder == "" || ttl <= 0 {
+		return false, errors.New("purchase reconcile lease requires a holder")
+	}
+	secs := int64(ttl / time.Second)
+	if secs < 1 {
+		secs = 1
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE purchase_reconcile_lease
+		SET holder = $1, until = now() + ($2 * interval '1 second')
+		WHERE id = 1 AND (holder = $1 OR until <= now())`, holder, secs)
+	if err != nil {
+		return false, fmt.Errorf("claim purchase reconcile lease: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}

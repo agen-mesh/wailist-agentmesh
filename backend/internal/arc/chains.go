@@ -90,6 +90,14 @@ func (c Chain) TxURL(hash string) string {
 	return c.Explorer + hash
 }
 
+// ExplorerOrigin is the explorer site, without the transaction path.
+// Wallet add-chain and purchase receipts use the same registry field as TxURL.
+func (c Chain) ExplorerOrigin() string {
+	origin := strings.TrimSuffix(c.Explorer, "/")
+	origin = strings.TrimSuffix(origin, "/tx")
+	return origin
+}
+
 // Chains returns the chains for one mode. Testnet and mainnet are separate
 // lists so a saved workflow cannot silently change networks.
 func Chains(n Network) []Chain {

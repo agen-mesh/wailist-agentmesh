@@ -106,6 +106,18 @@ func TestArcNodePendingIsNotSuccess(t *testing.T) {
 	}
 }
 
+func TestArcNodeRejectedSendIsNotIndeterminate(t *testing.T) {
+	t.Setenv("ARC_OPERATOR_USER_IDS", "owner")
+	t.Setenv("ARC_SPEND_PRIVATE_KEY", "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+	rpc := &testutil.ArcRPC{RejectSend: "nonce too low"}
+	testutil.UseArcRPC(t, rpc)
+	node := models.WorkflowNode{Type: models.NodeTypeArc, Template: "transfer", Price: "1", Endpoint: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC", Config: map[string]string{"broadcast": "true"}}
+	_, err := ExecuteArc(arc.WithPrincipal(context.Background(), "owner"), node, nil, arc.LoadConfig())
+	if err == nil || errors.Is(err, ErrSettlementIndeterminate) || errors.Is(err, arc.ErrSubmissionUncertain) || rpc.Sends.Load() != 1 {
+		t.Fatalf("rejected send: %v sends=%d", err, rpc.Sends.Load())
+	}
+}
+
 func TestArcDryRunRejectsUnresolvedBroadcast(t *testing.T) {
 	for _, flag := range []string{"true", "TRUE", " {{input.broadcast}} ", "{{operator}}", "1"} {
 		if ok, _ := DryRunExecutes(models.WorkflowNode{Type: models.NodeTypeArc, Config: map[string]string{"broadcast": flag}}); ok {

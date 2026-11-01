@@ -164,10 +164,11 @@ export function PurchasesPage() {
       const attached = browserWallet();
       if (!attached) throw new Error("Open this page in an EVM wallet browser or enable a browser wallet.");
       const address = await walletAccount(attached, true);
-      await switchWalletChain(attached, ARC_CHAIN, config?.rpcUrl);
+      const chainId = config?.chainId || ARC_CHAIN;
+      await switchWalletChain(attached, chainId, config?.rpcUrl, config?.explorerUrl);
       const challenge = await purchaseAPI.challengeWallet(address);
       if (!isCurrent() || expired(challenge.expiresAt)) throw new Error("The wallet-link challenge expired. Try linking again.");
-      await checkWallet(attached, address, ARC_CHAIN);
+      await checkWallet(attached, address, chainId);
       const signature = await signWalletChallenge(attached, address, challenge.message);
       if (!isCurrent()) return;
       const linked = await purchaseAPI.linkWallet(challenge.id, signature);
@@ -256,14 +257,15 @@ export function PurchasesPage() {
       const order = await reviewedOrder();
       const attached = browserWallet();
       if (!attached || !order.canAuthorize) throw new Error("This order is not ready for wallet authorization.");
-      await checkWallet(attached, order.payer, ARC_CHAIN);
+      const chainId = config?.chainId || ARC_CHAIN;
+      await checkWallet(attached, order.payer, chainId);
       current.invalidate();
       try {
         const prepared = await purchaseAPI.prepareAuthorization(order.id);
         if (!isCurrent()) return;
         current.accept(prepared.order);
         assertAuthorizationMatches(order, prepared, await walletAccount(attached));
-        const signature = await signPurchase(attached, order.payer, ARC_CHAIN, prepared.typedData);
+        const signature = await signPurchase(attached, order.payer, chainId, prepared.typedData);
         if (!isCurrent()) return;
         const next = await purchaseAPI.submitAuthorization(order.id, signature);
         if (isCurrent()) current.accept(next);
@@ -291,6 +293,7 @@ export function PurchasesPage() {
     });
   }
 
+  const settlementChain = config?.chainId || ARC_CHAIN;
   const unresolved = Boolean(current.order?.signatureReleasedAt) && !["completed", "denied", "cancelled", "expired"].includes(current.order?.state ?? "");
   const accountMatches = Boolean(wallet && account) && wallet?.address.toLowerCase() === account.toLowerCase();
   const ready = Boolean(config?.enabled && wallet && allowance && !accountError && !allowanceError && auth.signedIn);
@@ -300,7 +303,7 @@ export function PurchasesPage() {
   return <><Topbar /><main className={styles.page}>
     <header className={styles.hero}>
       <div><p className={styles.eyebrow}>AgentMesh / Service purchases</p><h1 className={styles.title}>Choose a service.<br />Approve the exact cost.</h1><p className={styles.lead}>Discover provider-owned offers, verify freshly and authorize one bounded USDC payment from your linked wallet.</p></div>
-      <span className={styles.badge}>ARC TESTNET · CHAIN 5042002</span>
+      <span className={styles.badge}>ARC TESTNET · CHAIN {settlementChain}</span>
     </header>
     {auth.loading ? <p role="status">Checking your account...</p> : !auth.signedIn ? <section className={styles.card}>
       <h2>{auth.offline ? "Account connection unavailable" : "Sign in to purchase services"}</h2>
@@ -320,14 +323,14 @@ export function PurchasesPage() {
             <p className={styles.muted}>Connecting a wallet is separate from proving its ownership and from human verification. This flow supports an EOA wallet in a browser or mobile wallet browser.</p>
             <dl className={styles.facts}>
               <dt>Connected account</dt><dd className={styles.mono}>{account || "Disconnected"}</dd>
-              <dt>Wallet network</dt><dd>{chain === null ? "Unavailable" : chain === ARC_CHAIN ? "Arc testnet" : `Chain ${chain}, switch to Arc for payment`}</dd>
+              <dt>Wallet network</dt><dd>{chain === null ? "Unavailable" : chain === settlementChain ? "Arc testnet" : `Chain ${chain}, switch to Arc for payment`}</dd>
               <dt>Account-linked wallet</dt><dd className={styles.mono}>{wallet?.address ?? "Not linked"}</dd>
             </dl>
             {!provider && <p className={styles.notice}>No browser wallet found. Open this page in a wallet browser or enable an EVM browser wallet.</p>}
             {walletError && <p className={styles.notice}>{walletError}</p>}
             {accountError && <p className={styles.error} role="alert">{accountError}</p>}
             <div className={styles.row}>
-              <button className={styles.button} disabled={Boolean(busy) || !provider || !config} onClick={() => void linkCustomerWallet()}>{accountMatches && chain === ARC_CHAIN ? "Verify wallet ownership again" : "Connect and link on Arc"}</button>
+              <button className={styles.button} disabled={Boolean(busy) || !provider || !config} onClick={() => void linkCustomerWallet()}>{accountMatches && chain === settlementChain ? "Verify wallet ownership again" : "Connect and link on Arc"}</button>
               <button className={styles.secondary} disabled={Boolean(busy)} onClick={() => void refreshAccount()}>Refresh account</button>
             </div>
             {wallet && <form className={styles.step} onSubmit={(event) => void saveLimit(event)}>

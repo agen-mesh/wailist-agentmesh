@@ -38,6 +38,19 @@ describe("exact purchase controls", () => {
     expect(screen.queryByText("Service result")).toBeNull();
   });
 
+  it("shows the non-refund rule before approval and before signing", () => {
+    const policy = "A confirmed USDC payment is sent directly to the payee. If the service fails after that payment, it is not refunded.";
+    const approve = props({ order: order({ state: "awaiting_approval", approvedAt: undefined, canApprove: true, canAuthorize: false, refundPolicy: policy }) });
+    const view = render(<OrderPanel {...approve} />);
+    const notice = screen.getByText(policy);
+    const approveButton = screen.getByRole("button", { name: "Approve 0.01 USDC" });
+    expect(approveButton.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    view.unmount();
+    render(<OrderPanel {...props({ order: order({ refundPolicy: policy }) })} />);
+    const sign = screen.getByRole("button", { name: "Sign exact payment" });
+    expect(sign.compareDocumentPosition(screen.getByText(policy)) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+
   it("does not link a simulated receipt to a live explorer", () => {
     const txHash = `0x${"7".repeat(64)}`;
     render(<OrderPanel {...props({ order: order({ state: "completed", result: { summary: "Result" }, txHash,

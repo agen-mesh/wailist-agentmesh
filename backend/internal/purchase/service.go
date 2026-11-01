@@ -134,7 +134,11 @@ func (s *Service) ChallengeWallet(ctx context.Context, account, address string) 
 		return WalletChallenge{}, err
 	}
 	c := WalletChallenge{ID: uuid.NewString(), AccountID: account, Address: a, ExpiresAt: s.now().Add(5 * time.Minute)}
-	c.Message = fmt.Sprintf("AgentMesh wallet link\nDomain: %s\nAccount: %s\nAddress: %s\nChain: %d\nNonce: %s\nExpires: %s\nThis links a wallet and does not authorize a payment.", s.Domain, account, a, ChainID, hex.EncodeToString(nonce), c.ExpiresAt.Format(time.RFC3339))
+	chain, err := EnabledChain()
+	if err != nil {
+		return WalletChallenge{}, err
+	}
+	c.Message = fmt.Sprintf("AgentMesh wallet link\nDomain: %s\nAccount: %s\nAddress: %s\nChain: %d\nNonce: %s\nExpires: %s\nThis links a wallet and does not authorize a payment.", s.Domain, account, a, chain.ChainID, hex.EncodeToString(nonce), c.ExpiresAt.Format(time.RFC3339))
 	if err = s.Store.SaveChallenge(ctx, c); err != nil {
 		return WalletChallenge{}, err
 	}

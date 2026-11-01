@@ -12,6 +12,7 @@ export interface PurchaseConfig {
   chainId: number;
   asset: string;
   rpcUrl: string;
+  explorerUrl: string;
   merchantCapability: string;
   arkivAvailable: boolean;
   arkivChainId: number;
@@ -77,6 +78,7 @@ export interface PurchaseOrder {
   requestDigest: string;
   quoteDigest: string;
   deadline: string;
+  refundPolicy?: string;
   identityVerifiedAt?: string;
   approvedAt?: string;
   signatureReleasedAt?: string;

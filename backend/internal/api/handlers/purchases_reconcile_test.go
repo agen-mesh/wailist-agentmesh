@@ -97,11 +97,11 @@ func TestPurchaseReconciliationAdvancesPastThirtyUncertainOrders(t *testing.T) {
 		}
 		orders[i] = persistReconciliationOrder(t, d, account, fmt.Sprintf("%s%012x", prefix, i+1), state)
 	}
-	cursor := d.reconcilePurchaseBatch(t.Context(), prefix+"000000000000")
+	cursor := d.reconcilePurchaseBatch(t.Context(), prefix+"000000000000", "purchase-reconcile-test")
 	if cursor != orders[29].ID {
 		t.Fatal("first reconciliation page did not advance its cursor")
 	}
-	d.reconcilePurchaseBatch(t.Context(), cursor)
+	d.reconcilePurchaseBatch(t.Context(), cursor, "purchase-reconcile-test")
 	last, err := d.Store.Purchases().Get(t.Context(), account, orders[30].ID)
 	if err != nil || last.State != purchase.Completed {
 		t.Fatal("uncertain orders starved a confirmed purchase")
@@ -111,7 +111,7 @@ func TestPurchaseReconciliationAdvancesPastThirtyUncertainOrders(t *testing.T) {
 			t.Fatal("uncertain order monopolized later reconciliation pages")
 		}
 	}
-	if cursor := d.reconcilePurchaseBatch(t.Context(), "ffffffff-ffff-ffff-ffff-ffffffffffff"); cursor != "" {
+	if cursor := d.reconcilePurchaseBatch(t.Context(), "ffffffff-ffff-ffff-ffff-ffffffffffff", "purchase-reconcile-test"); cursor != "" {
 		t.Fatal("exhausted cursor did not wrap")
 	}
 }

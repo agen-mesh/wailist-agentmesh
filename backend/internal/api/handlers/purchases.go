@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
@@ -44,7 +45,16 @@ func (d *Deps) purchaseWorldCookie(value string, expires time.Time, maxAge int) 
 }
 
 func (d *Deps) SetupPurchases(ctx context.Context, c config.Purchase) error {
-	public := map[string]any{"enabled": false, "blockedReasons": c.BlockedReasons, "chainId": purchase.ChainID, "asset": purchase.Asset, "rpcUrl": "https://rpc.testnet.arc.network", "merchantCapability": merchant.Capability, "arkivAvailable": false, "arkivChainId": arkiv.ChainID, "worldAvailable": false, "evidenceMode": "live"}
+	public := map[string]any{"enabled": false, "blockedReasons": append([]string{}, c.BlockedReasons...), "chainId": 0, "asset": "", "rpcUrl": "", "explorerUrl": "", "merchantCapability": merchant.Capability, "arkivAvailable": false, "arkivChainId": arkiv.ChainID, "worldAvailable": false, "evidenceMode": "live"}
+	if chain, err := purchase.EnabledChain(); err != nil {
+		public["blockedReasons"] = append(public["blockedReasons"].([]string), err.Error())
+		c.Enabled = false
+	} else {
+		public["chainId"] = chain.ChainID
+		public["asset"] = chain.USDC
+		public["rpcUrl"] = chain.RPC
+		public["explorerUrl"] = chain.ExplorerOrigin()
+	}
 	policy := purchase.NewEndpointPolicy()
 	d.Purchases = &PurchaseRuntime{PublicConfig: public, ValidateEndpoint: policy.Validate}
 	if c.ArkivRPCURL != "" {
@@ -470,11 +480,17 @@ func (d *Deps) RunPurchaseReconciler(ctx context.Context) {
 	if d.Purchases == nil || d.Purchases.Service == nil || !d.Purchases.Service.Enabled {
 		return
 	}
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		log.Printf("purchase reconciler did not start: %v", err)
+		return
+	}
+	holder := hex.EncodeToString(buf)
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	cursor := ""
 	for {
-		cursor = d.reconcilePurchaseBatch(ctx, cursor)
+		cursor = d.reconcilePurchaseBatch(ctx, cursor, holder)
 		select {
 		case <-ctx.Done():
 			return
@@ -483,12 +499,23 @@ func (d *Deps) RunPurchaseReconciler(ctx context.Context) {
 	}
 }
 
-func (d *Deps) reconcilePurchaseBatch(ctx context.Context, cursor string) string {
+func (d *Deps) reconcilePurchaseBatch(ctx context.Context, cursor, holder string) string {
+	if d.Store == nil {
+		return cursor
+	}
+	claimed, err := d.Store.ClaimPurchaseReconcile(ctx, holder, 20*time.Second)
+	if err != nil || !claimed {
+		return cursor
+	}
 	orders, err := d.Store.Purchases().Pending(ctx, cursor)
 	if err != nil {
 		return cursor
 	}
 	for _, order := range orders {
+		claimed, err = d.Store.ClaimPurchaseReconcile(ctx, holder, 20*time.Second)
+		if err != nil || !claimed {
+			return cursor
+		}
 		step, cancel := context.WithTimeout(ctx, 12*time.Second)
 		o, _ := d.Purchases.Service.Reconcile(step, order.AccountID, order.ID)
 		d.wakePurchase(step, o)

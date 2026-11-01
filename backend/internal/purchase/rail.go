@@ -54,21 +54,29 @@ func (r *ArcRail) call(ctx context.Context, method string, args []any, out any) 
 	return r.Caller.Call(ctx, r.RPC, method, args, out)
 }
 func (r *ArcRail) read(ctx context.Context, data []byte, block string) (string, error) {
+	chain, err := EnabledChain()
+	if err != nil {
+		return "", err
+	}
 	var out string
-	err := r.call(ctx, "eth_call", []any{map[string]string{"to": Asset, "data": "0x" + hex.EncodeToString(data)}, block}, &out)
+	err = r.call(ctx, "eth_call", []any{map[string]string{"to": chain.USDC, "data": "0x" + hex.EncodeToString(data)}, block}, &out)
 	return out, err
 }
 
 func (r *ArcRail) Check(ctx context.Context) error {
+	settlement, err := EnabledChain()
+	if err != nil {
+		return err
+	}
 	var chain, code string
-	if err := r.call(ctx, "eth_chainId", nil, &chain); err != nil {
+	if err = r.call(ctx, "eth_chainId", nil, &chain); err != nil {
 		return err
 	}
 	n, err := hexUint(chain)
-	if err != nil || n != uint64(ChainID) {
+	if err != nil || n != uint64(settlement.ChainID) {
 		return fmt.Errorf("unexpected purchase chain")
 	}
-	if err = r.call(ctx, "eth_getCode", []any{Asset, "latest"}, &code); err != nil {
+	if err = r.call(ctx, "eth_getCode", []any{settlement.USDC, "latest"}, &code); err != nil {
 		return err
 	}
 	if code == "0x" || code == "0x0" || code == "" {
@@ -82,7 +90,7 @@ func (r *ArcRail) Check(ctx context.Context) error {
 	if err != nil || d != 6 {
 		return fmt.Errorf("purchase token decimals changed")
 	}
-	domain := crypto.Keccak256Hash(crypto.Keccak256([]byte("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")), crypto.Keccak256([]byte("USDC")), crypto.Keccak256([]byte("2")), word(big.NewInt(ChainID)), addressWord(Asset))
+	domain := crypto.Keccak256Hash(crypto.Keccak256([]byte("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")), crypto.Keccak256([]byte("USDC")), crypto.Keccak256([]byte("2")), word(big.NewInt(settlement.ChainID)), addressWord(settlement.USDC))
 	got, err := r.read(ctx, selector("DOMAIN_SEPARATOR()"), "latest")
 	if err != nil {
 		return err
@@ -148,7 +156,11 @@ func (r *ArcRail) Prepare(ctx context.Context, o Order, signature string) (Prepa
 	if err != nil {
 		return Prepared{}, err
 	}
-	if err = r.call(ctx, "eth_estimateGas", []any{map[string]string{"from": from.Hex(), "to": Asset, "data": "0x" + hex.EncodeToString(data), "value": "0x0"}}, &gasHex); err != nil {
+	settlement, err := EnabledChain()
+	if err != nil || o.Intent.ChainID != settlement.ChainID || !strings.EqualFold(o.Intent.Asset, settlement.USDC) {
+		return Prepared{}, ErrDenied
+	}
+	if err = r.call(ctx, "eth_estimateGas", []any{map[string]string{"from": from.Hex(), "to": settlement.USDC, "data": "0x" + hex.EncodeToString(data), "value": "0x0"}}, &gasHex); err != nil {
 		return Prepared{}, fmt.Errorf("authorization simulation rejected")
 	}
 	gas, err := hexInt(gasHex)
@@ -163,18 +175,18 @@ func (r *ArcRail) Prepare(ctx context.Context, o Order, signature string) (Prepa
 	if err = r.call(ctx, "eth_gasPrice", nil, &priceHex); err != nil {
 		return Prepared{}, err
 	}
-	price, err := hexInt(priceHex)
-	if err != nil || price.Sign() <= 0 {
+	gasPrice, err := hexInt(priceHex)
+	if err != nil || gasPrice.Sign() <= 0 {
 		return Prepared{}, fmt.Errorf("invalid gas price")
 	}
-	price.Mul(price, big.NewInt(2))
-	if new(big.Int).Mul(gas, price).Cmp(r.MaxGasWei) > 0 {
+	tip, feeCap := arc.FeeSuggestion(settlement.ChainID, nil, gasPrice)
+	if new(big.Int).Mul(gas, feeCap).Cmp(r.MaxGasWei) > 0 {
 		return Prepared{}, fmt.Errorf("relay gas budget exceeded")
 	}
 	return Prepared{Relayer: strings.ToLower(from.Hex()), ObservedNonce: nonce, Sign: func(n uint64) (string, string, error) {
-		to := common.HexToAddress(Asset)
-		tx := types.NewTx(&types.DynamicFeeTx{ChainID: big.NewInt(ChainID), Nonce: n, GasTipCap: price, GasFeeCap: price, Gas: gas.Uint64(), To: &to, Value: big.NewInt(0), Data: data})
-		signed, err := types.SignTx(tx, types.LatestSignerForChainID(big.NewInt(ChainID)), r.Key)
+		to := common.HexToAddress(settlement.USDC)
+		tx := types.NewTx(&types.DynamicFeeTx{ChainID: big.NewInt(settlement.ChainID), Nonce: n, GasTipCap: tip, GasFeeCap: feeCap, Gas: gas.Uint64(), To: &to, Value: big.NewInt(0), Data: data})
+		signed, err := types.SignTx(tx, types.LatestSignerForChainID(big.NewInt(settlement.ChainID)), r.Key)
 		if err != nil {
 			return "", "", err
 		}
@@ -203,7 +215,8 @@ func (r *ArcRail) Broadcast(ctx context.Context, raw, hash string) error {
 func (r *ArcRail) Recover(ctx context.Context, o Order, raw, signature string) (bool, error) {
 	b, err := hex.DecodeString(strings.TrimPrefix(raw, "0x"))
 	var tx types.Transaction
-	if err != nil || tx.UnmarshalBinary(b) != nil || tx.Hash().Hex() != o.TxHash || tx.ChainId().Cmp(big.NewInt(ChainID)) != 0 || tx.To() == nil || *tx.To() != common.HexToAddress(Asset) || tx.Value().Sign() != 0 {
+	settlement, settlementErr := EnabledChain()
+	if settlementErr != nil || o.Intent.ChainID != settlement.ChainID || !strings.EqualFold(o.Intent.Asset, settlement.USDC) || err != nil || tx.UnmarshalBinary(b) != nil || tx.Hash().Hex() != o.TxHash || tx.ChainId().Cmp(big.NewInt(settlement.ChainID)) != 0 || tx.To() == nil || *tx.To() != common.HexToAddress(settlement.USDC) || tx.Value().Sign() != 0 {
 		return false, ErrDenied
 	}
 	a, err := Authorization(o, signature)
@@ -214,7 +227,7 @@ func (r *ArcRail) Recover(ctx context.Context, o Order, raw, signature string) (
 	if err != nil || !bytes.Equal(data, tx.Data()) {
 		return false, ErrDenied
 	}
-	sender, err := types.Sender(types.LatestSignerForChainID(big.NewInt(ChainID)), &tx)
+	sender, err := types.Sender(types.LatestSignerForChainID(big.NewInt(settlement.ChainID)), &tx)
 	if err != nil {
 		return false, ErrDenied
 	}
@@ -294,7 +307,8 @@ var transferTopic = crypto.Keccak256Hash([]byte("Transfer(address,address,uint25
 
 func addressTopic(a string) string { return "0x" + hex.EncodeToString(addressWord(a)) }
 func logMatches(l rpcLog, topics ...string) bool {
-	if l.Removed || !strings.EqualFold(l.Address, Asset) || len(l.Topics) != len(topics) {
+	settlement, err := EnabledChain()
+	if err != nil || l.Removed || !strings.EqualFold(l.Address, settlement.USDC) || len(l.Topics) != len(topics) {
 		return false
 	}
 	for i, t := range topics {
@@ -378,7 +392,7 @@ func (r *ArcRail) verifyReceipt(ctx context.Context, o Order, hash string, confi
 	if err != nil {
 		return nil, err
 	}
-	return &PaymentEvent{ChainID: ChainID, TxHash: strings.ToLower(hash), LogIndex: strconv.FormatUint(index, 10), BlockHash: strings.ToLower(receipt.BlockHash), BlockNumber: strconv.FormatUint(height, 10)}, nil
+	return &PaymentEvent{ChainID: o.Intent.ChainID, TxHash: strings.ToLower(hash), LogIndex: strconv.FormatUint(index, 10), BlockHash: strings.ToLower(receipt.BlockHash), BlockNumber: strconv.FormatUint(height, 10)}, nil
 }
 
 func (r *ArcRail) Reconcile(ctx context.Context, o Order) (Settlement, error) {
@@ -399,7 +413,11 @@ func (r *ArcRail) Reconcile(ctx context.Context, o Order) (Settlement, error) {
 			to = confirmed
 		}
 		var logs []rpcLog
-		filter := map[string]any{"address": Asset, "fromBlock": fmt.Sprintf("0x%x", from), "toBlock": fmt.Sprintf("0x%x", to), "topics": []string{usedTopic, addressTopic(o.Intent.Payer), o.IntentHash}}
+		settlement, err := EnabledChain()
+		if err != nil || o.Intent.ChainID != settlement.ChainID || !strings.EqualFold(o.Intent.Asset, settlement.USDC) {
+			return Settlement{}, ErrDenied
+		}
+		filter := map[string]any{"address": settlement.USDC, "fromBlock": fmt.Sprintf("0x%x", from), "toBlock": fmt.Sprintf("0x%x", to), "topics": []string{usedTopic, addressTopic(o.Intent.Payer), o.IntentHash}}
 		if err = r.call(ctx, "eth_getLogs", []any{filter}, &logs); err != nil {
 			return Settlement{}, err
 		}

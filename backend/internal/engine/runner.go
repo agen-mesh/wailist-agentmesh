@@ -368,6 +368,32 @@ func isPaymentRisk(err error) bool {
 	return isAgentFeeOwedDespiteFailure(err) || errors.Is(err, nodes.ErrSettlementIndeterminate)
 }
 
+// arcInclusionUnknown is true only after a signed Arc transaction was
+// accepted, or might have been accepted, and its inclusion is still unknown.
+// A quote, a pre-broadcast failure, and a confirmed revert can be resumed
+// as a new attempt.
+func arcInclusionUnknown(prior models.RunLog) bool {
+	switch prior.Status {
+	case models.LogStatusSuccess:
+		out, _ := prior.Output.(map[string]any)
+		if out == nil {
+			return false
+		}
+		status, _ := out["status"].(string)
+		if status == "success" || status == "quoted" || status == "reverted" {
+			return false
+		}
+		tx, _ := out["txHash"].(string)
+		approve, _ := out["approveTx"].(string)
+		return tx != "" || approve != ""
+	case models.LogStatusFailed:
+		text, _ := prior.Output.(string)
+		return strings.Contains(text, nodes.ErrSettlementIndeterminate.Error()) || strings.Contains(text, arc.ErrSubmissionUncertain.Error())
+	default:
+		return false
+	}
+}
+
 // nodeMayHaveRealSideEffect reports whether a node with this type/
 // template/method is one whose execution can move real money, or trigger
 // some other real external effect (an email, a Slack/webhook POST, an
@@ -935,7 +961,7 @@ func (r *Runner) Start(wf models.Workflow, run models.Run) {
 }
 
 func (r *Runner) StartWithContext(requestCtx context.Context, wf models.Workflow, run models.Run) {
-	ctx, cancel := context.WithCancel(arc.DetachedPrincipal(requestCtx))
+	ctx, cancel := context.WithCancel(arc.AuthorizeWorkflowOwner(requestCtx, wf.UserID))
 	gen := r.registry.register(wf.ID, cancel)
 	go r.Run(ctx, wf, run, gen)
 }
@@ -963,7 +989,7 @@ func (r *Runner) StartWithContext(requestCtx context.Context, wf models.Workflow
 // never execute (registerIfAbsent refused), and doing it in the caller
 // AFTER this call would race the goroutine below actually publishing.
 func (r *Runner) StartIfNotRunning(wf models.Workflow, run models.Run) bool {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(arc.AuthorizeWorkflowOwner(context.Background(), wf.UserID))
 	gen, ok := r.registry.registerIfAbsent(wf.ID, cancel)
 	if !ok {
 		cancel()
@@ -1014,7 +1040,7 @@ func (r *Runner) StartResume(ctx context.Context, wf models.Workflow, run models
 	if err != nil || !claimed {
 		return false, err
 	}
-	rctx, cancel := context.WithCancel(arc.DetachedPrincipal(ctx))
+	rctx, cancel := context.WithCancel(arc.AuthorizeWorkflowOwner(ctx, wf.UserID))
 	// registerIfAbsent, NOT register: run.ID is an OLD failed/stopped run
 	// being resumed, which says nothing about whether wf.ID has some OTHER
 	// run currently in flight (a manual trigger, a schedule, or another
@@ -1186,7 +1212,7 @@ func (r *Runner) Resume(ctx context.Context, wf models.Workflow, run models.Run,
 	}
 	for _, dl := range deadLetters {
 		if dl.PaymentRisk {
-			if arcNodes[dl.NodeID] {
+			if arcNodes[dl.NodeID] && (strings.Contains(dl.Error, nodes.ErrSettlementIndeterminate.Error()) || strings.Contains(dl.Error, arc.ErrSubmissionUncertain.Error())) {
 				criticalAlert(wf, run, "resume refused: Arc payment requires reconciliation; force cannot replay it", nil, "nodeId", dl.NodeID)
 				r.finishRun(wf, run, models.RunStatusFailed)
 				return
@@ -1224,13 +1250,7 @@ func (r *Runner) Resume(ctx context.Context, wf models.Workflow, run models.Run,
 		if !arcNodes[nodeID] && prior.NodeType != models.NodeTypeArc {
 			continue
 		}
-		settled := false
-		if prior.Status == models.LogStatusSuccess {
-			out, _ := prior.Output.(map[string]any)
-			settled = out["status"] == "success" || out["status"] == "quoted"
-		}
-		denied := prior.Status == models.LogStatusFailed && prior.Output == arc.ErrOperatorRequired.Error()
-		if !settled && !denied {
+		if arcInclusionUnknown(prior) {
 			criticalAlert(wf, run, "resume refused: prior Arc attempt requires reconciliation; force cannot replay it", nil, "nodeId", nodeID)
 			r.finishRun(wf, run, models.RunStatusFailed)
 			return

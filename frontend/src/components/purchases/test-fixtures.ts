@@ -6,7 +6,7 @@ export const PAYEE = `0x${"2".repeat(40)}`;
 export const config: PurchaseConfig = {
   enabled: true, blockedReasons: [], chainId: 5042002,
   asset: "0x3600000000000000000000000000000000000000",
-  rpcUrl: "https://rpc.testnet.arc.io", merchantCapability: "text-summary",
+  rpcUrl: "https://rpc.testnet.arc.io", explorerUrl: "https://explorer.testnet.arc.io", merchantCapability: "text-summary",
   arkivAvailable: true, arkivChainId: 7794095, worldAvailable: true, evidenceMode: "simulation",
 };
 

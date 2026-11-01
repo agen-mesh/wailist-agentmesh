@@ -30,6 +30,32 @@ describe("purchase wallet handoff", () => {
     await expect(signPurchase(provider, PAYER, 5042002, {})).rejects.toThrow("account changed");
   });
 
+  it("adds a missing chain with the server explorer", async () => {
+    const provider = wallet(PAYER, 1);
+    let added = false;
+    provider.request.mockImplementation(async ({ method, params }) => {
+      if (method === "eth_chainId") return added ? "0x4cef52" : "0x1";
+      if (method === "wallet_switchEthereumChain") {
+        if (!added) {
+          const missing = new Error("missing chain") as Error & { code: number };
+          missing.code = 4902;
+          throw missing;
+        }
+        return null;
+      }
+      if (method === "wallet_addEthereumChain") {
+        added = true;
+        return params;
+      }
+      throw new Error(method);
+    });
+    await switchWalletChain(provider, 5042002, "https://rpc.testnet.arc.io", "https://explorer.testnet.arc.io/tx");
+    const add = provider.request.mock.calls.find(([args]) => args.method === "wallet_addEthereumChain");
+    const chain = (add?.[0].params as [{ blockExplorerUrls?: string[] }])?.[0];
+    expect(chain?.blockExplorerUrls).toEqual(["https://explorer.testnet.arc.io"]);
+    expect(JSON.stringify(add)).not.toContain("arcscan");
+  });
+
   it("preserves an explicit rejected network switch", async () => {
     const provider = wallet(PAYER, 1);
     await expect(switchWalletChain(provider, 5042002)).rejects.toThrow();

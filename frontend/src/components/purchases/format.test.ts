@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertAuthorizationMatches, offerUnavailable, safeOrderId, toMicros, usdc } from "./format";
+import { assertAuthorizationMatches, offerUnavailable, receiptURL, safeOrderId, toMicros, usdc } from "./format";
 import { authorization, offer, order, PAYER, TEST_NOW } from "./test-fixtures";
 
 describe("exact purchase terms", () => {
@@ -56,6 +56,16 @@ describe("exact purchase terms", () => {
     expect(() => assertAuthorizationMatches(order(), authorization(), PAYER, Date.parse(order().deadline))).toThrow();
     const unreserved = authorization(); delete unreserved.order.signatureReleasedAt;
     expect(() => assertAuthorizationMatches(order(), unreserved, PAYER, TEST_NOW)).toThrow();
+  });
+
+  it("builds a receipt from the shared explorer and rejects an unsafe origin", () => {
+    const txHash = `0x${"7".repeat(64)}`;
+    const paid = order({ txHash });
+    expect(receiptURL(paid, "https://explorer.testnet.arc.io")).toBe(`https://explorer.testnet.arc.io/tx/${txHash}`);
+    expect(receiptURL(paid, "https://explorer.testnet.arc.io/tx/")).toBe(`https://explorer.testnet.arc.io/tx/${txHash}`);
+    expect(receiptURL(paid, "http://explorer.testnet.arc.io")).toBeNull();
+    expect(receiptURL(paid, "https://user:pass@explorer.testnet.arc.io")).toBeNull();
+    expect(receiptURL(paid)).toBeNull();
   });
 
   it("stores opaque order IDs without accepting path or query injection", () => {

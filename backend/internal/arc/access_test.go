@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math/big"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,6 +70,18 @@ func TestArcOperatorPolicyCoversEveryServiceWrite(t *testing.T) {
 					return Execute(ctx, rpc, cfg, Request{Op: op, ChainID: "arc-testnet", DestChainID: "base-sepolia", To: cfg.Address.Hex(), Amount: "0.01", Broadcast: broadcast})
 				}
 			}
+			if op == "settle" {
+				closed := cfg
+				closed.operatorUserIDs = nil
+				res, err := execute(context.Background(), closed, true)
+				if err != nil || res.Status != "success" || rpc.Sends.Load() == 0 {
+					t.Fatalf("public settle: %+v %v sends=%d", res, err, rpc.Sends.Load())
+				}
+				if rpc.Signer.Load() != cfg.Address.Hex() {
+					t.Fatalf("signer=%v", rpc.Signer.Load())
+				}
+				return
+			}
 			for _, ctx := range []context.Context{
 				context.Background(), WithPrincipal(context.Background(), "member"),
 				context.WithValue(context.Background(), "userID", "owner"),
@@ -131,6 +144,43 @@ func TestArcOperatorConfigAndDetachedPrincipal(t *testing.T) {
 	}
 	if err := LoadConfig().requireOperator(detached); !errors.Is(err, ErrOperatorRequired) {
 		t.Fatalf("fresh empty policy: %v", err)
+	}
+}
+
+func TestEmptyOperatorAllowlistWarnsAndStillLetsTheWorkflowOwnerBroadcast(t *testing.T) {
+	t.Setenv("ARC_SPEND_PRIVATE_KEY", "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+	t.Setenv("ARC_OPERATOR_USER_IDS", "")
+	t.Setenv("ARC_MAX_USDC", "1000")
+	cfg := LoadConfig()
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "ARC_OPERATOR_USER_IDS is empty") {
+		t.Fatalf("warnings: %+v", cfg.Warnings)
+	}
+	if err := cfg.requireOperator(WithPrincipal(context.Background(), "stranger")); !errors.Is(err, ErrOperatorRequired) {
+		t.Fatalf("direct spend: %v", err)
+	}
+	if err := cfg.requireOperator(AuthorizeWorkflowOwner(context.Background(), "workflow-owner")); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.requireOperator(AuthorizeWorkflowOwner(WithPrincipal(context.Background(), "stranger"), "workflow-owner")); !errors.Is(err, ErrOperatorRequired) {
+		t.Fatalf("other account: %v", err)
+	}
+}
+
+func TestRejectedSendDoesNotStoreALiveHash(t *testing.T) {
+	cfg := policyConfig()
+	rpc := &testutil.ArcRPC{RejectSend: "nonce too low"}
+	res, err := Execute(WithPrincipal(context.Background(), "owner"), rpc, cfg, Request{
+		Op: "transfer", ChainID: "arc-testnet", To: cfg.Address.Hex(), Amount: "0.01", Broadcast: true,
+	})
+	if res.TxHash != "" || res.ApproveTx != "" || errors.Is(err, ErrSubmissionUncertain) || err == nil || !strings.Contains(err.Error(), "nonce too low") {
+		t.Fatalf("result=%+v err=%v", res, err)
+	}
+	lost := &testutil.ArcRPC{LoseResponse: true}
+	res, err = Execute(WithPrincipal(context.Background(), "owner"), lost, cfg, Request{
+		Op: "transfer", ChainID: "arc-testnet", To: cfg.Address.Hex(), Amount: "0.01", Broadcast: true,
+	})
+	if !errors.Is(err, ErrSubmissionUncertain) || res.TxHash == "" || res.TxHash != lost.Hash.Load() {
+		t.Fatalf("lost response: %+v %v", res, err)
 	}
 }
 

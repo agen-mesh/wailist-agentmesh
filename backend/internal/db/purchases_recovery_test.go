@@ -99,7 +99,7 @@ func TestPurchaseRecoversMissedRelayBeforeSecondOrder(t *testing.T) {
 			server := httptest.NewTLSServer(fixture.ArcHandler())
 			defer server.Close()
 			caller := &missedRelayCaller{Caller: arc.HTTPCaller{HTTP: server.Client()}, miss: interruption == "before_RPC_acceptance"}
-			rail := &purchase.ArcRail{Caller: caller, RPC: server.URL, Key: relayer, MaxGasWei: big.NewInt(1000000000000000), Confirmations: 2}
+			rail := &purchase.ArcRail{Caller: caller, RPC: server.URL, Key: relayer, MaxGasWei: big.NewInt(100_000_000_000_000_000), Confirmations: 2}
 			merchant := &recoveryMerchant{executions: map[string]int{}}
 			service := &purchase.Service{Enabled: true, Store: p, Rail: rail, Merchant: merchant, Catalog: purchase.ArkivCatalog{}, Identity: &purchase.WorldIdentity{}, Domain: "https://scratch.invalid", Seal: func(s string) (string, error) { return s, nil }, Open: func(s string) (string, error) { return s, nil }}
 			makeOrder := func() (purchase.Order, string) {

@@ -41,9 +41,17 @@ export function storedOrderKey(accountId: string): string {
   return `agentmesh.purchase.${encodeURIComponent(accountId)}`;
 }
 
-export function receiptURL(order: PurchaseOrder): string | null {
-  if (order.chainId !== ARC_CHAIN || !order.txHash || !/^0x[0-9a-fA-F]{64}$/.test(order.txHash)) return null;
-  return `https://testnet.arcscan.app/tx/${order.txHash}`;
+export function receiptURL(order: PurchaseOrder, explorerURL?: string, chainId = ARC_CHAIN): string | null {
+  if (!explorerURL || order.chainId !== chainId || !order.txHash || !/^0x[0-9a-fA-F]{64}$/.test(order.txHash)) return null;
+  let explorer: URL;
+  try {
+    explorer = new URL(explorerURL);
+  } catch {
+    return null;
+  }
+  if (explorer.protocol !== "https:" || explorer.username || explorer.password || explorer.search || explorer.hash) return null;
+  const path = explorer.pathname.replace(/\/+$/, "").replace(/\/tx$/i, "");
+  return `${explorer.origin}${path}/tx/${order.txHash}`;
 }
 
 export function immutableOrder(order: PurchaseOrder): string {

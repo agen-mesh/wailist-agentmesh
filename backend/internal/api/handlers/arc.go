@@ -181,7 +181,8 @@ func (d *Deps) ArcChallenge(w http.ResponseWriter, r *http.Request) {
 }
 
 // ArcSettle accepts an x402 exact payment and submits the authorization.
-// Operator authority is required because the relayer pays gas.
+// The signer pays the USDC. The relayer pays gas. No operator session is
+// required; ARC_MAX_USDC still caps the amount.
 func (d *Deps) ArcSettle(w http.ResponseWriter, r *http.Request) {
 	cfg := d.arcConfig()
 	raw := r.Header.Get("X-Payment")

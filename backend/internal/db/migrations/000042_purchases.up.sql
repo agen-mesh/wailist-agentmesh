@@ -30,8 +30,8 @@ CREATE TABLE purchase_orders (
     client_request_id text NOT NULL,
     intent_hash text NOT NULL UNIQUE,
     payer text NOT NULL,
-    chain_id bigint NOT NULL CHECK (chain_id = 5042002),
-    asset text NOT NULL CHECK (asset = '0x3600000000000000000000000000000000000000'),
+    chain_id bigint NOT NULL,
+    asset text NOT NULL,
     run_id text NOT NULL DEFAULT '',
     node_id text NOT NULL DEFAULT '',
     invocation text NOT NULL DEFAULT '',
@@ -82,6 +82,13 @@ CREATE TABLE purchase_identities (
     UNIQUE(issuer,account_id)
 );
 CREATE INDEX purchase_identities_account ON purchase_identities(account_id);
+
+CREATE TABLE purchase_reconcile_lease (
+    id int PRIMARY KEY CHECK (id = 1),
+    holder text NOT NULL DEFAULT '',
+    until timestamptz NOT NULL DEFAULT '-infinity'
+);
+INSERT INTO purchase_reconcile_lease (id) VALUES (1);
 
 CREATE TABLE purchase_merchant_orders (
     order_id uuid PRIMARY KEY,

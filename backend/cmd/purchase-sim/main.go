@@ -187,7 +187,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	rail := &purchase.ArcRail{Caller: arc.HTTPCaller{HTTP: arcServer.Client()}, RPC: arcServer.URL, Key: relayer, MaxGasWei: big.NewInt(1000000000000000), Confirmations: 2}
+	rail := &purchase.ArcRail{Caller: arc.HTTPCaller{HTTP: arcServer.Client()}, RPC: arcServer.URL, Key: relayer, MaxGasWei: big.NewInt(100_000_000_000_000_000), Confirmations: 2}
 	app.rail = rail
 	private, err := hex.DecodeString(state.Merchant)
 	if err != nil {

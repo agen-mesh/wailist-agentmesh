@@ -15,6 +15,7 @@ import (
 
 func protocolOrder(t *testing.T) Order {
 	t.Helper()
+	t.Setenv("ARC_NETWORK", "testnet")
 	now := time.Unix(1_800_000_000, 0).UTC()
 	key, err := crypto.HexToECDSA("0000000000000000000000000000000000000000000000000000000000000001")
 	if err != nil {
