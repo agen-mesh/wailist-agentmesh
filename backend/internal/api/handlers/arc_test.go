@@ -21,18 +21,19 @@ import (
 
 func TestArcHTTPRunnerPrincipalHandoff(t *testing.T) {
 	for _, tc := range []struct {
-		name, user, mode string
-		allowed          bool
+		name, user, mode, policy string
+		allowed                  bool
 	}{
-		{"operator start", "owner", "start", true},
-		{"workflow owner start", "dev", "start", true},
-		{"operator resume", "owner", "resume", true},
-		{"workflow owner resume", "dev", "resume", true},
-		{"webhook uses workflow owner", "owner", "webhook", true},
+		{"operator start", "owner", "start", "owner", true},
+		{"workflow owner start", "dev", "start", "owner", false},
+		{"empty policy", "owner", "start", "", false},
+		{"operator resume", "owner", "resume", "owner", true},
+		{"workflow owner resume", "dev", "resume", "owner", false},
+		{"webhook cannot inherit operator", "owner", "webhook", "owner", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("ARC_NETWORK", "testnet")
-			t.Setenv("ARC_OPERATOR_USER_IDS", "platform-ops")
+			t.Setenv("ARC_OPERATOR_USER_IDS", tc.policy)
 			t.Setenv("ARC_SPEND_PRIVATE_KEY", "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 			t.Setenv("WEB_READONLY_MODE", "")
 			d := testDeps(t)
