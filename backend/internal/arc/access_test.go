@@ -147,22 +147,19 @@ func TestArcOperatorConfigAndDetachedPrincipal(t *testing.T) {
 	}
 }
 
-func TestEmptyOperatorAllowlistWarnsAndStillLetsTheWorkflowOwnerBroadcast(t *testing.T) {
+func TestEmptyOperatorAllowlistWarnsAndDeniesSharedWalletSpend(t *testing.T) {
 	t.Setenv("ARC_SPEND_PRIVATE_KEY", "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 	t.Setenv("ARC_OPERATOR_USER_IDS", "")
 	t.Setenv("ARC_MAX_USDC", "1000")
 	cfg := LoadConfig()
-	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "ARC_OPERATOR_USER_IDS is empty") {
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "ARC_OPERATOR_USER_IDS is empty") || !strings.Contains(cfg.Warnings[0], "require an allowlisted operator") {
 		t.Fatalf("warnings: %+v", cfg.Warnings)
 	}
 	if err := cfg.requireOperator(WithPrincipal(context.Background(), "stranger")); !errors.Is(err, ErrOperatorRequired) {
 		t.Fatalf("direct spend: %v", err)
 	}
-	if err := cfg.requireOperator(AuthorizeWorkflowOwner(context.Background(), "workflow-owner")); err != nil {
-		t.Fatal(err)
-	}
-	if err := cfg.requireOperator(AuthorizeWorkflowOwner(WithPrincipal(context.Background(), "stranger"), "workflow-owner")); !errors.Is(err, ErrOperatorRequired) {
-		t.Fatalf("other account: %v", err)
+	if err := cfg.requireOperator(DetachedPrincipal(WithPrincipal(context.Background(), "workflow-owner"))); !errors.Is(err, ErrOperatorRequired) {
+		t.Fatalf("workflow owner: %v", err)
 	}
 }
 

@@ -77,20 +77,33 @@ func TestArcRunnerStartAndResumeAuthority(t *testing.T) {
 		{"default deny", "start", "owner", "", false},
 		{"operator start", "start", "owner", "owner", true},
 		{"member start", "start", "member", "owner", false},
-		{"workflow owner start", "legacy", "", "", true},
-		{"scheduled owner start", "scheduled", "", "", true},
+		{"authenticated workflow owner", "start", "$workflow-owner", "owner", false},
+		{"workflow owner with empty policy", "start", "$workflow-owner", "", false},
+		{"explicit operator owns workflow", "start", "$workflow-owner", "$workflow-owner", true},
+		{"unattended start", "legacy", "", "", false},
+		{"scheduled owner start", "scheduled", "", "", false},
+		{"scheduled allowlisted owner", "scheduled", "", "$workflow-owner", false},
 		{"operator resume", "resume", "owner", "owner", true},
 		{"forced member resume", "resume", "member", "owner", false},
-		{"unattended resume", "resume", "", "", true},
+		{"forced owner resume", "resume", "$workflow-owner", "owner", false},
+		{"unattended resume", "resume", "", "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("ARC_OPERATOR_USER_IDS", tc.policy)
 			rpc := &testutil.ArcRPC{}
 			testutil.UseArcRPC(t, rpc)
 			runner, store, wf, run := arcRunnerFixture(t, "transfer")
+			if tc.policy == "$workflow-owner" {
+				t.Setenv("ARC_OPERATOR_USER_IDS", wf.UserID)
+				runner.arcConfig = arc.LoadConfig()
+			}
 			ctx := context.WithValue(context.Background(), "userID", "owner")
 			if tc.principal != "" {
-				ctx = arc.WithPrincipal(ctx, tc.principal)
+				principal := tc.principal
+				if principal == "$workflow-owner" {
+					principal = wf.UserID
+				}
+				ctx = arc.WithPrincipal(ctx, principal)
 			}
 			// Policy comes from runner construction, not a later environment read.
 			t.Setenv("ARC_OPERATOR_USER_IDS", "different")

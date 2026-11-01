@@ -982,7 +982,7 @@ func (r *Runner) Start(wf models.Workflow, run models.Run) {
 }
 
 func (r *Runner) StartWithContext(requestCtx context.Context, wf models.Workflow, run models.Run) {
-	ctx, cancel := context.WithCancel(arc.AuthorizeWorkflowOwner(requestCtx, wf.UserID))
+	ctx, cancel := context.WithCancel(arc.DetachedPrincipal(requestCtx))
 	gen := r.registry.register(wf.ID, cancel)
 	go r.Run(ctx, wf, run, gen)
 }
@@ -1010,7 +1010,7 @@ func (r *Runner) StartWithContext(requestCtx context.Context, wf models.Workflow
 // never execute (registerIfAbsent refused), and doing it in the caller
 // AFTER this call would race the goroutine below actually publishing.
 func (r *Runner) StartIfNotRunning(wf models.Workflow, run models.Run) bool {
-	ctx, cancel := context.WithCancel(arc.AuthorizeWorkflowOwner(context.Background(), wf.UserID))
+	ctx, cancel := context.WithCancel(context.Background())
 	gen, ok := r.registry.registerIfAbsent(wf.ID, cancel)
 	if !ok {
 		cancel()
@@ -1061,7 +1061,7 @@ func (r *Runner) StartResume(ctx context.Context, wf models.Workflow, run models
 	if err != nil || !claimed {
 		return false, err
 	}
-	rctx, cancel := context.WithCancel(arc.AuthorizeWorkflowOwner(ctx, wf.UserID))
+	rctx, cancel := context.WithCancel(arc.DetachedPrincipal(ctx))
 	// registerIfAbsent, NOT register: run.ID is an OLD failed/stopped run
 	// being resumed, which says nothing about whether wf.ID has some OTHER
 	// run currently in flight (a manual trigger, a schedule, or another

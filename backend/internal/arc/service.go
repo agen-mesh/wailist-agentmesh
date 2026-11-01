@@ -69,7 +69,7 @@ func LoadConfig() Config {
 		}
 	}
 	if cfg.Key != nil && len(cfg.operatorUserIDs) == 0 {
-		cfg.Warnings = append(cfg.Warnings, "ARC_OPERATOR_USER_IDS is empty while the Arc spending key is set; workflow owners can broadcast their own Arc nodes, and direct transfers, bridges, and nanopays stay denied")
+		cfg.Warnings = append(cfg.Warnings, "ARC_OPERATOR_USER_IDS is empty while the Arc spending key is set; direct and workflow spending require an allowlisted operator")
 	}
 	if pay := strings.TrimSpace(os.Getenv("ARC_PAYTO")); common.IsHexAddress(pay) {
 		cfg.PayTo = common.HexToAddress(pay).Hex()
