@@ -1,0 +1,9 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc = "0.8.24"
+evm_version = "osaka"
+
+[rpc_endpoints]
+arc_testnet = "https://rpc.testnet.arc.io"

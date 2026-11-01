@@ -22,6 +22,10 @@ const (
 	// the identical OAuth-credential-lookup mechanics (see
 	// nodes.ExecuteGoogle) and differ only in which API they call.
 	NodeTypeGoogle NodeType = "google"
+	// NodeTypeArc settles USDC on Arc and the other Circle chains. The
+	// platform key pays gas. AgentMesh credits are not debited.
+	NodeTypeArc      NodeType = "arc"
+	NodeTypePurchase NodeType = "purchase"
 )
 
 const (
@@ -278,6 +282,7 @@ type RunStatus string
 
 const (
 	RunStatusRunning RunStatus = "running"
+	RunStatusWaiting RunStatus = "waiting"
 	RunStatusSuccess RunStatus = "success"
 	RunStatusFailed  RunStatus = "failed"
 	RunStatusStopped RunStatus = "stopped"
@@ -338,6 +343,7 @@ type LogStatus string
 const (
 	LogStatusPending LogStatus = "pending"
 	LogStatusRunning LogStatus = "running"
+	LogStatusWaiting LogStatus = "waiting"
 	LogStatusSuccess LogStatus = "success"
 	LogStatusFailed  LogStatus = "failed"
 	// LogStatusDegraded is a read node that failed every attempt and was

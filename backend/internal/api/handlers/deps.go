@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 
+	"github.com/agentmesh/backend/internal/arc"
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine"
 	"github.com/agentmesh/backend/internal/models"
@@ -45,7 +46,9 @@ type USDCSigner interface {
 var _ USDCSigner = (*wallet.Service)(nil)
 
 type Deps struct {
-	Store *db.Store
+	Purchases *PurchaseRuntime
+	ArcConfig *arc.Config
+	Store     *db.Store
 	// WorkflowStatsLoader overrides the detail endpoint's stats read when set.
 	// Production uses Store; the seam lets handler tests exercise its failure
 	// response without damaging shared database tables.

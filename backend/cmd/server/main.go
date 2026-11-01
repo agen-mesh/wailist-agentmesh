@@ -12,6 +12,8 @@ import (
 
 	"github.com/agentmesh/backend/internal/api"
 	"github.com/agentmesh/backend/internal/api/handlers"
+	"github.com/agentmesh/backend/internal/arc"
+	"github.com/agentmesh/backend/internal/config"
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine"
 	"github.com/agentmesh/backend/internal/engine/nodes"
@@ -273,6 +275,13 @@ func main() {
 	// cache goes stale.
 	deps.WarmBazaarCache(ctx)
 
+	if err := deps.SetupPurchases(ctx, config.LoadPurchase(os.Getenv)); err != nil {
+		log.Fatal("Purchase configuration could not be initialized")
+	}
+	for _, warning := range arc.LoadConfig().Warnings {
+		log.Printf("arc: %s", warning)
+	}
+	go deps.RunPurchaseReconciler(ctx)
 	r := api.NewRouter(deps)
 
 	port := envOr("PORT", "8080")

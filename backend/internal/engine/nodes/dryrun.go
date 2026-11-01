@@ -103,6 +103,11 @@ func DryRunExecutes(n models.WorkflowNode) (bool, string) {
 		return false, "it reads or writes the workflow's saved state"
 	case models.NodeTypeGoogle:
 		return false, "it needs the user's Google account"
+	case models.NodeTypeArc:
+		if ArcMayBroadcast(n) {
+			return false, "it would broadcast a USDC transaction"
+		}
+		return true, ""
 	}
 	return false, "this step type is not run in a test"
 }

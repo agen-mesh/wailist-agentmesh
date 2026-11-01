@@ -113,6 +113,10 @@ func (d *Deps) startRun(w http.ResponseWriter, r *http.Request, workflowID, trig
 	// way to avoid.
 	run, err := d.Store.CreateRunWithCooldown(ctx, workflowID, triggeredBy, inputJSON, runTriggerCooldown)
 	if err != nil {
+		if errors.Is(err, db.ErrPurchaseWaiting) {
+			respond.Error(w, http.StatusConflict, "This workflow has a waiting purchase; resume or stop that run")
+			return
+		}
 		var cooldownErr *db.ErrRunOnCooldown
 		if errors.As(err, &cooldownErr) {
 			// math.Ceil, not %.0f (which rounds to nearest): the caller must
@@ -130,7 +134,7 @@ func (d *Deps) startRun(w http.ResponseWriter, r *http.Request, workflowID, trig
 	}
 
 	d.Broker.Create(run.ID)
-	d.Engine.Start(wf, run)
+	d.Engine.StartWithContext(ctx, wf, run)
 
 	respond.JSON(w, http.StatusAccepted, map[string]string{"runId": run.ID})
 }
@@ -262,7 +266,7 @@ func (d *Deps) ResumeRun(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for nodeID, l := range states {
-			if l.Status == models.LogStatusRunning {
+			if l.Status == models.LogStatusRunning && l.NodeType != models.NodeTypePurchase {
 				respond.Error(w, http.StatusConflict, "node "+nodeID+" was mid-execution when this run crashed -- its side effect's fate is unknown; resume with ?force=true to accept the risk of repeating it")
 				return
 			}
@@ -315,6 +319,21 @@ func (d *Deps) StreamRun(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	if run.Status == models.RunStatusWaiting {
+		logs, err := d.Store.GetRunLogs(ctx, runID)
+		if err != nil {
+			return
+		}
+		for _, entry := range logs {
+			if entry.Status == models.LogStatusWaiting {
+				b, _ := json.Marshal(models.LogEvent{StepIndex: entry.StepIndex, NodeID: entry.NodeID, NodeType: entry.NodeType, Status: entry.Status, Output: entry.Output, Ts: entry.Ts})
+				fmt.Fprintf(w, "event: log\ndata: %s\n\n", b)
+			}
+		}
+		fmt.Fprint(w, "event: waiting\ndata: {}\n\n")
+		flusher.Flush()
+		return
+	}
 
 	ch, unsub := d.Broker.Subscribe(runID)
 	defer unsub()
@@ -331,6 +350,12 @@ func (d *Deps) StreamRun(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "event: log\ndata: %s\n\n", string(b))
 			flusher.Flush()
 		case <-done:
+			current, err := d.Store.GetRun(ctx, runID)
+			if err == nil && current.Status == models.RunStatusWaiting {
+				fmt.Fprint(w, "event: waiting\ndata: {}\n\n")
+				flusher.Flush()
+				return
+			}
 			fmt.Fprintf(w, "event: done\ndata: {}\n\n")
 			flusher.Flush()
 			return

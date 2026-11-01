@@ -11,6 +11,8 @@ import (
 	"github.com/agentmesh/backend/internal/api"
 	"github.com/agentmesh/backend/internal/api/handlers"
 	"github.com/agentmesh/backend/internal/models"
+	"github.com/agentmesh/backend/internal/purchase"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -192,6 +194,29 @@ func TestDeleteAccountBlocksActiveMachineLeases(t *testing.T) {
 	}
 	if _, err := d.Store.GetTendrilLease(t.Context(), lease.ID); err != nil {
 		t.Fatal("active lease lost", err)
+	}
+	if _, err := d.Store.GetUserByID(t.Context(), u.ID); err != nil {
+		t.Fatal("account lost", err)
+	}
+}
+
+func TestDeleteAccountBlocksPurchaseHistory(t *testing.T) {
+	d := testDeps(t)
+	u := deletionUser(t, d, "")
+	id := strings.ReplaceAll(uuid.NewString(), "-", "")
+	address := "0x" + id + id[:8]
+	challengeID := uuid.NewString()
+	if err := d.Store.Purchases().SaveChallenge(t.Context(), purchase.WalletChallenge{
+		ID: challengeID, AccountID: u.ID, Address: address, Message: "link", ExpiresAt: time.Now().Add(time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Store.Purchases().LinkWallet(t.Context(), u.ID, challengeID, func(purchase.WalletChallenge) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	rec := deletionRequest(api.NewRouter(d), api.TestMakeToken(deletionSecret, u.ID), `{"confirmation":"DELETE"}`)
+	if rec.Code != 409 || !strings.Contains(rec.Body.String(), "purchase payment history is retained") {
+		t.Fatalf("purchase history: %d %s", rec.Code, rec.Body.String())
 	}
 	if _, err := d.Store.GetUserByID(t.Context(), u.ID); err != nil {
 		t.Fatal("account lost", err)

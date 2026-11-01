@@ -1,0 +1,13 @@
+BEGIN;
+DROP TABLE IF EXISTS purchase_reconcile_lease;
+DROP TABLE purchase_merchant_events;
+DROP TABLE purchase_merchant_orders;
+DROP TABLE purchase_identities;
+DROP TABLE purchase_identity_attempts;
+DROP TABLE purchase_relayer_nonces;
+DROP TABLE purchase_payment_events;
+DROP TABLE purchase_orders;
+DROP TABLE purchase_allowances;
+DROP TABLE purchase_wallet_challenges;
+DROP TABLE purchase_wallets;
+COMMIT;

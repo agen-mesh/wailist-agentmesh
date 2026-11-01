@@ -62,6 +62,8 @@ func (d *Deps) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, db.ErrActiveMachineLeases):
 			respond.Error(w, http.StatusConflict, "release all active machines before deleting your account")
+		case errors.Is(err, db.ErrPurchaseHistory):
+			respond.Error(w, http.StatusConflict, "purchase payment history is retained and blocks account deletion")
 		case errors.Is(err, db.ErrAccountChanged):
 			respond.Error(w, http.StatusConflict, "account credentials changed; reload and try again")
 		case errors.Is(err, pgx.ErrNoRows):

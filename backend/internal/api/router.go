@@ -7,11 +7,16 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/agentmesh/backend/internal/api/handlers"
+	"github.com/agentmesh/backend/internal/arc"
 )
 
 func NewRouter(d *handlers.Deps) http.Handler {
+	if d.ArcConfig == nil {
+		cfg := arc.LoadConfig()
+		d.ArcConfig = &cfg
+	}
 	r := chi.NewRouter()
-	r.Use(chimw.Logger)
+	r.Use(purchaseSafeLogger)
 	r.Use(chimw.Recoverer)
 	r.Use(corsMiddleware)
 
@@ -50,6 +55,19 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	r.Get("/x402/relay/platform-fee", d.X402PlatformFeeInfo)
 	// Same rationale, for nodes.SettleRunTotal's PaymentRequirements.Resource.
 	r.Get("/x402/relay/run-total", d.X402RunTotalInfo)
+	// Arc treasury reads and the x402 challenge are public. Writes that can
+	// broadcast sit in the session group below.
+	r.Get("/arc/chains", d.ArcChains)
+	r.Get("/arc/diagram", d.ArcDiagram)
+	r.Get("/arc/treasury", d.ArcTreasury)
+	r.Post("/arc/quote", d.ArcQuote)
+	r.Get("/x402/arc", d.ArcChallenge)
+	// The signer pays the USDC and the relayer pays gas. The amount cap still
+	// applies. Operator allowlist stays on the authenticated spend routes.
+	r.Post("/x402/arc", d.ArcSettle)
+	if d.Purchases != nil && d.Purchases.Merchant != nil {
+		r.Mount("/merchant", d.Purchases.Merchant)
+	}
 
 	// Protected routes — JWT required
 	r.Group(func(r chi.Router) {
@@ -57,6 +75,23 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		// Pass-through unless WEB_READONLY_MODE is set; see readonly.go.
 		r.Use(NewReadOnlyMiddleware())
 		r.Use(requireAccount(d.Store))
+		r.Get("/purchases/world/callback", d.PurchaseWorldCallback)
+		r.Get("/purchases/config", d.PurchaseConfig)
+		r.Get("/purchases/offers", d.PurchaseOffers)
+		r.Post("/purchases/offers/preflight", d.PurchasePreflight)
+		r.Get("/purchases/wallet", d.PurchaseWallet)
+		r.Post("/purchases/wallet/challenge", d.PurchaseWalletChallenge)
+		r.Post("/purchases/wallet/link", d.PurchaseWalletLink)
+		r.Get("/purchases/allowance", d.PurchaseAllowance)
+		r.Post("/purchases/allowance", d.PurchaseAllowance)
+		r.Post("/purchases", d.PurchaseCreate)
+		r.Get("/purchases/{purchaseId}", d.PurchaseGet)
+		r.Post("/purchases/{purchaseId}/identity", d.PurchaseIdentity)
+		r.Post("/purchases/{purchaseId}/decision", d.PurchaseDecision)
+		r.Post("/purchases/{purchaseId}/authorization", d.PurchaseAuthorization)
+		r.Post("/purchases/{purchaseId}/submit", d.PurchaseSubmit)
+		r.Post("/purchases/{purchaseId}/reconcile", d.PurchaseReconcile)
+		r.Post("/purchases/{purchaseId}/cancel", d.PurchaseCancel)
 
 		r.Get("/auth/me", d.Me)
 		r.Patch("/auth/me", d.UpdateProfile)
@@ -117,6 +152,12 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Post("/payments/cashfree/verify", d.VerifyCashfreePayment)
 		r.Post("/payments/nowpayments/invoice", d.CreateCryptoInvoice)
 		r.Get("/payments/providers", d.PaymentProviders)
+		r.Post("/arc/transfer", d.ArcTransfer)
+		r.Post("/arc/bridge", d.ArcBridge)
+		r.Post("/arc/bridge/complete", d.ArcBridgeComplete)
+		r.Post("/arc/gateway/deposit", d.ArcGatewayDeposit)
+		r.Post("/arc/nanopay", d.ArcNanopay)
+		r.Post("/x402/arc/buy", d.ArcBuy)
 		r.Get("/credits/balance", d.GetCreditBalance)
 		r.Get("/credits/purchases", d.GetCreditPurchases)
 		r.Post("/credits/redeem-coupon", d.RedeemCoupon)
@@ -172,4 +213,20 @@ func NewRouter(d *handlers.Deps) http.Handler {
 	})
 
 	return r
+}
+
+func purchaseSafeLogger(next http.Handler) http.Handler {
+	regular := chimw.Logger(next)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/purchases/world/callback" {
+			regular.ServeHTTP(w, r)
+			return
+		}
+		logged := r.Clone(r.Context())
+		logged.RequestURI = r.URL.EscapedPath()
+		logged.URL.RawQuery = ""
+		chimw.Logger(http.HandlerFunc(func(w http.ResponseWriter, entry *http.Request) {
+			next.ServeHTTP(w, r.WithContext(entry.Context()))
+		})).ServeHTTP(w, logged)
+	})
 }
