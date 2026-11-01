@@ -180,9 +180,9 @@ func TestArcRunnerLegacyUncertainStatesRefuseForcedResume(t *testing.T) {
 		output any
 		replay bool
 	}{
-		{"running", models.LogStatusRunning, nil, true},
-		{"failed without dead letter", models.LogStatusFailed, "connection lost", true},
-		{"confirmed revert", models.LogStatusFailed, "arc: transaction 0x123 reverted", true},
+		{"running", models.LogStatusRunning, nil, false},
+		{"failed without dead letter", models.LogStatusFailed, "connection lost", false},
+		{"unclassified revert text", models.LogStatusFailed, "arc: transaction 0x123 reverted", false},
 		{"legacy pending success", models.LogStatusSuccess, map[string]any{"status": "pending", "txHash": "0x123"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

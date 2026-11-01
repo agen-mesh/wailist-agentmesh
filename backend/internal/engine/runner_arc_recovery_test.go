@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/arc"
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/testutil"
+	"github.com/jackc/pgx/v5"
 )
 
 type arcResumeTransport struct {
@@ -175,5 +178,69 @@ func TestArcResumeRecordedReadOnlyAttempt(t *testing.T) {
 	waitArcRun(t, runner, store, wf, run, models.RunStatusSuccess)
 	if rpc.Calls.Load() != 0 {
 		t.Fatalf("read-only resume dispatched %d RPC calls", rpc.Calls.Load())
+	}
+}
+
+func TestArcResumeAfterAcceptedSendAndLostTerminalLog(t *testing.T) {
+	t.Setenv("ARC_OPERATOR_USER_IDS", "owner")
+	rpc := &testutil.ArcRPC{}
+	testutil.UseArcRPC(t, rpc)
+	runner, store, wf, run := arcRunnerFixture(t, "transfer")
+	wf.Nodes[2].Type = models.NodeTypeArc
+	wf.Nodes[2].Template = "fixture-unsupported-arc-action"
+	wf.Nodes[2].Config = map[string]string{"broadcast": "false"}
+	conn, err := pgx.Connect(t.Context(), os.Getenv("TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close(context.Background()) })
+	name := pgx.Identifier{"arc_terminal_fault_" + strings.ReplaceAll(run.ID, "-", "")}.Sanitize()
+	if _, err := conn.Exec(t.Context(), `CREATE FUNCTION `+name+`() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN
+			IF NEW.run_id::text = TG_ARGV[0] AND NEW.node_id = 'pay' AND NEW.status <> 'running' THEN
+				RAISE EXCEPTION 'fixture terminal Arc log failure';
+			END IF;
+			RETURN NEW;
+		END $$`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := conn.Exec(context.Background(), `DROP TRIGGER IF EXISTS `+name+` ON run_logs`); err != nil {
+			t.Error(err)
+		}
+		if _, err := conn.Exec(context.Background(), `DROP FUNCTION `+name+`()`); err != nil {
+			t.Error(err)
+		}
+	})
+	if _, err := conn.Exec(t.Context(), `CREATE TRIGGER `+name+` BEFORE UPDATE ON run_logs
+		FOR EACH ROW EXECUTE FUNCTION `+name+`('`+run.ID+`')`); err != nil {
+		t.Fatal(err)
+	}
+	ctx := arc.WithPrincipal(context.Background(), "owner")
+	runner.StartWithContext(ctx, wf, run)
+	waitArcRun(t, runner, store, wf, run, models.RunStatusFailed)
+	if rpc.Sends.Load() != 1 {
+		t.Fatalf("initial accepted submissions=%d", rpc.Sends.Load())
+	}
+	logs, err := store.GetRunLogs(t.Context(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	running := false
+	for _, entry := range logs {
+		running = running || entry.NodeID == "pay" && entry.Status == models.LogStatusRunning
+	}
+	if !running {
+		t.Fatal("terminal-log fault did not preserve the unfinished attempt")
+	}
+	before := rpc.Calls.Load()
+	restarted, _ := newConfigStalenessTestRunner(t)
+	run.Status = models.RunStatusFailed
+	if claimed, err := restarted.StartResume(ctx, wf, run, true); !claimed || err != nil {
+		t.Fatalf("resume admission: %v %v", claimed, err)
+	}
+	waitArcRun(t, restarted, store, wf, run, models.RunStatusFailed)
+	if rpc.Sends.Load() != 1 || rpc.Calls.Load() != before {
+		t.Fatalf("unknown accepted transfer dispatched again: sends=%d calls=%d", rpc.Sends.Load(), rpc.Calls.Load())
 	}
 }

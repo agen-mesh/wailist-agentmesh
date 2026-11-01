@@ -368,30 +368,51 @@ func isPaymentRisk(err error) bool {
 	return isAgentFeeOwedDespiteFailure(err) || errors.Is(err, nodes.ErrSettlementIndeterminate)
 }
 
-// arcInclusionUnknown is true only after a signed Arc transaction was
-// accepted, or might have been accepted, and its inclusion is still unknown.
-// A quote, a pre-broadcast failure, and a confirmed revert can be resumed
-// as a new attempt.
+func recordedArcOutcome(prior models.RunLog) string {
+	out, _ := prior.Output.(map[string]any)
+	if out["arcVersion"] != float64(1) && out["arcVersion"] != 1 {
+		return ""
+	}
+	outcome, _ := out["arcOutcome"].(string)
+	return outcome
+}
+
+// Unclassified historical attempts cannot prove a broadcast did not occur.
 func arcInclusionUnknown(prior models.RunLog) bool {
 	switch prior.Status {
 	case models.LogStatusSuccess:
 		out, _ := prior.Output.(map[string]any)
-		if out == nil {
-			return false
-		}
 		status, _ := out["status"].(string)
-		if status == "success" || status == "quoted" || status == "reverted" {
+		return status != "success" && status != "quoted"
+	case models.LogStatusRunning:
+		return recordedArcOutcome(prior) != "read_only"
+	case models.LogStatusFailed:
+		switch recordedArcOutcome(prior) {
+		case "read_only", "not_submitted", "reverted":
 			return false
 		}
-		tx, _ := out["txHash"].(string)
-		approve, _ := out["approveTx"].(string)
-		return tx != "" || approve != ""
-	case models.LogStatusFailed:
-		text, _ := prior.Output.(string)
-		return strings.Contains(text, nodes.ErrSettlementIndeterminate.Error()) || strings.Contains(text, arc.ErrSubmissionUncertain.Error())
+		return prior.Output != arc.ErrOperatorRequired.Error()
 	default:
-		return false
+		return true
 	}
+}
+
+func arcFailureOutput(node models.WorkflowNode, result any, err error) map[string]any {
+	outcome := "uncertain"
+	switch {
+	case isPaymentRisk(err), errors.Is(err, arc.ErrSubmissionUncertain):
+	case !nodes.ArcMayBroadcast(node):
+		outcome = "read_only"
+	case errors.Is(err, arc.ErrNotSubmitted):
+		outcome = "not_submitted"
+	case errors.Is(err, arc.ErrTransactionReverted):
+		outcome = "reverted"
+	}
+	out := map[string]any{"arcVersion": 1, "arcOutcome": outcome, "error": err.Error()}
+	if res, ok := result.(arc.Result); ok {
+		out["txHash"], out["approveTx"], out["chain"] = res.TxHash, res.ApproveTx, res.Chain
+	}
+	return out
 }
 
 // nodeMayHaveRealSideEffect reports whether a node with this type/
@@ -1204,6 +1225,23 @@ func (r *Runner) Resume(ctx context.Context, wf models.Workflow, run models.Run,
 	for _, node := range wf.Nodes {
 		arcNodes[node.ID] = node.Type == models.NodeTypeArc
 	}
+	attempts, err := r.store.GetRunLogs(ctx, run.ID)
+	if err != nil {
+		log.Printf("resume: loading prior Arc attempts failed, run=%s: %v", run.ID, err)
+		r.finishRun(wf, run, models.RunStatusFailed)
+		return
+	}
+	for _, prior := range attempts {
+		if prior.NodeType != models.NodeTypeArc {
+			continue
+		}
+		arcNodes[prior.NodeID] = true
+		if arcInclusionUnknown(prior) {
+			criticalAlert(wf, run, "resume refused: prior Arc attempt requires reconciliation; force cannot replay it", nil, "nodeId", prior.NodeID)
+			r.finishRun(wf, run, models.RunStatusFailed)
+			return
+		}
+	}
 	deadLetters, err := r.store.GetDeadLetterRuns(ctx, run.ID)
 	if err != nil {
 		log.Printf("resume: loading dead letters failed, run=%s: %v", run.ID, err)
@@ -1212,7 +1250,7 @@ func (r *Runner) Resume(ctx context.Context, wf models.Workflow, run models.Run,
 	}
 	for _, dl := range deadLetters {
 		if dl.PaymentRisk {
-			if arcNodes[dl.NodeID] && (strings.Contains(dl.Error, nodes.ErrSettlementIndeterminate.Error()) || strings.Contains(dl.Error, arc.ErrSubmissionUncertain.Error())) {
+			if arcNodes[dl.NodeID] {
 				criticalAlert(wf, run, "resume refused: Arc payment requires reconciliation; force cannot replay it", nil, "nodeId", dl.NodeID)
 				r.finishRun(wf, run, models.RunStatusFailed)
 				return
@@ -1246,17 +1284,6 @@ func (r *Runner) Resume(ctx context.Context, wf models.Workflow, run models.Run,
 		r.finishRun(wf, run, models.RunStatusFailed)
 		return
 	}
-	for nodeID, prior := range states {
-		if !arcNodes[nodeID] && prior.NodeType != models.NodeTypeArc {
-			continue
-		}
-		if arcInclusionUnknown(prior) {
-			criticalAlert(wf, run, "resume refused: prior Arc attempt requires reconciliation; force cannot replay it", nil, "nodeId", nodeID)
-			r.finishRun(wf, run, models.RunStatusFailed)
-			return
-		}
-	}
-
 	if !force {
 		// A node whose LATEST logged state is still "running" means a
 		// prior attempt started executing it and the process crashed (or
@@ -1274,6 +1301,9 @@ func (r *Runner) Resume(ctx context.Context, wf models.Workflow, run models.Run,
 		// explicitly accepting that risk, same as the payment-risk gate
 		// above.
 		for nodeID, l := range states {
+			if arcNodes[nodeID] && recordedArcOutcome(l) == "read_only" {
+				continue
+			}
 			if l.Status == models.LogStatusRunning && l.NodeType != models.NodeTypePurchase {
 				criticalAlert(wf, run, "resume refused: node stuck mid-execution from a prior crash, force required", nil, "nodeId", nodeID)
 				r.finishRun(wf, run, models.RunStatusFailed)
@@ -1436,6 +1466,11 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 					NodeType:  n.Type,
 					Status:    models.LogStatusRunning,
 				})
+				if n.Type == models.NodeTypeArc && !nodes.ArcMayBroadcast(n) && logErr == nil {
+					if err := r.store.UpdateRunLog(ctx, logEntry.ID, models.LogStatusRunning, []byte(`{"arcVersion":1,"arcOutcome":"read_only"}`), 0, ""); err != nil {
+						log.Printf("Arc quote metadata write failed, run=%s node=%s: %v", run.ID, n.ID, err)
+					}
+				}
 
 				// Retry only on an error the node explicitly marked safe
 				// (nodes.Retryable) — e.g. a transport failure on an
@@ -1452,7 +1487,7 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 						break
 					}
 					if logErr != nil && n.Type == models.NodeTypeArc && nodes.ArcMayBroadcast(n) {
-						execErr = fmt.Errorf("Arc broadcast refused: record initial run log: %w", logErr)
+						execErr = fmt.Errorf("%w: Arc broadcast refused: record initial run log: %w", arc.ErrNotSubmitted, logErr)
 						break
 					}
 					attempts++
@@ -1575,7 +1610,11 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 
 				if execErr != nil {
 					atomic.StoreInt32(&failed, 1)
-					outJSON, _ := json.Marshal(execErr.Error())
+					var failure any = execErr.Error()
+					if n.Type == models.NodeTypeArc {
+						failure = arcFailureOutput(n, result, execErr)
+					}
+					outJSON, _ := json.Marshal(failure)
 					r.store.UpdateRunLog(context.Background(), logEntry.ID, models.LogStatusFailed, outJSON, dur, "")
 					// A run cancelled mid-node (Stop) surfaces as execErr too,
 					// but that's not a permanent node failure worth

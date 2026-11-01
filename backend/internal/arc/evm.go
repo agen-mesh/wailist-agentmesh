@@ -66,16 +66,19 @@ func (h HTTPCaller) Call(ctx context.Context, url, method string, params []any, 
 		return fmt.Errorf("arc: rpc %s: http %d", method, resp.StatusCode)
 	}
 	var envelope struct {
-		Result json.RawMessage `json:"result"`
-		Error  *struct {
-			Message string `json:"message"`
-		} `json:"error"`
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Result  json.RawMessage `json:"result"`
+		Error   *rpcError       `json:"error"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return fmt.Errorf("arc: rpc %s: %w", method, err)
 	}
 	if envelope.Error != nil {
-		return fmt.Errorf("arc: rpc %s: %s", method, envelope.Error.Message)
+		if envelope.JSONRPC != "2.0" || string(envelope.ID) != "1" || len(envelope.Result) != 0 {
+			return fmt.Errorf("arc: rpc %s: malformed error response", method)
+		}
+		return fmt.Errorf("arc: rpc %s: %w", method, envelope.Error)
 	}
 	if out == nil {
 		return nil
@@ -348,7 +351,13 @@ func allowance(ctx context.Context, caller Caller, chain Chain, token, owner, sp
 
 // SendContract submits a contract call from key. valueWei is the native
 // value, which is zero for every USDC movement in this package.
-func SendContract(ctx context.Context, caller Caller, chain Chain, key *ecdsa.PrivateKey, to common.Address, data []byte) (string, error) {
+func SendContract(ctx context.Context, caller Caller, chain Chain, key *ecdsa.PrivateKey, to common.Address, data []byte) (hash string, err error) {
+	sendAttempted := false
+	defer func() {
+		if err != nil && !sendAttempted {
+			err = fmt.Errorf("%w: %w", ErrNotSubmitted, err)
+		}
+	}()
 	if key == nil {
 		return "", errors.New("arc: spending key is not configured")
 	}
@@ -406,15 +415,15 @@ func SendContract(ctx context.Context, caller Caller, chain Chain, key *ecdsa.Pr
 	if err != nil {
 		return "", err
 	}
-	var hash string
+	sendAttempted = true
 	if err := caller.Call(ctx, chain.RPC, "eth_sendRawTransaction", []any{encodeHex(raw)}, &hash); err != nil {
-		if submissionAccepted(err) {
-			return signed.Hash().Hex(), fmt.Errorf("%w: %w", ErrSubmissionUncertain, err)
+		if definitiveRejection(err) {
+			return "", fmt.Errorf("%w: %w", ErrNotSubmitted, err)
 		}
-		return "", err
+		return signed.Hash().Hex(), fmt.Errorf("%w: %w", ErrSubmissionUncertain, err)
 	}
-	if hash == "" {
-		hash = signed.Hash().Hex()
+	if !strings.EqualFold(hash, signed.Hash().Hex()) {
+		return signed.Hash().Hex(), fmt.Errorf("%w: RPC returned a different transaction identity", ErrSubmissionUncertain)
 	}
 	return hash, nil
 }
@@ -446,36 +455,8 @@ func FeeSuggestion(chainID int64, priorityFee, gasPrice *big.Int) (tip, feeCap *
 	return tip, feeCap
 }
 
-// submissionAccepted reports whether a failed eth_sendRawTransaction may
-// still have entered the node's pool. A definitive reject has no live hash.
-func submissionAccepted(err error) bool {
-	if err == nil {
-		return true
-	}
-	msg := strings.ToLower(err.Error())
-	if strings.Contains(msg, "already known") || strings.Contains(msg, "known transaction") {
-		return true
-	}
-	for _, hint := range []string{
-		"nonce too low", "nonce too high", "insufficient funds", "intrinsic gas",
-		"exceeds block gas limit", "underpriced", "max fee per gas less than block base fee",
-		"invalid sender", "execution reverted", "vm execution error", "txpool is full",
-	} {
-		if strings.Contains(msg, hint) {
-			return false
-		}
-	}
-	if strings.Contains(msg, "http 502") || strings.Contains(msg, "http 503") || strings.Contains(msg, "http 504") {
-		return true
-	}
-	if strings.Contains(msg, "http 4") || strings.Contains(msg, "arc: rpc eth_sendrawtransaction:") {
-		return false
-	}
-	return true
-}
-
 // ReceiptStatus polls until the transaction is final or the wait expires.
-// "pending" means the hash was accepted and the receipt has not landed yet.
+// "pending" means inclusion has not been established.
 func ReceiptStatus(ctx context.Context, caller Caller, chain Chain, hash string) (string, error) {
 	wait := 45 * time.Second
 	every := 2 * time.Second
@@ -493,7 +474,10 @@ func ReceiptStatus(ctx context.Context, caller Caller, chain Chain, hash string)
 			if receipt.Status == "0x1" || receipt.Status == "0x01" {
 				return "success", nil
 			}
-			return "reverted", fmt.Errorf("arc: transaction %s reverted", hash)
+			if receipt.Status == "0x0" || receipt.Status == "0x00" {
+				return "reverted", fmt.Errorf("%w: transaction %s", ErrTransactionReverted, hash)
+			}
+			return "pending", fmt.Errorf("%w: invalid receipt status", ErrSubmissionUncertain)
 		}
 		if time.Now().After(deadline) {
 			return "pending", nil

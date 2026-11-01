@@ -28,7 +28,7 @@ func ExecuteArc(ctx context.Context, node models.WorkflowNode, state map[string]
 	switch template {
 	case "nanopay", "transfer", "bridge", "gateway":
 	default:
-		return nil, fmt.Errorf("arc: unknown template %q", node.Template)
+		return nil, fmt.Errorf("%w: arc: unknown template %q", arc.ErrNotSubmitted, node.Template)
 	}
 	chain := cfgString(node, "chain", state)
 	destChain := cfgString(node, "destChain", state)
@@ -51,7 +51,7 @@ func ExecuteArc(ctx context.Context, node models.WorkflowNode, state map[string]
 		return res, fmt.Errorf("%w: tx=%s approval=%s: %w", ErrSettlementIndeterminate, res.TxHash, res.ApproveTx, err)
 	}
 	if err != nil {
-		return nil, err
+		return res, err
 	}
 	if broadcast && res.Status != "success" {
 		return res, fmt.Errorf("%w: Arc broadcast status %q, tx=%s approval=%s requires reconciliation", ErrSettlementIndeterminate, res.Status, res.TxHash, res.ApproveTx)

@@ -341,6 +341,14 @@ func (p prepared) quote(domain string) Result {
 // Execute prepares a request and, when Broadcast is set, signs and submits it
 // with the platform key. The key pays gas. On Arc that gas is USDC.
 func Execute(ctx context.Context, caller Caller, cfg Config, req Request) (Result, error) {
+	result, err := execute(ctx, caller, cfg, req)
+	if err != nil && !errors.Is(err, ErrSubmissionUncertain) && !errors.Is(err, ErrTransactionReverted) && !errors.Is(err, ErrNotSubmitted) {
+		err = fmt.Errorf("%w: %w", ErrNotSubmitted, err)
+	}
+	return result, err
+}
+
+func execute(ctx context.Context, caller Caller, cfg Config, req Request) (Result, error) {
 	if req.Broadcast {
 		if err := cfg.requireOperator(ctx); err != nil {
 			return Result{}, err
@@ -380,7 +388,6 @@ func Execute(ctx context.Context, caller Caller, cfg Config, req Request) (Resul
 			return result, err
 		}
 		result.TxHash = ""
-		result.ApproveTx = ""
 		result.Explorer = ""
 		if result.Status == "pending" || result.Status == "quoted" {
 			result.Status = "rejected"

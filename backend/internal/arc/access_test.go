@@ -166,13 +166,13 @@ func TestEmptyOperatorAllowlistWarnsAndStillLetsTheWorkflowOwnerBroadcast(t *tes
 	}
 }
 
-func TestRejectedSendDoesNotStoreALiveHash(t *testing.T) {
+func TestConsumedNonceRetainsTransactionIdentity(t *testing.T) {
 	cfg := policyConfig()
 	rpc := &testutil.ArcRPC{RejectSend: "nonce too low"}
 	res, err := Execute(WithPrincipal(context.Background(), "owner"), rpc, cfg, Request{
 		Op: "transfer", ChainID: "arc-testnet", To: cfg.Address.Hex(), Amount: "0.01", Broadcast: true,
 	})
-	if res.TxHash != "" || res.ApproveTx != "" || errors.Is(err, ErrSubmissionUncertain) || err == nil || !strings.Contains(err.Error(), "nonce too low") {
+	if res.TxHash == "" || res.ApproveTx != "" || !errors.Is(err, ErrSubmissionUncertain) || !strings.Contains(err.Error(), "nonce too low") {
 		t.Fatalf("result=%+v err=%v", res, err)
 	}
 	lost := &testutil.ArcRPC{LoseResponse: true}
