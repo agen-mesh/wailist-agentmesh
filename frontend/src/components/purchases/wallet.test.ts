@@ -3,7 +3,7 @@ import { signPurchase, switchWalletChain, type BrowserWallet } from "./wallet";
 import { PAYER } from "./test-fixtures";
 
 function wallet(account = PAYER, chain = 5042002) {
-  const request = vi.fn(async ({ method }: { method: string }) => {
+  const request = vi.fn<BrowserWallet["request"]>(async ({ method }) => {
     if (method === "eth_accounts") return [account];
     if (method === "eth_chainId") return `0x${chain.toString(16)}`;
     if (method === "eth_signTypedData_v4") return `0x${"a".repeat(130)}`;
