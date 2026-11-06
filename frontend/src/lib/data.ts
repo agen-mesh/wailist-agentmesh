@@ -36,15 +36,25 @@ export const TRIGGER_TEMPLATES = [
   { id: "webhook", name: "Webhook", desc: "HTTP POST endpoint", icon: "◷" },
 ];
 
+// Preserve generated backend catalog copy while updating frontend labels.
 export const AGENT_TEMPLATES = [
   { id: "agent", name: "AI Agent", desc: "Reasoning + tool use", icon: "◇" },
   {
     id: "router",
-    name: "Router Agent",
-    desc: "Classify + dispatch",
+    name: "Classifier Agent",
+    catalogName: "Router Agent",
+    desc: "Classify input with a prompt",
+    catalogDesc: "Classify + dispatch",
     icon: "◊",
   },
-  { id: "human", name: "Human-in-loop", desc: "Approval gate", icon: "○" },
+  {
+    id: "human",
+    name: "Review Agent",
+    catalogName: "Human-in-loop",
+    desc: "Review input with a prompt",
+    catalogDesc: "Approval gate",
+    icon: "○",
+  },
 ];
 
 export const PROVIDER_TEMPLATES = [
@@ -547,24 +557,24 @@ export const ACTION_TEMPLATES = [
     category: "Developer Tools",
   },
   {
-    id: "algorand_account",
-    name: "Algorand Account",
-    desc: "Balance + ASA holdings",
-    icon: "al",
+    id: "whitechain_account",
+    name: "Whitechain Account",
+    desc: "WBT + token balances for an address",
+    icon: "wc",
     category: "Utilities",
   },
   {
-    id: "algorand_transactions",
-    name: "Algorand History",
-    desc: "Recent transactions for an address",
-    icon: "al",
+    id: "whitechain_transactions",
+    name: "Whitechain Transfers",
+    desc: "Recent token transfers for an address",
+    icon: "wc",
     category: "Utilities",
   },
   {
-    id: "algorand_asset",
-    name: "Algorand Asset",
-    desc: "Look up any ASA by id",
-    icon: "al",
+    id: "whitechain_token",
+    name: "Whitechain Token",
+    desc: "Look up any ERC-20 by address",
+    icon: "wc",
     category: "Utilities",
   },
   {
@@ -1151,6 +1161,86 @@ export const TENDRIL_WORKFLOW: Workflow = {
     { id: "twe6", from: "tw7", to: "tw6", kind: "attach", toPort: "model" },
     { id: "twe7", from: "tw6", to: "tw8", kind: "flow", toPort: "in" },
     { id: "twe8", from: "tw8", to: "tw9", kind: "flow", toPort: "in" },
+  ],
+};
+
+// WHITECHAIN_WORKFLOW is what the Workflows page's "Run demo workflow" button
+// creates: one free on-chain read and one paid x402 call, both on Whitechain
+// testnet. The research agent pays tinyx402's search endpoint 0.01 USDT per
+// call through the platform wallets (EIP-3009, settled by the Whitechain
+// facilitator), so the run shows a real explorer link.
+export const WHITECHAIN_WORKFLOW: Workflow = {
+  id: "wf-whitechain",
+  name: "Demo: Whitechain Wallet Brief",
+  nodes: [
+    {
+      id: "wc1",
+      type: "trigger",
+      template: "manual",
+      icon: "▶",
+      x: 60,
+      y: 240,
+      label: "Manual Trigger",
+    },
+    {
+      id: "wc2",
+      type: "action",
+      template: "whitechain_account",
+      x: 320,
+      y: 220,
+      name: "Read the Facilitator Wallet",
+      icon: "wc",
+      config: { wcAddress: "0x79DD6ca37394Abfd0A6cBF1Cb5F35d2D548e2d85" },
+    },
+    {
+      id: "wc3",
+      type: "agent",
+      template: "agent",
+      x: 600,
+      y: 220,
+      name: "Whitechain Analyst",
+      systemPrompt:
+        "You receive the balances of the Whitechain x402 facilitator's gas wallet. Call the web search tool once to find the latest news about Whitechain or x402 payments. Then write a plain-text brief of at most 120 words: the wallet's WBT balance (quote it exactly as given), one line on what it means for gasless USDT payments, and the two most relevant news items. No markdown.",
+    },
+    {
+      id: "wc4",
+      type: "provider",
+      template: "gemini",
+      x: 560,
+      y: 460,
+      name: "Gemini 2.5 Flash",
+      model: "gemini-2.5-flash",
+      keyMode: "platform",
+    },
+    {
+      id: "wc5",
+      type: "tool402",
+      x: 820,
+      y: 460,
+      name: "Web Search (x402)",
+      description: "Structured web search results, paid per call in USDT on Whitechain testnet.",
+      endpoint: "https://tinyx402.007575.xyz/api/v1/search",
+      method: "GET",
+      provider: "tinyx402.007575.xyz",
+      price: "0.01",
+      unit: "call",
+      discoveredParams: [
+        {
+          name: "query",
+          type: "string",
+          required: true,
+          description: "What to search the web for.",
+        },
+      ],
+    },
+    { id: "wc6", type: "end", template: "done", x: 900, y: 240 },
+  ],
+  edges: [
+    { id: "wce1", from: "wc1", to: "wc2", kind: "flow", toPort: "in" },
+    { id: "wce2", from: "wc2", to: "wc3", kind: "flow", toPort: "in" },
+    { id: "wce3", from: "wc4", to: "wc3", kind: "attach", toPort: "model" },
+    { id: "wce4", from: "wc5", to: "wc3", kind: "attach", toPort: "tools" },
+    { id: "wce5", from: "wc3", to: "wc6", kind: "flow", toPort: "in" },
   ],
 };
 

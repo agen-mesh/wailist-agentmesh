@@ -449,7 +449,7 @@ export const workflows = {
     const current = await workflows.get(id);
     return {
       reply:
-        "Mock build response — connect a real backend to build workflows from chat.",
+        "Mock build response: connect a real backend to build workflows from chat.",
       workflow: current,
     };
   },
@@ -975,7 +975,7 @@ export const runs = {
             amount: "0.065",
             settledUsdMicros: 65000,
             nodeName: "x402 Weather",
-            explorerURL: `https://allo.info/tx/${mockTxId}`,
+            explorerURL: `https://explorer.testnet.whitechain.io/tx/${mockTxId}`,
             response: {
               location: "San Francisco, CA",
               tempC: 14.2,
@@ -996,7 +996,7 @@ export const runs = {
           output: {
             message:
               "It's 14.2°C in San Francisco right now and partly cloudy, with " +
-              "winds around 18 km/h. Mild, but the wind makes it feel cooler — " +
+              "winds around 18 km/h. Mild, but the wind makes it feel cooler: " +
               "worth a light jacket if you're heading out.",
             x402Payments: [{ txId: mockTxId, amount: "0.065" }],
           },
@@ -1139,7 +1139,7 @@ export const tools = {
     return {
       price: "0.002",
       unit: "call",
-      network: "algorand-testnet",
+      network: "eip155:1874",
       recipient: "",
     };
   },

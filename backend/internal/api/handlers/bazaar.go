@@ -2,23 +2,19 @@ package handlers
 
 import (
 	"context"
-	"errors"
-	"log"
 	"net/http"
-	"sort"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/agentmesh/backend/internal/bazaar"
-	"github.com/agentmesh/backend/internal/respond"
+	"github.com/agentmesh/backend/internal/chain"
 )
 
-// defaultBazaarBaseURL is GoPlausible's facilitator. Used when Deps leaves
+// defaultBazaarBaseURL is the Whitechain x402 facilitator, whose
+// /discovery/resources lists every Whitechain x402 tool it has settled. Used when Deps leaves
 // BazaarBaseURL empty, so a missing env var degrades to the real catalog
 // rather than to no catalog at all.
-const defaultBazaarBaseURL = "https://facilitator.goplausible.xyz"
+const defaultBazaarBaseURL = chain.DefaultFacilitatorURL
 
 // bazaarCacheTTL bounds how stale the mirrored catalog can be. The upstream
 // changes on the order of hours (entries are added when a merchant first
@@ -233,174 +229,4 @@ func (d *Deps) WarmBazaarCache(ctx context.Context) {
 			}
 		}
 	}()
-}
-
-// BazaarResources serves one page of the mirrored x402 catalog.
-func (d *Deps) BazaarResources(w http.ResponseWriter, r *http.Request) {
-	all, err := d.catalog(r.Context())
-	if err != nil {
-		// A caller that navigated away mid-request surfaces here as its own
-		// ctx.Err() (see catalog's <-ctx.Done() arm), which is a client
-		// disconnect, not an upstream catalog failure -- logging it as one
-		// misattributes the cause, and during a real outage the retry
-		// backoff returns the cached error fast enough that every single
-		// request would log a line rather than one per actual crawl.
-		if !errors.Is(err, context.Canceled) {
-			log.Printf("bazaar: catalog unavailable: %v", err)
-		}
-		respond.Error(w, http.StatusBadGateway, "could not reach the x402 catalog")
-		return
-	}
-
-	// Computed over the full, unfiltered catalog so it reports a stable
-	// total regardless of the q/supported filters applied below — a future
-	// "N supported providers" badge should not change with every keystroke
-	// in the search box.
-	supported := 0
-	for _, it := range all {
-		if it.Supported {
-			supported++
-		}
-	}
-
-	items := all
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	if q != "" {
-		// Fuzzy, not a substring filter: FuzzyMatch also RANKS a match, and a
-		// query reorders items by that score (best first) rather than
-		// leaving them in the catalog's own settle-count order underneath a
-		// filter -- see that function's doc comment for why ranking is the
-		// point. This is why q and sort are mutually exclusive below: a
-		// query already answers "what order", and letting a client-picked
-		// sort override match quality would be worse than not sorting at
-		// all when what someone typed is right there scoring every result.
-		type scored struct {
-			r     bazaar.Resource
-			score int
-		}
-		matched := make([]scored, 0, len(items))
-		for _, it := range items {
-			if score, ok := bazaar.BestFieldScore(it, q); ok {
-				matched = append(matched, scored{it, score})
-			}
-		}
-		sort.SliceStable(matched, func(i, j int) bool { return matched[i].score > matched[j].score })
-		filtered := make([]bazaar.Resource, len(matched))
-		for i, m := range matched {
-			filtered[i] = m.r
-		}
-		items = filtered
-	} else {
-		items = sortItems(items, r.URL.Query().Get("sort"))
-	}
-
-	// supported=1/true keeps only endorsed entries (the pinned "Supported"
-	// section); supported=0/false excludes them (the paged grid, so a card
-	// never renders twice under contradictory copy). Any other value or an
-	// absent param leaves items untouched, matching the doc below. A curated
-	// entry with zero catalog matches (e.g. Tendril) only ever gets pulled in
-	// via Merge's "not present in the catalog" append, which can land far
-	// past any page-size cutoff by settle count — so this filter must run
-	// over the full merged set, not a slice of it, for supported=1 to find
-	// it at all.
-	switch r.URL.Query().Get("supported") {
-	case "1", "true":
-		items = filterSupported(items, true)
-	case "0", "false":
-		items = filterSupported(items, false)
-	}
-
-	offset := clampAtoi(r.URL.Query().Get("offset"), 0, 0, len(items))
-	limit := clampAtoi(r.URL.Query().Get("limit"), bazaarPageDefault, 1, bazaarPageMax)
-
-	end := offset + limit
-	if end > len(items) {
-		end = len(items)
-	}
-	page := items[offset:end]
-	if page == nil {
-		page = []bazaar.Resource{}
-	}
-
-	respond.JSON(w, http.StatusOK, map[string]any{
-		"items":          page,
-		"total":          len(items),
-		"offset":         offset,
-		"limit":          limit,
-		"supportedCount": supported,
-	})
-}
-
-// filterSupported returns only entries whose Supported flag matches want.
-func filterSupported(items []bazaar.Resource, want bool) []bazaar.Resource {
-	filtered := make([]bazaar.Resource, 0, len(items))
-	for _, it := range items {
-		if it.Supported == want {
-			filtered = append(filtered, it)
-		}
-	}
-	return filtered
-}
-
-// sortItems returns items reordered per the sort param, always as a COPY --
-// items may be (or be sliced from) the shared catalog cache itself, and
-// sort.SliceStable mutates in place, so sorting the cache's own backing
-// array here would corrupt the order every other concurrent request (and
-// the next TTL cycle's cached copy) sees.
-//
-// "settles" (or anything unrecognised) is the crawl's own order and needs no
-// copy at all -- FetchAll already sorts most-settled-first once, at crawl
-// time, so every request agrees on what "default" means without repeating
-// the sort per request.
-func sortItems(items []bazaar.Resource, by string) []bazaar.Resource {
-	switch by {
-	case "name":
-		out := append([]bazaar.Resource(nil), items...)
-		sort.SliceStable(out, func(i, j int) bool {
-			return strings.ToLower(displayName(out[i])) < strings.ToLower(displayName(out[j]))
-		})
-		return out
-	case "recent":
-		out := append([]bazaar.Resource(nil), items...)
-		// LastSeen is an upstream ISO-8601 timestamp string; lexical order
-		// on that format IS chronological order, so a plain string compare
-		// is correct here without parsing it into a time.Time first.
-		sort.SliceStable(out, func(i, j int) bool { return out[i].LastSeen > out[j].LastSeen })
-		return out
-	case "price":
-		out := append([]bazaar.Resource(nil), items...)
-		sort.SliceStable(out, func(i, j int) bool { return out[i].AmountMicros < out[j].AmountMicros })
-		return out
-	default:
-		return items
-	}
-}
-
-// displayName is the same fallback ResourceCard/EndpointRow use on the
-// frontend: a supported entry's own Provider name, or the bare Host for a
-// community listing that has none.
-func displayName(r bazaar.Resource) string {
-	if r.Provider != "" {
-		return r.Provider
-	}
-	return r.Host
-}
-
-// clampAtoi parses a query integer, falling back to def and clamping to
-// [min,max] so a hand-edited URL cannot slice out of range.
-func clampAtoi(raw string, def, min, max int) int {
-	if raw == "" {
-		return def
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil {
-		return def
-	}
-	if n < min {
-		return min
-	}
-	if n > max {
-		return max
-	}
-	return n
 }

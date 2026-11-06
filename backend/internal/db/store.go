@@ -914,14 +914,22 @@ func (s *Store) FinishRun(ctx context.Context, runID string, status models.RunSt
 
 func (s *Store) InsertRunLog(ctx context.Context, l models.RunLog) (models.RunLog, error) {
 	inputJSON, _ := json.Marshal(l.Input)
+	var outputJSON any
+	if l.Output != nil {
+		encoded, encodeErr := json.Marshal(l.Output)
+		if encodeErr != nil {
+			return models.RunLog{}, fmt.Errorf("encode run log output: %w", encodeErr)
+		}
+		outputJSON = string(encoded)
+	}
 	var out models.RunLog
 	var inJSON, outJSON []byte
 	var durationMs *int
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO run_logs (run_id, step_index, node_id, node_type, status, input)
-		VALUES ($1,$2,$3,$4,$5,$6::jsonb)
+		INSERT INTO run_logs (run_id, step_index, node_id, node_type, status, input, output)
+		VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)
 		RETURNING id, run_id, step_index, node_id, node_type, status, input, output, duration_ms, ts
-	`, l.RunID, l.StepIndex, l.NodeID, string(l.NodeType), string(l.Status), string(inputJSON)).Scan(
+	`, l.RunID, l.StepIndex, l.NodeID, string(l.NodeType), string(l.Status), string(inputJSON), outputJSON).Scan(
 		&out.ID, &out.RunID, &out.StepIndex, &out.NodeID, &out.NodeType,
 		&out.Status, &inJSON, &outJSON, &durationMs, &out.Ts,
 	)
@@ -933,6 +941,12 @@ func (s *Store) InsertRunLog(ctx context.Context, l models.RunLog) (models.RunLo
 	}
 	if inJSON != nil {
 		json.Unmarshal(inJSON, &out.Input)
+	}
+	if outJSON != nil {
+		decodeErr := json.Unmarshal(outJSON, &out.Output)
+		if decodeErr != nil {
+			return models.RunLog{}, fmt.Errorf("decode run log output: %w", decodeErr)
+		}
 	}
 	return out, nil
 }

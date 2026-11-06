@@ -30,7 +30,7 @@ func newConfigStalenessTestRunner(t *testing.T) (*Runner, *db.Store) {
 	}
 	t.Cleanup(store.Close)
 	broker := sse.NewBroker()
-	return NewRunner(store, broker, &fakeUSDCSignerForLedgerTest{}, "http://localhost:8080", "", "", X402Config{USDCAssetID: 10458941}), store
+	return NewRunner(store, broker, &fakeSignerForLedgerTest{}, "http://localhost:8080", "", "", X402Config{USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"}), store
 }
 
 // TestResumeReExecutesPureComputeNodeWhenConfigChanged is a regression test

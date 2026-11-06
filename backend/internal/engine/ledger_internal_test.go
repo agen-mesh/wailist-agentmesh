@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/sse"
+	"github.com/agentmesh/backend/internal/wallet"
 	"github.com/agentmesh/backend/internal/x402"
 )
 
@@ -66,7 +68,7 @@ func TestPaymentLedgerCommitAndReleaseSurviveCancelledContext(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := NewRunner(store, sse.NewBroker(), nil, "", "", "", X402Config{USDCAssetID: 10458941})
+	r := NewRunner(store, sse.NewBroker(), nil, "", "", "", X402Config{USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"})
 	ledger := r.newPaymentLedger(wf, run)
 
 	if err := ledger.Reserve(context.Background(), 250_000); err != nil {
@@ -160,7 +162,7 @@ func TestRecordRunFundedSettlementSurvivesCancelledContext(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := NewRunner(store, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{USDCAssetID: 10458941})
+	r := NewRunner(store, sse.NewBroker(), &fakeSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"})
 
 	recordSettlement := r.newRecordSettlement(wf, run, funding.ID)
 
@@ -180,36 +182,29 @@ func TestRecordRunFundedSettlementSurvivesCancelledContext(t *testing.T) {
 	}
 }
 
-// fakeUSDCSignerForLedgerTest satisfies nodes.USDCGroupSigner (and
+// fakeSignerForLedgerTest satisfies nodes.PaymentSigner (and
 // nodes.WalletSigner) so a Runner built with it actually attempts the
 // run-level pre-fund path in reserveAndFundRun instead of degrading
 // gracefully for a missing signer.
-type fakeUSDCSignerForLedgerTest struct{}
+type fakeSignerForLedgerTest struct{}
 
-func (f *fakeUSDCSignerForLedgerTest) SignAndSendPayment(_ context.Context, _, _ string, _ uint64) (string, error) {
+func (f *fakeSignerForLedgerTest) SignAndSendPayment(_ context.Context, _, _ string, _ uint64) (string, error) {
 	return "", nil
 }
 
-func (f *fakeUSDCSignerForLedgerTest) SignUSDCPaymentGroup(_ context.Context, _, _ string, _, _ uint64, _ string) ([]string, int, error) {
-	return []string{"g0", "g1"}, 0, nil
-}
-
-// SignUSDCPaymentSingle must also be implemented -- see fakeRelaySigner's
-// identical doc comment in runner_stop_test.go for why a missing method
-// here silently degrades every test using this fake to the no-fund path.
-func (f *fakeUSDCSignerForLedgerTest) SignUSDCPaymentSingle(_ context.Context, _, _ string, _, _ uint64) ([]string, int, error) {
-	return []string{"g0"}, 0, nil
+func (f *fakeSignerForLedgerTest) SignTransferAuthorization(_ context.Context, _ string, r wallet.AuthorizationRequest) (x402.ExactEVMPayload, error) {
+	return x402.ExactEVMPayload{Signature: "0xfakesig", Authorization: x402.Authorization{From: "0x00000000000000000000000000000000000000f1", To: r.PayTo, Value: strconv.FormatUint(r.Amount, 10), ValidAfter: "0", ValidBefore: "9999999999", Nonce: "0x01"}}, nil
 }
 
 // Compile-time proof that this double really does satisfy the interface its
 // doc comment claims. reserveAndFundRun reaches its signer via
-// `x, _ := r.walletSvc.(nodes.USDCGroupSigner)`, which discards the ok and
+// `x, _ := r.walletSvc.(nodes.PaymentSigner)`, which discards the ok and
 // degrades to the no-funding path when the assertion fails -- so a double
 // that has fallen behind the interface does not fail to compile, it
 // silently turns every run-funding assertion here into a no-op. That is
 // exactly what happened when SignUSDCPaymentSingle was added to
-// USDCGroupSigner and this double was not updated with it.
-var _ nodes.USDCGroupSigner = (*fakeUSDCSignerForLedgerTest)(nil)
+// PaymentSigner and this double was not updated with it.
+var _ nodes.PaymentSigner = (*fakeSignerForLedgerTest)(nil)
 
 // TestReserveAndFundRunFailsRatherThanSilentlyDegradingWhenRecordRunFundingFails
 // is a white-box regression test for the exact bug this branch's final
@@ -246,7 +241,7 @@ func TestReserveAndFundRunFailsRatherThanSilentlyDegradingWhenRecordRunFundingFa
 
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"300000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"300000"}]}`))
 	}))
 	defer target.Close()
 
@@ -297,13 +292,12 @@ func TestReserveAndFundRunFailsRatherThanSilentlyDegradingWhenRecordRunFundingFa
 		t.Fatal(err)
 	}
 
-	r := NewRunner(store, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{
-		USDCAssetID:               10458941,
-		PlatformWalletAddress:     "PLATFORMADDR",
-		PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
-		FacilitatorClient:         x402.NewFacilitatorClient(facilitator.URL),
-		RelayNetwork:              "algorand:testnet",
-		RelayFeePayer:             "FEEPAYERADDR",
+	r := NewRunner(store, sse.NewBroker(), &fakeSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		PlatformWalletAddress: "PLATFORMADDR",
+		PlatformWalletEncKey:  "platform-wallet-enc-mnemonic",
+		FacilitatorClient:     x402.NewFacilitatorClient(facilitator.URL),
+		RelayNetwork:          "algorand:testnet",
 	})
 
 	attach := models.AttachConfig{
@@ -413,7 +407,7 @@ func TestReserveAndFundRunRejectsOutOfRangeQuote(t *testing.T) {
 
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"2000000000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"2000000000"}]}`))
 	}))
 	defer target.Close()
 
@@ -447,13 +441,12 @@ func TestReserveAndFundRunRejectsOutOfRangeQuote(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := NewRunner(store, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{
-		USDCAssetID:               10458941,
-		PlatformWalletAddress:     "PLATFORMADDR",
-		PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
-		FacilitatorClient:         x402.NewFacilitatorClient(facilitator.URL),
-		RelayNetwork:              "algorand:testnet",
-		RelayFeePayer:             "FEEPAYERADDR",
+	r := NewRunner(store, sse.NewBroker(), &fakeSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		PlatformWalletAddress: "PLATFORMADDR",
+		PlatformWalletEncKey:  "platform-wallet-enc-mnemonic",
+		FacilitatorClient:     x402.NewFacilitatorClient(facilitator.URL),
+		RelayNetwork:          "algorand:testnet",
 	})
 
 	attach := models.AttachConfig{
@@ -485,7 +478,7 @@ func TestReserveAndFundRunRejectsOutOfRangeQuote(t *testing.T) {
 func TestReserveAndFundRunRejectsOutOfRangeQuoteNoDatabase(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"2000000000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"2000000000"}]}`))
 	}))
 	defer target.Close()
 
@@ -495,13 +488,12 @@ func TestReserveAndFundRunRejectsOutOfRangeQuoteNoDatabase(t *testing.T) {
 	}))
 	defer facilitator.Close()
 
-	r := NewRunner(nil, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{
-		USDCAssetID:               10458941,
-		PlatformWalletAddress:     "PLATFORMADDR",
-		PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
-		FacilitatorClient:         x402.NewFacilitatorClient(facilitator.URL),
-		RelayNetwork:              "algorand:testnet",
-		RelayFeePayer:             "FEEPAYERADDR",
+	r := NewRunner(nil, sse.NewBroker(), &fakeSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		PlatformWalletAddress: "PLATFORMADDR",
+		PlatformWalletEncKey:  "platform-wallet-enc-mnemonic",
+		FacilitatorClient:     x402.NewFacilitatorClient(facilitator.URL),
+		RelayNetwork:          "algorand:testnet",
 	})
 
 	wf := models.Workflow{
@@ -553,7 +545,7 @@ func TestReserveAndFundRunHoldsReservationOnIndeterminateSettle(t *testing.T) {
 
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"300000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"300000"}]}`))
 	}))
 	defer target.Close()
 
@@ -595,13 +587,12 @@ func TestReserveAndFundRunHoldsReservationOnIndeterminateSettle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := NewRunner(store, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{
-		USDCAssetID:               10458941,
-		PlatformWalletAddress:     "PLATFORMADDR",
-		PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
-		FacilitatorClient:         x402.NewFacilitatorClient(facilitator.URL),
-		RelayNetwork:              "algorand:testnet",
-		RelayFeePayer:             "FEEPAYERADDR",
+	r := NewRunner(store, sse.NewBroker(), &fakeSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		PlatformWalletAddress: "PLATFORMADDR",
+		PlatformWalletEncKey:  "platform-wallet-enc-mnemonic",
+		FacilitatorClient:     x402.NewFacilitatorClient(facilitator.URL),
+		RelayNetwork:          "algorand:testnet",
 	})
 
 	attach := models.AttachConfig{
@@ -626,7 +617,7 @@ func TestReserveAndFundRunHoldsReservationOnIndeterminateSettle(t *testing.T) {
 
 // TestReserveAndFundRunDegradesGracefullyWithNilFacilitator is a regression
 // test for a gap in the graceful-degradation guard: it checked only
-// platformSpendEncMnemonic and usdcSigner before calling FundRunReserve,
+// platformSpendEncKey and usdcSigner before calling FundRunReserve,
 // but FundRunReserve also unconditionally dereferences cfg.Facilitator and
 // uses cfg.PlatformWalletAddress -- neither checked. Unreachable in
 // production today (main.go log.Fatal-gates both), but a future test
@@ -646,7 +637,7 @@ func TestReserveAndFundRunDegradesGracefullyWithNilFacilitator(t *testing.T) {
 
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"300000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"300000"}]}`))
 	}))
 	defer target.Close()
 
@@ -674,12 +665,12 @@ func TestReserveAndFundRunDegradesGracefullyWithNilFacilitator(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// PlatformSpendEncMnemonic set and a valid USDCGroupSigner supplied
+	// PlatformSpendEncKey set and a valid PaymentSigner supplied
 	// (both already-checked fields), but FacilitatorClient left nil and
 	// PlatformWalletAddress left empty -- the two fields the existing guard
 	// doesn't check.
-	r := NewRunner(store, sse.NewBroker(), &fakeUSDCSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{
-		USDCAssetID: 10458941,
+	r := NewRunner(store, sse.NewBroker(), &fakeSignerForLedgerTest{}, "http://localhost:65535", "platform-spend-enc-mnemonic", "", X402Config{
+		USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
 	})
 
 	attach := models.AttachConfig{

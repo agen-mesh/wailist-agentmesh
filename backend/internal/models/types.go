@@ -35,6 +35,10 @@ type ParamDef struct {
 	Required    bool   `json:"required"`
 	Description string `json:"description"`
 	Default     string `json:"default,omitempty"`
+	// Enum lists the only values the endpoint accepts, when its schema says
+	// so. It is handed to the LLM as a JSON-schema enum so the agent cannot
+	// invent a value the endpoint will reject.
+	Enum []string `json:"enum,omitempty"`
 }
 
 // How a tool402 node builds its request. See WorkflowNode.BodyMode.

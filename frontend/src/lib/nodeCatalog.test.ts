@@ -48,18 +48,15 @@ describe("buildNodeCatalog", () => {
   // Tendril node fails with "unknown action".
   it("carries the palette's presets", () => {
     expect(tpl("state", "set").presets).toEqual({ stateOp: "set" });
-    expect(tpl("tendril", "tendril_rent").presets?.tendrilAction).toBe("rent");
     expect(tpl("provider", "gemini").presets).toEqual({ model: "gemini-2.5-flash" });
   });
 
-  it("keeps automatic Tendril rentals on the same default budget as the palette", () => {
-    const auto = tpl("tendril", "tendril_auto");
-    expect(auto.presets?.tendrilAction).toBe("auto");
-    expect(auto.presets?.tendrilAmount).toBe("");
-    expect(auto.fields.find((field) => field.key === "tendrilAmount")).toMatchObject({
-      where: "field", placeholder: "1",
-    });
-    expect(tpl("tendril", "tendril_topup").presets?.tendrilAmount).toBe("10");
+  it("offers Whitechain connectors and no longer offers Tendril or Algorand", () => {
+    expect(tpl("action", "whitechain_account").fields.map((f) => f.key)).toContain("wcAddress");
+    const types = buildNodeCatalog().types;
+    expect(types.map((t) => t.type)).not.toContain("tendril");
+    const ids = types.flatMap((t) => t.templates.map((x) => x.id));
+    expect(ids.filter((id) => id.startsWith("algorand_"))).toEqual([]);
   });
 
   it("marks every credential as a secret, never a settable field", () => {

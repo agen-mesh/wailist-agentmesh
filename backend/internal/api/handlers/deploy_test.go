@@ -14,10 +14,7 @@ import (
 
 func TestDeploy(t *testing.T) {
 	d := testDeps(t)
-	d.Wallet = wallet.NewService(
-		"0123456789abcdef0123456789abcdef",
-		"https://testnet-api.algonode.cloud", "", "testnet",
-	)
+	d.Wallet = wallet.NewService("0123456789abcdef0123456789abcdef", "")
 	d.BaseURL = "http://localhost:8080"
 
 	ctx := context.Background()

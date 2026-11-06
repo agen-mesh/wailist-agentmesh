@@ -23,7 +23,7 @@ import { Workflow } from "@/lib/types";
 import { workflows as workflowsApi } from "@/lib/api";
 import { useCredits } from "@/lib/credits/store";
 import { usageHrefForWorkflow } from "@/lib/usageScope";
-import { TENDRIL_WORKFLOW } from "@/lib/data";
+import { WHITECHAIN_WORKFLOW } from "@/lib/data";
 import { loadTemplateWorkflow } from "@/lib/templateWorkflow";
 import { can } from "@/lib/readonly";
 import { workflowHref } from "@/lib/routes";
@@ -148,7 +148,7 @@ export function WorkflowsPage() {
     }
   }, [creating, router]);
 
-  // Loads TENDRIL_WORKFLOW (lib/data.ts) into a brand-new workflow row every
+  // Loads WHITECHAIN_WORKFLOW (lib/data.ts) into a brand-new workflow row every
   // click -- a template is just a starting point the user immediately edits,
   // so there's no "the one shared copy" identity to preserve and a fresh
   // copy each time is correct. loadTemplateWorkflow (lib/templateWorkflow.ts)
@@ -159,7 +159,7 @@ export function WorkflowsPage() {
     setCreatingTendril(true);
     setPageError((prev) => (prev?.source === "tendril" ? null : prev));
     try {
-      const id = await loadTemplateWorkflow(TENDRIL_WORKFLOW);
+      const id = await loadTemplateWorkflow(WHITECHAIN_WORKFLOW);
       router.push(workflowHref(id));
     } catch (e) {
       setPageError({

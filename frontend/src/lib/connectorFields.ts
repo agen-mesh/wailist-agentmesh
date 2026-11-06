@@ -6,13 +6,16 @@
 // verbatim from Inspector.tsx; keep it data-only.
 
 // ── Per-connector config field tables ───────────────────────────────────────
+// Catalog overrides keep UI copy edits out of the generated backend catalog.
 export type ConnectorField =
   | {
       kind: "secret";
       key: string;
       label: string;
       hint?: string;
+      catalogHint?: string;
       placeholder: string;
+      catalogPlaceholder?: string;
       // The field's old Secrets key, for a connector whose Inspector field
       // moved to a new key -- e.g. Stripe's stripeAPIKey (was
       // stripeSecretKey). The backend already falls back to this key for a
@@ -27,7 +30,9 @@ export type ConnectorField =
       key: string;
       label: string;
       hint?: string;
+      catalogHint?: string;
       placeholder?: string;
+      catalogPlaceholder?: string;
     };
 
 export const CONNECTOR_CONFIG_FIELDS: Record<
@@ -906,7 +911,8 @@ export const CONNECTOR_CONFIG_FIELDS: Record<
         key: "mdGFM",
         label: "GitHub Flavored",
         placeholder: "true",
-        hint: "true · false — tables, strikethrough, autolinks",
+        hint: "true · false: tables, strikethrough, autolinks",
+        catalogHint: "true · false \u2014 tables, strikethrough, autolinks",
       },
     ],
   },
@@ -954,56 +960,57 @@ export const CONNECTOR_CONFIG_FIELDS: Record<
         kind: "secret",
         key: "graphqlAuthHeader",
         label: "Authorization header",
-        hint: "sent verbatim — include Bearer if the API wants it",
+        hint: "Sent as entered. Include Bearer if the API requires it.",
+        catalogHint: "sent verbatim \u2014 include Bearer if the API wants it",
         placeholder: "Bearer ghp_xxxxxxxx",
       },
     ],
   },
-  algorand_account: {
-    label: "Algorand Account config",
+  whitechain_account: {
+    label: "Whitechain Account config",
     fields: [
       {
         kind: "config",
-        key: "algoAddress",
+        key: "wcAddress",
         label: "Address",
-        placeholder: "58-character Algorand address",
+        placeholder: "0x… (40 hex characters)",
       },
     ],
   },
-  algorand_transactions: {
-    label: "Algorand History config",
+  whitechain_transactions: {
+    label: "Whitechain Transfers config",
     fields: [
       {
         kind: "config",
-        key: "algoAddress",
+        key: "wcAddress",
         label: "Address",
-        placeholder: "58-character Algorand address",
+        placeholder: "0x… (40 hex characters)",
       },
       {
         kind: "config",
-        key: "algoTxLimit",
+        key: "wcTxLimit",
         label: "How many",
         hint: "newest first; 10 by default, 50 at most",
         placeholder: "10",
       },
       {
         kind: "config",
-        key: "algoTxType",
-        label: "Only this type",
-        hint: "blank for every type; pay, axfer, appl, acfg, afrz, keyreg, stpf, hb",
-        placeholder: "axfer",
+        key: "wcToken",
+        label: "Only this token",
+        hint: "token contract address; blank for every ERC-20",
+        placeholder: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
       },
     ],
   },
-  algorand_asset: {
-    label: "Algorand Asset config",
+  whitechain_token: {
+    label: "Whitechain Token config",
     fields: [
       {
         kind: "config",
-        key: "algoAssetId",
-        label: "Asset id",
-        hint: "the ASA's number, not its ticker",
-        placeholder: "31566704",
+        key: "wcToken",
+        label: "Token address",
+        hint: "the ERC-20 contract address; blank describes USDT",
+        placeholder: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
       },
     ],
   },

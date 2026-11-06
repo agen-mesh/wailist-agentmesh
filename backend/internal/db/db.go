@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -43,14 +44,21 @@ func runMigrations(databaseURL string) error {
 	if err != nil {
 		return err
 	}
-	migURL := strings.Replace(databaseURL, "postgres://", "pgx5://", 1)
-	migURL = strings.Replace(migURL, "postgresql://", "pgx5://", 1)
-	if strings.Contains(migURL, "?") {
-		migURL += "&default_query_exec_mode=simple_protocol"
-	} else {
-		migURL += "?default_query_exec_mode=simple_protocol"
+	migURL, err := url.Parse(databaseURL)
+	if err != nil {
+		return fmt.Errorf("parse migration URL: %w", err)
 	}
-	m, err := migrate.NewWithSourceInstance("iofs", d, migURL)
+	migURL.Scheme = "pgx5"
+	params := migURL.Query()
+	// Migrations use a single connection, so pgxpool options are not server settings.
+	for key := range params {
+		if strings.HasPrefix(key, "pool_") {
+			params.Del(key)
+		}
+	}
+	params.Set("default_query_exec_mode", "simple_protocol")
+	migURL.RawQuery = params.Encode()
+	m, err := migrate.NewWithSourceInstance("iofs", d, migURL.String())
 	if err != nil {
 		return err
 	}

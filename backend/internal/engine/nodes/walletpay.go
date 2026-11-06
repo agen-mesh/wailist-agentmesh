@@ -11,6 +11,11 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
+
+	"github.com/agentmesh/backend/internal/chain"
+	"github.com/agentmesh/backend/internal/wallet"
+	"github.com/agentmesh/backend/internal/x402"
 )
 
 // Wallet2PayConfig carries what's needed to sign and send a real outbound
@@ -21,9 +26,9 @@ import (
 // Wallet 2's mnemonic; both callers hold their own copy of the same
 // already-in-memory secret (threaded from main.go) and reach the same code.
 type Wallet2PayConfig struct {
-	USDCSigner                USDCGroupSigner
-	PlatformWalletEncMnemonic string
-	USDCAssetID               uint64
+	Signer                    PaymentSigner
+	PlatformWalletEncKey      string
+	USDCAsset                 string
 	RelayNetwork              string
 	MaxRelayOutboundUSDMicros int64
 	// ContentType is what the outbound body is encoded as. Empty means the
@@ -115,15 +120,14 @@ func outboundTxIDFromHeader(h http.Header) string {
 // GET-compatible (e.g. a POST-only resource 404s a bare GET before payment
 // state is even considered), so this can't stay hardcoded to GET.
 func PayTargetFromWallet2(ctx context.Context, cfg Wallet2PayConfig, target, method string, body []byte, quote TargetQuote) (Wallet2PayResult, error) {
-	assetID, assetErr := strconv.ParseUint(quote.Asset, 10, 64)
 	amount, amountErr := strconv.ParseUint(quote.MaxAmountRequired, 10, 64)
-	if assetErr != nil || amountErr != nil {
+	if amountErr != nil || !chain.IsAddress(quote.Asset) {
 		return Wallet2PayResult{}, &Wallet2PayError{StatusCode: http.StatusBadGateway, Msg: "target quote had an unparseable asset or amount"}
 	}
 
-	if assetID != cfg.USDCAssetID {
-		log.Printf("wallet2 pay asset mismatch: quote.Asset=%q assetID=%d want=%d", quote.Asset, assetID, cfg.USDCAssetID)
-		return Wallet2PayResult{}, &Wallet2PayError{StatusCode: http.StatusBadGateway, Msg: "target quoted an unexpected asset id"}
+	if !chain.SameAddress(quote.Asset, cfg.USDCAsset) {
+		log.Printf("wallet2 pay asset mismatch: quote.Asset=%q want=%s", quote.Asset, cfg.USDCAsset)
+		return Wallet2PayResult{}, &Wallet2PayError{StatusCode: http.StatusBadGateway, Msg: "target quoted an unexpected asset"}
 	}
 	if cfg.MaxRelayOutboundUSDMicros > 0 && amount > uint64(cfg.MaxRelayOutboundUSDMicros) {
 		return Wallet2PayResult{}, &Wallet2PayError{StatusCode: http.StatusBadGateway, Msg: "target quoted an amount exceeding the relay's per-call cap"}
@@ -147,19 +151,25 @@ func PayTargetFromWallet2(ctx context.Context, cfg Wallet2PayConfig, target, met
 	// SignUSDCPaymentSingle unconditionally, which is why every fee-
 	// pooling-expecting target kept re-402'ing a payment that had, in fact,
 	// already left the wallet.
-	var group []string
-	var idx int
-	var err error
-	if quote.FeePayer != "" {
-		group, idx, err = cfg.USDCSigner.SignUSDCPaymentGroup(ctx, cfg.PlatformWalletEncMnemonic, quote.PayTo, assetID, amount, quote.FeePayer)
-	} else {
-		group, idx, err = cfg.USDCSigner.SignUSDCPaymentSingle(ctx, cfg.PlatformWalletEncMnemonic, quote.PayTo, assetID, amount)
+	var extra map[string]any
+	if quote.RawAccept != nil {
+		if n, ok := quote.RawAccept["network"].(string); ok && n != "" && n != chain.Network {
+			return Wallet2PayResult{}, &Wallet2PayError{StatusCode: http.StatusBadGateway, Msg: "target quoted unsupported network " + n + ", want " + chain.Network}
+		}
+		extra, _ = quote.RawAccept["extra"].(map[string]any)
 	}
+	validFor := time.Duration(0)
+	if quote.RawAccept != nil {
+		validFor = acceptValidFor(quote.RawAccept)
+	}
+	signed, err := cfg.Signer.SignTransferAuthorization(ctx, cfg.PlatformWalletEncKey, wallet.AuthorizationRequest{
+		Asset: quote.Asset, PayTo: quote.PayTo, Amount: amount, Extra: extra, ValidFor: validFor,
+	})
 	if err != nil {
 		return Wallet2PayResult{}, &Wallet2PayError{StatusCode: http.StatusInternalServerError, Msg: "failed to sign outbound payment: " + err.Error()}
 	}
 
-	paymentHeaders := buildPaymentHeaders(target, cfg.RelayNetwork, group, idx, quote)
+	paymentHeaders := buildPaymentHeaders(target, cfg.RelayNetwork, signed, quote)
 	if method == "" {
 		method = http.MethodGet
 	}
@@ -224,7 +234,7 @@ func PayTargetFromWallet2(ctx context.Context, cfg Wallet2PayConfig, target, met
 		// Fingerprints the spec header, which every non-canix402 target also
 		// gets a raw-JSON twin of: same bytes, so one hash identifies both.
 		fingerprint := sha256.Sum256([]byte(paymentHeaders["Payment-Signature"]))
-		log.Printf("wallet2 outbound pay %s %s rejected: status=%d body=%s payment-required-header=%s paymentIndex=%d xPaymentFingerprint=%s", method, strconv.Quote(target), payResp.StatusCode, strconv.Quote(string(bodySnippet)), strconv.Quote(headerSnippet), idx, hex.EncodeToString(fingerprint[:4]))
+		log.Printf("wallet2 outbound pay %s %s rejected: status=%d body=%s payment-required-header=%s xPaymentFingerprint=%s", method, strconv.Quote(target), payResp.StatusCode, strconv.Quote(string(bodySnippet)), strconv.Quote(headerSnippet), hex.EncodeToString(fingerprint[:4]))
 	}
 
 	return Wallet2PayResult{
@@ -267,7 +277,7 @@ func PayTargetFromWallet2(ctx context.Context, cfg Wallet2PayConfig, target, met
 //
 // Both carry the same signed group, so at most one can ever settle: a second
 // submission of the same transaction is rejected as a duplicate on-chain.
-func buildPaymentHeaders(target, relayNetwork string, group []string, idx int, quote TargetQuote) map[string]string {
+func buildPaymentHeaders(target, relayNetwork string, signed x402.ExactEVMPayload, quote TargetQuote) map[string]string {
 	// The target's own accept option decides the network id, falling back to
 	// our configured one. Echoing what it declared can only match its own
 	// equality check; sending our spelling of the same chain (both CAIP-2
@@ -284,7 +294,7 @@ func buildPaymentHeaders(target, relayNetwork string, group []string, idx int, q
 	}
 	fields := map[string]any{
 		"x402Version": 2, "scheme": "exact", "network": network,
-		"payload": map[string]any{"paymentGroup": group, "paymentIndex": idx},
+		"payload": signed,
 	}
 	// accepted is an exact echo of the requirements this payment was created
 	// against. PaymentPayloadV2Schema requires it with no .optional(), so a

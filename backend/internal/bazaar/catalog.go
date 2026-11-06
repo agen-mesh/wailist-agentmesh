@@ -1,11 +1,11 @@
-// Package bazaar mirrors GoPlausible's public x402 discovery catalog into a
+// Package bazaar mirrors the Whitechain facilitator's x402 discovery catalog into a
 // shape AgentMesh's canvas can consume directly.
 //
 // The upstream catalog is a raw firehose: it carries entries for networks we
-// cannot pay (EVM, Solana), and entries pointing at hosts that can never be
+// cannot pay (other chains), and entries pointing at hosts that can never be
 // reached from a server (localhost, RFC1918). Both are filtered here rather
 // than in the handler, so every consumer of a Resource can assume it names a
-// publicly-resolvable Algorand endpoint our relay is capable of paying.
+// publicly-resolvable Whitechain endpoint our relay is capable of paying.
 package bazaar
 
 import (
@@ -20,16 +20,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/agentmesh/backend/internal/chain"
+	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/netutil"
 )
 
-// AlgorandMainnet and AlgorandTestnet are the CAIP-2 network ids the catalog
-// uses. Kept as literals rather than derived from config: this is a property
-// of the Algorand chain itself, not of our deployment.
-const (
-	AlgorandMainnet = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="
-	AlgorandTestnet = "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI="
-)
+// WhitechainTestnet is the only network the catalog keeps: the one our
+// wallets can sign for and our facilitator settles.
+const WhitechainTestnet = chain.Network
 
 // pageLimit is the upstream's max page size. Paging stops on the first short
 // page rather than trusting pagination.total, which a mid-crawl catalog can
@@ -43,10 +41,11 @@ const maxPages = 40
 
 // Param is one caller-supplied input a resource declares for itself.
 type Param struct {
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	Required    bool   `json:"required"`
-	Description string `json:"description"`
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
+	Required    bool     `json:"required"`
+	Description string   `json:"description"`
+	Enum        []string `json:"enum,omitempty"`
 }
 
 // Resource is one catalog entry, normalised. AmountMicros is integer atomic
@@ -91,9 +90,38 @@ type Resource struct {
 
 // rawResource mirrors the upstream JSON exactly. Kept separate from Resource
 // so the wire shape can drift without changing what the frontend sees.
+// discoverySchema is the JSON Schema half of an x402 v2 Bazaar extension:
+// schema.properties.input.properties.{queryParams|body} holds each input's
+// type, required list, description, enum and format rules.
+type discoverySchema struct {
+	Properties struct {
+		Input struct {
+			Properties struct {
+				QueryParams map[string]any `json:"queryParams"`
+				Body        map[string]any `json:"body"`
+			} `json:"properties"`
+		} `json:"input"`
+	} `json:"properties"`
+}
+
+type discoveryInfo struct {
+	Input struct {
+		Method      string         `json:"method"`
+		QueryParams map[string]any `json:"queryParams"`
+		Body        map[string]any `json:"body"`
+	} `json:"input"`
+	Output struct {
+		Example any `json:"example"`
+	} `json:"output"`
+}
+
 type rawResource struct {
 	ID          string `json:"id"`
 	ResourceURL string `json:"resourceUrl"`
+	// Resource is the x402 v2 discovery field name (the Whitechain
+	// facilitator's /discovery/resources); ResourceURL the older one.
+	Resource    string `json:"resource"`
+	LastUpdated string `json:"lastUpdated"`
 	Method      string `json:"method"`
 	Description string `json:"description"`
 	MerchantID  string `json:"merchantId"`
@@ -103,16 +131,14 @@ type rawResource struct {
 		Asset   string `json:"asset"`
 		PayTo   string `json:"payTo"`
 	} `json:"accepts"`
-	DiscoveryInfo struct {
-		Input struct {
-			Method      string         `json:"method"`
-			QueryParams map[string]any `json:"queryParams"`
-			Body        map[string]any `json:"body"`
-		} `json:"input"`
-		Output struct {
-			Example any `json:"example"`
-		} `json:"output"`
-	} `json:"discoveryInfo"`
+	DiscoveryInfo discoveryInfo `json:"discoveryInfo"`
+	// Extensions.Bazaar.Info is where x402 v2 catalogs put the same info.
+	Extensions struct {
+		Bazaar struct {
+			Info   discoveryInfo   `json:"info"`
+			Schema discoverySchema `json:"schema"`
+		} `json:"bazaar"`
+	} `json:"extensions"`
 	SettleCount int    `json:"settleCount"`
 	FirstSeen   string `json:"firstSeen"`
 	LastSeen    string `json:"lastSeen"`
@@ -183,6 +209,18 @@ func normalise(raw rawResource) (Resource, bool) {
 	if len(raw.Accepts) == 0 {
 		return Resource{}, false
 	}
+	if raw.ResourceURL == "" {
+		raw.ResourceURL = raw.Resource
+	}
+	if raw.ID == "" {
+		raw.ID = raw.ResourceURL
+	}
+	if raw.DiscoveryInfo.Input.Method == "" && raw.DiscoveryInfo.Input.QueryParams == nil && raw.DiscoveryInfo.Input.Body == nil {
+		raw.DiscoveryInfo = raw.Extensions.Bazaar.Info
+	}
+	if raw.LastSeen == "" {
+		raw.LastSeen = raw.LastUpdated
+	}
 	a := raw.Accepts[0]
 	parsed, _ := url.Parse(raw.ResourceURL)
 	if !keepResource(parsed, a.Network) {
@@ -206,7 +244,7 @@ func normalise(raw rawResource) (Resource, bool) {
 		Description:  truncateRunes(raw.Description, resourceDescriptionMax),
 		MerchantID:   raw.MerchantID,
 		Network:      a.Network,
-		Testnet:      a.Network == AlgorandTestnet,
+		Testnet:      a.Network == WhitechainTestnet,
 		AmountMicros: amount,
 		Asset:        a.Asset,
 		PayTo:        a.PayTo,
@@ -257,37 +295,33 @@ func truncateRunes(s string, max int) string {
 // The catalog's values are EXAMPLES, not usable values (canix402 publishes the
 // Algorand zero address), so they land in Description and never in a default.
 func paramsFrom(raw rawResource) []Param {
-	src := raw.DiscoveryInfo.Input.QueryParams
-	if len(src) == 0 {
-		src = raw.DiscoveryInfo.Input.Body
+	examples := raw.DiscoveryInfo.Input.QueryParams
+	spec := raw.Extensions.Bazaar.Schema.Properties.Input.Properties.QueryParams
+	if len(examples) == 0 && len(spec) == 0 {
+		examples = raw.DiscoveryInfo.Input.Body
+		spec = raw.Extensions.Bazaar.Schema.Properties.Input.Properties.Body
 	}
-	if len(src) == 0 {
+	if len(examples) == 0 && len(spec) == 0 {
 		return nil
 	}
-	names := make([]string, 0, len(src))
-	for k := range src {
-		names = append(names, k)
-	}
-	// Map order is randomised; these render as an ordered form that must not
-	// reshuffle between two reads of the same entry.
-	sort.Strings(names)
-	out := make([]Param, 0, len(names))
-	for _, n := range names {
-		desc := truncateRunes(fmt.Sprintf("example: %v", src[n]), paramDescriptionMax)
+	defs := models.ParamsFromSchema(spec, examples)
+	out := make([]Param, 0, len(defs))
+	for _, d := range defs {
 		out = append(out, Param{
-			Name:        n,
-			Type:        "string",
-			Required:    false,
-			Description: desc,
+			Name:        d.Name,
+			Type:        d.Type,
+			Required:    d.Required,
+			Description: truncateRunes(d.Description, paramDescriptionMax),
+			Enum:        d.Enum,
 		})
 	}
 	return out
 }
 
 // keepResource reports whether a catalog entry is one we could actually pay
-// and reach: an Algorand network, over https, at a public hostname.
+// and reach: Whitechain testnet, over https, at a public hostname.
 func keepResource(u *url.URL, network string) bool {
-	if network != AlgorandMainnet && network != AlgorandTestnet {
+	if network != WhitechainTestnet {
 		return false
 	}
 	if u == nil || u.Scheme != "https" {

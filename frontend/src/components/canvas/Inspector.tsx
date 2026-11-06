@@ -565,7 +565,7 @@ function nodeMeta(n: WorkflowNode) {
   const tpls: Record<
     string,
     {
-      list: { id: string; icon?: string; name?: string }[];
+      list: { id: string; icon?: string; name?: string; catalogName?: string }[];
       bg: string;
       fg: string;
     }
@@ -610,7 +610,10 @@ function nodeMeta(n: WorkflowNode) {
   const tpl = L.list.find((x) => x.id === n.template);
   return {
     icon: n.icon ?? tpl?.icon ?? "◇",
-    title: n.name ?? n.label ?? tpl?.name ?? "Custom node",
+    title:
+      tpl?.catalogName && n.name === tpl.catalogName
+        ? tpl.name ?? "Custom node"
+        : n.name ?? n.label ?? tpl?.name ?? "Custom node",
     bg: L.bg,
     fg: L.fg,
   };
@@ -1378,14 +1381,14 @@ function validateBodyTemplate(
     if (!known.has(name) && !isDiscoveredValue) missing.add(m[0]);
   }
   if (missing.size > 0) {
-    return `No field named ${[...missing].join(", ")} — add it below, or fix the name.`;
+    return `No field named ${[...missing].join(", ")}: add it below, or fix the name.`;
   }
   // Placeholders always sit inside string literals, so a stand-in value is
   // enough to check the surrounding document's shape.
   try {
     JSON.parse(template.replace(BODY_PLACEHOLDER, "x"));
   } catch (e) {
-    return `Not valid JSON — ${e instanceof Error ? e.message : "check the syntax"}.`;
+    return `Not valid JSON: ${e instanceof Error ? e.message : "check the syntax"}.`;
   }
   return null;
 }
@@ -1448,7 +1451,7 @@ function Tool402Inspector({
         endpoint: draft.trim(),
         price: quote.price ?? "?",
         unit: quote.unit ?? "call",
-        asset: quote.asset ?? "USDC",
+        asset: quote.asset ?? "USDT",
         provider: host,
         priceLive: true,
         description: node.description || quote.description || "",
@@ -2067,7 +2070,7 @@ function Tool402Inspector({
                 {bodyTemplate.trim() ? (
                   <>
                     <span style={{ color: "var(--accent)" }}>✓ valid JSON</span>
-                    {" — keys must match what the endpoint documents; field"}
+                    {": keys must match what the endpoint documents; field"}
                     {
                       " names are yours, they only appear inside {{…}}. A file's"
                     }
@@ -2387,7 +2390,7 @@ function SavedValues({
       {err && <div style={{ fontSize: "var(--t-1)", color: "var(--danger)" }}>{err}</div>}
       {!err && vars && entries.length === 0 && (
         <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)" }}>
-          Nothing saved yet — a run has to write one first.
+          Nothing saved yet: a run has to write one first.
         </div>
       )}
       {entries.map(([k, v]) => {
@@ -3107,7 +3110,7 @@ function TendrilInspector({
         {selectedMachine && (
           <>
             {" "}
-            — about {(creditVal / selectedMachine.pricePerHourUsd).toFixed(1)} h
+            - about {(creditVal / selectedMachine.pricePerHourUsd).toFixed(1)} h
             on {selectedMachine.label || selectedMachine.id}
           </>
         )}
@@ -3155,8 +3158,8 @@ function TendrilInspector({
               <option value="">Cheapest online</option>
               {machines.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.label || m.id} — {m.cpuCores} vCPU,{" "}
-                  {Math.round(m.ramMb / 1024)} GB — ${m.pricePerHourUsd}/hr
+                  {m.label || m.id} - {m.cpuCores} vCPU,{" "}
+                  {Math.round(m.ramMb / 1024)} GB: ${m.pricePerHourUsd}/hr
                 </option>
               ))}
             </select>
@@ -3260,8 +3263,8 @@ function TendrilInspector({
               <option value="">Cheapest online</option>
               {machines.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.label || m.id} — {m.cpuCores} vCPU,{" "}
-                  {Math.round(m.ramMb / 1024)} GB — ${m.pricePerHourUsd}/hr
+                  {m.label || m.id} - {m.cpuCores} vCPU,{" "}
+                  {Math.round(m.ramMb / 1024)} GB: ${m.pricePerHourUsd}/hr
                 </option>
               ))}
             </select>
@@ -3288,7 +3291,7 @@ function TendrilInspector({
             >
               Costs ${cost.toFixed(2)} of Tendril credit
               {cost > creditVal &&
-                " — not enough Tendril credit, add a Topup node"}
+                ": not enough Tendril credit, add a Topup node"}
             </div>
           )}
         </Section>

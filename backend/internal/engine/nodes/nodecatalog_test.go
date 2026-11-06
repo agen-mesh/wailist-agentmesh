@@ -95,21 +95,16 @@ func TestNodeCatalogTemplatesAreDispatchedByTheEngine(t *testing.T) {
 	}
 }
 
-// State and Tendril run on a preset field, not the template, so the preset
+// State runs on a preset field, not the template, so the preset
 // value is what has to match the engine.
 func TestNodeCatalogPresetsMatchTheEngine(t *testing.T) {
 	state := caseLabels(t, "state.go")
-	tendril := caseLabels(t, "tendril.go")
 	for _, typ := range NodeCatalogData().Types {
 		for _, tpl := range typ.Templates {
 			switch typ.Type {
 			case "state":
 				if op := tpl.Presets["stateOp"]; !state[op] {
 					t.Errorf("state/%s presets stateOp %q, which state.go does not handle", tpl.ID, op)
-				}
-			case "tendril":
-				if a := tpl.Presets["tendrilAction"]; !tendril[a] {
-					t.Errorf("tendril/%s presets tendrilAction %q, which tendril.go does not handle", tpl.ID, a)
 				}
 			}
 		}

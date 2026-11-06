@@ -20,7 +20,7 @@ func TestPrependRunFundingReceipt(t *testing.T) {
 	rf := runFundResult{FundingTxID: "FUNDTX", FundedUSDMicros: 50000}
 	node := models.WorkflowNode{ID: "agent1", Name: "Staking Agent"}
 
-	prependRunFundingReceipt(result, rf, node, 31566704) // mainnet USDC
+	prependRunFundingReceipt(result, rf, node, "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7") // USDT
 
 	payments, ok := result["x402Payments"].([]map[string]any)
 	if !ok {
@@ -42,8 +42,8 @@ func TestPrependRunFundingReceipt(t *testing.T) {
 	if got["amount"] != "0.050000" {
 		t.Fatalf("want a decimal USDC amount the console can parseFloat, got %v", got["amount"])
 	}
-	if got["explorerURL"] != "https://lora.algokit.io/mainnet/transaction/FUNDTX" {
-		t.Fatalf("want a mainnet explorer link for the mainnet USDC asset id, got %v", got["explorerURL"])
+	if got["explorerURL"] != "https://explorer.testnet.whitechain.io/tx/FUNDTX" {
+		t.Fatalf("want a Whitechain explorer link, got %v", got["explorerURL"])
 	}
 	if got["nodeId"] != "agent1" {
 		t.Fatalf("want the funding attributed to the agent node that triggered it, got %v", got["nodeId"])
@@ -65,7 +65,7 @@ func TestPrependRunFundingReceipt(t *testing.T) {
 func TestPrependRunFundingReceiptNoFunding(t *testing.T) {
 	result := map[string]any{"x402Payments": []map[string]any{{"nodeId": "x1"}}}
 
-	prependRunFundingReceipt(result, runFundResult{}, models.WorkflowNode{ID: "agent1"}, 31566704)
+	prependRunFundingReceipt(result, runFundResult{}, models.WorkflowNode{ID: "agent1"}, "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7")
 
 	payments, _ := result["x402Payments"].([]map[string]any)
 	if len(payments) != 1 || payments[0]["nodeId"] != "x1" {
@@ -80,7 +80,7 @@ func TestPrependRunFundingReceiptNoFunding(t *testing.T) {
 func TestPrependRunFundingReceiptNoPayments(t *testing.T) {
 	result := map[string]any{"message": "no tool needed"}
 
-	prependRunFundingReceipt(result, runFundResult{FundingTxID: "FUNDTX", FundedUSDMicros: 50000}, models.WorkflowNode{ID: "agent1"}, 31566704)
+	prependRunFundingReceipt(result, runFundResult{FundingTxID: "FUNDTX", FundedUSDMicros: 50000}, models.WorkflowNode{ID: "agent1"}, "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7")
 
 	payments, ok := result["x402Payments"].([]map[string]any)
 	if !ok || len(payments) != 1 || payments[0]["txId"] != "FUNDTX" {

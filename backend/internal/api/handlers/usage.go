@@ -388,7 +388,7 @@ func (d *Deps) UsageSettlements(w http.ResponseWriter, r *http.Request) {
 			"endpoint":    "Tendril credit top-up",
 			"amountAlgo":  usd(t.AmountUSDMicros),
 			"txId":        t.TxID,
-			"explorerURL": nodes.ExplorerURLForAsset(d.USDCAssetID, t.TxID),
+			"explorerURL": nodes.ExplorerURLForAsset(d.USDCAsset, t.TxID),
 			"workflowId":  "",
 		}})
 	}

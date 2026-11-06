@@ -14,13 +14,14 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/agentmesh/backend/internal/alert"
+	"github.com/agentmesh/backend/internal/chain"
 	"github.com/agentmesh/backend/internal/models"
+	"github.com/agentmesh/backend/internal/wallet"
 	"github.com/agentmesh/backend/internal/x402"
 )
 
@@ -61,9 +62,10 @@ var relayHTTPClient = &http.Client{
 
 // WalletSigner signs and submits an Algorand payment transaction.
 // Satisfied by *wallet.Service.
-type WalletSigner interface {
-	SignAndSendPayment(ctx context.Context, encMnemonic, toAddress string, microAlgo uint64) (string, error)
-}
+// WalletSigner is the legacy per-agent wallet hook. Agents no longer hold
+// their own keys on Whitechain, so nothing is required of it; it is kept as
+// a parameter type so callers need not change shape.
+type WalletSigner interface{}
 
 func QuoteX402(ctx context.Context, rawURL string) (map[string]any, error) {
 	if err := urlValidator(rawURL); err != nil {
@@ -93,7 +95,7 @@ func QuoteX402(ctx context.Context, rawURL string) (map[string]any, error) {
 			"price":     strconv.FormatFloat(float64(quote.MaxAmountRequired)/1e6, 'f', -1, 64),
 			"unit":      "call",
 			"asset":     assetSymbol(quote.Asset),
-			"network":   "algorand",
+			"network":   chain.Network,
 			"recipient": quote.PayTo,
 		}
 		// What the target says it needs from a caller, straight out of its
@@ -138,26 +140,20 @@ func (e *ErrNoPaymentChallenge) Error() string {
 	return fmt.Sprintf("this URL answered with HTTP %d and no x402 payment challenge — it may not be an x402 endpoint, or it may expect a different request shape", e.Status)
 }
 
-// testnetUSDCAssetID mirrors mainnetUSDCAssetID for the other network a
+// testnetUSDCAsset mirrors mainnetUSDCAsset for the other network a
 // probed target's accepts[].asset may name (main.go wires both ids as
-// USDCAssetID depending on environment; this package only needs them for
+// USDCAsset depending on environment; this package only needs them for
 // display, not for signing, so they're kept as local literals rather than
 // threading a shared constant through).
-const testnetUSDCAssetID = 10458941
-
-// assetSymbol turns a v2 challenge's accepts[].asset (an Algorand ASA id, or
-// empty/"0" for native ALGO) into the ticker QuoteX402 displays to the user
-// — without this, the frontend has no way to know a quote is priced in USDC
-// rather than ALGO.
-func assetSymbol(assetID string) string {
-	switch assetID {
-	case "", "0":
-		return "ALGO"
-	case strconv.Itoa(mainnetUSDCAssetID), strconv.Itoa(testnetUSDCAssetID):
-		return "USDC"
-	default:
-		return "ASA-" + assetID
+// assetSymbol names an x402 asset for display.
+func assetSymbol(asset string) string {
+	if chain.IsUSDT(asset) {
+		return chain.TokenSymbol
 	}
+	if asset == "" {
+		return chain.NativeSymbol
+	}
+	return asset
 }
 
 // mapAt walks a chain of keys through nested map[string]any values, returning
@@ -215,48 +211,7 @@ func ParamsFromChallenge(challenge map[string]any) (params []models.ParamDef, me
 			continue
 		}
 
-		required := map[string]bool{}
-		if reqList, ok := spec["required"].([]any); ok {
-			for _, r := range reqList {
-				if name, ok := r.(string); ok {
-					required[name] = true
-				}
-			}
-		}
-
-		seen := map[string]bool{}
-		names := make([]string, 0, len(examples)+len(props))
-		for _, src := range []map[string]any{props, examples} {
-			for name := range src {
-				if !seen[name] {
-					seen[name] = true
-					names = append(names, name)
-				}
-			}
-		}
-		// Stable ordering: map iteration is randomized, and these render as
-		// an ordered list of form fields that must not reshuffle between
-		// two probes of the same endpoint.
-		sort.Strings(names)
-
-		for _, name := range names {
-			paramType := "string"
-			if p := mapAt(props, name); p != nil {
-				if t, ok := p["type"].(string); ok && t != "" {
-					paramType = t
-				}
-			}
-			desc := ""
-			if ex, ok := examples[name]; ok {
-				desc = fmt.Sprintf("example: %v", ex)
-			}
-			params = append(params, models.ParamDef{
-				Name:        name,
-				Type:        paramType,
-				Required:    required[name],
-				Description: desc,
-			})
-		}
+		params = models.ParamsFromSchema(spec, examples)
 
 		in = "body"
 		if key == "queryParams" {
@@ -360,6 +315,68 @@ func jsonStringEscape(s string) string {
 		return ""
 	}
 	return string(quoted[1 : len(quoted)-1])
+}
+
+// resolveParamTemplates expands {{ }} references (see resolveTemplate) in a
+// tool402 node's param values against the run, so a standalone paid step can
+// take e.g. its search query from the previous step. The caller's node is
+// not mutated.
+func resolveParamTemplates(node models.WorkflowNode, rc RunContexter) models.WorkflowNode {
+	if rc == nil {
+		return node
+	}
+	if len(node.ParamDefaults) > 0 {
+		out := make(map[string]string, len(node.ParamDefaults))
+		for k, v := range node.ParamDefaults {
+			out[k] = strings.TrimSpace(resolveTemplate(v, rc))
+		}
+		node.ParamDefaults = out
+	}
+	if len(node.CustomParams) > 0 {
+		cps := make([]models.CustomParam, len(node.CustomParams))
+		copy(cps, node.CustomParams)
+		for i := range cps {
+			if cps[i].Kind != "file" {
+				cps[i].Value = resolveTemplate(cps[i].Value, rc)
+			}
+		}
+		node.CustomParams = cps
+	}
+	return node
+}
+
+// missingRequiredParams lists the endpoint-declared required params that
+// have no value anywhere the request is built from: the node's param fields,
+// its custom params, or a query string already on the endpoint URL. JSON
+// body mode is the user's own body template, so it is not checked here.
+func missingRequiredParams(node models.WorkflowNode) []string {
+	if node.BodyMode == models.BodyModeJSON {
+		return nil
+	}
+	var inURL url.Values
+	if u, err := url.Parse(node.Endpoint); err == nil {
+		inURL = u.Query()
+	}
+	var missing []string
+	for _, p := range node.DiscoveredParams {
+		if !p.Required {
+			continue
+		}
+		if strings.TrimSpace(node.ParamDefaults[p.Name]) != "" || inURL.Get(p.Name) != "" {
+			continue
+		}
+		found := false
+		for _, c := range node.CustomParams {
+			if c.Name == p.Name && c.Value != "" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missing = append(missing, p.Name)
+		}
+	}
+	return missing
 }
 
 func buildTargetRequest(node models.WorkflowNode, method string) (models.WorkflowNode, []byte, string, error) {
@@ -505,43 +522,10 @@ func ExecuteTool402(ctx context.Context, node models.WorkflowNode, rc RunContext
 	quote := parsePaymentHeader(resp) // reads body internally
 	resp.Body.Close()
 
-	if wallet.EncryptedMnemonic == "" || signer == nil {
-		return map[string]any{"error": "payment required but no agent wallet configured", "quote": quote}, nil
-	}
-
-	priceStr, _ := quote["price"].(string)
-	recipient, _ := quote["recipient"].(string)
-	if recipient == "" {
-		return nil, fmt.Errorf("x402: no recipient address in payment header")
-	}
-	priceFloat, err := strconv.ParseFloat(priceStr, 64)
-	if err != nil || priceFloat <= 0 {
-		return nil, fmt.Errorf("x402: invalid price %q", priceStr)
-	}
-	microAlgo := uint64(priceFloat * 1e6)
-
-	txID, err := signer.SignAndSendPayment(ctx, wallet.EncryptedMnemonic, recipient, microAlgo)
-	if err != nil {
-		return nil, fmt.Errorf("x402 payment failed: %w", err)
-	}
-
-	algoAmount := fmt.Sprintf("%.6f", float64(microAlgo)/1e6)
-	explorerURL := "https://lora.algokit.io/testnet/transaction/" + txID
-
-	// Retry the original request with the payment proof header.
-	req2, _ := http.NewRequestWithContext(ctx, http.MethodGet, node.Endpoint, nil)
-	req2.Header.Set("X-Payment-Txid", txID)
-	resp2, err := toolHTTPClient.Do(req2)
-	if err != nil {
-		return map[string]any{"status": "payment_sent", "txId": txID, "amount": algoAmount, "explorerURL": explorerURL, "error": "retry request failed: " + err.Error()}, nil
-	}
-	defer resp2.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(resp2.Body, httpResponseLimit))
-	var retryResult any
-	if json.Unmarshal(b, &retryResult) == nil {
-		return map[string]any{"status": "payment_sent", "txId": txID, "amount": algoAmount, "explorerURL": explorerURL, "response": retryResult}, nil
-	}
-	return map[string]any{"status": "payment_sent", "txId": txID, "amount": algoAmount, "explorerURL": explorerURL, "response": string(b)}, nil
+	// A legacy (pre-v2) challenge asks for a direct on-chain transfer we
+	// would have to broadcast ourselves. On Whitechain every payment is an
+	// EIP-3009 authorization settled by a facilitator, which needs x402 v2.
+	return map[string]any{"error": "this endpoint uses a legacy x402 challenge; AgentMesh pays x402 v2 (exact, " + chain.Network + ", " + chain.TokenSymbol + ") only", "quote": quote}, nil
 }
 
 func parsePaymentHeader(resp *http.Response) map[string]any {
@@ -572,7 +556,7 @@ func parsePaymentHeader(resp *http.Response) map[string]any {
 	return map[string]any{"raw": header}
 }
 
-// USDCGroupSigner signs a gasless USDC atomic-payment group for the relay's
+// PaymentSigner signs a gasless USDC atomic-payment group for the relay's
 // X-Payment header. Satisfied by *wallet.Service (SignUSDCPaymentGroup).
 //
 // SignUSDCPaymentSingle is the other half: a plain, self-fee-paying,
@@ -581,9 +565,8 @@ func parsePaymentHeader(resp *http.Response) map[string]any {
 // facilitator can cosign a fee-pooled stub for. Both methods live on the
 // same interface since exactly one concrete type (*wallet.Service) signs
 // for both legs today.
-type USDCGroupSigner interface {
-	SignUSDCPaymentGroup(ctx context.Context, encMnemonic, payTo string, assetID, amountMicros uint64, feePayerAddr string) ([]string, int, error)
-	SignUSDCPaymentSingle(ctx context.Context, encMnemonic, payTo string, assetID, amountMicros uint64) ([]string, int, error)
+type PaymentSigner interface {
+	SignTransferAuthorization(ctx context.Context, encKey string, r wallet.AuthorizationRequest) (x402.ExactEVMPayload, error)
 }
 
 // X402RelayConfig bundles what an agent-attached tool402 call needs to route
@@ -591,10 +574,10 @@ type USDCGroupSigner interface {
 // tool402 node already does via ExecuteTool402V2. Threaded from Runner
 // through ExecuteAgent -> callOpenAICompat/callGemini -> executeFunctionCall.
 type X402RelayConfig struct {
-	USDCSigner               USDCGroupSigner
-	PlatformSpendEncMnemonic string
-	ExpectedAssetID          uint64
-	RelayBaseURL             string
+	Signer              PaymentSigner
+	PlatformSpendEncKey string
+	ExpectedAsset       string
+	RelayBaseURL        string
 	// Facilitator/PlatformWalletAddress/RelayNetwork/RelayFeePayer/FrontendURL
 	// are only used by executeTool402V2Relay's SettlePlatformFee call, right
 	// after the vendor-cost leg settles -- see that call site's comment. A
@@ -604,7 +587,6 @@ type X402RelayConfig struct {
 	Facilitator           *x402.FacilitatorClient
 	PlatformWalletAddress string
 	RelayNetwork          string
-	RelayFeePayer         string
 	FrontendURL           string
 	// Ledger reserves/commits/releases credits for executeTool402RunLevel
 	// only -- the in-memory run-level pool, sized to `estimate` (never
@@ -847,7 +829,6 @@ type x402Quote struct {
 	// transaction -- so this must never default to our own relay's feePayer
 	// constant; presence/absence of this exact field on the target's OWN
 	// quote is what selects the signing scheme (see PayTargetFromWallet2).
-	FeePayer string
 	// RawAccept and RawChallenge are the exact accepts[0] entry and the
 	// exact full challenge object the target returned, kept verbatim (not
 	// reconstructed) -- see TargetQuote's matching fields for why.
@@ -936,10 +917,6 @@ func probeTool402Endpoint(ctx context.Context, endpoint, method string, body []b
 	accept := v2Challenge.Accepts[0]
 	payTo, _ := accept["payTo"].(string)
 	asset, _ := accept["asset"].(string)
-	var feePayer string
-	if extra, ok := accept["extra"].(map[string]any); ok {
-		feePayer, _ = extra["feePayer"].(string)
-	}
 	// `amount` is the field name the CURRENT real-world dialect uses (Prism's
 	// live endpoint, the official @x402/core v2.20 SDK, confirmed live
 	// 2026-07-31) — `maxAmountRequired` is checked first only because it's
@@ -963,7 +940,7 @@ func probeTool402Endpoint(ctx context.Context, endpoint, method string, body []b
 	if !ok || amount <= 0 {
 		return true, false, nil, x402Quote{}, fmt.Errorf("x402: invalid or missing amount/maxAmountRequired in v2 challenge (maxAmountRequired=%v amount=%v)", accept["maxAmountRequired"], accept["amount"])
 	}
-	return true, false, nil, x402Quote{PayTo: payTo, Asset: asset, MaxAmountRequired: amount, FeePayer: feePayer, RawAccept: accept, RawChallenge: rawChallenge}, nil
+	return true, false, nil, x402Quote{PayTo: payTo, Asset: asset, MaxAmountRequired: amount, RawAccept: accept, RawChallenge: rawChallenge}, nil
 }
 
 // ParseMaxAmountRequiredAsMicros parses a real x402 v2 challenge's
@@ -1026,7 +1003,6 @@ type TargetQuote struct {
 	// FeePayer mirrors x402Quote.FeePayer -- see that field's doc comment
 	// for why its presence/absence (not a blanket default) selects which
 	// signing scheme PayTargetFromWallet2 uses.
-	FeePayer string
 	// RawAccept is the target's own accepts[0] entry, verbatim, and
 	// RawChallenge is its full challenge object, verbatim -- some targets
 	// (confirmed live 2026-08-01: canix402-api.compx.io) require their own
@@ -1043,12 +1019,20 @@ type TargetQuote struct {
 // pay it via PayTargetFromWallet2 (Task 3). Same empty-body reasoning as
 // ProbeX402Price.
 func ProbeX402Quote(ctx context.Context, endpoint, method string) (isV2 bool, quote TargetQuote, err error) {
-	isV2, _, _, q, err := probeTool402Endpoint(ctx, endpoint, method, nil, "")
+	return ProbeX402QuoteWithBody(ctx, endpoint, method, nil, "")
+}
+
+// ProbeX402QuoteWithBody is ProbeX402Quote with the request body the paid
+// retry will send. Some merchants price the challenge from that body
+// (confirmed live: tinyx402 /api/v1/datasets quotes 0.02 USDT for
+// target_rows=1 and 0.20 USDT for an empty body). A bodyless probe against
+// those routes signs the wrong amount.
+func ProbeX402QuoteWithBody(ctx context.Context, endpoint, method string, body []byte, contentType string) (isV2 bool, quote TargetQuote, err error) {
+	isV2, _, _, q, err := probeTool402Endpoint(ctx, endpoint, method, body, contentType)
 	return isV2, TargetQuote{
 		PayTo:             q.PayTo,
 		Asset:             q.Asset,
 		MaxAmountRequired: strconv.FormatInt(q.MaxAmountRequired, 10),
-		FeePayer:          q.FeePayer,
 		RawAccept:         q.RawAccept,
 		RawChallenge:      q.RawChallenge,
 	}, err
@@ -1074,6 +1058,12 @@ func ExecuteTool402V2(ctx context.Context, node models.WorkflowNode, rc RunConte
 	// before the endpoint is probed or paid: a target that requires a param
 	// rejects the PAID retry with a validation error otherwise, having
 	// already taken the money.
+	node = resolveParamTemplates(node, rc)
+	if missing := missingRequiredParams(node); len(missing) > 0 {
+		// Refuse before the probe and before any reservation or signature:
+		// the endpoint would reject the call after we paid for it.
+		return Tool402PaymentResult{}, fmt.Errorf("x402: %s is required by this endpoint but has no value -- attach this tool to an agent so it fills the params, or set them on the node ({{ result }} takes the previous step's output); nothing was paid", strings.Join(missing, ", "))
+	}
 	node, paramBody, paramContentType, err := buildTargetRequest(node, method)
 	if err != nil {
 		// Before any probe or payment: a body we cannot build is a
@@ -1138,7 +1128,6 @@ func ExecuteTool402V2(ctx context.Context, node models.WorkflowNode, rc RunConte
 				PayTo:             quote.PayTo,
 				Asset:             quote.Asset,
 				MaxAmountRequired: strconv.FormatInt(quote.MaxAmountRequired, 10),
-				FeePayer:          quote.FeePayer,
 				RawAccept:         quote.RawAccept,
 				RawChallenge:      quote.RawChallenge,
 			}
@@ -1296,11 +1285,11 @@ func newRelayRequest(ctx context.Context, relayURL, targetMethod string, targetB
 // downstream target, never for talking to the relay" split PayTargetFromWallet2
 // and probeTool402Endpoint already follow).
 func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X402RelayConfig, ledger PaymentLedger, targetMethod string, targetBody []byte, targetContentType, targetAuth string) (Tool402PaymentResult, error) {
-	usdcSigner := cfg.USDCSigner
-	platformSpendEncMnemonic := cfg.PlatformSpendEncMnemonic
-	expectedAssetID := cfg.ExpectedAssetID
+	usdcSigner := cfg.Signer
+	platformSpendEncKey := cfg.PlatformSpendEncKey
+	expectedAsset := cfg.ExpectedAsset
 	relayBaseURL := cfg.RelayBaseURL
-	if platformSpendEncMnemonic == "" || usdcSigner == nil {
+	if platformSpendEncKey == "" || usdcSigner == nil {
 		return Tool402PaymentResult{Response: map[string]any{"error": "payment required but no platform spend wallet configured"}}, nil
 	}
 
@@ -1364,16 +1353,17 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 		amountStr, _ = accept["maxAmountRequired"].(string)
 	}
 	network, _ := accept["network"].(string)
-	var feePayer string
-	if extra, ok := accept["extra"].(map[string]any); ok {
-		feePayer, _ = extra["feePayer"].(string)
+	extra, _ := accept["extra"].(map[string]any)
+	// A challenge that omits network is read as ours; one naming a
+	// different network is refused before anything is signed.
+	if network == "" {
+		network = chain.Network
 	}
-	assetID, err := strconv.ParseUint(assetStr, 10, 64)
-	if err != nil {
-		return Tool402PaymentResult{}, fmt.Errorf("x402 relay: invalid asset id %q", assetStr)
+	if network != chain.Network {
+		return Tool402PaymentResult{}, fmt.Errorf("x402 relay: unsupported network %q, want %s", network, chain.Network)
 	}
-	if assetID != expectedAssetID {
-		return Tool402PaymentResult{}, fmt.Errorf("x402 relay: unexpected asset id %d, want %d", assetID, expectedAssetID)
+	if !chain.SameAddress(assetStr, expectedAsset) {
+		return Tool402PaymentResult{}, fmt.Errorf("x402 relay: unexpected asset %q, want %s", assetStr, expectedAsset)
 	}
 	amount, err := strconv.ParseUint(amountStr, 10, 64)
 	if err != nil || amount == 0 || amount > uint64(models.MaxSingleX402QuoteUSDMicros) {
@@ -1427,14 +1417,17 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 		}
 	}
 
-	group, idx, err := usdcSigner.SignUSDCPaymentGroup(ctx, platformSpendEncMnemonic, payTo, assetID, amount, feePayer)
+	signed, err := usdcSigner.SignTransferAuthorization(ctx, platformSpendEncKey, wallet.AuthorizationRequest{
+		Asset: assetStr, PayTo: payTo, Amount: amount, Extra: extra, ValidFor: acceptValidFor(accept),
+	})
 	if err != nil {
 		releaseReservation()
 		return Tool402PaymentResult{}, fmt.Errorf("x402 relay payment signing failed: %w", err)
 	}
 	xPaymentFields := map[string]any{
 		"x402Version": 2, "scheme": "exact", "network": network,
-		"payload": map[string]any{"paymentGroup": group, "paymentIndex": idx},
+		"payload":  signed,
+		"accepted": accept,
 	}
 	if relayChallenge.Resource != nil {
 		xPaymentFields["resource"] = relayChallenge.Resource
@@ -1524,14 +1517,13 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 		if cfg.Facilitator != nil && perCallFee > 0 {
 			fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), SelfSettleRetryBudget)
 			feeTxID, feeErr := SettlePlatformFee(fctx, RunPreFundConfig{
-				USDCSigner:               usdcSigner,
-				PlatformSpendEncMnemonic: platformSpendEncMnemonic,
-				Facilitator:              cfg.Facilitator,
-				PlatformWalletAddress:    cfg.PlatformWalletAddress,
-				RelayNetwork:             cfg.RelayNetwork,
-				RelayFeePayer:            cfg.RelayFeePayer,
-				ExpectedAssetID:          expectedAssetID,
-				FrontendURL:              cfg.FrontendURL,
+				Signer:                usdcSigner,
+				PlatformSpendEncKey:   platformSpendEncKey,
+				Facilitator:           cfg.Facilitator,
+				PlatformWalletAddress: cfg.PlatformWalletAddress,
+				RelayNetwork:          cfg.RelayNetwork,
+				ExpectedAsset:         expectedAsset,
+				FrontendURL:           cfg.FrontendURL,
 			}, perCallFee)
 			cancel()
 			if feeErr != nil {
@@ -1541,7 +1533,7 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 				go alert.Notify(context.Background(), alert.ChannelPayments, msg)
 			} else {
 				out.PlatformFeeTxID = feeTxID
-				out.PlatformFeeExplorerURL = ExplorerURLForAsset(expectedAssetID, feeTxID)
+				out.PlatformFeeExplorerURL = ExplorerURLForAsset(expectedAsset, feeTxID)
 				if m, ok := out.Response.(map[string]any); ok {
 					m["platformFeeTxId"] = feeTxID
 					m["platformFeeExplorerURL"] = out.PlatformFeeExplorerURL
@@ -1565,7 +1557,7 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 				node.Endpoint, payResp.Header, isObject)
 		} else {
 			out.TxID = txID
-			out.ExplorerURL = ExplorerURLForAsset(expectedAssetID, txID)
+			out.ExplorerURL = ExplorerURLForAsset(expectedAsset, txID)
 			if m, ok := out.Response.(map[string]any); ok {
 				m["txId"] = txID
 				m["amount"] = formatUSDCAmount(int64(amount))
@@ -1580,7 +1572,7 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 		// the payment worked regardless), so this is additive/best-effort.
 		if outboundTxID := payResp.Header.Get("X-Outbound-Settlement-TxId"); outboundTxID != "" {
 			out.OutboundTxID = outboundTxID
-			out.OutboundExplorerURL = ExplorerURLForAsset(expectedAssetID, outboundTxID)
+			out.OutboundExplorerURL = ExplorerURLForAsset(expectedAsset, outboundTxID)
 			if m, ok := out.Response.(map[string]any); ok {
 				m["outboundTxId"] = outboundTxID
 				m["outboundExplorerURL"] = out.OutboundExplorerURL
@@ -1610,20 +1602,25 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 	return out, nil
 }
 
-// ExplorerURLForAsset picks the Lora explorer network segment from the
-// USDC asset id the relay was configured to expect -- the same
-// testnet/mainnet asset id split main.go already uses to choose
-// usdcAssetID and relayNetwork together, so the two stay consistent without
-// threading a separate network string through this call chain.
-func ExplorerURLForAsset(assetID uint64, txID string) string {
-	network := "testnet"
-	if assetID == mainnetUSDCAssetID {
-		network = "mainnet"
-	}
-	return "https://lora.algokit.io/" + network + "/transaction/" + txID
-}
+// ExplorerURLForAsset links a settlement hash on the Whitechain explorer.
+// The asset is accepted for call-site symmetry; there is one chain.
+func ExplorerURLForAsset(_ string, txID string) string { return chain.TxURL(txID) }
 
-const mainnetUSDCAssetID = 31566704
+// acceptValidFor turns an accepts entry's maxTimeoutSeconds into the
+// authorization's validity window, defaulting to 5 minutes.
+func acceptValidFor(accept map[string]any) time.Duration {
+	switch n := accept["maxTimeoutSeconds"].(type) {
+	case float64:
+		if n > 0 && n <= 3600 {
+			return time.Duration(n) * time.Second
+		}
+	case int:
+		if n > 0 && n <= 3600 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 5 * time.Minute
+}
 
 // executeTool402RunLevel pays a real target directly from Wallet 2,
 // in-process — no HTTP round trip to our own public relay, no fresh
@@ -1788,7 +1785,7 @@ func executeTool402RunLevel(ctx context.Context, node models.WorkflowNode, cfg X
 	// that key on tx id (frontend lib/settlements.ts) must de-duplicate.
 	out.TxID = cfg.RunFundingTxID
 	if out.TxID != "" {
-		out.ExplorerURL = ExplorerURLForAsset(cfg.ExpectedAssetID, out.TxID)
+		out.ExplorerURL = ExplorerURLForAsset(cfg.ExpectedAsset, out.TxID)
 	}
 	// The outbound leg's own settlement id (Wallet 2 -> target), when the
 	// target returned one -- see the matching merge in
@@ -1796,7 +1793,7 @@ func executeTool402RunLevel(ctx context.Context, node models.WorkflowNode, cfg X
 	// output rather than only the DB audit trail.
 	if result.OutboundTxID != "" {
 		out.OutboundTxID = result.OutboundTxID
-		out.OutboundExplorerURL = ExplorerURLForAsset(cfg.ExpectedAssetID, result.OutboundTxID)
+		out.OutboundExplorerURL = ExplorerURLForAsset(cfg.ExpectedAsset, result.OutboundTxID)
 	}
 	// Merged into the response body too (best-effort, only possible when
 	// the target answered with a JSON object) so a STANDALONE tool402 node,

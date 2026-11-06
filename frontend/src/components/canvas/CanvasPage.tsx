@@ -1,8 +1,7 @@
 "use client";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { WorkflowNode, Workflow, CostEstimate } from "@/lib/types";
-import { decodePendingNode } from "@/lib/bazaar";
 import {
   Toast,
   Logo,
@@ -405,7 +404,7 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
       const targetRunId = runId ?? deadLetterRunId;
       if (!targetRunId) {
         showToast(
-          "Nothing to resume — start the workflow again to retry it.",
+          "Nothing to resume: start the workflow again to retry it.",
           "warn",
         );
         return;
@@ -770,60 +769,6 @@ export function CanvasPage({ workflowId }: CanvasPageProps) {
     },
     [],
   );
-
-  // A node handed over from the Bazaar page (/workflows/{id}?add=…). The
-  // canvas otherwise only gains nodes by drag-and-drop, which cannot cross a
-  // page boundary — see encodePendingNode in lib/bazaar.ts.
-  const searchParams = useSearchParams();
-  const pendingAdd = searchParams.get("add");
-  // Tracks the specific `add` value already consumed, not just whether any
-  // add has ever happened -- CanvasPage doesn't remount between two Bazaar
-  // visits to the SAME workflow, so a plain boolean latch would silently
-  // drop every add after the first for that workflow's whole session.
-  // router.replace below clears the URL param immediately after consuming
-  // it, so pendingAdd returns to null before a genuinely new value can
-  // arrive -- this only needs to survive React's own re-render/Strict Mode
-  // double-invoke for the SAME value, not distinguish a history of values.
-  const consumedAdd = useRef<string | null>(null);
-  useEffect(() => {
-    if (!pendingAdd || consumedAdd.current === pendingAdd || !workflow) return;
-    const meta = decodePendingNode(pendingAdd);
-    // Consume the param either way: a malformed value must not re-trigger on
-    // every render, and must not survive a refresh as a phantom pending node.
-    consumedAdd.current = pendingAdd;
-    router.replace(workflowHref(workflow.id));
-    // A client that cannot edit the graph drops the handoff as well. The
-    // Bazaar hides Add there, so this covers a link opened directly.
-    if (!meta || !canEdit) return;
-    // Drop it slightly off-centre so it never lands exactly on an existing
-    // node when several are added in a row. Wraps every 8 nodes instead of
-    // growing with workflow.nodes.length forever -- otherwise a workflow
-    // that already has many nodes places the next Bazaar add far outside
-    // the visible viewport with no pan-to-node to bring it back into view.
-    const offset = (workflow.nodes.length % 8) * 24;
-    const node = {
-      ...meta,
-      id: `n_${Date.now()}`,
-      x: 220 + offset,
-      y: 180 + offset,
-    } as WorkflowNode;
-    // Reuse the same skip-once mechanism the initial load uses: a Bazaar
-    // visit should never silently mutate a workflow the user didn't
-    // explicitly choose to save, but this auto-add DOES change `workflow`
-    // state, which the auto-save effect below would otherwise persist on its
-    // very next debounce cycle (~1.5s) — including onto an already-deployed
-    // workflow. Setting skipNextAutosave here makes the auto-save effect treat this
-    // change exactly like the initial load: skip once. The user's next
-    // INTENTIONAL edit (drag, wire, field change) triggers a real save
-    // normally.
-    skipNextAutosave.current = true;
-    // This is a one-shot sync from an external source (the URL) into React
-    // state, gated by consumedAdd so it can only fire once per mount — not
-    // the derived-state-cascade pattern this rule exists to catch.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setWorkflow((wf) => (wf ? { ...wf, nodes: [...wf.nodes, node] } : wf));
-    showToast(`Added ${meta.name ?? "endpoint"} to the canvas`);
-  }, [pendingAdd, workflow, canEdit, router, setWorkflow, showToast]);
 
   // Wrapper typed as non-null so child components don't need to change.
   // Safe because children only render after the null guard above.

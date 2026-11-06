@@ -6,19 +6,20 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
 
 	"github.com/agentmesh/backend/internal/api"
 	"github.com/agentmesh/backend/internal/api/handlers"
+	"github.com/agentmesh/backend/internal/chain"
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine"
 	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/payments"
 	"github.com/agentmesh/backend/internal/scheduler"
 	"github.com/agentmesh/backend/internal/sse"
-	"github.com/agentmesh/backend/internal/tendril"
 	"github.com/agentmesh/backend/internal/wallet"
 	"github.com/agentmesh/backend/internal/x402"
 )
@@ -53,44 +54,42 @@ func main() {
 
 	broker := sse.NewBroker()
 
-	walletSvc := wallet.NewService(
-		mustEnv("ENCRYPTION_KEY"),
-		envOr("ALGOD_URL", "https://testnet-api.algonode.cloud"),
-		os.Getenv("ALGOD_TOKEN"),
-		envOr("ALGORAND_NETWORK", "testnet"),
-	)
-
-	platformWalletAddr := os.Getenv("PLATFORM_WALLET_ADDRESS")
-	platformWalletEncMnemonic := os.Getenv("PLATFORM_WALLET_ENC_MNEMONIC")
-	if platformWalletAddr == "" || platformWalletEncMnemonic == "" {
-		log.Fatal("PLATFORM_WALLET_ADDRESS and PLATFORM_WALLET_ENC_MNEMONIC must both be set — the platform wallet's payTo address must stay fixed for the whole competition, so it is provisioned once out-of-band, never auto-generated at startup")
+	walletSvc := wallet.NewService(mustEnv("ENCRYPTION_KEY"), envOr("WHITECHAIN_RPC_URL", chain.DefaultRPCURL))
+	networkCtx, cancelNetworkCheck := context.WithTimeout(ctx, 10*time.Second)
+	networkErr := walletSvc.ValidateNetwork(networkCtx)
+	cancelNetworkCheck()
+	if networkErr != nil {
+		log.Fatalf("testnet-only payments: %v", networkErr)
 	}
-	if derivedAddr, err := walletSvc.AddressForEncMnemonic(platformWalletEncMnemonic); err != nil {
-		log.Fatalf("PLATFORM_WALLET_ENC_MNEMONIC does not decrypt/derive a valid Algorand address: %v", err)
-	} else if derivedAddr != platformWalletAddr {
-		log.Fatalf("PLATFORM_WALLET_ADDRESS (%s) does not match the address derived from PLATFORM_WALLET_ENC_MNEMONIC (%s) — this wallet's address is published as payTo in every x402 challenge while its mnemonic signs the outbound relay leg, so a mismatch means inbound payments accumulate in one account while a different account signs outbound payments", platformWalletAddr, derivedAddr)
+	if explorerURL := strings.TrimRight(os.Getenv("WHITECHAIN_EXPLORER_URL"), "/"); explorerURL != "" && explorerURL != chain.DefaultExplorerURL {
+		log.Fatalf("WHITECHAIN_EXPLORER_URL must be %s on this testnet-only branch", chain.DefaultExplorerURL)
 	}
 
-	platformSpendWalletAddr := os.Getenv("PLATFORM_SPEND_WALLET_ADDRESS")
-	platformSpendWalletEncMnemonic := os.Getenv("PLATFORM_SPEND_WALLET_ENC_MNEMONIC")
-	if platformSpendWalletAddr == "" || platformSpendWalletEncMnemonic == "" {
-		log.Fatal("PLATFORM_SPEND_WALLET_ADDRESS and PLATFORM_SPEND_WALLET_ENC_MNEMONIC must both be set — Wallet 1 pays every relayed x402 call on behalf of users' credit balances, so it is provisioned once out-of-band via cmd/walletgen, never auto-generated at startup")
-	}
-	if derivedAddr, err := walletSvc.AddressForEncMnemonic(platformSpendWalletEncMnemonic); err != nil {
-		log.Fatalf("PLATFORM_SPEND_WALLET_ENC_MNEMONIC does not decrypt/derive a valid Algorand address: %v", err)
-	} else if derivedAddr != platformSpendWalletAddr {
-		log.Fatalf("PLATFORM_SPEND_WALLET_ADDRESS (%s) does not match the address derived from PLATFORM_SPEND_WALLET_ENC_MNEMONIC (%s) — these must be the same wallet", platformSpendWalletAddr, derivedAddr)
-	}
+	// Wallet 2: payTo on every 402 we issue, and the account that pays
+	// outbound x402 tools. Wallet 1: pays each run's pre-fund and the
+	// platform fee into Wallet 2. Both are Whitechain (EVM) keys provisioned
+	// once with cmd/walletgen and stored ENCRYPTION_KEY-encrypted.
+	platformWalletAddr, platformWalletEncKey := mustPlatformWallet(walletSvc, "PLATFORM_WALLET_ADDRESS", "PLATFORM_WALLET_ENC_KEY")
+	platformSpendWalletAddr, platformSpendWalletEncKey := mustPlatformWallet(walletSvc, "PLATFORM_SPEND_WALLET_ADDRESS", "PLATFORM_SPEND_WALLET_ENC_KEY")
+	log.Printf("x402 on %s (%s): asset %s %s; Wallet 1 %s, Wallet 2 %s", chain.Name, chain.Network, chain.TokenSymbol, chain.USDTAddress, platformSpendWalletAddr, platformWalletAddr)
 
-	usdcAssetID := uint64(10458941)                                         // testnet default
-	relayNetwork := "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=" // testnet default
-	relayFeePayer := "ZMFK2OI7ZBD2U27ISERZC4S6LKM6WMFJPZQ4MYNJDZ2VNBNMBA67RA22AA"
-	if envOr("ALGORAND_NETWORK", "testnet") == "mainnet" {
-		usdcAssetID = 31566704
-		relayNetwork = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="
-	}
+	usdcAsset := chain.USDTAddress
+	relayNetwork := chain.Network
 
-	facilitatorClient := x402.NewFacilitatorClient(envOr("FACILITATOR_URL", "https://facilitator.goplausible.xyz"))
+	facilitatorClient := x402.NewFacilitatorClient(envOr("FACILITATOR_URL", chain.DefaultFacilitatorURL))
+	go func() {
+		sctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		sup, err := facilitatorClient.Supported(sctx)
+		switch {
+		case err != nil:
+			log.Printf("x402 facilitator /supported unreachable: %v", err)
+		case !sup.Supports("exact", chain.Network):
+			log.Printf("WARNING: x402 facilitator does not advertise exact on %s: %+v", chain.Network, sup.Kinds)
+		default:
+			log.Printf("x402 facilitator supports exact on %s", chain.Network)
+		}
+	}()
 
 	cashfreeClient := payments.NewCashfreeClient(mustEnv("CASHFREE_APP_ID"), mustEnv("CASHFREE_SECRET_KEY"))
 	if envOr("CASHFREE_SANDBOX", "false") == "true" {
@@ -125,13 +124,12 @@ func main() {
 	relayBaseURL := envOr("RELAY_BASE_URL", envOr("BASE_URL", "http://localhost:8080"))
 	log.Printf("x402 relay base URL: %s", relayBaseURL)
 
-	runner := engine.NewRunner(store, broker, walletSvc, relayBaseURL, platformSpendWalletEncMnemonic, mustEnv("ENCRYPTION_KEY"), engine.X402Config{
-		PlatformWalletEncMnemonic: platformWalletEncMnemonic,
-		USDCAssetID:               usdcAssetID,
+	runner := engine.NewRunner(store, broker, walletSvc, relayBaseURL, platformSpendWalletEncKey, mustEnv("ENCRYPTION_KEY"), engine.X402Config{
+		PlatformWalletEncKey:      platformWalletEncKey,
+		USDCAsset:                 usdcAsset,
 		FacilitatorClient:         facilitatorClient,
 		PlatformWalletAddress:     platformWalletAddr,
 		RelayNetwork:              relayNetwork,
-		RelayFeePayer:             relayFeePayer,
 		MaxRelayOutboundUSDMicros: maxRelayOutboundUSDMicros,
 		FrontendURL:               envOr("FRONTEND_URL", "http://localhost:3000"),
 	})
@@ -145,14 +143,7 @@ func main() {
 	// Both optional; see backend/.env.example. Blank WEB_SEARCH_MODEL keeps
 	// grounded search on gemini-2.5-flash.
 	nodes.SetWebSearchModel(os.Getenv("WEB_SEARCH_MODEL"))
-	// The same ALGOD_URL the wallet uses, so a deployment cannot end up
-	// reading one chain and paying on another. The indexer is a separate
-	// service with its own setting; left unset, its default follows
-	// ALGORAND_NETWORK so it names the same chain as everything else here.
-	nodes.SetAlgorandBases(
-		envOr("ALGOD_URL", "https://testnet-api.algonode.cloud"),
-		envOr("ALGORAND_INDEXER_URL", nodes.AlgorandIndexerDefault(envOr("ALGORAND_NETWORK", "testnet"))),
-	)
+	nodes.SetWhitechainExplorer(os.Getenv("WHITECHAIN_EXPLORER_URL"))
 	// Blank BUILDER_THINKING_BUDGET sends no thinking config, leaving builder
 	// thinking as it is today. Unlike envInt64Or, a value that does not parse
 	// stops startup: a typo that only logged a warning would leave the cap off
@@ -183,25 +174,7 @@ func main() {
 	// error if unset, same pattern as SetTendril.
 	runner.SetGoogleOAuth(os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET"))
 
-	var tendrilClient *tendril.Client
-	var tendrilSession *tendril.Session
-	if registryURL := envOr("TENDRIL_REGISTRY_URL", "https://tendrilregister.007575.xyz"); registryURL != "" {
-		tendrilClient = tendril.NewClient(registryURL)
-		// Wallet 2 is what pays Tendril through the relay, so Wallet 2's
-		// address is the one Tendril keys the shared credit pool to — sign the
-		// session with its mnemonic, not Wallet 1's.
-		sess, err := tendrilClient.Session(ctx, walletSvc, platformWalletEncMnemonic)
-		if err != nil {
-			log.Printf("tendril: registry session unavailable (%v) — tendril nodes will fail closed", err)
-		} else {
-			tendrilSession = sess
-			runner.SetTendril(tendrilClient, sess)
-			log.Printf("tendril: registry %s, pool wallet %s", registryURL, platformWalletAddr)
-		}
-	}
-
 	go expireStalePendingTransactionsLoop(ctx, store)
-	runner.StartLeaseReaper(ctx, nodes.ReaperInterval)
 	go scheduler.New(store, runner, broker, mustEnv("ENCRYPTION_KEY")).Run(ctx)
 
 	deps := &handlers.Deps{
@@ -220,26 +193,23 @@ func main() {
 		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 
-		// Empty falls back to GoPlausible's facilitator (see
-		// defaultBazaarBaseURL) — set only to point at a mirror or a fake.
+		// Empty falls back to the Whitechain facilitator's discovery
+		// catalog (see defaultBazaarBaseURL).
 		BazaarBaseURL: os.Getenv("BAZAAR_BASE_URL"),
 
 		Cashfree:      cashfreeClient,
 		CashfreeAppID: cashfreeClient.AppID,
 		NOWPayments:   nowPaymentsClient,
 
-		PlatformWalletAddress:          platformWalletAddr,
-		PlatformWalletEncMnemonic:      platformWalletEncMnemonic,
-		PlatformSpendWalletEncMnemonic: platformSpendWalletEncMnemonic,
-		PlatformGeminiAPIKey:           os.Getenv("PLATFORM_GEMINI_API_KEY"),
-		FacilitatorClient:              facilitatorClient,
-		USDCAssetID:                    usdcAssetID,
-		RelayNetwork:                   relayNetwork,
-		RelayFeePayer:                  relayFeePayer,
-		USDCSigner:                     walletSvc,
-		MaxRelayOutboundUSDMicros:      maxRelayOutboundUSDMicros,
-		TendrilClient:                  tendrilClient,
-		TendrilSession:                 tendrilSession,
+		PlatformWalletAddress:     platformWalletAddr,
+		PlatformWalletEncKey:      platformWalletEncKey,
+		PlatformSpendWalletEncKey: platformSpendWalletEncKey,
+		PlatformGeminiAPIKey:      os.Getenv("PLATFORM_GEMINI_API_KEY"),
+		FacilitatorClient:         facilitatorClient,
+		USDCAsset:                 usdcAsset,
+		RelayNetwork:              relayNetwork,
+		Signer:                    walletSvc,
+		MaxRelayOutboundUSDMicros: maxRelayOutboundUSDMicros,
 
 		SlackOAuthClientID:          os.Getenv("SLACK_OAUTH_CLIENT_ID"),
 		SlackOAuthClientSecret:      os.Getenv("SLACK_OAUTH_CLIENT_SECRET"),
@@ -337,4 +307,23 @@ func expireStalePendingTransactionsLoop(ctx context.Context, store *db.Store) {
 			log.Printf("expired %d stale nowpayments transactions", n)
 		}
 	}
+}
+
+// mustPlatformWallet loads one platform wallet's address and encrypted key
+// and refuses to start unless the key derives exactly that address: the
+// address is published (payTo) while the key signs, so a mismatch would send
+// money to one account while a different one pays.
+func mustPlatformWallet(svc *wallet.Service, addrEnv, keyEnv string) (string, string) {
+	addr, encKey := os.Getenv(addrEnv), os.Getenv(keyEnv)
+	if addr == "" || encKey == "" {
+		log.Fatalf("%s and %s must both be set — platform wallets are provisioned once with cmd/walletgen, never generated at startup", addrEnv, keyEnv)
+	}
+	derived, err := svc.AddressForEncKey(encKey)
+	if err != nil {
+		log.Fatalf("%s does not decrypt to a valid Whitechain private key (wrong ENCRYPTION_KEY?): %v", keyEnv, err)
+	}
+	if !chain.SameAddress(derived, addr) {
+		log.Fatalf("%s (%s) does not match the address derived from %s (%s)", addrEnv, addr, keyEnv, derived)
+	}
+	return derived, encKey
 }

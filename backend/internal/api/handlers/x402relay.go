@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/agentmesh/backend/internal/chain"
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/respond"
@@ -226,13 +227,8 @@ func (d *Deps) relaySelfChallenge(w http.ResponseWriter, r *http.Request) {
 			"description":       relaySelfDescription,
 			"payTo":             d.PlatformWalletAddress,
 			"maxTimeoutSeconds": 300,
-			"asset":             strconv.FormatUint(d.USDCAssetID, 10),
-			"extra": map[string]any{
-				"asset":    strconv.FormatUint(d.USDCAssetID, 10),
-				"feePayer": d.RelayFeePayer,
-				"tag":      "x402-global-challenge",
-				"decimals": 6,
-			},
+			"asset":             d.USDCAsset,
+			"extra":             chain.Extra(),
 		}},
 		"extensions": bazaarDiscoveryExtension(""),
 	}
@@ -274,7 +270,7 @@ func (d *Deps) relaySelfSettle(w http.ResponseWriter, r *http.Request, xPaymentH
 		Scheme:            "exact",
 		Network:           d.RelayNetwork,
 		PayTo:             d.PlatformWalletAddress,
-		Asset:             strconv.FormatUint(d.USDCAssetID, 10),
+		Asset:             d.USDCAsset,
 		MaxAmountRequired: relaySelfServiceUSDMicros,
 		Resource:          selfResourceURL,
 		Description:       relaySelfDescription,
@@ -289,12 +285,7 @@ func (d *Deps) relaySelfSettle(w http.ResponseWriter, r *http.Request, xPaymentH
 		// settle mechanism itself never reads the field and happily moved
 		// real money regardless. 300 mirrors the challenge exactly.
 		MaxTimeoutSeconds: 300,
-		Extra: map[string]any{
-			"asset":    strconv.FormatUint(d.USDCAssetID, 10),
-			"feePayer": d.RelayFeePayer,
-			"tag":      "x402-global-challenge",
-			"decimals": 6,
-		},
+		Extra:             chain.Extra(),
 		// Both siblings (relaySettleAndForward, runfund.go) already set this
 		// on the struct POSTed to /verify and /settle; this path was the only
 		// one that declared a bazaar extension in its public challenge and
@@ -412,7 +403,6 @@ type targetPriceQuote struct {
 	// ours -- selects which signing scheme payTargetAndRespond uses (see
 	// nodes.PayTargetFromWallet2): a target with no declared feePayer wants
 	// a plain self-funded single transaction instead.
-	FeePayer string
 	// RawAccept and RawChallenge are the exact accepts[0] entry and the
 	// exact full challenge object the target returned, verbatim -- see
 	// nodes.TargetQuote's matching fields.
@@ -486,10 +476,6 @@ func fetchTargetPriceQuote(ctx context.Context, target, method string, body []by
 	accept := parsed.Accepts[0]
 	payTo, _ := accept["payTo"].(string)
 	asset, _ := accept["asset"].(string)
-	var feePayer string
-	if extra, ok := accept["extra"].(map[string]any); ok {
-		feePayer, _ = extra["feePayer"].(string)
-	}
 	// Accept both the usual JSON-string encoding and a JSON-number encoding
 	// of maxAmountRequired — some real targets encode this field as a
 	// number rather than a string, which a string-only type assertion would
@@ -510,7 +496,7 @@ func fetchTargetPriceQuote(ctx context.Context, target, method string, body []by
 	if ok {
 		amount = strconv.FormatInt(micros, 10)
 	}
-	return targetPriceQuote{PayTo: payTo, Asset: asset, MaxAmountRequired: amount, FeePayer: feePayer, RawAccept: accept, RawChallenge: rawChallenge}, nil
+	return targetPriceQuote{PayTo: payTo, Asset: asset, MaxAmountRequired: amount, RawAccept: accept, RawChallenge: rawChallenge}, nil
 }
 
 // resourceInfo builds the v2 `resource` object per the official @x402/core
@@ -646,13 +632,8 @@ func (d *Deps) relayInboundChallenge(w http.ResponseWriter, r *http.Request, tar
 			"description":       description,
 			"payTo":             d.PlatformWalletAddress,
 			"maxTimeoutSeconds": 300,
-			"asset":             strconv.FormatUint(d.USDCAssetID, 10),
-			"extra": map[string]any{
-				"asset":    strconv.FormatUint(d.USDCAssetID, 10),
-				"feePayer": d.RelayFeePayer,
-				"tag":      "x402-global-challenge",
-				"decimals": 6,
-			},
+			"asset":             d.USDCAsset,
+			"extra":             chain.Extra(),
 		}},
 		// Bazaar discovery metadata: describes the relay's pass-through
 		// shape (any downstream target URL in, that target's own response
@@ -708,16 +689,16 @@ func (d *Deps) relaySettleAndForward(w http.ResponseWriter, r *http.Request, tar
 	// quote.Asset comes straight from the target's own (caller-supplied,
 	// unauthenticated) 402 response and is only ever used later, for the
 	// OUTBOUND leg to target — the inbound leg below always settles in
-	// d.USDCAssetID regardless of what the target claims. Checked here,
+	// d.USDCAsset regardless of what the target claims. Checked here,
 	// before ever verifying/settling the inbound payment, so a target that
 	// can never be paid (wrong/unsupported asset) is rejected before the
 	// caller's inbound payment is collected at all — settling inbound first
 	// and only discovering this in payTargetAndRespond would already have
 	// set X-Inbound-Settled, billing the caller in full for a call that was
 	// never going to reach the target.
-	if quoteAssetID, err := strconv.ParseUint(quote.Asset, 10, 64); err != nil || quoteAssetID != d.USDCAssetID {
-		log.Printf("x402 relay asset mismatch: quote.Asset=%q parseErr=%v quoteAssetID=%d want=%d", quote.Asset, err, quoteAssetID, d.USDCAssetID)
-		respond.Error(w, http.StatusBadGateway, "target quoted an unexpected asset id")
+	if !chain.SameAddress(quote.Asset, d.USDCAsset) {
+		log.Printf("x402 relay asset mismatch: quote.Asset=%q want=%s", quote.Asset, d.USDCAsset)
+		respond.Error(w, http.StatusBadGateway, "target quoted an unexpected asset")
 		return
 	}
 
@@ -726,7 +707,7 @@ func (d *Deps) relaySettleAndForward(w http.ResponseWriter, r *http.Request, tar
 		Scheme:            "exact",
 		Network:           d.RelayNetwork,
 		PayTo:             d.PlatformWalletAddress,
-		Asset:             strconv.FormatUint(d.USDCAssetID, 10),
+		Asset:             d.USDCAsset,
 		MaxAmountRequired: quote.MaxAmountRequired,
 		// d.BaseURL + real path, matching relayInboundChallenge's challenge
 		// above and every actually-cataloged mainnet resource (Amarok,
@@ -747,12 +728,7 @@ func (d *Deps) relaySettleAndForward(w http.ResponseWriter, r *http.Request, tar
 		// stub txn in the payment group and throws server-side (confirmed
 		// live 2026-07-31: "Cannot convert undefined to a BigInt") — see the
 		// identical, already-working Extra block in runfund.go's reqs.
-		Extra: map[string]any{
-			"asset":    strconv.FormatUint(d.USDCAssetID, 10),
-			"feePayer": d.RelayFeePayer,
-			"tag":      "x402-global-challenge",
-			"decimals": 6,
-		},
+		Extra: chain.Extra(),
 		// Same discovery declaration sent in the public 402 challenge above,
 		// now also on the struct actually POSTed to /verify and /settle —
 		// that's the leg the facilitator uses to register a catalog entry,
@@ -837,16 +813,16 @@ func (d *Deps) payTargetAndRespond(w http.ResponseWriter, r *http.Request, targe
 	ctx := r.Context()
 
 	cfg := nodes.Wallet2PayConfig{
-		USDCSigner:                d.USDCSigner,
-		PlatformWalletEncMnemonic: d.PlatformWalletEncMnemonic,
-		USDCAssetID:               d.USDCAssetID,
+		Signer:                    d.Signer,
+		PlatformWalletEncKey:      d.PlatformWalletEncKey,
+		USDCAsset:                 d.USDCAsset,
 		RelayNetwork:              d.RelayNetwork,
 		MaxRelayOutboundUSDMicros: d.MaxRelayOutboundUSDMicros,
 		ContentType:               targetContentType,
 		Authorization:             targetAuth,
 	}
 	result, err := nodes.PayTargetFromWallet2(ctx, cfg, target, targetMethod, targetBody, nodes.TargetQuote{
-		PayTo: quote.PayTo, Asset: quote.Asset, MaxAmountRequired: quote.MaxAmountRequired, FeePayer: quote.FeePayer,
+		PayTo: quote.PayTo, Asset: quote.Asset, MaxAmountRequired: quote.MaxAmountRequired,
 		RawAccept: quote.RawAccept, RawChallenge: quote.RawChallenge,
 	})
 

@@ -10,8 +10,10 @@ import (
 	"testing"
 )
 
-const mainnet = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="
-const testnet = "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI="
+// mainnet is the only kept network in these fixtures (the name is kept for
+// the fixtures' sake); every resource on it is flagged Testnet.
+const mainnet = WhitechainTestnet
+const testnet = WhitechainTestnet
 
 // upstreamItem builds one raw catalog entry the way GoPlausible returns it.
 func upstreamItem(id, url, network string) map[string]any {
@@ -24,13 +26,13 @@ func upstreamItem(id, url, network string) map[string]any {
 		"accepts": []any{map[string]any{
 			"network": network,
 			"amount":  "5000",
-			"asset":   "31566704",
+			"asset":   "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
 			"payTo":   "PAYTOADDR",
 		}},
 		"discoveryInfo": map[string]any{
 			"input": map[string]any{
 				"method":      "GET",
-				"queryParams": map[string]any{"symbol": "ALGO"},
+				"queryParams": map[string]any{"symbol": "WBT"},
 			},
 		},
 		"settleCount": 7,
@@ -54,11 +56,12 @@ func fakeUpstream(t *testing.T, items []map[string]any) *httptest.Server {
 	}))
 }
 
-func TestFetchAllKeepsOnlyPublicAlgorandResources(t *testing.T) {
+func TestFetchAllKeepsOnlyPublicWhitechainResources(t *testing.T) {
 	srv := fakeUpstream(t, []map[string]any{
 		upstreamItem("keep-main", "https://good.example/api", mainnet),
 		upstreamItem("keep-test", "https://also.example/api", testnet),
 		upstreamItem("drop-evm", "https://evm.example/api", "eip155:8453"),
+		upstreamItem("drop-algorand", "https://algo.example/api", "algorand:mainnet"),
 		upstreamItem("drop-local", "http://localhost:3000/api", mainnet),
 		upstreamItem("drop-private", "https://192.168.1.4/api", mainnet),
 		upstreamItem("drop-plain", "http://plain.example/api", mainnet),
@@ -82,9 +85,6 @@ func TestFetchAllKeepsOnlyPublicAlgorandResources(t *testing.T) {
 	if !byID["keep-test"].Testnet {
 		t.Error("testnet resource must be flagged Testnet=true")
 	}
-	if byID["keep-main"].Testnet {
-		t.Error("mainnet resource must have Testnet=false")
-	}
 }
 
 func TestFetchAllNormalisesFields(t *testing.T) {
@@ -101,7 +101,7 @@ func TestFetchAllNormalisesFields(t *testing.T) {
 	if r.AmountMicros != 5000 {
 		t.Errorf("AmountMicros = %d, want 5000", r.AmountMicros)
 	}
-	if r.PayTo != "PAYTOADDR" || r.Asset != "31566704" {
+	if r.PayTo != "PAYTOADDR" || r.Asset != "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7" {
 		t.Errorf("payTo/asset not carried through: %+v", r)
 	}
 	if len(r.Params) != 1 || r.Params[0].Name != "symbol" {
@@ -109,8 +109,8 @@ func TestFetchAllNormalisesFields(t *testing.T) {
 	}
 	// Catalog examples are placeholders, so they belong in the description,
 	// never as a usable default.
-	if r.Params[0].Description != "example: ALGO" {
-		t.Errorf("Description = %q, want %q", r.Params[0].Description, "example: ALGO")
+	if r.Params[0].Description != "example: WBT" {
+		t.Errorf("Description = %q, want %q", r.Params[0].Description, "example: WBT")
 	}
 	if r.SettleCount != 7 {
 		t.Errorf("SettleCount = %d, want 7", r.SettleCount)
@@ -257,5 +257,42 @@ func TestFetchAllDropsIPv6Unspecified(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != "keep-main" {
 		t.Fatalf("want only the non-unspecified resource kept, got %+v", got)
+	}
+}
+
+// The Whitechain facilitator speaks the x402 v2 discovery dialect: the URL is
+// under "resource" (not "resourceUrl"), there is no id, and the input schema
+// lives under extensions.bazaar.info. Shape copied from the live
+// https://whitechain.007575.xyz/discovery/resources on 2026-11-06.
+func TestFetchAllReadsV2DiscoveryItems(t *testing.T) {
+	srv := fakeUpstream(t, []map[string]any{{
+		"resource":    "https://tinyx402.007575.xyz/api/v1/search",
+		"type":        "http",
+		"x402Version": 2,
+		"accepts": []any{map[string]any{
+			"asset": "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", "payTo": "0xDBA5141562B65De3F7D3afefE156AEC46B87f8c4",
+			"amount": "10000", "scheme": "exact", "network": "eip155:1874", "maxTimeoutSeconds": 300,
+			"extra": map[string]any{"name": "Tether USD", "version": "1"},
+		}},
+		"lastUpdated": "2026-11-06T13:32:02.052Z",
+		"description": "Structured web search results",
+		"extensions": map[string]any{"bazaar": map[string]any{"info": map[string]any{
+			"input": map[string]any{"type": "http", "method": "GET", "queryParams": map[string]any{"query": "x402"}},
+		}}},
+	}})
+	defer srv.Close()
+	got, err := FetchAll(context.Background(), srv.Client(), srv.URL)
+	if err != nil {
+		t.Fatalf("FetchAll: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 resource, got %d", len(got))
+	}
+	r := got[0]
+	if r.URL != "https://tinyx402.007575.xyz/api/v1/search" || r.ID != r.URL || r.Method != "GET" || !r.Testnet {
+		t.Errorf("unexpected normalisation: %+v", r)
+	}
+	if r.AmountMicros != 10000 || len(r.Params) != 1 || r.Params[0].Name != "query" || r.LastSeen == "" {
+		t.Errorf("amount/params/lastSeen not carried: %+v", r)
 	}
 }

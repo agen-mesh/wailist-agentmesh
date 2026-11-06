@@ -61,6 +61,8 @@ export interface WorkflowNode {
     required: boolean;
     description: string;
     default?: string;
+    /** The only values the endpoint accepts, from its x402 schema. */
+    enum?: string[];
   }>;
   paramDefaults?: Record<string, string>;
   // User-defined input fields, for endpoints that publish no input schema of

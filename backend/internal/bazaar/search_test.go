@@ -85,13 +85,13 @@ func TestSearchPrefersAnAccountLookupForAnAccountQuery(t *testing.T) {
 			ID: "noise", Provider: "Otto", Host: "algorand.ottoai.services",
 			URL:         "https://algorand.ottoai.services/trending-pools",
 			Description: "Trending DEX pools right now on Algorand and other chains",
-			Network:     AlgorandMainnet,
+			Network:     WhitechainTestnet,
 		},
 		{
 			ID: "account", Provider: "AlgorandIndexer", Host: "api.algorand-indexer.xyz",
 			URL:         "https://api.algorand-indexer.xyz/account/ABC",
 			Description: "Algorand account lookup: balance, status, participation, and auth-addr for a single address",
-			Network:     AlgorandMainnet,
+			Network:     WhitechainTestnet,
 		},
 	}
 	got := Search(items, "algorand account balance for an address", 5)
@@ -109,13 +109,13 @@ func TestSearchFindsAnASAQuery(t *testing.T) {
 			ID: "asa", Provider: "Blueprints", Host: "api.blueprintstech.org",
 			URL:         "https://api.blueprintstech.org/asa/verify",
 			Description: "Algorand ASA and NFT verification with supply, control-address, and metadata checks",
-			Network:     AlgorandMainnet,
+			Network:     WhitechainTestnet,
 		},
 		{
 			ID: "other", Provider: "Otto", Host: "algorand.ottoai.services",
 			URL:         "https://algorand.ottoai.services/equities",
 			Description: "Registry of tokenized US equities on Robinhood Chain",
-			Network:     AlgorandMainnet,
+			Network:     WhitechainTestnet,
 		},
 	}
 	got := Search(items, "ASA supply and metadata", 5)

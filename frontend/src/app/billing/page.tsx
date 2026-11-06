@@ -20,7 +20,7 @@ const LOW_BALANCE_USD = 5;
 
 const HOW_IT_WORKS = [
   "Credits are spent as your agents call paid tools, x402 endpoints, and LLM providers.",
-  "Testnet usage is always free. You only pay for mainnet calls.",
+  "Blockchain payments use Whitechain testnet only. Workflow usage still consumes credits.",
   "Every purchase generates a printable receipt for your records.",
 ];
 
@@ -213,7 +213,7 @@ export default function BillingPage() {
       await refreshBalance();
       setCouponState("success");
       setCouponMessage(
-        `Coupon applied — ${fmtUSD(creditedUSD)} added to your balance.`,
+        `Coupon applied: ${fmtUSD(creditedUSD)} added to your balance.`,
       );
       setCouponCode("");
     } catch (e) {
@@ -442,7 +442,7 @@ export default function BillingPage() {
                         fontVariantNumeric: "tabular-nums",
                       }}
                     >
-                      {balanceKnown ? fmtUSD(balanceUSD) : "—"}
+                      {balanceKnown ? fmtUSD(balanceUSD) : "-"}
                     </div>
                   </div>
                   <span
@@ -557,7 +557,7 @@ export default function BillingPage() {
                         >
                           {usdPerINR > 0
                             ? `≈ ${fmtUSD(creditsForTopup(inr, usdPerINR))}`
-                            : "≈ —"}
+                            : "≈ -"}
                         </span>
                       </button>
                     );
@@ -635,7 +635,7 @@ export default function BillingPage() {
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {credits === null ? "≈ —" : `≈ ${fmtUSD(credits)}`}
+                        {credits === null ? "≈ -" : `≈ ${fmtUSD(credits)}`}
                         <span className="bill-custom-unit"> credits</span>
                       </span>
                     )}
