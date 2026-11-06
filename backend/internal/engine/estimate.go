@@ -114,6 +114,13 @@ func EstimateRunCost(wf models.Workflow) CostEstimate {
 			}
 			// calc / datetime are pure local computation: free, no line.
 
+		case models.NodeTypeArc:
+			add(CostEstimateLine{
+				n.ID, estimateNodeLabel(n),
+				0, 0,
+				"USDC settles on the chain. AgentMesh credits are not debited.",
+			})
+
 		case models.NodeTypeTool402:
 			if attachedToolIDs[n.ID] {
 				continue // costed under its agent above

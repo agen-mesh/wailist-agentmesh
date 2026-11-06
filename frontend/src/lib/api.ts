@@ -752,7 +752,7 @@ export interface RunLogRecord {
   stepIndex: number;
   nodeId: string;
   nodeType: string;
-  status: "pending" | "running" | "success" | "failed" | "degraded";
+  status: "pending" | "running" | "waiting" | "success" | "failed" | "degraded";
   output?: unknown;
   durationMs?: number;
   ts: string;
@@ -770,6 +770,7 @@ export interface RunLogRecord {
  * a source was replayed from the database as a clean one.
  */
 const SETTLED_LOG_STATUS: Record<RunLogRecord["status"], boolean> = {
+  waiting: false,
   pending: false,
   running: false,
   success: true,

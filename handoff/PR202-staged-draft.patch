@@ -1,0 +1,269 @@
+diff --git a/frontend/src/components/ui/foundation.test.tsx b/frontend/src/components/ui/foundation.test.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..9d64f1d2c570bab86b847c715031282c179bc0c7
+--- /dev/null
++++ b/frontend/src/components/ui/foundation.test.tsx
+@@ -0,0 +1,147 @@
++import { createRef } from "react";
++import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
++import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
++import { Button, type ButtonProps } from "./button";
++import {
++  Select,
++  SelectContent,
++  SelectGroup,
++  SelectItem,
++  SelectTrigger,
++  SelectValue,
++} from "./select";
++
++const scrollDescriptor = Object.getOwnPropertyDescriptor(
++  HTMLElement.prototype,
++  "scrollIntoView",
++);
++
++beforeAll(() => {
++  vi.stubGlobal(
++    "ResizeObserver",
++    class {
++      observe() {}
++      unobserve() {}
++      disconnect() {}
++    },
++  );
++  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
++    configurable: true,
++    value: vi.fn(),
++  });
++});
++
++afterEach(cleanup);
++
++afterAll(() => {
++  vi.unstubAllGlobals();
++  if (scrollDescriptor) {
++    Object.defineProperty(
++      HTMLElement.prototype,
++      "scrollIntoView",
++      scrollDescriptor,
++    );
++  } else {
++    Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
++  }
++});
++
++function Example({
++  value,
++  disabled,
++  onValueChange,
++}: {
++  value?: string;
++  disabled?: boolean;
++  onValueChange: (value: string) => void;
++}) {
++  return (
++    <Select
++      defaultValue="alpha"
++      value={value}
++      disabled={disabled}
++      onValueChange={onValueChange}
++    >
++      <SelectTrigger aria-label="Selection">
++        <SelectValue placeholder="Choose an option" />
++      </SelectTrigger>
++      <SelectContent>
++        <SelectGroup>
++          <SelectItem value="alpha">Alpha</SelectItem>
++          <SelectItem value="beta" disabled>
++            Beta
++          </SelectItem>
++          <SelectItem value="gamma">Gamma</SelectItem>
++        </SelectGroup>
++      </SelectContent>
++    </Select>
++  );
++}
++
++describe("shared foundation consumers", () => {
++  it("accepts the original ButtonProps contract and forwards props and a ref", () => {
++    const onClick = vi.fn();
++    const ref = createRef<HTMLButtonElement>();
++    const props: ButtonProps = {
++      variant: "outline",
++      size: "sm",
++      asChild: false,
++      "aria-label": "Foundation action",
++      onClick,
++    };
++    render(<Button {...props} ref={ref}>Action</Button>);
++
++    const button = screen.getByRole("button", { name: "Foundation action" });
++    expect(ref.current).toBe(button);
++    fireEvent.click(button);
++    expect(onClick).toHaveBeenCalledOnce();
++  });
++
++  it("skips disabled options, selects by keyboard and restores trigger focus", async () => {
++    const onValueChange = vi.fn();
++    render(<Example onValueChange={onValueChange} />);
++    const trigger = screen.getByRole("combobox", { name: "Selection" });
++    fireEvent.keyDown(trigger, { key: "ArrowDown" });
++
++    const alpha = await screen.findByRole("option", { name: "Alpha" });
++    await waitFor(() => expect(document.activeElement).toBe(alpha));
++    fireEvent.keyDown(alpha, { key: "ArrowDown" });
++    const gamma = screen.getByRole("option", { name: "Gamma" });
++    await waitFor(() => expect(document.activeElement).toBe(gamma));
++    fireEvent.keyDown(gamma, { key: "Enter" });
++
++    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
++    expect(onValueChange).toHaveBeenCalledExactlyOnceWith("gamma");
++    expect(trigger.textContent).toContain("Gamma");
++    await waitFor(() => expect(document.activeElement).toBe(trigger));
++  });
++
++  it("cancels without changing a controlled value and accepts subsequent prop changes", async () => {
++    const onValueChange = vi.fn();
++    const view = render(<Example value="alpha" onValueChange={onValueChange} />);
++    const trigger = screen.getByRole("combobox", { name: "Selection" });
++    fireEvent.keyDown(trigger, { key: "Enter" });
++    const alpha = await screen.findByRole("option", { name: "Alpha" });
++    fireEvent.keyDown(alpha, { key: "Escape" });
++
++    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
++    expect(onValueChange).not.toHaveBeenCalled();
++    expect(trigger.textContent).toContain("Alpha");
++    await waitFor(() => expect(document.activeElement).toBe(trigger));
++
++    view.rerender(<Example value="gamma" onValueChange={onValueChange} />);
++    expect(trigger.textContent).toContain("Gamma");
++    expect(onValueChange).not.toHaveBeenCalled();
++  });
++
++  it("keeps a disabled Select closed", () => {
++    const onValueChange = vi.fn();
++    render(<Example disabled onValueChange={onValueChange} />);
++    const trigger = screen.getByRole("combobox", { name: "Selection" });
++
++    expect(trigger).toHaveProperty("disabled", true);
++    fireEvent.click(trigger);
++    expect(screen.queryByRole("listbox")).toBeNull();
++    expect(onValueChange).not.toHaveBeenCalled();
++  });
++});
+diff --git a/frontend/src/components/ui/select.tsx b/frontend/src/components/ui/select.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..0dacfa17a081a7df167c1f93072baea706a7b710
+--- /dev/null
++++ b/frontend/src/components/ui/select.tsx
+@@ -0,0 +1,110 @@
++"use client";
++import * as React from "react";
++import { Select as SelectPrimitive } from "radix-ui";
++import { cn } from "@/lib/utils";
++
++const Select = SelectPrimitive.Root;
++const SelectGroup = SelectPrimitive.Group;
++const SelectValue = SelectPrimitive.Value;
++
++const SelectTrigger = React.forwardRef<
++  React.ComponentRef<typeof SelectPrimitive.Trigger>,
++  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
++>(({ className, children, ...props }, ref) => (
++  <SelectPrimitive.Trigger
++    ref={ref}
++    data-slot="select-trigger"
++    className={cn(
++      "flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
++      className,
++    )}
++    {...props}
++  >
++    {children}
++    <SelectPrimitive.Icon asChild>
++      <svg
++        width="14"
++        height="14"
++        viewBox="0 0 16 16"
++        fill="none"
++        stroke="currentColor"
++        strokeWidth="1.5"
++        strokeLinecap="round"
++        strokeLinejoin="round"
++        aria-hidden="true"
++      >
++        <path d="M3 6l5 5 5-5" />
++      </svg>
++    </SelectPrimitive.Icon>
++  </SelectPrimitive.Trigger>
++));
++SelectTrigger.displayName = SelectPrimitive.Trigger.displayName;
++
++const SelectContent = React.forwardRef<
++  React.ComponentRef<typeof SelectPrimitive.Content>,
++  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
++>(({ className, children, position = "popper", ...props }, ref) => (
++  <SelectPrimitive.Portal>
++    <SelectPrimitive.Content
++      ref={ref}
++      data-slot="select-content"
++      className={cn(
++        "relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2",
++        position === "popper" &&
++          "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
++        className,
++      )}
++      position={position}
++      {...props}
++    >
++      <SelectPrimitive.Viewport
++        data-slot="select-viewport"
++        className={cn(
++          "p-1",
++          position === "popper" &&
++            "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]",
++        )}
++      >
++        {children}
++      </SelectPrimitive.Viewport>
++    </SelectPrimitive.Content>
++  </SelectPrimitive.Portal>
++));
++SelectContent.displayName = SelectPrimitive.Content.displayName;
++
++const SelectItem = React.forwardRef<
++  React.ComponentRef<typeof SelectPrimitive.Item>,
++  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
++>(({ className, children, ...props }, ref) => (
++  <SelectPrimitive.Item
++    ref={ref}
++    data-slot="select-item"
++    className={cn(
++      "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
++      className,
++    )}
++    {...props}
++  >
++    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
++      <SelectPrimitive.ItemIndicator>
++        <svg
++          width="12"
++          height="12"
++          viewBox="0 0 16 16"
++          fill="none"
++          stroke="currentColor"
++          strokeWidth="1.5"
++          strokeLinecap="round"
++          strokeLinejoin="round"
++          aria-hidden="true"
++        >
++          <path d="M3 8.5l3 3 7-7" />
++        </svg>
++      </SelectPrimitive.ItemIndicator>
++    </span>
++    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
++  </SelectPrimitive.Item>
++));
++SelectItem.displayName = SelectPrimitive.Item.displayName;
++
++export { Select, SelectGroup, SelectValue, SelectTrigger, SelectContent, SelectItem };

@@ -108,6 +108,7 @@ function resultText(steps: RunLogRecord[]): string | null {
 const STEP_STATUS: Record<RunLogRecord["status"], string> = {
   pending: "Waiting",
   running: "Running",
+  waiting: "Awaiting purchase",
   success: "Done",
   failed: "Failed",
   // Finished, but only partly: the run carried on instead of failing.

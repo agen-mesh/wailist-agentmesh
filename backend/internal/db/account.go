@@ -10,6 +10,7 @@ import (
 
 var (
 	ErrActiveMachineLeases = errors.New("active machine leases block account deletion")
+	ErrPurchaseHistory     = errors.New("purchase history blocks account deletion")
 	ErrAccountChanged      = errors.New("account credentials changed")
 )
 
@@ -46,6 +47,18 @@ func (s *Store) DeleteAccount(ctx context.Context, userID, passwordHash string) 
 	}
 	if active {
 		return ErrActiveMachineLeases
+	}
+	var purchaseHistory bool
+	if err := tx.QueryRow(ctx, `SELECT
+		EXISTS (SELECT 1 FROM purchase_wallets WHERE account_id = $1)
+		OR EXISTS (SELECT 1 FROM purchase_allowances WHERE account_id = $1)
+		OR EXISTS (SELECT 1 FROM purchase_orders WHERE account_id = $1)
+		OR EXISTS (SELECT 1 FROM purchase_identity_attempts WHERE account_id = $1)
+		OR EXISTS (SELECT 1 FROM purchase_identities WHERE account_id = $1)`, userID).Scan(&purchaseHistory); err != nil {
+		return fmt.Errorf("check purchase history: %w", err)
+	}
+	if purchaseHistory {
+		return ErrPurchaseHistory
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM tendril_leases WHERE user_id = $1 AND status <> 'active'`, userID); err != nil {
 		return fmt.Errorf("delete machine lease history: %w", err)

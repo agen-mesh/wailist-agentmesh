@@ -10,6 +10,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/agentmesh/backend/internal/api/handlers"
+	"github.com/agentmesh/backend/internal/arc"
 	"github.com/agentmesh/backend/internal/respond"
 )
 
@@ -168,6 +169,7 @@ func NewAuthMiddleware(secret string) func(http.Handler) http.Handler {
 				return
 			}
 			ctx := context.WithValue(r.Context(), handlers.CtxUserID, claims.UserID)
+			ctx = arc.WithPrincipal(ctx, claims.UserID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

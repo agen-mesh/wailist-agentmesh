@@ -1,0 +1,19 @@
+# Controlled merchant
+
+This package implements one bounded text digest service for the controlled purchase flow. It is pre-event local implementation. It does not claim generic payment-protocol interoperability or live settlement verification.
+
+`New(Config, Store, VerifyPayment)` requires a durable adapter and independent chain verifier. There is no production memory fallback. The default executor validates `{"text":"..."}` before quoting and returns actual SHA256, byte/code-point, word and line counts. Text is limited to 16KiB, encoded requests to 64KiB. Inputs are private; quotes expose only their digest, and result views omit request and account details.
+
+Quote JSON order matches the central purchase DTO: id, method, resource, requestDigest, chainId, asset, payee, amountMicros, deadline, proof. ID is a random 0x-prefixed 32-byte challenge. Proof is a 0x-prefixed Ed25519 hex signature over `agentmesh-merchant-quote-v1` followed by a newline and the fixed-field quote JSON with an empty proof. QuoteDigest commits the complete signed quote. Amounts and intent timestamps are canonical decimal strings. IntentHash is 0x-prefixed SHA256 of exact canonical Intent bytes, including the quote digest and random order salt. The request bytes must be identical to the bytes quoted.
+
+The service checks signed terms before first acceptance. The store must atomically preserve the first snapshot, conflict on another intent, and enforce its deadline at acceptance. An already accepted identical intent can be looked up after expiry. Later listing/config changes do not invalidate an accepted payment.
+
+The verifier must independently validate canonical chain and block inclusion, the confirmation policy, the exact authorization and Transfer logs, and the payment block timestamp. It returns PaymentProof; HTTP callers cannot supply one. The service checks every returned field against the accepted snapshot. Payment must have occurred strictly after validAfter and before validBefore. Confirmation and fulfillment may occur later. Receipt status or consumed nonce alone is insufficient.
+
+Store.Claim must atomically reserve the unique chain/transaction/log event across all orders and change accepted to started before returning true. All other callers receive the retained state and cannot execute. Store.Finish may transition started only to completed, failed or unknown, with immutable result/failure data. Only persisted results are returned. A claim timeout, panic or result-write uncertainty never permits blind reexecution. Started and unknown require external reconciliation; this package has no lease expiry or retry that silently clears them. A request cancellation cannot cancel the bounded persistence of an already computed result.
+
+`NewHandler` mounts POST `/merchant/quote`, `/merchant/accept`, `/merchant/fulfill` and GET `/merchant/results/{orderID}?intentHash=...`. All routes require an explicitly injected internal bearer of at least 32 characters. Central routing must keep that bearer server-side and enforce user/account/order ownership before calling the merchant. HTTPS resource configuration and signing keys are injected; this package reads no environment variables. Every response has `Cache-Control: no-store`.
+
+Quote returns a bare Quote. Other successful calls return ResultView, never raw Record. Started/pending/unknown use HTTP202 with explicit state; completed uses200. Stable errors distinguish unaccepted404, conflict409, expired410, invalid payment422, paid service failure502 and unavailable503. No refunds are implied. Store and payment verification errors never echo private inputs or configuration.
+
+Focused tests use a synchronized adapter double and injected payment facts. They exercise real handlers, signature validation and text execution, but do not establish Postgres durability, live chain/payment behavior, or deployed access controls. Those belong to central integration and independent simulations.

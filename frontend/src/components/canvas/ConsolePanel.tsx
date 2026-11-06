@@ -154,6 +154,7 @@ export function ConsolePanel({
   };
 
   const statusLabel = (s: LogEvent["status"]) => {
+    if (s === "waiting") return "WAIT";
     if (s === "success") return "OK";
     if (s === "failed") return "ERR";
     if (s === "degraded") return "DEG";
@@ -162,7 +163,10 @@ export function ConsolePanel({
   };
 
   const elapsedStr = (elapsed ?? 0).toFixed(1);
-  const headerPill = runId
+  const pendingPurchase = [...logs].reverse().find((entry) => entry.nodeType === "purchase");
+  const purchaseWaiting = !done && pendingPurchase?.status === "waiting";
+  const purchaseId = purchaseWaiting && typeof pendingPurchase.output === "object" && pendingPurchase.output !== null && "id" in pendingPurchase.output ? String(pendingPurchase.output.id) : null;
+  const headerPill = purchaseWaiting ? "Waiting for purchase" : runId
     ? done
       ? `run · ${runId.slice(0, 8)} · ${elapsedStr}s`
       : running
@@ -251,6 +255,7 @@ export function ConsolePanel({
               {headerPill}
             </Pill>
           )}
+          {purchaseId && <a href={`/purchases?order=${encodeURIComponent(purchaseId)}`}>Review purchase</a>}
           {logs.length > 0 && (
             <span
               style={{

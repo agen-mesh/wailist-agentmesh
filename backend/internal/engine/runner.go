@@ -15,9 +15,11 @@ import (
 	"time"
 
 	"github.com/agentmesh/backend/internal/alert"
+	"github.com/agentmesh/backend/internal/arc"
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/models"
+	"github.com/agentmesh/backend/internal/purchase"
 	"github.com/agentmesh/backend/internal/push"
 	"github.com/agentmesh/backend/internal/sse"
 	"github.com/agentmesh/backend/internal/tendril"
@@ -58,6 +60,8 @@ type Runner struct {
 	tendrilSession           *tendril.Session
 	googleClientID           string
 	googleClientSecret       string
+	arcConfig                arc.Config
+	purchases                *purchase.Service
 	// runBilling accumulates each run's non-tool402 billable total (run.ID
 	// -> *int64, in USD micros) so it can be settled as one lump-sum x402
 	// payment at the end of Run -- see addRunBilling and settleRunTotal.
@@ -65,6 +69,12 @@ type Runner struct {
 	// filtering): it already gets its own on-chain settlement.
 	runBilling sync.Map
 }
+
+func (r *Runner) SetPurchases(s *purchase.Service) { r.purchases = s }
+
+type purchaseWaiting struct{ Output map[string]any }
+
+func (*purchaseWaiting) Error() string { return "purchase is waiting for approval or settlement" }
 
 func NewRunner(
 	store *db.Store,
@@ -74,7 +84,14 @@ func NewRunner(
 	platformSpendEncMnemonic string,
 	encryptionKey string,
 	x402Cfg X402Config,
+	arcSnapshot ...arc.Config,
 ) *Runner {
+	var arcConfig arc.Config
+	if len(arcSnapshot) > 0 {
+		arcConfig = arcSnapshot[0]
+	} else {
+		arcConfig = arc.LoadConfig()
+	}
 	return &Runner{
 		store:                    store,
 		broker:                   broker,
@@ -84,6 +101,7 @@ func NewRunner(
 		platformSpendEncMnemonic: platformSpendEncMnemonic,
 		encryptionKey:            encryptionKey,
 		x402:                     x402Cfg,
+		arcConfig:                arcConfig,
 	}
 }
 
@@ -350,6 +368,53 @@ func isPaymentRisk(err error) bool {
 	return isAgentFeeOwedDespiteFailure(err) || errors.Is(err, nodes.ErrSettlementIndeterminate)
 }
 
+func recordedArcOutcome(prior models.RunLog) string {
+	out, _ := prior.Output.(map[string]any)
+	if out["arcVersion"] != float64(1) && out["arcVersion"] != 1 {
+		return ""
+	}
+	outcome, _ := out["arcOutcome"].(string)
+	return outcome
+}
+
+// Unclassified historical attempts cannot prove a broadcast did not occur.
+func arcInclusionUnknown(prior models.RunLog) bool {
+	switch prior.Status {
+	case models.LogStatusSuccess:
+		out, _ := prior.Output.(map[string]any)
+		status, _ := out["status"].(string)
+		return status != "success" && status != "quoted"
+	case models.LogStatusRunning:
+		return recordedArcOutcome(prior) != "read_only"
+	case models.LogStatusFailed:
+		switch recordedArcOutcome(prior) {
+		case "read_only", "not_submitted", "reverted":
+			return false
+		}
+		return prior.Output != arc.ErrOperatorRequired.Error()
+	default:
+		return true
+	}
+}
+
+func arcFailureOutput(node models.WorkflowNode, result any, err error) map[string]any {
+	outcome := "uncertain"
+	switch {
+	case isPaymentRisk(err), errors.Is(err, arc.ErrSubmissionUncertain):
+	case !nodes.ArcMayBroadcast(node):
+		outcome = "read_only"
+	case errors.Is(err, arc.ErrNotSubmitted):
+		outcome = "not_submitted"
+	case errors.Is(err, arc.ErrTransactionReverted):
+		outcome = "reverted"
+	}
+	out := map[string]any{"arcVersion": 1, "arcOutcome": outcome, "error": err.Error()}
+	if res, ok := result.(arc.Result); ok {
+		out["txHash"], out["approveTx"], out["chain"] = res.TxHash, res.ApproveTx, res.Chain
+	}
+	return out
+}
+
 // nodeMayHaveRealSideEffect reports whether a node with this type/
 // template/method is one whose execution can move real money, or trigger
 // some other real external effect (an email, a Slack/webhook POST, an
@@ -389,7 +454,8 @@ func nodeMayHaveRealSideEffect(nodeType models.NodeType, template, method string
 	}
 	return nodes.BillableFlatFee(nodeType, template) ||
 		nodeType == models.NodeTypeTool402 ||
-		nodeType == models.NodeTypeTendril
+		nodeType == models.NodeTypeTendril ||
+		nodeType == models.NodeTypeArc || nodeType == models.NodeTypePurchase
 }
 
 // nodeConfigHash returns a stable hash of node's functionally-relevant
@@ -912,7 +978,11 @@ func (r *Runner) debitAgentFee(ctx context.Context, wf models.Workflow, run mode
 // supersede whatever else was running. The scheduler must NOT get this
 // behavior -- see StartIfNotRunning below.
 func (r *Runner) Start(wf models.Workflow, run models.Run) {
-	ctx, cancel := context.WithCancel(context.Background())
+	r.StartWithContext(context.Background(), wf, run)
+}
+
+func (r *Runner) StartWithContext(requestCtx context.Context, wf models.Workflow, run models.Run) {
+	ctx, cancel := context.WithCancel(arc.DetachedPrincipal(requestCtx))
 	gen := r.registry.register(wf.ID, cancel)
 	go r.Run(ctx, wf, run, gen)
 }
@@ -991,7 +1061,7 @@ func (r *Runner) StartResume(ctx context.Context, wf models.Workflow, run models
 	if err != nil || !claimed {
 		return false, err
 	}
-	rctx, cancel := context.WithCancel(context.Background())
+	rctx, cancel := context.WithCancel(arc.DetachedPrincipal(ctx))
 	// registerIfAbsent, NOT register: run.ID is an OLD failed/stopped run
 	// being resumed, which says nothing about whether wf.ID has some OTHER
 	// run currently in flight (a manual trigger, a schedule, or another
@@ -1016,7 +1086,7 @@ func (r *Runner) StartResume(ctx context.Context, wf models.Workflow, run models
 		// Failed would silently relabel a user-initiated Stop as a
 		// Failed run just because an unrelated concurrent run raced in.
 		revertStatus := run.Status
-		if revertStatus != models.RunStatusFailed && revertStatus != models.RunStatusStopped {
+		if revertStatus != models.RunStatusFailed && revertStatus != models.RunStatusStopped && revertStatus != models.RunStatusWaiting {
 			// Defensive: MarkRunRunning's own WHERE clause guarantees this
 			// never happens (it only claims rows already 'failed' or
 			// 'stopped'), but fail toward the safer, more visible label if
@@ -1038,7 +1108,12 @@ func (r *Runner) StartResume(ctx context.Context, wf models.Workflow, run models
 // Stop cancels the active run for the given workflow ID. Returns false if no
 // run was registered (i.e. the workflow is not currently running).
 func (r *Runner) Stop(workflowID string) bool {
-	return r.registry.cancel(workflowID)
+	active := r.registry.cancel(workflowID)
+	stopped, err := r.store.StopWaitingPurchaseRuns(context.Background(), workflowID)
+	if err != nil {
+		log.Printf("stop waiting purchase run: %v", err)
+	}
+	return active || stopped
 }
 
 // IsRunning reports whether workflowID currently has an in-flight run
@@ -1146,15 +1221,41 @@ func (r *Runner) Resume(ctx context.Context, wf models.Workflow, run models.Run,
 	defer r.broker.Close(run.ID)
 	defer r.registry.deregister(wf.ID, gen)
 
-	if !force {
-		deadLetters, err := r.store.GetDeadLetterRuns(ctx, run.ID)
-		if err != nil {
-			log.Printf("resume: loading dead letters failed, run=%s: %v", run.ID, err)
+	arcNodes := make(map[string]bool)
+	for _, node := range wf.Nodes {
+		arcNodes[node.ID] = node.Type == models.NodeTypeArc
+	}
+	attempts, err := r.store.GetRunLogs(ctx, run.ID)
+	if err != nil {
+		log.Printf("resume: loading prior Arc attempts failed, run=%s: %v", run.ID, err)
+		r.finishRun(wf, run, models.RunStatusFailed)
+		return
+	}
+	for _, prior := range attempts {
+		if prior.NodeType != models.NodeTypeArc {
+			continue
+		}
+		arcNodes[prior.NodeID] = true
+		if arcInclusionUnknown(prior) {
+			criticalAlert(wf, run, "resume refused: prior Arc attempt requires reconciliation; force cannot replay it", nil, "nodeId", prior.NodeID)
 			r.finishRun(wf, run, models.RunStatusFailed)
 			return
 		}
-		for _, dl := range deadLetters {
-			if dl.PaymentRisk {
+	}
+	deadLetters, err := r.store.GetDeadLetterRuns(ctx, run.ID)
+	if err != nil {
+		log.Printf("resume: loading dead letters failed, run=%s: %v", run.ID, err)
+		r.finishRun(wf, run, models.RunStatusFailed)
+		return
+	}
+	for _, dl := range deadLetters {
+		if dl.PaymentRisk {
+			if arcNodes[dl.NodeID] {
+				criticalAlert(wf, run, "resume refused: Arc payment requires reconciliation; force cannot replay it", nil, "nodeId", dl.NodeID)
+				r.finishRun(wf, run, models.RunStatusFailed)
+				return
+			}
+			if !force {
 				criticalAlert(wf, run, "resume refused: payment-risk dead-letter row present, force required", nil, "nodeId", dl.NodeID)
 				r.finishRun(wf, run, models.RunStatusFailed)
 				return
@@ -1183,7 +1284,6 @@ func (r *Runner) Resume(ctx context.Context, wf models.Workflow, run models.Run,
 		r.finishRun(wf, run, models.RunStatusFailed)
 		return
 	}
-
 	if !force {
 		// A node whose LATEST logged state is still "running" means a
 		// prior attempt started executing it and the process crashed (or
@@ -1201,7 +1301,10 @@ func (r *Runner) Resume(ctx context.Context, wf models.Workflow, run models.Run,
 		// explicitly accepting that risk, same as the payment-risk gate
 		// above.
 		for nodeID, l := range states {
-			if l.Status == models.LogStatusRunning {
+			if arcNodes[nodeID] && recordedArcOutcome(l) == "read_only" {
+				continue
+			}
+			if l.Status == models.LogStatusRunning && l.NodeType != models.NodeTypePurchase {
 				criticalAlert(wf, run, "resume refused: node stuck mid-execution from a prior crash, force required", nil, "nodeId", nodeID)
 				r.finishRun(wf, run, models.RunStatusFailed)
 				return
@@ -1302,6 +1405,7 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 	}
 
 	var failed int32
+	var waiting int32
 
 	for stepIdx, level := range levels {
 		// Check for cancellation between levels.
@@ -1355,13 +1459,18 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 				}
 
 				start := time.Now()
-				logEntry, _ := r.store.InsertRunLog(ctx, models.RunLog{
+				logEntry, logErr := r.store.InsertRunLog(ctx, models.RunLog{
 					RunID:     run.ID,
 					StepIndex: idx,
 					NodeID:    n.ID,
 					NodeType:  n.Type,
 					Status:    models.LogStatusRunning,
 				})
+				if n.Type == models.NodeTypeArc && !nodes.ArcMayBroadcast(n) && logErr == nil {
+					if err := r.store.UpdateRunLog(ctx, logEntry.ID, models.LogStatusRunning, []byte(`{"arcVersion":1,"arcOutcome":"read_only"}`), 0, ""); err != nil {
+						log.Printf("Arc quote metadata write failed, run=%s node=%s: %v", run.ID, n.ID, err)
+					}
+				}
 
 				// Retry only on an error the node explicitly marked safe
 				// (nodes.Retryable) — e.g. a transport failure on an
@@ -1373,6 +1482,14 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 				var execErr error
 				attempts := 0
 				for {
+					if logErr != nil && n.Type == models.NodeTypePurchase {
+						execErr = fmt.Errorf("purchase refused: record initial run log: %w", logErr)
+						break
+					}
+					if logErr != nil && n.Type == models.NodeTypeArc && nodes.ArcMayBroadcast(n) {
+						execErr = fmt.Errorf("%w: Arc broadcast refused: record initial run log: %w", arc.ErrNotSubmitted, logErr)
+						break
+					}
 					attempts++
 					result, execErr = r.executeNode(ctx, n, attachMap, walletByAgent, rc.forNode(msgPreds[n.ID]), run, wf)
 					// A sibling in this same parallel level already failed the
@@ -1403,6 +1520,21 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 					}
 				}
 				dur := int(time.Since(start).Milliseconds())
+				var pending *purchaseWaiting
+				if errors.As(execErr, &pending) && ctx.Err() == nil {
+					outJSON, marshalErr := json.Marshal(pending.Output)
+					if marshalErr != nil {
+						atomic.StoreInt32(&failed, 1)
+						return
+					}
+					if err := r.store.UpdateRunLog(context.Background(), logEntry.ID, models.LogStatusWaiting, outJSON, dur, nodeConfigHash(n)); err != nil {
+						atomic.StoreInt32(&failed, 1)
+						return
+					}
+					atomic.StoreInt32(&waiting, 1)
+					r.broker.Publish(run.ID, models.LogEvent{StepIndex: idx, NodeID: n.ID, NodeType: n.Type, Status: models.LogStatusWaiting, Output: pending.Output, DurationMs: dur, Ts: time.Now()})
+					return
+				}
 
 				// A read node that failed every attempt does not have to end
 				// the run. Hand the error downstream as data instead: the
@@ -1478,7 +1610,11 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 
 				if execErr != nil {
 					atomic.StoreInt32(&failed, 1)
-					outJSON, _ := json.Marshal(execErr.Error())
+					var failure any = execErr.Error()
+					if n.Type == models.NodeTypeArc {
+						failure = arcFailureOutput(n, result, execErr)
+					}
+					outJSON, _ := json.Marshal(failure)
 					r.store.UpdateRunLog(context.Background(), logEntry.ID, models.LogStatusFailed, outJSON, dur, "")
 					// A run cancelled mid-node (Stop) surfaces as execErr too,
 					// but that's not a permanent node failure worth
@@ -1594,6 +1730,21 @@ func (r *Runner) execute(ctx context.Context, wf models.Workflow, run models.Run
 
 		if atomic.LoadInt32(&failed) != 0 {
 			r.finishRun(wf, run, models.RunStatusFailed)
+			return
+		}
+		if atomic.LoadInt32(&waiting) != 0 {
+			if ctx.Err() != nil {
+				r.finishRun(wf, run, models.RunStatusStopped)
+				return
+			}
+			if err := r.store.WaitForPurchase(ctx, run.ID); err != nil {
+				log.Printf("persist purchase waiting state: %v", err)
+				r.finishRun(wf, run, models.RunStatusFailed)
+				return
+			}
+			if ctx.Err() != nil {
+				r.finishRun(wf, run, models.RunStatusStopped)
+			}
 			return
 		}
 	}
@@ -1924,6 +2075,30 @@ func (r *Runner) executeNode(
 			return nil, err
 		}
 		return result, nil
+	case models.NodeTypeArc:
+		// USDC moves on the chain named by the node. Credits are not charged.
+		// ExecuteArc expands config itself; expandNodeState does not.
+		return nodes.ExecuteArc(ctx, node, rc.State(), r.arcConfig)
+	case models.NodeTypePurchase:
+		if r.purchases == nil {
+			return nil, purchase.ErrDisabled
+		}
+		request, err := nodes.PurchaseRequest(node, rc.State(), rc.Message())
+		if err != nil {
+			return nil, err
+		}
+		request.ClientRequestID = "run/" + run.ID + "/" + node.ID + "/0"
+		o, err := r.purchases.Create(ctx, wf.UserID, request, purchase.Invocation{WorkflowID: wf.ID, RunID: run.ID, NodeID: node.ID, ID: "0"})
+		if err != nil {
+			return nil, err
+		}
+		if o.State == purchase.Completed {
+			return map[string]any{"status": "success", "purchaseOrderId": o.ID, "result": o.Result}, nil
+		}
+		if o.State == purchase.Denied || o.State == purchase.Cancelled || o.State == purchase.Expired || o.State == purchase.PaidToolFailed {
+			return nil, fmt.Errorf("purchase %s ended in state %s", o.ID, o.State)
+		}
+		return nil, &purchaseWaiting{Output: purchase.View(o, time.Now())}
 	case models.NodeTypeGoogle:
 		if r.googleClientID == "" || r.googleClientSecret == "" {
 			return nil, fmt.Errorf("google: GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET are not configured on this server")

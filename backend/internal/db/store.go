@@ -747,7 +747,9 @@ func insertRun(ctx context.Context, q rowQuerier, workflowID, triggeredBy string
 }
 
 func (s *Store) CreateRun(ctx context.Context, workflowID, triggeredBy string, inputContext []byte) (models.Run, error) {
-	return insertRun(ctx, s.pool, workflowID, triggeredBy, inputContext)
+	tx,err:=s.pool.Begin(ctx);if err!=nil{return models.Run{},err};defer tx.Rollback(ctx)
+	if err=lockPurchaseAdmission(ctx,tx,workflowID);err!=nil{return models.Run{},err}
+	r,err:=insertRun(ctx,tx,workflowID,triggeredBy,inputContext);if err!=nil{return r,err};if err=tx.Commit(ctx);err!=nil{return r,err};return r,nil
 }
 
 // advisoryLockNamespaceRunCooldown is the first key of the two-key
@@ -862,6 +864,7 @@ func (s *Store) CreateRunWithCooldown(ctx context.Context, workflowID, triggered
 		}
 	}
 
+	if err=lockPurchaseAdmission(ctx,tx,workflowID);err!=nil{return models.Run{},err}
 	r, err := insertRun(ctx, tx, workflowID, triggeredBy, inputContext)
 	if err != nil {
 		return models.Run{}, err
@@ -905,7 +908,7 @@ func (s *Store) GetRun(ctx context.Context, runID string) (models.Run, error) {
 
 func (s *Store) FinishRun(ctx context.Context, runID string, status models.RunStatus) error {
 	_, err := s.pool.Exec(ctx, `
-		UPDATE runs SET status=$2, finished_at=NOW() WHERE id=$1
+		UPDATE runs SET status=$2, finished_at=CASE WHEN $2='waiting' THEN NULL ELSE NOW() END WHERE id=$1
 	`, runID, string(status))
 	return err
 }
@@ -1029,7 +1032,7 @@ func (s *Store) GetLatestNodeStates(ctx context.Context, runID string) (map[stri
 func (s *Store) MarkRunRunning(ctx context.Context, runID string) (bool, error) {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE runs SET status='running', finished_at=NULL
-		WHERE id=$1 AND status IN ('failed','stopped')
+		WHERE id=$1 AND status IN ('failed','stopped','waiting')
 	`, runID)
 	if err != nil {
 		return false, err
@@ -1049,7 +1052,7 @@ func (s *Store) MarkRunRunning(ctx context.Context, runID string) (bool, error) 
 func (s *Store) HasRunningRun(ctx context.Context, workflowID string) (bool, error) {
 	var exists bool
 	err := s.pool.QueryRow(ctx, `
-		SELECT EXISTS(SELECT 1 FROM runs WHERE workflow_id=$1 AND status='running')
+		SELECT EXISTS(SELECT 1 FROM runs WHERE workflow_id=$1 AND status IN ('running','waiting'))
 	`, workflowID).Scan(&exists)
 	return exists, err
 }
