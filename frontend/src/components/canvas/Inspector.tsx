@@ -22,6 +22,7 @@ import {
 import { IconClose, StatusDot } from "@/components/ui";
 import { BrandLogo } from "./nodes/brandLogos";
 import { can } from "@/lib/readonly";
+import { CHAIN } from "@/lib/chain";
 import { iconBtn } from "@/components/ui/buttons";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import {
@@ -1451,7 +1452,7 @@ function Tool402Inspector({
         endpoint: draft.trim(),
         price: quote.price ?? "?",
         unit: quote.unit ?? "call",
-        asset: quote.asset ?? "USDT",
+        asset: quote.asset ?? CHAIN.token,
         provider: host,
         priceLive: true,
         description: node.description || quote.description || "",
