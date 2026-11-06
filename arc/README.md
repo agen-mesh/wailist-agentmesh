@@ -1,201 +1,238 @@
 # AgentMesh on Arc
 
-### The Arc settlement rail — USDC nanopayments for autonomous agents, with onchain run receipts.
+### The Arc settlement rail — USDC nanopayments for autonomous agents, through x402.
 
-AgentMesh is a live no-code platform for autonomous AI agent workflows. Agents call paid
-APIs and settle each call over the [x402](../x402/) protocol. Until now every settlement
-landed on Algorand. This folder is the **Arc rail**: the same x402 nanopayment flow,
-settled in USDC on [Arc](https://docs.arc.io) — Circle's stablecoin-native L1 — plus an
-escrow contract that gives every workflow run a verifiable onchain receipt.
+AgentMesh is a live no-code platform for autonomous AI agent workflows. Agents call paid APIs and
+settle each call over the [x402](https://www.x402.org) protocol. This folder is the **Arc rail**:
+the same per-call payment flow, settled in USDC on [Arc](https://docs.arc.io) — Circle's
+stablecoin-native L1 — selected with one environment variable.
 
 Built with **Arc Studio** — project: https://studio.arc.io/app/11ddfe5a-fa3b-4239-bf10-dd8bca5c40df
 
 | | |
 |---|---|
-| Contract | [`contracts/AgentRunEscrow.sol`](contracts/AgentRunEscrow.sol), 387 lines |
-| Tests | 94 Foundry tests across 7 suites, **94 passing / 0 failing** |
-| Review | Arc Studio contract review, clean after two rounds; Slither run |
-| Chain | Arc Testnet, chain `5042002` |
-| Fills | `ARC_ESCROW` — the `Config.Escrow` slot in `backend/internal/arc/service.go` |
+| What ships | A second chain profile in `backend/internal/chain`, plus the console in [`console/`](console/) |
+| Rail | Arc Testnet (chain `5042002`), USDC `0x3600…0000`, facilitator `https://arc.007575.xyz` |
+| Selected by | `X402_CHAIN=arc` — blank keeps Whitechain, AgentMesh's existing rail |
+| Settled live | 2 real payments on Arc Testnet, EIP-3009, relayer-submitted (hashes below) |
+| Contracts deployed | **None.** See [*The escrow, and why it is not in this path*](#the-escrow-and-why-it-is-not-in-this-path) |
 
 ---
+
+## What actually changed
+
+AgentMesh already settles x402 v2 `exact` payments on an EVM chain through a hosted facilitator:
+the payer signs an EIP-3009 `TransferWithAuthorization` and the facilitator's relayer submits it and
+pays the gas. Every chain-specific value in that path — the CAIP-2 network, the token address, its
+EIP-712 domain, the facilitator URL — already funnelled through one package,
+`backend/internal/chain`, which was a single `const` block pinned to Whitechain.
+
+So bringing the rail to Arc is **a profile, not a new code path**:
+
+- `backend/internal/chain/profile.go` — a `Profile` type, the active-profile vars every call site
+  already reads, and an `init()` that selects on `X402_CHAIN`. An unrecognised value panics: this
+  decides which token real money is signed away in, so a typo must not settle anything.
+- `backend/internal/chain/arc.go` — the Arc profile.
+- `backend/internal/chain/whitechain.go` — the same values as before, now as a `Profile`.
+
+Nothing in the signing path, the facilitator client, the relay or the Bazaar catalog mirror needed
+changing. Pointing `FACILITATOR_URL` at Arc's facilitator makes `/discovery/resources` serve Arc's
+paid-endpoint catalog through the code that was already there. The rest of the diff is the three
+places a Go `const` cannot hold a value chosen at startup, two error strings that named one chain,
+and the Whitechain *read* connectors, which now read `chain.Whitechain` explicitly so they stay on
+Whitechain whichever rail settles.
+
+## The flow, per paid API call
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as Agent loop<br/>engine/nodes/tool402.go
+    participant R as AgentMesh relay<br/>api/handlers/x402relay.go
+    participant W as Platform wallet<br/>wallet/evm.go
+    participant F as Arc facilitator<br/>arc.007575.xyz
+    participant C as Arc Testnet<br/>USDC 0x3600…0000
+    participant T as Paid API<br/>tinyx402 /api/arc/v1/search
+
+    A->>T: GET the tool
+    T-->>A: 402 + Payment-Required (base64 challenge)
+    Note over A,T: accepts[0]: exact · eip155:5042002 · 10000 (0.01 USDC)<br/>extra {name USDC, version 2}
+    A->>R: pay through the relay (X-Relay-*)
+    R->>W: sign EIP-3009 TransferWithAuthorization
+    Note over W: EIP-712 domain = {USDC, 2, 5042002, 0x3600…0000}<br/>verified against the token's own DOMAIN_SEPARATOR
+    W-->>R: 65-byte signature
+    R->>T: retry with Payment-Signature / X-Payment
+    T->>F: verify + settle
+    F->>C: relayer submits transferWithAuthorization, pays the gas
+    C-->>F: tx mined
+    F-->>T: settled + tx hash
+    T-->>R: 200 + the paid data + Payment-Response
+    R-->>A: data + explorer link for the run receipt
+```
+
+The payer never holds a gas token. On Arc it could not need one anyway: USDC **is** the native gas
+token, so the asset an agent spends is the asset fees are paid in.
+
+## One package, two rails
+
+```mermaid
+flowchart LR
+    env["X402_CHAIN"]
+
+    subgraph chainpkg["backend/internal/chain — the only chain-aware package"]
+        prof["Profile: network · chainId · token + its EIP-712 domain<br/>facilitator · explorer · faucet · minimum"]
+        wc["Whitechain<br/>1874 · USDT · whitechain.007575.xyz"]
+        arc["Arc<br/>5042002 · USDC · arc.007575.xyz"]
+    end
+
+    subgraph unchanged["unchanged by this work"]
+        sign["wallet/evm.go<br/>EIP-3009 signing"]
+        relay["api/handlers/x402relay.go"]
+        tool["engine/nodes/tool402.go"]
+        cat["bazaar — /discovery/resources mirror"]
+    end
+
+    env -->|blank| wc
+    env -->|arc| arc
+    wc --> prof
+    arc --> prof
+    prof --> sign & relay & tool & cat
+
+    classDef arcbox fill:#1a4d8f,stroke:#5b9bd5,color:#fff
+    class arc arcbox
+```
 
 ## Why Arc changes the economics
 
-AgentMesh's per-call payment model lives or dies on three things: the cost of a
-settlement, how many assets a payer must juggle, and whether a payment can be made by
-a wallet holding nothing but the asset it is spending. Arc improves all three.
+AgentMesh's per-call payment model lives or dies on how many assets a payer must juggle, and
+whether a payment can be made by a wallet holding nothing but the asset it is spending.
 
-| | Algorand rail (existing) | Arc rail (this folder) |
+| | Algorand rail (retired) | Whitechain rail (current default) | Arc rail (this work) |
+|---|---|---|---|
+| **Assets a payer must hold** | Two — ALGO for fees *and* USDC, plus a one-time ASA opt-in before it can receive USDC at all | One in practice (the facilitator relays), but the chain's gas token is a separate volatile asset | One — USDC **is** the native gas token |
+| **Can a funded payer be stranded?** | Yes — out of ALGO means the USDC cannot move | Only if it ever has to self-submit | No. The asset it spends is the asset fees are paid in |
+| **Gasless payment** | 2-transaction fee-pooled group, unsigned stub cosigned by a shared facilitator, group order load-bearing | EIP-3009 authorization, relayer submits | EIP-3009 authorization, relayer submits |
+| **Settlement token** | USDC (ASA) | USDT, with no public faucet — only the token owner can mint | USDC, [faucet.circle.com](https://faucet.circle.com) |
+| **Receipt trail** | DB rows | `transferWithAuthorization` tx per call | `transferWithAuthorization` tx per call, on Arc's explorer |
+
+## Decimals: the one Arc footgun
+
+USDC on Arc exposes **two interfaces over one balance**: the native representation uses 18 decimals
+(`msg.value`, `eth_getBalance`, gas accounting), and the ERC-20 interface at
+`0x3600000000000000000000000000000000000000` uses **6**, matching USDC everywhere else. They are the
+same money at two scales.
+
+This rail uses the **6-decimal ERC-20 interface only**, which is also what keeps AgentMesh's
+existing "USD micros" arithmetic unchanged — amounts are base units, so `10000` is 0.01 USDC. The
+Arc profile carries `NativeDecimals: 18` for display and nothing prices against it. A path where
+the two scales met would misprice a payment by 10¹².
+
+## Live verification
+
+Everything in the Arc profile was read off the chain and the facilitator on 2026-11-07, not taken
+from documentation:
+
+| Checked | How | Result |
 |---|---|---|
-| **Assets a payer must hold** | Two — ALGO for fees *and* USDC, plus a one-time ASA opt-in before it can receive USDC at all | One — USDC **is** the native gas token |
-| **Gasless payment** | A 2-transaction fee-pooled atomic group whose unsigned stub must be cosigned by a shared facilitator; group order is load-bearing and a malformed stub crashes the facilitator | Standard signed-authorization transfer; no group, no cosigner, no stub |
-| **Settlement finality** | ~3.5 s | sub-second, deterministic, no reorgs |
-| **Per-run accounting** | Three separate self-settlements between two platform wallets (pre-fund, platform fee, run total) | One escrow position: open once, release per call, refund the remainder |
-| **Run receipt** | Reconstructed from DB rows | `CallSettled` events on Arc, one per paid API call |
+| Chain id | `eth_chainId` at `https://rpc.testnet.arc.io` | `0x4cef52` = 5042002 |
+| Token | `name()` / `version()` / `decimals()` on `0x3600…0000` | `USDC` / `2` / `6` |
+| **EIP-712 domain** | `DOMAIN_SEPARATOR()` on the token vs the facilitator's `/assets` | both `0x361191522483d32a83e70ae7183b4b9629442c13a78bc9921d6f707911c8c6b0` |
+| Facilitator | `GET /supported` | `exact` on `eip155:5042002` (and `eip155:5042`), `extensions: ["bazaar"]` |
+| Catalog | `GET /discovery/resources` | 2 live endpoints: `…/api/arc/v1/search` GET 0.01 USDC, `…/api/arc/v1/fetch` POST 0.015 USDC |
 
-The asset-count row is the one that matters most for autonomous agents. On a chain
-where fees are paid in a volatile token, an agent that has spent its last cent of that
-token is stranded holding USDC it cannot move. On Arc that failure mode does not exist.
+`backend/internal/chain/profile_test.go` recomputes each profile's EIP-712 domain separator from its
+own fields and asserts it equals the value the token reports, so a drifting `TokenName`,
+`TokenVersion`, `ChainID` or `TokenAddress` fails the build rather than producing signatures the
+facilitator silently rejects.
 
----
+### Payments that actually settled
 
-## Architecture
+Driven from the console's own code against the live facilitator, signed by a throwaway Arc Testnet
+wallet, and then confirmed independently by `eth_getTransactionReceipt`:
 
-```mermaid
-flowchart TB
-    subgraph user["User"]
-        canvas["Canvas — drag-and-drop workflow"]
-    end
+| Call | Transaction | Confirmed |
+|---|---|---|
+| `/api/arc/v1/search` | [`0xe022ec29…80cf16`](https://explorer.testnet.arc.io/tx/0xe022ec29952c7eed9ebb9611f971202a8b70af4b30f6bf5c702111934f80cf16) | status `0x1`, block 71102859, submitted by the facilitator's relayer `0x79DD…2d85` to the USDC contract, `AuthorizationUsed` + `Transfer` logs |
+| `/api/arc/v1/fetch` | [`0xffef67af…ccc185`](https://explorer.testnet.arc.io/tx/0xffef67af800ecd426cad9015d6119716cf7c6abac4816e7bb2dca2dd7bccc185) | status `0x1`, block 71102864, same shape |
 
-    subgraph existing["AgentMesh today — already on master / PR #285"]
-        engine["engine/ — agentic tool-calling loop"]
-        relay["api/handlers/x402relay.go — x402 resource server"]
-        arcpkg["backend/internal/arc/ — PR #285<br/>chains · money · evm · submission<br/>Config.Escrow ← has no address yet"]
-        algo["wallet/algorand.go — ASA + fee-pooled group"]
-    end
+A wallet with no USDC gets the facilitator's real rejection
+(`invalid_exact_evm_insufficient_balance`), surfaced in the console rather than swallowed.
 
-    subgraph new["This folder — built in Arc Studio"]
-        esc["AgentRunEscrow.sol<br/>openRun · settleCall · closeRun<br/>reviewed · tested · deployed"]
-        console["Arc rail console<br/>run lifecycle + live receipts"]
-    end
+## Run the demo
 
-    subgraph arcchain["Arc Testnet — chain 5042002"]
-        usdc["USDC ERC-20 0x3600…0000 — 6 decimals"]
-        id8004["ERC-8004 agent identity"]
-    end
+**The console** — the Arc rail walked one paid call at a time: the decoded 402 challenge, the typed
+data signed, the settlement, the receipt.
 
-    api["Paid x402 API — the agent's tool"]
-    asa["Algorand USDC ASA + facilitator"]
+- In Arc Studio, with no setup: open the
+  [project](https://studio.arc.io/app/11ddfe5a-fa3b-4239-bf10-dd8bca5c40df) and use the preview panel.
+- Locally:
+  ```bash
+  cd arc/console
+  npm install
+  npm run dev        # http://localhost:5173
+  ```
+  Connect an injected wallet on Arc Testnet and fund it with USDC from
+  [faucet.circle.com](https://faucet.circle.com). Nothing else is needed — no key, no API key, no
+  env file. Neither the facilitator nor the paid-tool host sends CORS headers, so the browser
+  reaches both through the dev-server proxies in `console/vite.config.ts` (`/fac`, `/tool`); the
+  console must be run through `vite`, not served as static files.
 
-    canvas --> engine --> relay
-    relay -->|rail=algorand| algo --> asa
-    relay -->|rail=arc| arcpkg
-    arcpkg -.->|ARC_ESCROW, the slot this contract fills| esc
-    console --> esc
-    esc -->|transfer| usdc
-    esc -.->|CallSettled receipts| console
-    arcpkg -.identity.-> id8004
-    relay -->|paid retry| api
-    api -.402 challenge.-> relay
+**AgentMesh itself on the Arc rail** — the same payment, inside the product:
 
-    classDef arcbox fill:#1a4d8f,stroke:#5b9bd5,color:#fff
-    classDef newbox fill:#1f5c3d,stroke:#4caf82,color:#fff
-    class usdc,id8004 arcbox
-    class esc,console newbox
+```bash
+# backend/.env
+X402_CHAIN=arc
+# leave FACILITATOR_URL, X402_RPC_URL, X402_EXPLORER_URL blank: the profile has them
 ```
 
-### The money flow, per run
+Both platform wallets need Arc Testnet USDC (`faucet.circle.com`) and nothing else. Start the
+backend and the startup line reads:
 
-1. **Open** — the backend opens one escrow position for the run: `openRun(runId, budget, deadline)`
-   pulls the run's USDC budget into `AgentRunEscrow`. The budget is metered against the
-   user's existing AgentMesh credit balance, so nothing about the credit system changes.
-2. **Settle** — each time the agent's tool-calling loop pays an API, the backend calls
-   `settleCall(runId, payee, amount, toolRef)`. That single transaction pays the API *and*
-   splits AgentMesh's platform markup to `feeRecipient`, replacing two separate Algorand
-   settlements, and emits a `CallSettled` receipt.
-3. **Close** — `closeRun(runId)` refunds whatever the agent did not spend. The agent side
-   can always reclaim its own unspent budget after the deadline without the backend's
-   cooperation — settler griefing is designed against, not trusted away.
+```
+x402 on Arc Testnet (eip155:5042002): asset USDC 0x3600000000000000000000000000000000000000; Wallet 1 0x…, Wallet 2 0x…
+x402 facilitator supports exact on eip155:5042002
+```
 
-### Why the escrow, and not just direct transfers
+Set `NEXT_PUBLIC_X402_CHAIN=arc` for the frontend so its copy, the settlement token label and the
+demo workflow's paid endpoint match the rail the backend is paying on. The "Run demo workflow"
+button then builds a workflow against Arc's `…/api/arc/v1/search` — tinyx402's endpoints are per
+chain now, and each quotes only its own asset.
 
-A direct per-call transfer works and is simpler, which is why the rail supports it. The
-escrow buys three things a bare transfer cannot:
+## Backend wiring
 
-- **A hard spend ceiling per run**, enforced onchain rather than in application code. A
-  runaway agent loop cannot spend past the budget its run was opened with.
-- **One receipt trail per run**, queryable as events, which is the "on-chain run receipts"
-  item on AgentMesh's own roadmap.
-- **Atomic fee splitting**, so the platform's markup and the vendor's payment cannot
-  diverge — they either both happen or neither does.
-
-### Decimals: the one Arc footgun
-
-USDC on Arc exposes **two interfaces over one balance**: the native representation uses
-18 decimals (`msg.value`, `eth_getBalance`, gas accounting), and the ERC-20 interface at
-`0x3600000000000000000000000000000000000000` uses **6** decimals, matching USDC
-everywhere else. They are the same money at two scales.
-
-Everything in this rail uses the **6-decimal ERC-20 interface only** — the contract and
-console here, and the Go treasury in `backend/internal/arc/money.go`, which keeps
-`ParseUSDCMicros`/`FormatUSDC` on the 6-decimal scale and exposes the 18-decimal native
-balance strictly as a display conversion. `AgentRunEscrow` is deliberately not `payable` and never reads
-`msg.value`, so there is no code path where the two scales can meet and silently
-misprice a payment by 10¹².
-
----
-
-## What this replaces
-
-`contracts/arc/src/AgentMeshEscrow.sol` has been in the tree as an unused prototype —
-64 lines, never deployed, never reviewed. Taking it through Arc Studio's contract review
-surfaced why it could not be shipped as the settlement core:
-
-| Prototype | Consequence |
-|---|---|
-| `release` and `refund` each accept the payer **or** the payee | No escrow guarantee. The payer can refund itself and the payee can release to itself, so either side simply takes the outcome it prefers. |
-| No events | No onchain receipts — the one thing a payment audit trail needs. |
-| One fixed `amount` per deal, released all at once | Cannot express per-call nanopayments drawn against a run budget. |
-| No fee split | AgentMesh's platform markup cannot settle atomically with the vendor's payment. |
-| No deadline, no reentrancy guard | Funds can sit unreclaimable with no unilateral path out. |
-
-`AgentRunEscrow` is the reviewed replacement: one escrow position per workflow run, many
-releases against it, fees split in the same transaction, a receipt event per call, and a
-deadline after which the run owner can always recover unspent funds without the
-settler's cooperation.
-
-The backend was already written for this. `backend/internal/arc/service.go` carries a
-`Config.Escrow` field read from `ARC_ESCROW` — a slot that has never had an address in
-it. This contract is what goes there.
-
-## Contract addresses used
-
-| Contract | Address | Notes |
+| Piece | Where | Note |
 |---|---|---|
-| USDC (ERC-20 interface) | `0x3600000000000000000000000000000000000000` | 6 decimals. Native USDC is the same balance at 18 decimals. |
-| EURC | `0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a` | Arc Testnet. Euro-denominated settlement. |
-| Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` | Signature-based funding, so a run can be funded without the payer holding gas. |
-| ERC-8004 IdentityRegistry | `0x8004A818BFB912233c491871b3d84c89A494BD9e` | Onchain agent identity. |
-| CCTP TokenMessengerV2 | `0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA` | Domain 26. Moves USDC between the Algorand and Arc rails. |
+| Rail selection | `backend/internal/chain/profile.go` | `X402_CHAIN`; `chain.Active` is the chosen profile, the package vars mirror it |
+| EIP-3009 signing | `backend/internal/wallet/evm.go` → `SignAuthorization` | builds the domain from `chain.TokenName/TokenVersion/ChainID`; refuses to sign for any asset but the active profile's token |
+| Startup network check | `backend/cmd/server/main.go` → `walletSvc.ValidateNetwork` | the RPC's chain id must equal the profile's, so a mismatched `X402_RPC_URL` fails loudly instead of signing for the wrong chain |
+| Facilitator | `backend/internal/x402/facilitator.go` | `/supported` is probed at startup; `503 signer_balance_low` means the relayer is out of gas, not a bad payment |
+| Paying a tool | `backend/internal/engine/nodes/tool402.go`, `walletpay.go` | reads the challenge from the `Payment-Required` header (base64) as well as the body, and sends both `Payment-Signature` (base64, the v2 spec name) and `X-Payment` (raw JSON, the older dialect) — which is why tinyx402's Arc endpoints needed no client change |
+| Tool catalog | `backend/internal/bazaar/catalog.go` | mirrors `FACILITATOR_URL/discovery/resources`, keeping only `chain.Network`, so on Arc the Bazaar is Arc's endpoints |
+| Whitechain read connectors | `backend/internal/engine/nodes/connectors_whitechain.go` | pinned to `chain.Whitechain` on purpose — they read Whitechain state whatever rail settles |
+
+## The escrow, and why it is not in this path
+
+[`contracts/AgentRunEscrow.sol`](contracts/AgentRunEscrow.sol) is a per-run USDC escrow for Arc —
+`openRun` / `settleCall` / `settleCallBatch` / `closeRun`, a snapshotted platform fee, agent-
+namespaced run ids, a `CallSettled` receipt per call. It was written and reviewed in Arc Studio over
+two rounds with 7 Foundry suites (94 tests, **Arc Studio's run, not reproduced here** — this machine
+has no Foundry) and Slither.
+
+It is **not deployed and not wired into anything.** The rail above needs no contract: x402 `exact`
+settles against USDC's own EIP-3009 interface. The escrow buys things that bare per-call transfers
+cannot — an onchain spend ceiling per run, a queryable receipt trail, atomic fee splitting — and is
+kept here as the reviewed next step, not as part of this submission's working path.
+See [`contracts/README.md`](contracts/README.md).
+
+## Addresses and endpoints
+
+| | Address / URL | Note |
+|---|---|---|
+| USDC (ERC-20 interface) | `0x3600000000000000000000000000000000000000` | 6 decimals. Native USDC is the same balance at 18 |
+| Arc x402 facilitator | `https://arc.007575.xyz` | `exact` on `eip155:5042002` and `eip155:5042`; relayer `0x79DD6ca37394Abfd0A6cBF1Cb5F35d2D548e2d85` |
+| Paid endpoints | `https://tinyx402.007575.xyz/api/arc/v1/{search,fetch}` | 0.01 / 0.015 USDC, payTo `0xDBA5141562B65De3F7D3afefE156AEC46B87f8c4` |
+| Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` | Used by the escrow contract only, not by this rail |
+| ERC-8004 IdentityRegistry | `0x8004A818BFB912233c491871b3d84c89A494BD9e` | Onchain agent identity; not used yet |
 
 Network: chain id `5042002`, RPC `https://rpc.testnet.arc.io`, explorer
 `https://explorer.testnet.arc.io`, faucet [faucet.circle.com](https://faucet.circle.com).
-
----
-
-## What the review actually checked
-
-The contract went through Arc Studio's review twice. Round one produced findings and a
-fix; round two came back clean. Verified independently against the spec it was written
-to, rather than taken on the review's word:
-
-| Requirement | How it holds |
-|---|---|
-| Budget can never be overspent, fees included | `spent + amount + fee > budget` reverts `BudgetExceeded`. The batch path validates every item and stores the final `spent` **before** any transfer, so a late item that would breach the cap rolls back the whole batch rather than leaving earlier ones settled. |
-| Settler cannot grief the run owner | `settleCall` reverts `RunExpired` once past the deadline, so the settler cannot race a reclamation. `closeRun` is reachable by the run's own agent at any time and needs no cooperation from the settler. |
-| Reentrancy | `nonReentrant` on every state-changing external, state written before token calls, `SafeERC20` throughout. Tested against a token with a transfer hook and a reentrant actor. |
-| A blocklisted payee cannot wedge a run | Arc reverts value transfers to blocklisted addresses. A failed payee transfer reverts that one settlement and restores `spent`; the run stays open and closable. |
-| Tokens that lie | `SafeERC20` catches a silent-`false` transfer; `_checkFunding` compares the balance delta against the stated budget, so a fee-on-transfer token is rejected at funding instead of under-funding the run. Both have dedicated mocks. |
-| Unbounded loops | `settleCallBatch` capped at 50 items. |
-| Ownership cannot be orphaned | `Ownable2Step`, and `renounceOwnership` is explicitly disabled (`RenounceOwnershipDisabled`). |
-
-Two hardenings the review added beyond the original spec:
-
-- **`runId` is namespaced to its agent.** A run id must be `agent address (20 bytes) ‖
-  12-byte backend tag`, enforced by `_recordRun`. Without this, anyone could open a run
-  under an id the backend intended to use later and squat it.
-- **`feeBps` is snapshotted per run.** Each run stores the fee rate in force when it was
-  opened, so an owner changing the platform rate cannot retroactively reprice runs that
-  are already open and partially settled.
-
-### Known trade-offs, stated rather than hidden
-
-- The run's agent can call `closeRun` at any time, not only after the deadline. For
-  AgentMesh this is correct — the agent *is* the platform's own spend wallet, so it is
-  withdrawing its own unspent funds. In a general third-party marketplace the same
-  freedom would let a payer close ahead of a settlement for work already delivered;
-  that deployment would want closure gated on the deadline.
-- If the run's own agent address is blocklisted, `closeRun` reverts and the remaining
-  budget stays in the contract. Unavoidable given Arc's transfer rules, and preferable
-  to silently burning the refund.

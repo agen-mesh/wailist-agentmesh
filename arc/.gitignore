@@ -2,3 +2,5 @@ lib/
 contracts/out/
 contracts/cache/
 .arc-studio/
+console/node_modules/
+console/dist/

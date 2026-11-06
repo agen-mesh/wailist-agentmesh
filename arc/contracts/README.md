@@ -1,6 +1,14 @@
 # AgentRunEscrow
 
-Reviewed and deployed through Arc Studio. 94 Foundry tests, 7 suites.
+Written and reviewed through Arc Studio, over two review rounds. 94 Foundry tests across 7 suites
+and a Slither run — **Arc Studio's run, not reproduced locally**: the machine this was assembled on
+has no Foundry toolchain, so reproduce with the commands below rather than taking the number on
+trust.
+
+**Not deployed, and not wired into AgentMesh.** The Arc rail that ships settles x402 payments
+against USDC's own EIP-3009 interface and needs no contract (see [`../README.md`](../README.md)).
+This escrow is the reviewed next step: an onchain spend ceiling per run, one `CallSettled` receipt
+per paid call, and atomic fee splitting — none of which a bare per-call transfer gives.
 
 ## Run the tests
 

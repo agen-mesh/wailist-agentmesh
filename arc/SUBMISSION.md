@@ -1,20 +1,21 @@
 # Submission — Arc Studio Continuity Track: Bring Your Project to Arc
 
-**Bounty:** Arc Studio Continuity Track — *Bring Your Project to Arc* ($3,000).
+**Track:** Arc Studio Continuity Track — *Bring Your Project to Arc* ($3,000).
 
-**Project:** [AgentMesh](https://www.agent-mesh.app) — a live no-code platform for
-autonomous AI agent workflows, where agents pay per call for the APIs they use over the
-x402 protocol.
+**Fit:** the track's third bullet — *nanopayment infrastructure shipped into an existing AI agent or
+API monetization tool.* AgentMesh is that tool, and was live before the event.
 
-**What was brought to Arc:** AgentMesh's nanopayment settlement layer. The platform
-already monetises agent API calls, but every settlement landed on Algorand, and the
-escrow contract its backend was written against had never existed as anything but an
-unused 64-line prototype. Arc Studio reviewed that prototype, found why it could not be
-shipped, and produced and deployed the contract that replaces it.
+**Project:** [AgentMesh](https://www.agent-mesh.app) — a no-code platform for autonomous AI agent
+workflows, where agents pay per call for the APIs they use over x402.
 
-This matches the track's third bullet — *nanopayment infrastructure shipped into an
-existing AI agent or API monetization tool* — on a project that was already in
-production before the event.
+**What was brought to Arc:** AgentMesh's x402 nanopayment settlement layer. The platform already
+monetises agent API calls per call; every payment settled on another chain's rail. It now settles
+**USDC on Arc Testnet** through Arc's x402 facilitator, with the chain chosen by one environment
+variable and no change to the signing, relay, catalog or agent-loop code.
+
+No contract was deployed for this. x402's `exact` scheme settles against USDC's own EIP-3009
+interface, so the integration is a chain profile — which is the whole point: a payment rail that
+drops into an existing product in a day is one a product will actually adopt.
 
 ---
 
@@ -22,59 +23,50 @@ production before the event.
 
 ### 1. Built in Arc Studio
 
-Arc Studio project: **https://studio.arc.io/app/11ddfe5a-fa3b-4239-bf10-dd8bca5c40df**
+**Arc Studio project: https://studio.arc.io/app/11ddfe5a-fa3b-4239-bf10-dd8bca5c40df**
 
-Arc Studio did the onchain work: wrote `AgentRunEscrow.sol`, reviewed it over two rounds,
-authored 7 Foundry test suites against adversarial token and Permit2 mocks, ran Slither,
-and is deploying to Arc Testnet.
+What Arc Studio did, in that project:
 
-> **Pending at time of writing:** the live Arc Testnet deployment and the console below.
-> Both are in flight in the Studio project; this file is updated with the deployed
-> address and transaction hashes as soon as they exist. Nothing in the table at the
-> bottom marked *pending* should be read as done.
+- Built the **Arc rail console** — the demo app, in [`console/`](console/) in this repo and live in
+  the Studio preview panel. React + viem/wagmi, driving the full x402 exchange against the live
+  facilitator.
+- **Settled real payments on Arc Testnet** from that code while building it, including finding two
+  things the spec handed to it got wrong: the resource server reads the v2 `Payment-Signature`
+  header (not `X-Payment` alone) and answers with `Payment-Response`; and the `fetch` endpoint is
+  `POST` at 0.015 USDC, not `GET` at 0.01. The console reads method, price and input schema from
+  the live catalog as a result.
+- Earlier in the same project: wrote, reviewed (twice) and tested
+  [`contracts/AgentRunEscrow.sol`](contracts/AgentRunEscrow.sol) — 7 Foundry suites, 94 tests,
+  Slither. **Not deployed, not part of this submission's working path**; see the README.
 
-### 2. Functional MVP and architecture diagram
+### 2. Functional MVP, frontend + backend + architecture diagram
 
-- **Backend** — `backend/internal/arc/` carries AgentMesh's Arc treasury: chain and CCTP
-  configuration, the 6-vs-18-decimal money layer, EVM signing, submission and recovery,
-  and operator access control. Its `Config.Escrow` field reads `ARC_ESCROW`, which is the
-  slot this contract fills.
-- **Onchain** — [`arc/contracts/AgentRunEscrow.sol`](contracts/AgentRunEscrow.sol).
-  Written, reviewed and tested; Arc Testnet deployment *pending*.
-- **Frontend** — an Arc rail console in the Arc Studio project walking a run's whole
-  lifecycle against the live contract: open a budget, pay simulated API tools, watch the
-  budget bar move, read the `CallSettled` receipts back from chain, close and refund.
-  *Pending* — built once the contract has a deployed address to point at.
-- **Diagram** — in [`README.md`](README.md), showing which parts already existed and
-  which were built here.
+- **Backend** — AgentMesh's Go backend, in this repo. The Arc rail is
+  `backend/internal/chain/{profile,arc}.go` plus `X402_CHAIN=arc`; the x402 client, EIP-3009
+  signing, relay and Bazaar catalog it feeds were already there and are unchanged.
+- **Frontend** — two, both working: AgentMesh's own Next.js app (its copy, settlement-token labels
+  and demo workflow follow the rail via `NEXT_PUBLIC_X402_CHAIN`), and the Arc rail console in
+  [`console/`](console/).
+- **Architecture diagrams** — in [`README.md`](README.md): a sequence diagram of one paid call end
+  to end, and the one-package/two-rails profile switch.
+- **How to run both** — [README → Run the demo](README.md#run-the-demo).
 
-### 3. Video demonstration, presentation and documentation
+### 3. Video demonstration and presentation
 
-- Documentation: [`README.md`](README.md) for the architecture, the economics argument
-  and the review findings; [`contracts/README.md`](contracts/README.md) for the contract
-  and how to reproduce the test run.
-- **Video and presentation: still to record.** The demo should show the Arc Studio
-  workspace itself, then drive the console through open → settle → settle → close, with
-  the Arc Testnet explorer open on the receipts.
+Script outline, 3½ minutes — *still to record:*
+
+| Time | Beat |
+|---|---|
+| 0:00–0:45 | The Arc Studio project: the console being built there, the chat history, the preview panel. State plainly that the payment code in the repo came out of this workspace. |
+| 0:45–1:15 | The console's rail header: Arc Testnet 5042002, USDC `0x3600…0000`, and the facilitator's advertised domain separator next to the one read from the token by RPC — matching. Then the tool list, read live from `arc.007575.xyz/discovery/resources`. |
+| 1:15–2:15 | "Pay & call" on the search endpoint: the 402 and its decoded `Payment-Required` challenge, the EIP-3009 typed data, the wallet signature, the retry. |
+| 2:15–2:45 | The settlement: tx hash, opened on `explorer.testnet.arc.io` — `AuthorizationUsed` + `Transfer`, submitted by the facilitator's relayer, so the payer spent no gas and held only USDC. |
+| 2:45–3:30 | The same payment inside AgentMesh with `X402_CHAIN=arc`: the startup line naming Arc, the Bazaar filled from Arc's catalog, a workflow run paying `…/api/arc/v1/search`, the run receipt linking to Arc's explorer. Close on the one-asset argument: on Arc the asset an agent spends is the asset fees are paid in, so a funded agent cannot be stranded. |
 
 ### 4. Repository
 
-https://github.com/agen-mesh/wailist-agentmesh
-
----
-
-## The argument in one table
-
-AgentMesh's whole model depends on a payment small enough to put in front of a single
-API call. Arc changes three things that decide whether that works.
-
-| | Algorand rail (existing) | Arc rail (this work) |
-|---|---|---|
-| Assets the payer must hold | Two — a volatile gas token *and* USDC, plus a one-time opt-in before it can receive USDC at all | One — USDC **is** the native gas token |
-| Can a funded payer be stranded? | Yes. A wallet out of gas token cannot move the USDC it holds. | No. The asset it spends is the asset it pays fees in. |
-| Gasless payment | A 2-transaction fee-pooled group whose unsigned stub must be cosigned by a shared facilitator; group order is load-bearing | Witness-bound Permit2 authorization, relayed by anyone |
-| Per-run spend ceiling | Application code only | Enforced onchain — a runaway agent loop cannot exceed its run budget |
-| Receipt trail | Database rows | `CallSettled` events, one per paid API call |
+https://github.com/agen-mesh/wailist-agentmesh — this work is the `feat/arc-run-escrow` branch,
+pull request #290.
 
 ---
 
@@ -82,13 +74,13 @@ API call. Arc changes three things that decide whether that works.
 
 | | |
 |---|---|
-| Foundry tests | 94 tests, 7 suites, **94 passing / 0 failing** |
-| Static analysis | Slither |
-| Contract review | Arc Studio review, two rounds, clean on the second |
-| Contract compiled locally | No — this machine has no Go or Foundry toolchain; the 94-test run is Arc Studio's, reproducible with `forge test` per `contracts/README.md` |
-| Live on Arc Testnet | *pending* — open → settle ×2 → close, to be exercised against the deployed contract |
+| Arc profile values | Read live on 2026-11-07 from `rpc.testnet.arc.io` and `arc.007575.xyz`; the token's `DOMAIN_SEPARATOR()` matches the facilitator's `/assets`. Table in [README](README.md#live-verification) |
+| Payments on Arc Testnet | 2, both confirmed by `eth_getTransactionReceipt`: `0xe022ec29…80cf16` and `0xffef67af…ccc185` — status `0x1`, relayer-submitted, `AuthorizationUsed` + `Transfer` |
+| Go | `go build ./...` and `go test ./internal/chain/...` — see the pull request for the run and its output |
+| Frontend | `pnpm typecheck` clean after the chain-aware copy changes |
+| Console | `npm install && npm run build` from this repo's copy, plus the live settlements above |
+| Contract | Written and reviewed in Arc Studio, 94 Foundry tests **reported by Arc Studio** and not reproduced here (no Foundry on the machine this was assembled on) |
 
-What is **not** claimed: no mainnet deployment, no live production cutover of AgentMesh's
-settlement path to Arc, and no audit beyond Arc Studio's own review. The Go treasury in
-`backend/internal/arc/` predates this work and is reviewed separately in its own pull
-request.
+**Not claimed:** no contract deployed; no mainnet; AgentMesh's production deployment still settles on
+its existing rail (Arc is opt-in by `X402_CHAIN`, deliberately, so merging this changes nothing
+until it is set); no audit beyond Arc Studio's own review of the unused escrow.
