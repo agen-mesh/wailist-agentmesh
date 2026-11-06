@@ -46,6 +46,21 @@ func NewService(encKey, rpcURL string) *Service {
 // Network is the CAIP-2 network every signature from this service targets.
 func (s *Service) Network() string { return chain.Network }
 
+func (s *Service) ValidateNetwork(ctx context.Context) error {
+	var result string
+	if err := s.rpc(ctx, "eth_chainId", []any{}, &result); err != nil {
+		return fmt.Errorf("check Whitechain testnet RPC: %w", err)
+	}
+	id, err := hexutil.DecodeBig(result)
+	if err != nil {
+		return fmt.Errorf("decode RPC chain ID: %w", err)
+	}
+	if id.Cmp(big.NewInt(chain.ChainID)) != 0 {
+		return fmt.Errorf("unsupported RPC chain ID %s: this branch only supports Whitechain testnet (%d)", id, chain.ChainID)
+	}
+	return nil
+}
+
 // GenerateWallet creates a fresh secp256k1 key and returns its checksummed
 // address plus the encrypted private key.
 func (s *Service) GenerateWallet() (address, encKey string, err error) {

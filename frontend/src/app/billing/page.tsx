@@ -20,7 +20,7 @@ const LOW_BALANCE_USD = 5;
 
 const HOW_IT_WORKS = [
   "Credits are spent as your agents call paid tools, x402 endpoints, and LLM providers.",
-  "Testnet usage is always free. You only pay for mainnet calls.",
+  "Blockchain payments use Whitechain testnet only. Workflow usage still consumes credits.",
   "Every purchase generates a printable receipt for your records.",
 ];
 

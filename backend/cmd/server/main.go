@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -54,6 +55,15 @@ func main() {
 	broker := sse.NewBroker()
 
 	walletSvc := wallet.NewService(mustEnv("ENCRYPTION_KEY"), envOr("WHITECHAIN_RPC_URL", chain.DefaultRPCURL))
+	networkCtx, cancelNetworkCheck := context.WithTimeout(ctx, 10*time.Second)
+	networkErr := walletSvc.ValidateNetwork(networkCtx)
+	cancelNetworkCheck()
+	if networkErr != nil {
+		log.Fatalf("testnet-only payments: %v", networkErr)
+	}
+	if explorerURL := strings.TrimRight(os.Getenv("WHITECHAIN_EXPLORER_URL"), "/"); explorerURL != "" && explorerURL != chain.DefaultExplorerURL {
+		log.Fatalf("WHITECHAIN_EXPLORER_URL must be %s on this testnet-only branch", chain.DefaultExplorerURL)
+	}
 
 	// Wallet 2: payTo on every 402 we issue, and the account that pays
 	// outbound x402 tools. Wallet 1: pays each run's pre-fund and the

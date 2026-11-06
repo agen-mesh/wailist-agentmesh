@@ -12,15 +12,13 @@
 // fee-pooled group signing, and the header encoding -- all of which already
 // exist here, in the exact form the relay itself uses.
 //
-// THIS SPENDS REAL MONEY. On mainnet the asset is real USDC and the transfer
-// is irreversible. Guards, in order:
+// This branch only supports Whitechain testnet USDT. Guards, in order:
 //
 //   - It refuses to pay without -confirm. Without it, the command probes the
 //     endpoint, prints the challenge and the exact amount it would send, and
 //     exits 0 without signing anything. Run it that way first, every time.
 //   - It refuses any quote above -max-micros (default $0.05).
-//   - It refuses any asset other than -asset-id, so a target quoting some
-//     other ASA can never be paid by accident.
+//   - It refuses any asset other than the allowlisted testnet USDT.
 //
 // Secrets are read from the environment, not flags: a flag value is visible
 // in `ps` output and lands in shell history. Set ENCRYPTION_KEY and
@@ -48,11 +46,6 @@ import (
 	"github.com/agentmesh/backend/internal/wallet"
 )
 
-// Mainnet/testnet constants, kept identical to cmd/server/main.go's own
-// defaults. relayNetwork is the CAIP-style genesis-hash identifier the x402
-// payload carries, which is a different string from the human network name
-// the wallet service takes -- both are derived from -network here so they
-// cannot disagree.
 func main() {
 	log.SetFlags(0)
 
@@ -96,6 +89,9 @@ func main() {
 	defer cancel()
 
 	walletSvc := wallet.NewService(encryptionKey, *rpcURL)
+	if err := walletSvc.ValidateNetwork(ctx); err != nil {
+		log.Fatalf("testnet-only payments: %v", err)
+	}
 	payerAddr := "(not resolved -- dry run needs no credentials)"
 	if encryptionKey != "" && payerEnc != "" {
 		addr, err := walletSvc.AddressForEncKey(payerEnc)
