@@ -3,8 +3,9 @@
  *
  * Mirrors backend/internal/chain: one process settles on one rail, chosen there
  * by X402_CHAIN. Set NEXT_PUBLIC_X402_CHAIN to the same value so what the UI
- * says matches what the backend actually pays with. Blank is Whitechain, the
- * backend's default too.
+ * says matches what the backend actually pays with. Blank and "whitechain"
+ * are Whitechain, the backend's default. Any other value throws: a typo must
+ * not label an Arc USDC settlement as USDT.
  *
  * Receipts returned by the API carry their own explorerURL — prefer that over
  * building one here. EXPLORER is for fixtures and for the rare place the API
@@ -45,8 +46,17 @@ const ARC: ChainInfo = {
   demoSearchEndpoint: "https://tinyx402.007575.xyz/api/arc/v1/search",
 };
 
-export const CHAIN: ChainInfo =
-  process.env.NEXT_PUBLIC_X402_CHAIN?.trim().toLowerCase() === "arc" ? ARC : WHITECHAIN;
+/** Resolves NEXT_PUBLIC_X402_CHAIN. Exported so a typo can be tested without rebuilding. */
+export function chainForEnv(raw: string | undefined): ChainInfo {
+  const id = raw?.trim().toLowerCase() ?? "";
+  if (id === "" || id === "whitechain") return WHITECHAIN;
+  if (id === "arc") return ARC;
+  throw new Error(
+    `NEXT_PUBLIC_X402_CHAIN=${JSON.stringify(raw)} is not a known rail (want whitechain or arc)`,
+  );
+}
+
+export const CHAIN: ChainInfo = chainForEnv(process.env.NEXT_PUBLIC_X402_CHAIN);
 
 /** Explorer link for a transaction hash. Empty in, empty out. */
 export function txURL(hash: string): string {

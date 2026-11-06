@@ -2,8 +2,8 @@ import { useCallback, useRef, useState } from 'react'
 import { useAccount, useSignTypedData, useSwitchChain } from 'wagmi'
 import type { Hex } from 'viem'
 import { buildRequest, type FieldValues, type Tool } from '@/lib/catalog'
-import { errorText, runPaidCall, type FlowState } from '@/lib/pay'
-import { ARC_CHAIN_ID } from '@/lib/x402'
+import { errorText, runPaidCall, TRANSFER_TYPES, type FlowState, type TypedDataToSign } from '@/lib/pay'
+import { ARC_CHAIN_ID, assertSignableArcDomain, eip712DomainSeparator } from '@/lib/x402'
 
 export interface Receipt {
   id: string
@@ -47,7 +47,9 @@ export function usePaidCall({ onchainDomainSeparator }: Options) {
           request,
           payer: isConnected ? address : undefined,
           onchainDomainSeparator,
-          sign: async (typed) => {
+          sign: async (typed: TypedDataToSign) => {
+            const localSeparator = eip712DomainSeparator(typed.domain)
+            assertSignableArcDomain(typed.domain, onchainDomainSeparator, localSeparator)
             if (chainId !== ARC_CHAIN_ID) {
               try {
                 await switchChainAsync({ chainId: ARC_CHAIN_ID })
@@ -57,8 +59,8 @@ export function usePaidCall({ onchainDomainSeparator }: Options) {
             }
             return signTypedDataAsync({
               domain: typed.domain,
-              types: typed.types,
-              primaryType: typed.primaryType,
+              types: TRANSFER_TYPES,
+              primaryType: 'TransferWithAuthorization',
               message: typed.message,
             })
           },

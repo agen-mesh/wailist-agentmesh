@@ -1,4 +1,5 @@
-lib/
+# Foundry dependencies at arc/lib. A bare `lib/` also hid arc/console/src/lib.
+/lib/
 contracts/out/
 contracts/cache/
 .arc-studio/

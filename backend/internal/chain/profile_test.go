@@ -2,11 +2,14 @@ package chain_test
 
 import (
 	"math/big"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/chain"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/joho/godotenv"
 )
 
 // domainSeparator recomputes EIP-712's domain hash from a profile the way the
@@ -113,6 +116,54 @@ func TestProfilesStayPinnedWhenAnotherIsActive(t *testing.T) {
 	if chain.Whitechain.IsToken(chain.Arc.TokenAddress) {
 		t.Fatal("arc USDC recognised as whitechain's token")
 	}
+}
+
+// The server loads backend/.env in main, after every package init. A chain
+// id that exists only in that file has to select the profile, and a typo
+// there has to panic, same as a typo in the process environment.
+func TestDotEnvSelectsProfileTheWayMainDoes(t *testing.T) {
+	t.Cleanup(func() {
+		os.Unsetenv("X402_CHAIN")
+		chain.Use("")
+	})
+	os.Unsetenv("X402_CHAIN")
+	chain.Use(os.Getenv("X402_CHAIN"))
+	if chain.Active.ID != "whitechain" {
+		t.Fatalf("before dotenv, active=%s", chain.Active.ID)
+	}
+
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte("X402_CHAIN=arc\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := godotenv.Load(path); err != nil {
+		t.Fatal(err)
+	}
+	chain.Use(os.Getenv("X402_CHAIN"))
+	if chain.Active.ID != "arc" || chain.Network != chain.Arc.Network || chain.DefaultFacilitatorURL != chain.Arc.FacilitatorURL {
+		t.Fatalf("after dotenv, active=%s network=%s facilitator=%s", chain.Active.ID, chain.Network, chain.DefaultFacilitatorURL)
+	}
+}
+
+func TestDotEnvTypoPanicsTheWayMainDoes(t *testing.T) {
+	t.Cleanup(func() {
+		os.Unsetenv("X402_CHAIN")
+		chain.Use("")
+	})
+	os.Unsetenv("X402_CHAIN")
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte("X402_CHAIN=arcc\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := godotenv.Load(path); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal(`Use of X402_CHAIN=arcc from .env did not panic`)
+		}
+	}()
+	chain.Use(os.Getenv("X402_CHAIN"))
 }
 
 func TestFormatToken(t *testing.T) {

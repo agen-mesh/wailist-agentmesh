@@ -120,7 +120,7 @@ func Merge(catalog []Resource) []Resource {
 				// list on testnet would merge out priced and payable on
 				// mainnet while ResourceCard/EndpointRow still render a
 				// "testnet" pill over it.
-				r.Testnet = r.Network == SettlementNetwork
+				r.Testnet = r.Network == SettlementNetwork()
 			}
 			// A hand-authored description and param set are strictly better
 			// than the publisher's own, which is why the entry is curated.

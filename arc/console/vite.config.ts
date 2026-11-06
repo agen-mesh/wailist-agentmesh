@@ -35,10 +35,8 @@ export default defineConfig({
     ],
   },
   server: {
-    allowedHosts: true,
-    cors: true,
-    // Neither the facilitator nor the paid tool host sends CORS headers, so the
-    // browser reaches them through same-origin dev-server proxies.
+    // Same-origin page. The proxies below do not need CORS, and allowedHosts
+    // stays on Vite's localhost default so this dev server is not an open proxy.
     proxy: {
       '/fac': {
         target: 'https://arc.007575.xyz',

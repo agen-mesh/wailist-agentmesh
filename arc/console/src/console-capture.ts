@@ -16,6 +16,8 @@
  * Built with Arc Studio — https://studio.arc.io
  */
 
+import { parentOrigin } from './parent-origin';
+
 type ConsoleLevel = 'log' | 'info' | 'warn' | 'error' | 'debug';
 
 interface ConsoleLogEntry {
@@ -44,26 +46,7 @@ const LEVELS: ConsoleLevel[] = ['log', 'info', 'warn', 'error', 'debug'];
 
 const DEV = import.meta.env.DEV;
 
-const _parentOrigin: string | null = (() => {
-  try {
-    if (window.location.ancestorOrigins?.length) {
-      return window.location.ancestorOrigins[0];
-    }
-  } catch {
-    /* sandboxed iframe may throw */
-  }
-
-  try {
-    if (document.referrer) {
-      return new URL(document.referrer).origin;
-    }
-  } catch {
-    /* malformed referrer */
-  }
-
-  // Dev server only: the preview proxy's frame-ancestors already pins the parent to Studio.
-  return '*';
-})();
+const _parentOrigin: string = parentOrigin();
 
 // ---------------------------------------------------------------------------
 // Formatting

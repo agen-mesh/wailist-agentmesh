@@ -26,6 +26,10 @@ import (
 
 func main() {
 	_ = godotenv.Load()
+	// init already selected from the process environment, before this Load.
+	// Re-select so X402_CHAIN in .env is the rail that actually settles.
+	// An unknown id panics here instead of signing the wrong token.
+	chain.Use(os.Getenv("X402_CHAIN"))
 
 	ctx := context.Background()
 
@@ -199,8 +203,8 @@ func main() {
 		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 
-		// Empty falls back to the Whitechain facilitator's discovery
-		// catalog (see defaultBazaarBaseURL).
+		// Empty falls back to the active profile's facilitator
+		// (see defaultBazaarBaseURL).
 		BazaarBaseURL: os.Getenv("BAZAAR_BASE_URL"),
 
 		Cashfree:      cashfreeClient,

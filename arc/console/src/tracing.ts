@@ -10,6 +10,8 @@
  * Built with Arc Studio — https://studio.arc.io
  */
 
+import { parentOrigin, STUDIO_ORIGIN } from './parent-origin';
+
 const DEV = import.meta.env.DEV;
 
 // ---------------------------------------------------------------------------
@@ -145,23 +147,15 @@ function emitWithGroups(event: RpcTraceEvent | HttpTraceEvent): void {
   emit(groups.length > 0 ? { ...event, groups } : event);
 }
 
-const _parentOrigin: string | null = (() => {
-  try {
-    // ancestorOrigins is available in Chromium and Safari
-    if (window.location.ancestorOrigins?.length) {
-      return window.location.ancestorOrigins[0];
-    }
-  } catch { /* sandboxed iframe may throw */ }
+const _parentOrigin: string = parentOrigin();
 
-  try {
-    if (document.referrer) {
-      return new URL(document.referrer).origin;
-    }
-  } catch { /* malformed referrer */ }
-
-  // Dev server only: the preview proxy's frame-ancestors already pins the parent to Studio.
-  return '*';
-})();
+/** EIP-3009 authorizations and their signatures stay in the wallet. */
+function redactTypedDataSign(method: string, params: unknown[], result: unknown): { params: unknown[]; result: unknown } {
+  if (method === 'eth_signTypedData' || method.startsWith('eth_signTypedData_')) {
+    return { params: [], result: result === undefined ? undefined : '[redacted]' };
+  }
+  return { params, result };
+}
 
 function emit(event: TraceEvent): void {
   if (!_parentOrigin) return;
@@ -217,6 +211,11 @@ let _enabled = false;
 
 if (DEV) window.addEventListener('message', (e: MessageEvent<MessageData>) => {
   if (e.source !== window.parent) {
+    return;
+  }
+  // A page that embeds this console must not be able to turn tracing on
+  // unless it is the frame we already decided to talk to.
+  if (e.origin !== _parentOrigin && e.origin !== STUDIO_ORIGIN) {
     return;
   }
 
@@ -402,7 +401,8 @@ if (DEV) try {
             const embedded = parseChainId((result as Record<string, unknown>).chainId);
             if (embedded > 0) learnChain(url, embedded);
           }
-          emitWithGroups({ kind: 'rpc', id: id(), timestamp: ts, method: r.method, params: r.params ?? [], chainId: chainForUrl(url), result, error, duration: dur });
+          const safe = redactTypedDataSign(r.method, r.params ?? [], result);
+          emitWithGroups({ kind: 'rpc', id: id(), timestamp: ts, method: r.method, params: safe.params, chainId: chainForUrl(url), result: safe.result, error, duration: dur });
         }
       } else {
         emitWithGroups({ kind: 'http', id: id(), timestamp: ts, method, url, status: res.status, duration: dur, requestBody: reqBody, responseBody: resBody });
@@ -438,9 +438,10 @@ function patchProvider(provider: EIP1193Provider | undefined): void {
     try {
       result = await _request(args);
     } catch (err) {
+      const failed = redactTypedDataSign(method, params, undefined);
       emitWithGroups({
         kind: 'rpc', id: id(), timestamp: ts,
-        method, params, chainId: _providerChainId,
+        method, params: failed.params, chainId: _providerChainId,
         error: err instanceof Error ? err.message : String(err),
         duration: Date.now() - ts,
       });
@@ -455,10 +456,11 @@ function patchProvider(provider: EIP1193Provider | undefined): void {
       log('provider chain learned:', _providerChainId);
     }
 
+    const safe = redactTypedDataSign(method, params, result);
     emitWithGroups({
       kind: 'rpc', id: id(), timestamp: ts,
-      method, params, chainId: _providerChainId,
-      result, duration: dur,
+      method, params: safe.params, chainId: _providerChainId,
+      result: safe.result, duration: dur,
     });
 
     return result;

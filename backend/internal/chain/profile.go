@@ -102,6 +102,8 @@ var (
 	USDTAddress string
 )
 
+// Process environment only. main calls Use again after godotenv.Load,
+// because a value that exists only in backend/.env is not visible yet.
 func init() { Use(os.Getenv("X402_CHAIN")) }
 
 // Use selects a profile by its X402_CHAIN id. An empty id is the default
@@ -172,16 +174,16 @@ func (p Profile) FormatToken(micros int64) string {
 
 // The package-level helpers below operate on the ACTIVE profile.
 
-func Extra() map[string]any            { return Active.Extra() }
-func TxURL(hash string) string         { return Active.TxURL(hash) }
-func AddressURL(addr string) string    { return Active.AddressURL(addr) }
-func IsToken(asset string) bool        { return Active.IsToken(asset) }
-func FormatToken(micros int64) string  { return Active.FormatToken(micros) }
+func Extra() map[string]any           { return Active.Extra() }
+func TxURL(hash string) string        { return Active.TxURL(hash) }
+func AddressURL(addr string) string   { return Active.AddressURL(addr) }
+func IsToken(asset string) bool       { return Active.IsToken(asset) }
+func FormatToken(micros int64) string { return Active.FormatToken(micros) }
 
 // IsUSDT and FormatUSDT are the pre-Arc names for IsToken and FormatToken,
 // kept so existing call sites do not churn.
-func IsUSDT(asset string) bool        { return Active.IsToken(asset) }
-func FormatUSDT(micros int64) string  { return Active.FormatToken(micros) }
+func IsUSDT(asset string) bool       { return Active.IsToken(asset) }
+func FormatUSDT(micros int64) string { return Active.FormatToken(micros) }
 
 // IsAddress reports whether s is a 0x-prefixed 20-byte hex address.
 func IsAddress(s string) bool {

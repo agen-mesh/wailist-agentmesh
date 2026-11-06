@@ -150,7 +150,7 @@ func fetchWhitechainAccount(ctx context.Context, node models.WorkflowNode, rc Ru
 		acct.CoinBalance = "0"
 	}
 	return map[string]any{
-		"network":     chain.Network,
+		"network":     chain.Whitechain.Network,
 		"address":     acct.Hash,
 		"isContract":  acct.IsContract,
 		"wbt":         formatBaseUnits(acct.CoinBalance, chain.Whitechain.NativeDecimals),
@@ -237,7 +237,7 @@ func fetchWhitechainTransactions(ctx context.Context, node models.WorkflowNode, 
 		rows = append(rows, row)
 	}
 	return map[string]any{
-		"network":   chain.Network,
+		"network":   chain.Whitechain.Network,
 		"address":   addr,
 		"transfers": rows,
 		"count":     len(rows),
@@ -257,7 +257,7 @@ func fetchWhitechainToken(ctx context.Context, node models.WorkflowNode, rc RunC
 		return nil, err
 	}
 	out := map[string]any{
-		"network":        chain.Network,
+		"network":        chain.Whitechain.Network,
 		"token":          t.AddressHash,
 		"name":           t.Name,
 		"symbol":         t.Symbol,

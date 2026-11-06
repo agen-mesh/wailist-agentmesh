@@ -13,9 +13,10 @@ import (
 // defaultBazaarBaseURL is the active chain's x402 facilitator, whose
 // /discovery/resources lists every x402 tool it has settled on that chain.
 // Used when Deps leaves BazaarBaseURL empty, so a missing env var degrades to
-// the real catalog rather than to no catalog at all. A var, not a const: the
-// facilitator follows X402_CHAIN (see internal/chain).
-var defaultBazaarBaseURL = chain.DefaultFacilitatorURL
+// the real catalog rather than to no catalog at all. Read at call time:
+// package init runs before godotenv.Load, so a copied URL would stay on
+// Whitechain when X402_CHAIN is set only in backend/.env.
+func defaultBazaarBaseURL() string { return chain.DefaultFacilitatorURL }
 
 // bazaarCacheTTL bounds how stale the mirrored catalog can be. The upstream
 // changes on the order of hours (entries are added when a merchant first
@@ -64,7 +65,7 @@ func (d *Deps) bazaarBaseURL() string {
 	if d.BazaarBaseURL != "" {
 		return d.BazaarBaseURL
 	}
-	return defaultBazaarBaseURL
+	return defaultBazaarBaseURL()
 }
 
 // catalog returns the merged catalog, refreshing it if the cache has expired.
