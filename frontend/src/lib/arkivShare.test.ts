@@ -30,7 +30,12 @@ vi.mock("./shareCrypto", async (importOriginal) => {
   return { ...actual, openShare: vi.fn(actual.openShare) };
 });
 
-import { ShareGoneError, openSharedWorkflow } from "./arkivShare";
+import {
+  ShareGoneError,
+  ShareNotConfiguredError,
+  ShareUnreachableError,
+  openSharedWorkflow,
+} from "./arkivShare";
 
 const entityKey = "0x" + "ab".repeat(32);
 const signer = "0x1111111111111111111111111111111111111111";
@@ -94,12 +99,20 @@ it("uses the fragment key only for decrypt", async () => {
 });
 
 it("throws ShareGoneError when the entity or the payload is missing", async () => {
-  mocks.getEntity.mockRejectedValue(new Error("missing"));
+  const missing = new Error("no entity");
+  missing.name = "NoEntityFoundError";
+  mocks.getEntity.mockRejectedValue(missing);
   await expect(openSharedWorkflow(entityKey, "")).rejects.toThrow(gone);
   await expect(openSharedWorkflow(entityKey, "")).rejects.toBeInstanceOf(ShareGoneError);
 
   mocks.getEntity.mockResolvedValue({ $creator: signer, attributes: {} });
   await expect(openSharedWorkflow(entityKey, "")).rejects.toThrow(gone);
+});
+
+it("says the link died only when Arkiv has no entity", async () => {
+  mocks.getEntity.mockRejectedValue(new Error("429"));
+  await expect(openSharedWorkflow(entityKey, "")).rejects.toBeInstanceOf(ShareUnreachableError);
+  await expect(openSharedWorkflow(entityKey, "")).rejects.toThrow("Couldn't reach Arkiv, try again.");
 });
 
 it("rejects an entity that was not created by the share wallet", async () => {
@@ -109,12 +122,14 @@ it("rejects an entity that was not created by the share wallet", async () => {
   });
   await expect(openSharedWorkflow(entityKey, "")).rejects.toBeInstanceOf(ShareGoneError);
 
+  mocks.getEntity.mockClear();
   vi.stubEnv("NEXT_PUBLIC_ARKIV_SHARE_ADDRESS", "");
   mocks.getEntity.mockResolvedValue({
     $creator: signer,
     attributes: { payload: { type: "bytes", value: gzip } },
   });
-  await expect(openSharedWorkflow(entityKey, "")).rejects.toBeInstanceOf(ShareGoneError);
+  await expect(openSharedWorkflow(entityKey, "")).rejects.toBeInstanceOf(ShareNotConfiguredError);
+  expect(mocks.getEntity).not.toHaveBeenCalled();
 });
 
 it("surfaces a bad fragment key and a public payload that is not gzip", async () => {

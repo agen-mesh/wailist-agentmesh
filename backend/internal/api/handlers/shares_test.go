@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -46,14 +45,13 @@ func (s *stubWriter) CreateShare(context.Context, []byte) (string, error) {
 }
 
 type blockingWriter struct {
-	once    sync.Once
-	started chan struct{}
+	entered chan struct{}
 	release chan struct{}
 	key     string
 }
 
 func (b *blockingWriter) CreateShare(ctx context.Context, _ []byte) (string, error) {
-	b.once.Do(func() { close(b.started) })
+	b.entered <- struct{}{}
 	select {
 	case <-b.release:
 		return b.key, nil
@@ -102,9 +100,17 @@ func TestCreateShareDoesNotReadJSON(t *testing.T) {
 	if rec.Code != http.StatusUnsupportedMediaType || body.read {
 		t.Fatalf("code %d read %v, want 415 and unread", rec.Code, body.read)
 	}
+
+	req = withUser(httptest.NewRequest(http.MethodPost, "/shares", bytes.NewReader([]byte{1})), "dev")
+	req.Header.Set("Content-Type", "application/octet-stream; charset=binary")
+	rec = httptest.NewRecorder()
+	(&handlers.Deps{ShareWriter: &stubWriter{key: validKey}}).CreateShare(rec, req)
+	if rec.Code == http.StatusUnsupportedMediaType {
+		t.Fatalf("charset parameter rejected the octet-stream body: %d %s", rec.Code, rec.Body.String())
+	}
 }
 
-func TestCreateShareRollsBackWhenTheWriterFails(t *testing.T) {
+func TestCreateShareCountsAFailedWrite(t *testing.T) {
 	d := testDeps(t)
 	clearShareMeter(t, d)
 	d.ShareWriter = &stubWriter{err: arkivshare.ErrUnconfirmed}
@@ -126,8 +132,8 @@ func TestCreateShareRollsBackWhenTheWriterFails(t *testing.T) {
 		t.Fatal("request log contains the payload")
 	}
 	n, err := d.Store.ShareMeterCount(context.Background())
-	if err != nil || n != 0 {
-		t.Fatalf("meter rows %d err %v, want 0", n, err)
+	if err != nil || n != 1 {
+		t.Fatalf("meter rows %d err %v, want 1", n, err)
 	}
 }
 
@@ -168,16 +174,42 @@ func TestCreateShareDisabledWhenTheWriterRefusesTheKey(t *testing.T) {
 		t.Fatalf("disabled writer = %d %q", rec.Code, rec.Body.String())
 	}
 	n, err := d.Store.ShareMeterCount(context.Background())
-	if err != nil || n != 0 {
-		t.Fatalf("meter rows %d err %v, want 0", n, err)
+	if err != nil || n != 1 {
+		t.Fatalf("meter rows %d err %v, want 1", n, err)
 	}
 }
 
-func TestCreateShareBusyDoesNotWait(t *testing.T) {
+func TestCreateShareBusyWhenTheMeterLockIsHeld(t *testing.T) {
+	d := testDeps(t)
+	clearShareMeter(t, d)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	holdDone := make(chan error, 1)
+	go func() {
+		holdDone <- d.Store.WithShareLock(context.Background(), func(ctx context.Context, tx pgx.Tx) error {
+			close(started)
+			<-release
+			return nil
+		})
+	}()
+	<-started
+	rec := httptest.NewRecorder()
+	d.ShareWriter = &stubWriter{key: validKey}
+	d.CreateShare(rec, shareReq(bytes.NewReader([]byte("graph"))))
+	if rec.Code != http.StatusServiceUnavailable || rec.Body.String() != "{\"error\":\"share_busy\"}\n" {
+		t.Fatalf("busy = %d %q", rec.Code, rec.Body.String())
+	}
+	close(release)
+	if err := <-holdDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCreateShareDoesNotHoldTheLockWhileArkivWrites(t *testing.T) {
 	d := testDeps(t)
 	clearShareMeter(t, d)
 	writer := &blockingWriter{
-		started: make(chan struct{}),
+		entered: make(chan struct{}),
 		release: make(chan struct{}),
 		key:     validKey,
 	}
@@ -195,15 +227,20 @@ func TestCreateShareBusyDoesNotWait(t *testing.T) {
 		d.CreateShare(rec, shareReq(bytes.NewReader([]byte("graph"))))
 		firstDone <- rec.Code
 	}()
-	<-writer.started
-	rec := httptest.NewRecorder()
-	d.CreateShare(rec, shareReq(bytes.NewReader([]byte("graph"))))
-	if rec.Code != http.StatusServiceUnavailable || rec.Body.String() != "{\"error\":\"share_busy\"}\n" {
-		t.Fatalf("busy = %d %q", rec.Code, rec.Body.String())
-	}
+	<-writer.entered
+	secondDone := make(chan int, 1)
+	go func() {
+		rec := httptest.NewRecorder()
+		d.CreateShare(rec, shareReq(bytes.NewReader([]byte("graph"))))
+		secondDone <- rec.Code
+	}()
+	<-writer.entered
 	close(writer.release)
 	if code := <-firstDone; code != http.StatusCreated {
-		t.Fatalf("holder = %d, want 201", code)
+		t.Fatalf("first = %d, want 201", code)
+	}
+	if code := <-secondDone; code != http.StatusCreated {
+		t.Fatalf("second = %d, want 201", code)
 	}
 }
 
@@ -233,7 +270,7 @@ func TestCreateShareReturnsTheReceiptAndCapsTheHour(t *testing.T) {
 	}
 }
 
-func TestCreateShareRollsBackABadEntityKey(t *testing.T) {
+func TestCreateShareCountsABadEntityKey(t *testing.T) {
 	d := testDeps(t)
 	clearShareMeter(t, d)
 	d.ShareWriter = &stubWriter{key: "not-a-key"}
@@ -243,8 +280,8 @@ func TestCreateShareRollsBackABadEntityKey(t *testing.T) {
 		t.Fatalf("bad key = %d %s", rec.Code, rec.Body.String())
 	}
 	n, err := d.Store.ShareMeterCount(context.Background())
-	if err != nil || n != 0 {
-		t.Fatalf("meter rows %d err %v, want 0", n, err)
+	if err != nil || n != 1 {
+		t.Fatalf("meter rows %d err %v, want 1", n, err)
 	}
 }
 

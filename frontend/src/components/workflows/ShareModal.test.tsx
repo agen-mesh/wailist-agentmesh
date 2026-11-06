@@ -8,6 +8,12 @@ import { loadTemplateWorkflow } from "@/lib/templateWorkflow";
 
 vi.mock("@/lib/nativeAuth", () => ({ IS_NATIVE: true, authHeaders: () => ({}) }));
 
+const readOnlyState = vi.hoisted(() => ({ current: false }));
+
+vi.mock("@/hooks/useReadOnly", () => ({
+  useReadOnly: () => readOnlyState.current,
+}));
+
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
@@ -59,7 +65,10 @@ beforeEach(() => {
   vi.mocked(loadTemplateWorkflow).mockReset();
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  readOnlyState.current = false;
+});
 
 it("posts ciphertext and hides the key and the link until 201", async () => {
   const posted: Uint8Array[] = [];
@@ -87,6 +96,9 @@ it("posts ciphertext and hides the key and the link until 201", async () => {
   expect(link.textContent?.split("#")[0]).not.toContain("KEYMATERIAL");
   expect(vi.mocked(loadTemplateWorkflow)).not.toHaveBeenCalled();
   expect(screen.queryByRole("textbox")).toBeNull();
+  expect(screen.queryByRole("link", { name: "Post" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Email" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy();
 });
 
 it("posts the gzip when anyone with the link may read it", async () => {
@@ -102,6 +114,37 @@ it("posts the gzip when anyone with the link may read it", async () => {
   expect(vi.mocked(sealShare)).not.toHaveBeenCalled();
   expect(vi.mocked(createShare)).toHaveBeenCalledWith(Uint8Array.of(1, 2, 3));
   expect(vi.mocked(loadTemplateWorkflow)).not.toHaveBeenCalled();
+  expect(screen.getByRole("link", { name: "Post" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Email" })).toBeTruthy();
+});
+
+it("lists the urls and emails before a public share is confirmed", async () => {
+  vi.mocked(prepareSharePayload).mockResolvedValue({
+    bytes: Uint8Array.of(1, 2, 3),
+    data: {
+      name: "Resume",
+      nodes: [{
+        url: "https://hooks.slack.com/services/T00/B00/secret",
+        emailTo: "ops@example.com",
+      }],
+      edges: [],
+    },
+  });
+  render(<ShareModal workflowId="wf_1" onClose={() => {}} />);
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Anyone with the link can read this" }));
+  expect(
+    screen.getByText(
+      "This public share will publish https://hooks.slack.com/services/T00/B00/secret, ops@example.com.",
+    ),
+  ).toBeTruthy();
+});
+
+it("does not offer Create link on a viewer", async () => {
+  readOnlyState.current = true;
+  render(<ShareModal workflowId="wf_1" onClose={() => {}} />);
+  expect(await screen.findByText("Workflows can only be edited in the AgentMesh desktop app.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Create link" })).toBeNull();
+  expect(vi.mocked(createShare)).not.toHaveBeenCalled();
 });
 
 it("shows the hourly limit instead of asking for another try that cannot succeed", async () => {

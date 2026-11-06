@@ -7,10 +7,12 @@ import { sealShare } from "@/lib/shareCrypto";
 import {
   maxShareBytes,
   prepareSharePayload,
+  publishedShareFields,
   ShareTooLargeError,
   shareURL,
 } from "@/lib/sharePayload";
-import { createShare, shareOrigin } from "@/lib/shares";
+import { useReadOnly } from "@/hooks/useReadOnly";
+import { createShare, shareChainID, shareOrigin } from "@/lib/shares";
 
 const authorship =
   "Signed by AgentMesh. This link does not prove which person shared it.";
@@ -29,6 +31,7 @@ const shareBudget =
 const shareDisabled = "Sharing is off on this server. Nothing was copied.";
 const shareBusy = "Another share is being confirmed. Nothing was copied. Try again.";
 const tooLarge = new ShareTooLargeError().message;
+const desktopOnly = "Workflows can only be edited in the AgentMesh desktop app.";
 
 function shareFailure(err: unknown): string {
   const code = err instanceof Error ? err.message : "";
@@ -78,6 +81,11 @@ export function ShareModal({
   const [pending, setPending] = useState(false);
   const [link, setLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [publication, setPublication] = useState<{ urls: string[]; emails: string[] }>({
+    urls: [],
+    emails: [],
+  });
+  const readOnly = useReadOnly();
 
   useModalDismissal(onClose);
 
@@ -94,6 +102,7 @@ export function ShareModal({
         if (cancelled) return;
         setName(wf.name);
         setBytes(prepared.bytes);
+        setPublication(publishedShareFields(prepared.data));
       } catch (e) {
         if (cancelled) return;
         const message = e instanceof Error ? e.message : "could not prepare share";
@@ -126,7 +135,7 @@ export function ShareModal({
         fragment = sealed.key;
       }
       const receipt = await createShare(payload);
-      if (receipt.chainId !== 7794095 || !entityKeyPattern.test(receipt.entityKey)) {
+      if (receipt.chainId !== shareChainID || !entityKeyPattern.test(receipt.entityKey)) {
         setError(unconfirmed);
         return;
       }
@@ -151,6 +160,8 @@ export function ShareModal({
     }
   };
 
+  const privateLink = Boolean(link?.includes("#k="));
+  const published = [...publication.urls, ...publication.emails];
   const caption = `Check out "${name}" -- a workflow I built with AgentMesh`;
   const tweetUrl = link
     ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(`${caption} ${link}`)}`
@@ -257,6 +268,16 @@ export function ShareModal({
           </p>
         )}
 
+        {isPublic && published.length > 0 && (
+          <p style={{ margin: "0 0 14px", fontSize: "var(--t-2)", color: "var(--fg)" }}>
+            This public share will publish {published.join(", ")}.
+          </p>
+        )}
+
+        {readOnly && (
+          <p style={{ margin: "0 0 14px", fontSize: "var(--t-2)", color: "var(--fg-muted)" }}>{desktopOnly}</p>
+        )}
+
         {pending && (
           <p style={{ margin: "0 0 14px", fontSize: "var(--t-2)", color: "var(--fg-dim)" }}>{waiting}</p>
         )}
@@ -265,7 +286,7 @@ export function ShareModal({
           <div style={{ fontSize: "var(--t-2)", color: "var(--danger)", padding: "0 0 12px" }}>{error}</div>
         )}
 
-        {ready && (
+        {ready && !readOnly && (
           <button
             type="button"
             onClick={handleCreate}
@@ -328,6 +349,7 @@ export function ShareModal({
             >
               <IconCopy size={13} /> {copied ? "Copied!" : "Copy link"}
             </button>
+            {!privateLink && (
             <div style={{ display: "flex", gap: "var(--s-3)" }}>
               <a
                 href={tweetUrl}
@@ -372,6 +394,7 @@ export function ShareModal({
                 <IconMail size={13} /> Email
               </a>
             </div>
+            )}
           </>
         )}
       </div>

@@ -243,7 +243,11 @@ func main() {
 		if script == "" {
 			script = "/app/arkiv-writer/write-share.mjs"
 		}
-		deps.ShareWriter = arkivshare.NewNodeWriter(script)
+		if _, err := os.Stat(script); err != nil {
+			log.Printf("arkiv share writer missing at %s: %v", script, err)
+		} else {
+			deps.ShareWriter = arkivshare.NewNodeWriter(script)
+		}
 	}
 
 	// Keeps the Bazaar catalog cache refreshed ahead of its own TTL, so a

@@ -4,6 +4,9 @@ import { assertWritable } from "./readonly";
 
 const entityKeyPattern = /^0x[0-9a-fA-F]{64}$/;
 
+// Rabdi, the Arkiv testnet. Matches arkivshare.ChainID on the server.
+export const shareChainID = 7794095;
+
 const shareCodes = new Set([
   "share_rate",
   "share_budget",
@@ -28,8 +31,8 @@ export async function createShare(
     data = {};
   }
   const entityKey = typeof data.entityKey === "string" ? data.entityKey : "";
-  if (res.status === 201 && data.chainId === 7794095 && entityKeyPattern.test(entityKey)) {
-    return { entityKey, chainId: 7794095 };
+  if (res.status === 201 && data.chainId === shareChainID && entityKeyPattern.test(entityKey)) {
+    return { entityKey, chainId: shareChainID };
   }
   const code = typeof data.error === "string" ? data.error : "";
   if (shareCodes.has(code)) throw new Error(code);

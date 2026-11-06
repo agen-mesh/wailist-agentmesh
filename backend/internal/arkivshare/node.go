@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -20,8 +21,21 @@ func NewNodeWriter(scriptPath string) Writer {
 
 var nodeEntityKey = regexp.MustCompile(`^0x[0-9a-fA-F]{64}$`)
 
+// childEnv is the only environment the writer process receives. The script
+// loads the Arkiv SDK, so it must not inherit the database URL, JWT secret,
+// or any other server credential. PATH is required for the script's
+// "#!/usr/bin/env node" shebang.
+func childEnv() []string {
+	return []string{
+		"PATH=" + os.Getenv("PATH"),
+		"ARKIV_SHARE_PRIVATE_KEY=" + os.Getenv("ARKIV_SHARE_PRIVATE_KEY"),
+		"ARKIV_ACCESS_KEY=" + os.Getenv("ARKIV_ACCESS_KEY"),
+	}
+}
+
 func (w nodeWriter) CreateShare(ctx context.Context, payload []byte) (string, error) {
 	cmd := exec.CommandContext(ctx, w.scriptPath)
+	cmd.Env = childEnv()
 	cmd.Stdin = bytes.NewReader(payload)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

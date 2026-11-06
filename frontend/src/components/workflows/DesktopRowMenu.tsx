@@ -1,6 +1,8 @@
 "use client";
 import { useRef, useState } from "react";
 import { CalendarClock, Ellipsis, Share2, Trash2 } from "lucide-react";
+import { useReadOnly } from "@/hooks/useReadOnly";
+import { can } from "@/lib/readonly";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -61,6 +63,7 @@ export function DesktopRowMenu({
   // the menu item beneath it loses hover, Radix moves focus back into the
   // still-closing menu, and the popover takes that as a click away and shuts.
   const pending = useRef<"schedule" | "delete" | null>(null);
+  const readOnly = useReadOnly();
   // Radix returns focus to the button only when a layer closed without the
   // user clicking elsewhere; same rule here for the popover, whose anchor
   // (unlike a PopoverTrigger) Radix doesn't track.
@@ -119,10 +122,12 @@ export function DesktopRowMenu({
                 </DropdownMenuShortcut>
               )}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onShare}>
-              <Share2 />
-              Share
-            </DropdownMenuItem>
+            {can("workflow.create", readOnly) && (
+              <DropdownMenuItem onSelect={onShare}>
+                <Share2 />
+                Share
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"

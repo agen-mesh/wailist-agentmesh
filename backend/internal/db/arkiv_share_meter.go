@@ -15,6 +15,7 @@ const (
 
 // advisoryLockNamespaceArkivShare is the first key of a two-key advisory lock.
 // That space does not overlap the single-key locks used for OAuth refresh.
+// The value is arkivshare.ChainID. This package does not import the writer.
 const advisoryLockNamespaceArkivShare int32 = 7794095
 
 var (
@@ -23,10 +24,12 @@ var (
 	ErrShareBusy   = errors.New("share busy")
 )
 
-// WithShareLock serializes share creates without pinning a pooler connection
-// per waiter. A miss returns ErrShareBusy so the caller rolls back at once.
-// The lock stays transaction-scoped: a session lock would not survive the
-// Supabase transaction pooler.
+// WithShareLock serializes the meter check and insert. A miss returns
+// ErrShareBusy so the caller rolls back at once. The lock stays
+// transaction-scoped: a session lock would not survive the Supabase
+// transaction pooler. Callers commit this transaction before the Arkiv
+// write. Holding it across that write pins a pooled connection for up to
+// 30 seconds and makes every other share return busy.
 func (s *Store) WithShareLock(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 	"regexp"
 	"time"
@@ -17,7 +18,6 @@ import (
 
 const (
 	shareMaxBytes   = 131072
-	shareChainID    = 7794095
 	shareWriteLimit = 30 * time.Second
 )
 
@@ -29,7 +29,8 @@ type shareReceipt struct {
 }
 
 func (d *Deps) CreateShare(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Content-Type") != "application/octet-stream" {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/octet-stream" {
 		respond.Error(w, http.StatusUnsupportedMediaType, "share_type")
 		return
 	}
@@ -54,37 +55,43 @@ func (d *Deps) CreateShare(w http.ResponseWriter, r *http.Request) {
 
 	userID, _ := r.Context().Value(CtxUserID).(string)
 	now := time.Now().UTC()
-	var entityKey string
+	// The row commits before the chain write. A timeout can still land the
+	// entity, and that attempt has to count or the daily cap does not cap spend.
 	err = d.Store.WithShareLock(r.Context(), func(ctx context.Context, tx pgx.Tx) error {
 		if err := db.AllowShare(ctx, tx, userID, now); err != nil {
 			return err
 		}
-		writeCtx, cancel := context.WithTimeout(ctx, shareWriteLimit)
-		defer cancel()
-		key, err := d.ShareWriter.CreateShare(writeCtx, body)
-		if err != nil {
-			return err
-		}
-		if !entityKeyPattern.MatchString(key) {
-			return arkivshare.ErrUnconfirmed
-		}
-		entityKey = key
 		return db.RecordShare(ctx, tx, userID, now)
 	})
 	if err != nil {
-		switch {
-		case errors.Is(err, db.ErrShareRate):
-			respond.Error(w, http.StatusTooManyRequests, "share_rate")
-		case errors.Is(err, db.ErrShareBudget):
-			respond.Error(w, http.StatusTooManyRequests, "share_budget")
-		case errors.Is(err, db.ErrShareBusy):
-			respond.Error(w, http.StatusServiceUnavailable, "share_busy")
-		case errors.Is(err, arkivshare.ErrDisabled):
-			respond.Error(w, http.StatusServiceUnavailable, "share_disabled")
-		default:
-			respond.Error(w, http.StatusBadGateway, "share_unconfirmed")
-		}
+		writeShareError(w, err)
 		return
 	}
-	respond.JSON(w, http.StatusCreated, shareReceipt{EntityKey: entityKey, ChainID: shareChainID})
+	writeCtx, cancel := context.WithTimeout(r.Context(), shareWriteLimit)
+	defer cancel()
+	entityKey, err := d.ShareWriter.CreateShare(writeCtx, body)
+	if err != nil {
+		writeShareError(w, err)
+		return
+	}
+	if !entityKeyPattern.MatchString(entityKey) {
+		writeShareError(w, arkivshare.ErrUnconfirmed)
+		return
+	}
+	respond.JSON(w, http.StatusCreated, shareReceipt{EntityKey: entityKey, ChainID: arkivshare.ChainID})
+}
+
+func writeShareError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, db.ErrShareRate):
+		respond.Error(w, http.StatusTooManyRequests, "share_rate")
+	case errors.Is(err, db.ErrShareBudget):
+		respond.Error(w, http.StatusTooManyRequests, "share_budget")
+	case errors.Is(err, db.ErrShareBusy):
+		respond.Error(w, http.StatusServiceUnavailable, "share_busy")
+	case errors.Is(err, arkivshare.ErrDisabled):
+		respond.Error(w, http.StatusServiceUnavailable, "share_disabled")
+	default:
+		respond.Error(w, http.StatusBadGateway, "share_unconfirmed")
+	}
 }

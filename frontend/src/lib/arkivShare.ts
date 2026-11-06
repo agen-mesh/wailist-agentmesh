@@ -2,15 +2,35 @@ import { createPublicClient } from "@arkiv-network/sdk";
 import { rabdi } from "@arkiv-network/sdk/chains";
 import { http } from "viem";
 import { openShare, ShareKeyError } from "./shareCrypto";
-import { decodeWorkflowShare, type WorkflowShareData } from "./workflowShare";
+import {
+  decodeWorkflowShare,
+  ShareExpandError,
+  type WorkflowShareData,
+} from "./workflowShare";
 
 const gone =
   "This link has died. Shares last 7 days, and a retired Arkiv testnet deletes them. AgentMesh does not keep a copy.";
+const unreachable = "Couldn't reach Arkiv, try again.";
+const notConfigured = "Sharing is not configured on this build.";
 
 export class ShareGoneError extends Error {
   constructor() {
     super(gone);
     this.name = "ShareGoneError";
+  }
+}
+
+export class ShareUnreachableError extends Error {
+  constructor() {
+    super(unreachable);
+    this.name = "ShareUnreachableError";
+  }
+}
+
+export class ShareNotConfiguredError extends Error {
+  constructor() {
+    super(notConfigured);
+    this.name = "ShareNotConfiguredError";
   }
 }
 
@@ -68,22 +88,28 @@ function payloadBytes(entity: unknown): Uint8Array | null {
   return null;
 }
 
+function missingEntity(err: unknown): boolean {
+  return !!err && typeof err === "object" && (err as { name?: string }).name === "NoEntityFoundError";
+}
+
 export async function readShareEntity(entityKey: string): Promise<Uint8Array> {
+  const want = expectedCreator();
+  if (!want) throw new ShareNotConfiguredError();
   const client = createPublicClient({
     chain: rabdi({ accessKey: process.env.NEXT_PUBLIC_ARKIV_ACCESS_KEY ?? "" }),
     transport: http(),
   });
+  let entity: unknown;
   try {
-    const entity = await client.getEntity(entityKey as `0x${string}`);
-    const want = expectedCreator();
-    if (!want || creatorOf(entity) !== want) throw new ShareGoneError();
-    const bytes = payloadBytes(entity);
-    if (!bytes) throw new ShareGoneError();
-    return bytes;
+    entity = await client.getEntity(entityKey as `0x${string}`);
   } catch (err) {
-    if (err instanceof ShareGoneError) throw err;
-    throw new ShareGoneError();
+    if (missingEntity(err)) throw new ShareGoneError();
+    throw new ShareUnreachableError();
   }
+  if (creatorOf(entity) !== want) throw new ShareGoneError();
+  const bytes = payloadBytes(entity);
+  if (!bytes) throw new ShareGoneError();
+  return bytes;
 }
 
 export async function openSharedWorkflow(
@@ -97,7 +123,7 @@ export async function openSharedWorkflow(
   try {
     return await decodeWorkflowShare(bytesToBase64(gzipBytes));
   } catch (err) {
-    if (err instanceof ShareKeyError) throw err;
+    if (err instanceof ShareKeyError || err instanceof ShareExpandError) throw err;
     throw new ShareGoneError();
   }
 }

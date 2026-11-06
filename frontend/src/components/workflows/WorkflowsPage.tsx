@@ -617,6 +617,7 @@ function RowMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const readOnly = useReadOnly();
   const [view, setView] = useState<"menu" | "schedule">("menu");
   // Re-read on open so edits made since list hydration are not overwritten.
   const [freshSchedule, setFreshSchedule] = useState<{
@@ -834,6 +835,7 @@ function RowMenu({
               >
                 {scheduleCron ? "Edit schedule" : "Schedule"}
               </button>
+              {can("workflow.create", readOnly) && (
               <button
                 role="menuitem"
                 onClick={() => {
@@ -863,6 +865,7 @@ function RowMenu({
               >
                 Share
               </button>
+              )}
               <div
                 style={{
                   height: 1,
