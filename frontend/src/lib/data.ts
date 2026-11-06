@@ -36,15 +36,25 @@ export const TRIGGER_TEMPLATES = [
   { id: "webhook", name: "Webhook", desc: "HTTP POST endpoint", icon: "◷" },
 ];
 
+// Preserve generated backend catalog copy while updating frontend labels.
 export const AGENT_TEMPLATES = [
   { id: "agent", name: "AI Agent", desc: "Reasoning + tool use", icon: "◇" },
   {
     id: "router",
-    name: "Router Agent",
-    desc: "Classify + dispatch",
+    name: "Classifier Agent",
+    catalogName: "Router Agent",
+    desc: "Classify input with a prompt",
+    catalogDesc: "Classify + dispatch",
     icon: "◊",
   },
-  { id: "human", name: "Human-in-loop", desc: "Approval gate", icon: "○" },
+  {
+    id: "human",
+    name: "Review Agent",
+    catalogName: "Human-in-loop",
+    desc: "Review input with a prompt",
+    catalogDesc: "Approval gate",
+    icon: "○",
+  },
 ];
 
 export const PROVIDER_TEMPLATES = [

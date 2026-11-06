@@ -125,7 +125,7 @@ export function UsagePhonePage(p: UsagePhoneProps) {
         >
           <span className="usgp-credit__label">Credits left</span>
           <span className="usgp-credit__value">
-            {balanceKnown ? `$${usd(balanceUSD)}` : "—"}
+            {balanceKnown ? `$${usd(balanceUSD)}` : "-"}
             {creditState === "low" && (
               <span className="bilp-pill">
                 <span className="bilp-pill__dot" aria-hidden />
@@ -395,7 +395,7 @@ function UsageBody({
                         ·
                       </span>
                       <span>
-                        {names.get(s.workflowId) ?? "—"} · {relTime(s.ts)}
+                        {names.get(s.workflowId) ?? "-"} · {relTime(s.ts)}
                       </span>
                     </span>
                   </span>

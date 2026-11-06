@@ -845,7 +845,7 @@ function UsageBody({
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {s.workflowId || "—"}
+                  {s.workflowId || "-"}
                 </span>
                 <span style={{ color: "var(--fg)", textAlign: "right" }}>
                   {s.amountAlgo.toFixed(6)}{" "}
