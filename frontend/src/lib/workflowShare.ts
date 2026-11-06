@@ -15,11 +15,17 @@ export interface WorkflowShareData {
   edges: unknown[];
 }
 
+export async function gzipWorkflowShare(
+  payload: WorkflowShareData,
+): Promise<Uint8Array> {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  return gzip(bytes);
+}
+
 export async function encodeWorkflowShare(
   payload: WorkflowShareData,
 ): Promise<string> {
-  const bytes = new TextEncoder().encode(JSON.stringify(payload));
-  const compressed = await gzip(bytes);
+  const compressed = await gzipWorkflowShare(payload);
   return bytesToBase64(compressed);
 }
 
