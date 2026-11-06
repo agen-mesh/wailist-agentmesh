@@ -106,12 +106,12 @@ func ExecuteAction(ctx context.Context, node models.WorkflowNode, rc RunContexte
 		return sendIntercom(ctx, node, rc)
 	case "openweathermap":
 		return getOpenWeather(ctx, node, rc)
-	case "algorand_account":
-		return fetchAlgorandAccount(ctx, node, rc)
-	case "algorand_transactions":
-		return fetchAlgorandTransactions(ctx, node, rc)
-	case "algorand_asset":
-		return fetchAlgorandAsset(ctx, node, rc)
+	case "whitechain_account":
+		return fetchWhitechainAccount(ctx, node, rc)
+	case "whitechain_transactions":
+		return fetchWhitechainTransactions(ctx, node, rc)
+	case "whitechain_token":
+		return fetchWhitechainToken(ctx, node, rc)
 	case "calendly":
 		return getCalendlyEvents(ctx, node, rc)
 	case "baserow":

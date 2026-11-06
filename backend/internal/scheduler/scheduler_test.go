@@ -108,7 +108,7 @@ func TestTickFiresDueScheduleAndAdvancesIt(t *testing.T) {
 	}
 
 	broker := sse.NewBroker()
-	runner := engine.NewRunner(store, broker, &noopSigner{}, "http://localhost:8080", "", "", engine.X402Config{USDCAssetID: 10458941})
+	runner := engine.NewRunner(store, broker, &noopSigner{}, "http://localhost:8080", "", "", engine.X402Config{USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"})
 	sched := New(store, runner, broker, "")
 
 	sched.tick(ctx)
@@ -194,7 +194,7 @@ func TestTickSkipsWorkflowWithRunAlreadyInFlight(t *testing.T) {
 	}
 
 	broker := sse.NewBroker()
-	runner := engine.NewRunner(store, broker, &noopSigner{}, "http://localhost:8080", "", "", engine.X402Config{USDCAssetID: 10458941})
+	runner := engine.NewRunner(store, broker, &noopSigner{}, "http://localhost:8080", "", "", engine.X402Config{USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"})
 	sched := New(store, runner, broker, "")
 
 	sched.tick(ctx)
@@ -291,7 +291,7 @@ func TestTickSkipsWorkflowRunningAccordingToDBAcrossReplicas(t *testing.T) {
 
 	broker := sse.NewBroker()
 	// "Replica A": fires the first tick and starts the run.
-	runnerA := engine.NewRunner(store, broker, &noopSigner{}, "http://localhost:8080", "", "", engine.X402Config{USDCAssetID: 10458941})
+	runnerA := engine.NewRunner(store, broker, &noopSigner{}, "http://localhost:8080", "", "", engine.X402Config{USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"})
 	schedA := New(store, runnerA, broker, "")
 	schedA.tick(ctx)
 
@@ -311,7 +311,7 @@ func TestTickSkipsWorkflowRunningAccordingToDBAcrossReplicas(t *testing.T) {
 	// store -- runnerB.IsRunning(wf.ID) is false here since runnerA is the
 	// one that registered the in-flight run, exactly mirroring what a
 	// second backend process would see.
-	runnerB := engine.NewRunner(store, broker, &noopSigner{}, "http://localhost:8080", "", "", engine.X402Config{USDCAssetID: 10458941})
+	runnerB := engine.NewRunner(store, broker, &noopSigner{}, "http://localhost:8080", "", "", engine.X402Config{USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"})
 	schedB := New(store, runnerB, broker, "")
 	if runnerB.IsRunning(wf.ID) {
 		t.Fatal("runnerB should have no local record of the run runnerA started -- this test only proves anything if that's true")

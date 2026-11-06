@@ -1776,17 +1776,17 @@
           ]
         },
         {
-          "id": "algorand_account",
-          "name": "Algorand Account",
-          "desc": "Balance + ASA holdings",
+          "id": "whitechain_account",
+          "name": "Whitechain Account",
+          "desc": "WBT + token balances for an address",
           "kind": "read",
-          "note": "Current state only: balance and ASA holdings for one address. It cannot answer transaction history: use algorand_transactions for that, never a paid x402 endpoint. algo is an exact decimal string in whole ALGO (quote it as-is) and algoMicro is the raw integer in microalgos; minBalance and minBalanceMicro are the same pair. Each holding's amount is already decimal-adjusted (a string such as \"1.5\" with its unitName): quote it as-is. amountBaseUnits is the raw integer in base units and must never be reported as a token amount. A holding with no amount could not be looked up; unresolvedAssets counts those. To describe an asset this account does NOT hold, use algorand_asset.",
+          "note": "Current state only, on Whitechain testnet (eip155:1874): the native WBT balance and every ERC-20 the address holds. It cannot answer transfer history: use whitechain_transactions for that, never a paid x402 endpoint. wbt is an exact decimal string in whole WBT (quote it as-is) and wbtWei the raw integer; usdt is the USDT balance as a decimal string. Each tokens[] row has amount (already decimal-adjusted, quote it as-is) and amountBaseUnits (the raw integer, never report it as a token amount). wcAddress must be a 0x address.",
           "fields": [
             {
-              "key": "algoAddress",
+              "key": "wcAddress",
               "where": "config",
               "label": "Address",
-              "placeholder": "58-character Algorand address"
+              "placeholder": "0x… (40 hex characters)"
             },
             {
               "key": "messageTemplate",
@@ -1797,31 +1797,31 @@
           ]
         },
         {
-          "id": "algorand_transactions",
-          "name": "Algorand History",
-          "desc": "Recent transactions for an address",
+          "id": "whitechain_transactions",
+          "name": "Whitechain Transfers",
+          "desc": "Recent token transfers for an address",
           "kind": "read",
-          "note": "Recent transaction history for one address, newest first, read from an Algorand indexer. This is the node for \"what did this address do\"; algorand_account cannot answer it. Each row carries type (pay, axfer, appl, ...), direction (out if this address sent it, in if it received it, other otherwise), sender, receiver, round, time as an RFC3339 string, and an amount. A pay row has algo (an exact decimal string in whole ALGO, quote it as-is) and algoMicro (the raw integer). An axfer row has amount (already decimal-adjusted, quote it as-is), amountBaseUnits (the raw integer, never report this as a token amount), assetId and unitName. A row with no amount could not have its asset looked up; unresolvedAssets counts those. Set algoTxLimit for how many (10 by default, 50 at most). algoTxType narrows to one type and must be the chain's own code -- pay, axfer, appl, acfg, afrz, keyreg, stpf or hb (a payment is \"pay\", not \"payment\") -- or blank for every type; anything else fails the step. The output's type field says which filter was applied.",
+          "note": "Recent ERC-20 token transfers for one Whitechain testnet address, newest first, read from the Whitechain explorer. This is the node for \"what did this address send or receive\"; whitechain_account cannot answer it. Each transfers[] row has hash, block, time (RFC3339), method (transferWithAuthorization for an x402 payment), direction (out if this address sent it, in if it received it), from, to, token, symbol, amount (already decimal-adjusted, quote it as-is), amountBaseUnits and explorerUrl. wcTxLimit sets how many (10 by default, 50 at most); wcToken narrows to one token contract.",
           "fields": [
             {
-              "key": "algoAddress",
+              "key": "wcAddress",
               "where": "config",
               "label": "Address",
-              "placeholder": "58-character Algorand address"
+              "placeholder": "0x… (40 hex characters)"
             },
             {
-              "key": "algoTxLimit",
+              "key": "wcTxLimit",
               "where": "config",
               "label": "How many",
               "hint": "newest first; 10 by default, 50 at most",
               "placeholder": "10"
             },
             {
-              "key": "algoTxType",
+              "key": "wcToken",
               "where": "config",
-              "label": "Only this type",
-              "hint": "blank for every type; pay, axfer, appl, acfg, afrz, keyreg, stpf, hb",
-              "placeholder": "axfer"
+              "label": "Only this token",
+              "hint": "token contract address; blank for every ERC-20",
+              "placeholder": "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"
             },
             {
               "key": "messageTemplate",
@@ -1832,18 +1832,18 @@
           ]
         },
         {
-          "id": "algorand_asset",
-          "name": "Algorand Asset",
-          "desc": "Look up any ASA by id",
+          "id": "whitechain_token",
+          "name": "Whitechain Token",
+          "desc": "Look up any ERC-20 by address",
           "kind": "read",
-          "note": "Describes one ASA by id: name, unitName, decimals, total supply, creator and the manager/reserve/freeze/clawback addresses. algoAssetId is the asset's NUMBER, never its ticker -- 31566704 is USDC. Use this for \"what is this token\" about an asset nobody in the workflow holds; algorand_account only describes assets the account being read already holds. total is an exact decimal string and totalBaseUnits is the raw integer.",
+          "note": "Describes one ERC-20 on Whitechain testnet by contract address: name, symbol, decimals, total supply, holder count and whether it is the USDT that AgentMesh pays x402 calls in (x402Payable). wcToken is the 0x contract address, never a ticker; blank describes USDT (0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7). total is an exact decimal string and totalBaseUnits the raw integer.",
           "fields": [
             {
-              "key": "algoAssetId",
+              "key": "wcToken",
               "where": "config",
-              "label": "Asset id",
-              "hint": "the ASA's number, not its ticker",
-              "placeholder": "31566704"
+              "label": "Token address",
+              "hint": "the ERC-20 contract address; blank describes USDT",
+              "placeholder": "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"
             },
             {
               "key": "messageTemplate",
@@ -2237,105 +2237,6 @@
               "placeholder": "lastRowId"
             }
           ]
-        }
-      ]
-    },
-    {
-      "type": "tendril",
-      "desc": "Rented Tendril compute: buy credit, rent a machine, run code on it, release it.",
-      "templates": [
-        {
-          "id": "tendril_auto",
-          "name": "Auto Rent & Run",
-          "desc": "Reuses an open lease, or rents one ($1 default) and runs",
-          "kind": "action",
-          "presets": {
-            "tendrilAction": "auto",
-            "tendrilHours": "1",
-            "tendrilAmount": ""
-          },
-          "fields": [
-            {
-              "key": "tendrilAmount",
-              "where": "field",
-              "label": "Budget (USD, optional)",
-              "placeholder": "1"
-            }
-          ]
-        },
-        {
-          "id": "tendril_topup",
-          "name": "Buy Tendril Credit",
-          "desc": "AgentMesh credits → Tendril credit",
-          "kind": "action",
-          "presets": {
-            "tendrilAction": "topup",
-            "tendrilHours": "1",
-            "tendrilAmount": "10"
-          },
-          "fields": [
-            {
-              "key": "tendrilAmount",
-              "where": "field",
-              "label": "Amount (USD)",
-              "placeholder": "10"
-            },
-            {
-              "key": "tendrilMinBalance",
-              "where": "field",
-              "label": "Only if credit below (USD)",
-              "hint": "blank tops up on every run"
-            },
-            {
-              "key": "tendrilCoverHours",
-              "where": "field",
-              "label": "Cover rent of (hours)",
-              "hint": "buys only the shortfall for the next rent, at least Amount; overrides Only if credit below"
-            }
-          ]
-        },
-        {
-          "id": "tendril_rent",
-          "name": "Rent a Machine",
-          "desc": "Open a metered SSH session",
-          "kind": "action",
-          "presets": {
-            "tendrilAction": "rent",
-            "tendrilHours": "1",
-            "tendrilAmount": "10"
-          },
-          "fields": [
-            {
-              "key": "tendrilHours",
-              "where": "field",
-              "label": "Hours",
-              "placeholder": "1"
-            }
-          ]
-        },
-        {
-          "id": "tendril_run",
-          "name": "Run a Job",
-          "desc": "Execute Python on the machine",
-          "kind": "action",
-          "presets": {
-            "tendrilAction": "run",
-            "tendrilHours": "1",
-            "tendrilAmount": "10"
-          },
-          "fields": []
-        },
-        {
-          "id": "tendril_release",
-          "name": "Release",
-          "desc": "Stop the meter and bill",
-          "kind": "action",
-          "presets": {
-            "tendrilAction": "release",
-            "tendrilHours": "1",
-            "tendrilAmount": "10"
-          },
-          "fields": []
         }
       ]
     },

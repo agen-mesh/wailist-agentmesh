@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/agentmesh/backend/internal/chain"
+	"github.com/agentmesh/backend/internal/wallet"
 	"github.com/agentmesh/backend/internal/x402"
 )
 
@@ -36,13 +38,12 @@ const runTotalPublicPath = "/api/x402/relay/run-total"
 // per-call OUTBOUND leg — this only ever settles the INBOUND leg, once per
 // run.
 type RunPreFundConfig struct {
-	USDCSigner               USDCGroupSigner
-	PlatformSpendEncMnemonic string
-	Facilitator              *x402.FacilitatorClient
-	PlatformWalletAddress    string
-	RelayNetwork             string
-	RelayFeePayer            string
-	ExpectedAssetID          uint64
+	Signer                PaymentSigner
+	PlatformSpendEncKey   string
+	Facilitator           *x402.FacilitatorClient
+	PlatformWalletAddress string
+	RelayNetwork          string
+	ExpectedAsset         string
 	// FrontendURL is our own branded origin (FRONTEND_URL), combined below
 	// with the /api/... proxy path that frontend/next.config.ts already
 	// rewrites to this backend. Same identity x402relay.go declares -- see
@@ -156,7 +157,11 @@ func SettleRunTotal(ctx context.Context, cfg RunPreFundConfig, amountUSDMicros i
 // retrying again won't help" when diagnosing a real elevated
 // settle-failure rate like the one this PR was written to fix.
 func selfSettleWallet1ToWallet2(ctx context.Context, cfg RunPreFundConfig, publicPath, description, errPrefix string, amountUSDMicros int64) (string, error) {
-	if amountUSDMicros <= 0 {
+	// Below the facilitator's 0.01 USDT minimum the settle would be refused
+	// (amount_below_minimum). Both wallets are the platform's own, and the
+	// credit ledger has already recorded the debit, so skipping the on-chain
+	// move loses nothing; Wallet 2 simply pays downstream from its float.
+	if amountUSDMicros < chain.MinSettleMicros {
 		return "", nil
 	}
 
@@ -371,13 +376,8 @@ func attemptSelfSettle(ctx context.Context, cfg RunPreFundConfig, publicPath, de
 		MimeType:          "application/json",
 		PayTo:             cfg.PlatformWalletAddress,
 		MaxTimeoutSeconds: 300,
-		Asset:             strconv.FormatUint(cfg.ExpectedAssetID, 10),
-		Extra: map[string]any{
-			"asset":    strconv.FormatUint(cfg.ExpectedAssetID, 10),
-			"feePayer": cfg.RelayFeePayer,
-			"tag":      "x402-global-challenge",
-			"decimals": 6,
-		},
+		Asset:             cfg.ExpectedAsset,
+		Extra:             chain.Extra(),
 		// Bazaar discovery declaration on the struct actually POSTed to
 		// /verify — extra.tag alone only attributes an already-discovered
 		// route's activity to the challenge, it doesn't register the route.
@@ -400,7 +400,10 @@ func attemptSelfSettle(ctx context.Context, cfg RunPreFundConfig, publicPath, de
 	// could burn the whole outer SelfSettleRetryBudget by itself, leaving
 	// no time for the retries that budget exists to make room for.
 	signCtx, signCancel := context.WithTimeout(ctx, signCallBudget)
-	group, idx, err := cfg.USDCSigner.SignUSDCPaymentGroup(signCtx, cfg.PlatformSpendEncMnemonic, cfg.PlatformWalletAddress, cfg.ExpectedAssetID, uint64(amountUSDMicros), cfg.RelayFeePayer)
+	signed, err := cfg.Signer.SignTransferAuthorization(signCtx, cfg.PlatformSpendEncKey, wallet.AuthorizationRequest{
+		Asset: cfg.ExpectedAsset, PayTo: cfg.PlatformWalletAddress, Amount: uint64(amountUSDMicros),
+		Extra: chain.Extra(), ValidFor: 300 * time.Second,
+	})
 	signCancel()
 	if err != nil {
 		return "", fmt.Errorf("%s: sign failed: %w", errPrefix, err)
@@ -409,7 +412,7 @@ func attemptSelfSettle(ctx context.Context, cfg RunPreFundConfig, publicPath, de
 		X402Version: 2,
 		Scheme:      "exact",
 		Network:     cfg.RelayNetwork,
-		Payload:     x402.PaymentGroup{PaymentGroup: group, PaymentIndex: idx},
+		Payload:     signed,
 		// Set authoritatively regardless of the fact that WE are both payer
 		// and resource server here -- same reasoning as x402relay.go's
 		// relaySelfSettle/relaySettleAndForward: the facilitator's discovery

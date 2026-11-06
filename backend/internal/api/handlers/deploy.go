@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,11 +9,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/robfig/cron/v3"
 
+	"github.com/agentmesh/backend/internal/chain"
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/respond"
 )
-
-const maxFundAmount uint64 = 10_000_000 // 10 ALGO per call
 
 func (d *Deps) Deploy(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -98,14 +96,15 @@ func (d *Deps) AgentBalance(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusNotFound, "wallet not found")
 		return
 	}
-	microAlgo, err := d.Wallet.Balance(ctx, aw.Address)
+	usdtMicros, err := d.Wallet.Balance(ctx, aw.Address)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	respond.JSON(w, http.StatusOK, map[string]any{
 		"address": aw.Address,
-		"balance": fmt.Sprintf("%.6f", float64(microAlgo)/1e6),
+		"balance": chain.FormatUSDT(int64(usdtMicros)),
+		"asset":   chain.TokenSymbol,
 		"network": aw.Network,
 	})
 }
@@ -122,30 +121,9 @@ func (d *Deps) FundAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body struct {
-		Amount uint64 `json:"amount"`
-	}
-	json.NewDecoder(r.Body).Decode(&body)
-	if body.Amount == 0 {
-		body.Amount = 1_000_000
-	}
-	if body.Amount > maxFundAmount {
-		respond.Error(w, http.StatusBadRequest, fmt.Sprintf("amount exceeds maximum of %d microAlgo", maxFundAmount))
-		return
-	}
-
-	aw, err := d.Store.GetAgentWallet(ctx, workflowID, agentID)
-	if err != nil {
-		respond.Error(w, http.StatusNotFound, "wallet not found")
-		return
-	}
-	txHash, err := d.Wallet.FundFromDispenser(ctx, aw.Address, body.Amount)
-	if err != nil {
-		respond.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	respond.JSON(w, http.StatusOK, map[string]string{
-		"txHash":  txHash,
-		"balance": fmt.Sprintf("%.6f", float64(body.Amount)/1e6),
-	})
+	// Agents no longer hold their own wallets, and Whitechain testnet has no
+	// programmatic dispenser: the platform wallets are funded by hand (WBT
+	// from the faucet, USDT from the token owner).
+	_ = agentID
+	respond.Error(w, http.StatusGone, "agent wallets are no longer funded individually; the platform wallets pay every x402 call on "+chain.Name+" (WBT faucet: https://faucet.testnet.whitechain.io)")
 }

@@ -26,7 +26,7 @@ func x402Stub(t *testing.T, method string, handler http.HandlerFunc) bazaar.Reso
 	return bazaar.Resource{
 		ID: "res-1", URL: srv.URL + "/v1/thing", Method: method,
 		Description: "Live stock market index prices", Host: "stocks.example.com",
-		AmountMicros: 5000, Asset: "31566704", SettleCount: 42,
+		AmountMicros: 5000, Asset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", SettleCount: 42,
 	}
 }
 
@@ -36,7 +36,7 @@ func challenge402(amount string) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusPaymentRequired)
 		w.Write([]byte(`{"x402Version":2,"accepts":[{"scheme":"exact","network":"algorand:x","amount":"` +
-			amount + `","asset":"31566704","payTo":"ABC","maxTimeoutSeconds":60}]}`))
+			amount + `","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","payTo":"ABC","maxTimeoutSeconds":60}]}`))
 	}
 }
 
@@ -74,7 +74,7 @@ func TestAddX402NodeRefusesAnUnreachableEndpoint(t *testing.T) {
 	// Restored to permissive, not to nil: every other test in this package
 	// does the same, and they depend on it staying that way.
 	t.Cleanup(func() { SetURLValidatorForTest(func(string) error { return nil }) })
-	r := bazaar.Resource{ID: "res-1", Method: "GET", AmountMicros: 5000, Asset: "31566704",
+	r := bazaar.Resource{ID: "res-1", Method: "GET", AmountMicros: 5000, Asset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
 		// Reserved by RFC 6761 to never resolve.
 		URL: "https://nothing.invalid/v1/thing", Host: "nothing.invalid"}
 	graph, _, err := addOne(t, r)
@@ -219,7 +219,7 @@ func TestAddX402NodeReadsThePriceTheWayThePayerDoes(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			r := x402Stub(t, "GET", func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusPaymentRequired)
-				w.Write([]byte(`{"x402Version":2,"accepts":[{"scheme":"exact",` + field + `,"asset":"31566704","payTo":"ABC"}]}`))
+				w.Write([]byte(`{"x402Version":2,"accepts":[{"scheme":"exact",` + field + `,"asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","payTo":"ABC"}]}`))
 			})
 			graph, msg, err := addOne(t, r)
 			if err != nil {
@@ -238,16 +238,16 @@ func TestAddX402NodeReadsThePriceTheWayThePayerDoes(t *testing.T) {
 func TestAddX402NodeTakesTheAssetFromTheLiveChallenge(t *testing.T) {
 	r := x402Stub(t, "GET", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"x402Version":2,"accepts":[{"scheme":"exact","amount":"250000","asset":"0","payTo":"ABC"}]}`))
+		w.Write([]byte(`{"x402Version":2,"accepts":[{"scheme":"exact","amount":"250000","asset":"0x00000000000000000000000000000000000000aa","payTo":"ABC"}]}`))
 	})
 	_, msg, err := addOne(t, r)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if strings.Contains(msg, "0.25 USDC") {
-		t.Errorf("the live ALGO price was quoted as USDC: %s", msg)
+	if strings.Contains(msg, "0.25 USDT") {
+		t.Errorf("a price in another token was quoted as USDT: %s", msg)
 	}
-	if !strings.Contains(msg, "0.25 ALGO") {
+	if !strings.Contains(msg, "0.25 0x00000000000000000000000000000000000000aa") {
 		t.Errorf("want the live price in the live asset, got: %s", msg)
 	}
 }

@@ -574,21 +574,17 @@ func TestAddNodeCreatesStateAndGoogleNodes(t *testing.T) {
 	}
 }
 
-// A "Write State" node with no stateOp silently runs get; a Tendril node with
-// no tendrilAction fails outright. The palette sets both on drop.
+// A "Write State" node with no stateOp silently runs get. The palette sets it
+// on drop, and so must the builder.
 func TestAddNodeAppliesCatalogPresets(t *testing.T) {
 	graph := &models.WorkflowGraph{}
 	applyGraphOp(graph, "add_node", map[string]any{"type": "state", "template": "set"})
-	applyGraphOp(graph, "add_node", map[string]any{"type": "tendril", "template": "tendril_rent"})
 	applyGraphOp(graph, "add_node", map[string]any{"type": "provider", "template": "gemini"})
 	if graph.Nodes[0].StateOp != "set" {
 		t.Fatalf("state/set must preset stateOp=set, got %q", graph.Nodes[0].StateOp)
 	}
-	if graph.Nodes[1].TendrilAction != "rent" || graph.Nodes[1].TendrilHours != "1" {
-		t.Fatalf("tendril_rent presets not applied: %+v", graph.Nodes[1])
-	}
-	if graph.Nodes[2].Model != "gemini-2.5-flash" {
-		t.Fatalf("provider/gemini must preset its default model, got %q", graph.Nodes[2].Model)
+	if graph.Nodes[1].Model != "gemini-2.5-flash" {
+		t.Fatalf("provider/gemini must preset its default model, got %q", graph.Nodes[1].Model)
 	}
 }
 
@@ -706,7 +702,7 @@ func sampleX402() bazaar.Resource {
 	return bazaar.Resource{
 		ID: "res-stocks-1", URL: "https://stocks.example.com/v1/index", Method: "GET",
 		Description: "Live stock market index prices", Host: "stocks.example.com",
-		AmountMicros: 5000, Asset: "31566704", Network: "algorand-mainnet",
+		AmountMicros: 5000, Asset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", Network: "algorand-mainnet",
 		Params:        []bazaar.Param{{Name: "symbol", Type: "string", Required: true, Description: "index symbol"}},
 		OutputExample: `{"symbol":"NIFTY","price":24812.3}`,
 		SettleCount:   42,
@@ -782,7 +778,7 @@ func TestBuildGraphSearchesAndAddsX402Node(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	for _, want := range []string{"res-stocks-1", "0.005", "USDC", "symbol"} {
+	for _, want := range []string{"res-stocks-1", "0.005", "USDT", "symbol"} {
 		if !strings.Contains(searchReply, want) {
 			t.Fatalf("search result sent to the model is missing %q", want)
 		}

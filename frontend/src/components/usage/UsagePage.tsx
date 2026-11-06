@@ -759,7 +759,7 @@ function UsageBody({
         </Card>
       </div>
 
-      {/* ⑤ Recent settlements -- on-chain, kept in ALGO */}
+      {/* ⑤ Recent settlements -- on-chain, in USDT */}
       <Card style={{ marginBottom: 16 }}>
         <CardHead
           title="Recent settlements"
@@ -849,7 +849,7 @@ function UsageBody({
                 </span>
                 <span style={{ color: "var(--fg)", textAlign: "right" }}>
                   {s.amountAlgo.toFixed(6)}{" "}
-                  <span style={{ color: "var(--fg-dim)" }}>ALGO</span>
+                  <span style={{ color: "var(--fg-dim)" }}>USDT</span>
                 </span>
                 <span style={{ color: "var(--fg-dim)", textAlign: "right" }}>
                   {relTime(s.ts)}
@@ -900,7 +900,7 @@ function UsageBody({
           letterSpacing: "0.02em",
         }}
       >
-        settled on Algorand testnet · figures update ~every run · LLM prices (*)
+        settled on Whitechain testnet · figures update ~every run · LLM prices (*)
         estimated from provider list rates at ~3:1 in:out tokens
       </p>
     </div>

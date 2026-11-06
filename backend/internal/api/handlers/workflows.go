@@ -26,9 +26,18 @@ import (
 // load-bearing on its own: it stops a user's rename from ever recreating
 // the name-collision shape in the first place, rather than relying solely
 // on is_system to survive it if it does.
+// The partner consoles were removed with the move to Whitechain, but rows
+// with these names may still exist in the database, so the names stay
+// reserved.
+const (
+	tendrilConsoleWorkflowName  = "Tendril Console (managed — do not edit)"
+	prismConsoleWorkflowName    = "Prism Console (managed, do not edit)"
+	helixboxConsoleWorkflowName = "HelixBox Console (managed, do not edit)"
+)
+
 func isReservedSystemWorkflowName(name string) bool {
 	switch name {
-	case tendrilConsoleWorkflowName, prismConsoleWorkflowName:
+	case tendrilConsoleWorkflowName, prismConsoleWorkflowName, helixboxConsoleWorkflowName:
 		return true
 	default:
 		return false

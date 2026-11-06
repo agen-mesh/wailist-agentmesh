@@ -6,10 +6,10 @@ import (
 	"github.com/agentmesh/backend/internal/arkivshare"
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine"
+	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/payments"
 	"github.com/agentmesh/backend/internal/sse"
-	"github.com/agentmesh/backend/internal/tendril"
 	"github.com/agentmesh/backend/internal/wallet"
 	"github.com/agentmesh/backend/internal/x402"
 )
@@ -33,17 +33,12 @@ type NOWPaymentsClient interface {
 	VerifyIPNSignature(body []byte, signature string) bool
 }
 
-// USDCSigner builds a gasless USDC atomic-payment group for the X-Payment
-// header. Satisfied by *wallet.Service (SignUSDCPaymentGroup). Mirrors
-// nodes.USDCGroupSigner exactly (including SignUSDCPaymentSingle, used by
-// payTargetAndRespond's outbound-to-third-party leg) so d.USDCSigner keeps
-// satisfying nodes.Wallet2PayConfig.USDCSigner without an explicit assertion.
-type USDCSigner interface {
-	SignUSDCPaymentGroup(ctx context.Context, encMnemonic, payTo string, assetID, amountMicros uint64, feePayerAddr string) ([]string, int, error)
-	SignUSDCPaymentSingle(ctx context.Context, encMnemonic, payTo string, assetID, amountMicros uint64) ([]string, int, error)
-}
+// Signer signs EIP-3009 TransferWithAuthorization payments for the x402
+// "exact" scheme on Whitechain. Satisfied by *wallet.Service; identical to
+// nodes.PaymentSigner so d.Signer can be handed straight to the engine.
+type Signer = nodes.PaymentSigner
 
-var _ USDCSigner = (*wallet.Service)(nil)
+var _ Signer = (*wallet.Service)(nil)
 
 type Deps struct {
 	Store       *db.Store
@@ -81,24 +76,23 @@ type Deps struct {
 
 	NOWPayments NOWPaymentsClient
 
-	PlatformWalletAddress     string
-	PlatformWalletEncMnemonic string
-	// PlatformSpendWalletEncMnemonic is Wallet 1 — the wallet that actually
+	PlatformWalletAddress string
+	PlatformWalletEncKey  string
+	// PlatformSpendWalletEncKey is Wallet 1 — the wallet that actually
 	// signs and sends every relayed outbound x402 payment. Needed here (not
 	// just inside engine.Runner) so the Tendril console's direct-action
 	// endpoints can build their own X402RelayConfig without going through a
 	// workflow run.
-	PlatformSpendWalletEncMnemonic string
+	PlatformSpendWalletEncKey string
 	// PlatformGeminiAPIKey powers the chat-driven workflow builder's
 	// meta-agent (nodes.BuildGraph) -- independent of engine.Runner's own
 	// platform-key map (main.go's runner.SetPlatformKeys call) since Deps
 	// has no access to Runner's private fields.
 	PlatformGeminiAPIKey string
 	FacilitatorClient    *x402.FacilitatorClient
-	USDCAssetID          uint64
+	USDCAsset            string
 	RelayNetwork         string
-	RelayFeePayer        string
-	USDCSigner           USDCSigner
+	Signer               Signer
 	// MaxRelayOutboundUSDMicros caps a single outbound relay payment
 	// (Wallet 2 -> target). The relay fetches a target's price quote twice
 	// per cycle (once for the public challenge preview, once again at
@@ -110,15 +104,6 @@ type Deps struct {
 	// loss per call to a fixed ceiling regardless of facilitator behavior.
 	// Zero means no cap (not recommended for a production deployment).
 	MaxRelayOutboundUSDMicros int64
-
-	// TendrilClient is nil when TENDRIL_REGISTRY_URL is unset, in which case
-	// the Tendril-facing endpoints below fail closed with a clear error
-	// rather than a nil-pointer panic.
-	TendrilClient *tendril.Client
-	// TendrilSession is the same Wallet 2 session engine.Runner holds, shared
-	// here so the Tendril console's direct-action endpoints (topup/rent/run)
-	// can call nodes.ExecuteTendril without going through a workflow run.
-	TendrilSession *tendril.Session
 
 	SlackOAuthClientID          string
 	SlackOAuthClientSecret      string

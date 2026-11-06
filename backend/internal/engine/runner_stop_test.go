@@ -3,6 +3,7 @@ package engine_test
 import (
 	"context"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/sse"
 	"github.com/agentmesh/backend/internal/testutil"
+	"github.com/agentmesh/backend/internal/wallet"
 	"github.com/agentmesh/backend/internal/x402"
 )
 
@@ -21,34 +23,25 @@ func (n *noopSigner) SignAndSendPayment(_ context.Context, _, _ string, _ uint64
 	return "", nil
 }
 
-// fakeRelaySigner additionally satisfies nodes.USDCGroupSigner (unlike
+// fakeRelaySigner additionally satisfies nodes.PaymentSigner (unlike
 // noopSigner), so a Runner built with it will actually route tool402 relay-
 // dialect payments through the relay/Wallet 1 path instead of degrading
 // gracefully with "no platform spend wallet configured".
 type fakeRelaySigner struct{ noopSigner }
 
-func (f *fakeRelaySigner) SignUSDCPaymentGroup(_ context.Context, _, _ string, _, _ uint64, _ string) ([]string, int, error) {
-	return []string{"g0", "g1"}, 0, nil
-}
-
-// SignUSDCPaymentSingle must also be implemented -- without it, the
-// nodes.USDCGroupSigner type assertion in reserveAndFundRun silently fails
-// (a nil interface satisfies neither branch of a type switch cleanly), and
-// every test using this fake degrades to the no-fund path instead of
-// exercising the real run-funded flow it exists to test.
-func (f *fakeRelaySigner) SignUSDCPaymentSingle(_ context.Context, _, _ string, _, _ uint64) ([]string, int, error) {
-	return []string{"g0"}, 0, nil
+func (f *fakeRelaySigner) SignTransferAuthorization(_ context.Context, _ string, r wallet.AuthorizationRequest) (x402.ExactEVMPayload, error) {
+	return x402.ExactEVMPayload{Signature: "0xfakesig", Authorization: x402.Authorization{From: "0x00000000000000000000000000000000000000f1", To: r.PayTo, Value: strconv.FormatUint(r.Amount, 10), ValidAfter: "0", ValidBefore: "9999999999", Nonce: "0x01"}}, nil
 }
 
 // Compile-time proof that the test doubles really do satisfy the interface
 // they claim to. reserveAndFundRun and executeTool402V2Relay both reach
-// their signer via `x, _ := r.walletSvc.(nodes.USDCGroupSigner)`, which
+// their signer via `x, _ := r.walletSvc.(nodes.PaymentSigner)`, which
 // discards the ok and degrades to the no-funding path when the assertion
 // fails -- so a double that has fallen behind the interface does not fail
 // to compile, it silently turns every run-funding assertion in this package
 // into a no-op. That is exactly what happened when SignUSDCPaymentSingle
-// was added to USDCGroupSigner and these doubles were not updated with it.
-var _ nodes.USDCGroupSigner = (*fakeRelaySigner)(nil)
+// was added to PaymentSigner and these doubles were not updated with it.
+var _ nodes.PaymentSigner = (*fakeRelaySigner)(nil)
 
 func newTestRunnerWithRelay(t *testing.T, relayBaseURL string) (*engine.Runner, *db.Store) {
 	t.Helper()
@@ -62,7 +55,7 @@ func newTestRunnerWithRelay(t *testing.T, relayBaseURL string) (*engine.Runner, 
 	}
 	t.Cleanup(store.Close)
 	broker := sse.NewBroker()
-	return engine.NewRunner(store, broker, &fakeRelaySigner{}, relayBaseURL, "platform-enc-mnemonic", "", engine.X402Config{USDCAssetID: 10458941}), store
+	return engine.NewRunner(store, broker, &fakeRelaySigner{}, relayBaseURL, "platform-enc-mnemonic", "", engine.X402Config{USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"}), store
 }
 
 func newTestRunner(t *testing.T) (*engine.Runner, *db.Store) {
@@ -78,7 +71,7 @@ func newTestRunner(t *testing.T) (*engine.Runner, *db.Store) {
 	t.Cleanup(store.Close)
 	testutil.EnsureUsers(t, "dev", "test-user")
 	broker := sse.NewBroker()
-	return engine.NewRunner(store, broker, &noopSigner{}, "http://localhost:8080", "", "", engine.X402Config{USDCAssetID: 10458941}), store
+	return engine.NewRunner(store, broker, &noopSigner{}, "http://localhost:8080", "", "", engine.X402Config{USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"}), store
 }
 
 // newTestRunnerWithRunFunding builds a Runner with the full run-level
@@ -102,12 +95,11 @@ func newTestRunnerWithRunFunding(t *testing.T, relayBaseURL, facilitatorURL stri
 	t.Cleanup(store.Close)
 	broker := sse.NewBroker()
 	return engine.NewRunner(store, broker, &fakeRelaySigner{}, relayBaseURL, "platform-spend-enc-mnemonic", "", engine.X402Config{
-		USDCAssetID:               10458941,
+		USDCAsset:                 "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
 		PlatformWalletAddress:     "PLATFORMADDR",
-		PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
+		PlatformWalletEncKey:      "platform-wallet-enc-mnemonic",
 		FacilitatorClient:         x402.NewFacilitatorClient(facilitatorURL),
 		RelayNetwork:              "algorand:testnet",
-		RelayFeePayer:             "FEEPAYERADDR",
 		MaxRelayOutboundUSDMicros: 0,
 	}), store
 }

@@ -10,13 +10,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
+	"strconv"
 	"sync/atomic"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/engine"
 	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/models"
+	"github.com/agentmesh/backend/internal/wallet"
+	"github.com/agentmesh/backend/internal/x402"
 )
 
 // TestMain sets the permissive URL validator once for the whole nodes_test
@@ -82,7 +84,7 @@ func TestX402ParseQuote(t *testing.T) {
 func TestX402ProbeQuoteValid(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"250000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"250000"}]}`))
 	}))
 	defer srv.Close()
 
@@ -96,8 +98,8 @@ func TestX402ProbeQuoteValid(t *testing.T) {
 	if quote.PayTo != "TARGETADDR" {
 		t.Fatalf("want payTo TARGETADDR, got %q", quote.PayTo)
 	}
-	if quote.Asset != "10458941" {
-		t.Fatalf("want asset 10458941, got %q", quote.Asset)
+	if quote.Asset != "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7" {
+		t.Fatalf("want asset 0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7, got %q", quote.Asset)
 	}
 	if quote.MaxAmountRequired != "250000" {
 		t.Fatalf("want maxAmountRequired 250000, got %q", quote.MaxAmountRequired)
@@ -123,7 +125,7 @@ func TestX402ProbeQuoteValid(t *testing.T) {
 func TestX402ProbeQuoteMalformedAmount(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"not-a-number"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"not-a-number"}]}`))
 	}))
 	defer srv.Close()
 
@@ -150,7 +152,7 @@ func TestX402ProbeQuoteMalformedAmount(t *testing.T) {
 func TestX402ProbeQuoteMissingAmount(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"}]}`))
 	}))
 	defer srv.Close()
 
@@ -178,7 +180,7 @@ func TestX402ProbePostOnlyEndpointUnreachableViaGet(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"250000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"250000"}]}`))
 	}))
 	defer srv.Close()
 
@@ -201,7 +203,7 @@ func TestX402ProbePostOnlyEndpointReachableViaConfiguredMethod(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"250000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"250000"}]}`))
 	}))
 	defer srv.Close()
 
@@ -236,7 +238,7 @@ func TestX402ProbePostOnlyEndpointReachableViaConfiguredMethod(t *testing.T) {
 func TestX402ProbeAcceptsAmountFieldDialect(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","amount":"250000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","amount":"250000"}]}`))
 	}))
 	defer srv.Close()
 
@@ -252,105 +254,15 @@ func TestX402ProbeAcceptsAmountFieldDialect(t *testing.T) {
 	}
 }
 
-// TestX402PaymentSigned verifies the full sign-and-retry flow: the runner
-// receives a 402, calls the signer, and retries with X-Payment-Txid.
-func TestX402PaymentSigned(t *testing.T) {
-	var gotHeader string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if h := r.Header.Get("X-Payment-Txid"); h != "" {
-			gotHeader = h
-			w.Write([]byte(`{"ok":true}`))
-			return
-		}
-		w.Header().Set("X-Payment-Required", `{"price":"0.001","unit":"call","network":"algorand-testnet","recipient":"ALGO123"}`)
-		w.WriteHeader(http.StatusPaymentRequired)
-	}))
-	defer srv.Close()
-
-	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool402, Endpoint: srv.URL}
-	rc := engine.NewRunContext("r1", nil)
-	signer := &mockSigner{txID: "TX-SIGNED-123"}
-	aw := models.AgentWallet{AgentNodeID: "a1", EncryptedMnemonic: "enc-mnemonic"}
-
-	result, err := nodes.ExecuteTool402(context.Background(), node, rc, aw, signer)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	m, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("unexpected result type %T: %v", result, result)
-	}
-	if m["txId"] != "TX-SIGNED-123" {
-		t.Fatalf("want txId TX-SIGNED-123, got %v", m["txId"])
-	}
-	if gotHeader != "TX-SIGNED-123" {
-		t.Fatalf("retry request missing X-Payment-Txid header, got %q", gotHeader)
-	}
-	resp, _ := m["response"].(map[string]any)
-	if resp == nil || resp["ok"] != true {
-		t.Fatalf("want response.ok=true, got %v", m["response"])
-	}
-}
-
-// TestX402NoWallet verifies that a 402 response with no wallet configured
-// returns a graceful error map (not a Go error that would fail the run).
-func TestX402NoWallet(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Payment-Required", `{"price":"0.001","unit":"call","network":"algorand-testnet","recipient":"ALGO123"}`)
-		w.WriteHeader(http.StatusPaymentRequired)
-	}))
-	defer srv.Close()
-
-	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool402, Endpoint: srv.URL}
-	rc := engine.NewRunContext("r1", nil)
-
-	result, err := nodes.ExecuteTool402(context.Background(), node, rc, models.AgentWallet{}, nil)
-	if err != nil {
-		t.Fatalf("want nil Go error (graceful degradation), got %v", err)
-	}
-	m, ok := result.(map[string]any)
-	if !ok || m["error"] == nil {
-		t.Fatalf("want error key in result map, got %v", result)
-	}
-	if !strings.Contains(m["error"].(string), "no agent wallet") {
-		t.Fatalf("want 'no agent wallet' in error message, got %v", m["error"])
-	}
-}
-
-// TestX402SignerError verifies that a signer failure (e.g. insufficient funds)
-// propagates as a Go error so the run log marks the node as failed.
-func TestX402SignerError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Payment-Required", `{"price":"0.001","unit":"call","network":"algorand-testnet","recipient":"ALGO123"}`)
-		w.WriteHeader(http.StatusPaymentRequired)
-	}))
-	defer srv.Close()
-
-	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool402, Endpoint: srv.URL}
-	rc := engine.NewRunContext("r1", nil)
-	signer := &mockSigner{err: errors.New("insufficient balance")}
-	aw := models.AgentWallet{AgentNodeID: "a1", EncryptedMnemonic: "enc-mnemonic"}
-
-	_, err := nodes.ExecuteTool402(context.Background(), node, rc, aw, signer)
-	if err == nil {
-		t.Fatal("want error from signer failure, got nil")
-	}
-	if !strings.Contains(err.Error(), "insufficient balance") {
-		t.Fatalf("want 'insufficient balance' in error, got %v", err)
-	}
-}
-
-type mockUSDCGroupSigner struct {
+type mockPaymentSigner struct {
 	group []string
 	idx   int
+	last  wallet.AuthorizationRequest
 }
 
-func (m *mockUSDCGroupSigner) SignUSDCPaymentGroup(_ context.Context, _, _ string, _, _ uint64, _ string) ([]string, int, error) {
-	return m.group, m.idx, nil
-}
-
-func (m *mockUSDCGroupSigner) SignUSDCPaymentSingle(_ context.Context, _, _ string, _, _ uint64) ([]string, int, error) {
-	return m.group, m.idx, nil
+func (m *mockPaymentSigner) SignTransferAuthorization(_ context.Context, _ string, r wallet.AuthorizationRequest) (x402.ExactEVMPayload, error) {
+	m.last = r
+	return x402.ExactEVMPayload{Signature: "0xfakesig", Authorization: x402.Authorization{From: "0x00000000000000000000000000000000000000f1", To: r.PayTo, Value: strconv.FormatUint(r.Amount, 10), ValidAfter: "0", ValidBefore: "9999999999", Nonce: "0x01"}}, nil
 }
 
 // noopLedger is a permissive PaymentLedger for tests that need a real
@@ -372,7 +284,7 @@ func TestX402V2TargetRoutesThroughRelay(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		targetHit = true
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer target.Close()
 
@@ -384,7 +296,7 @@ func TestX402V2TargetRoutesThroughRelay(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer relay.Close()
 
@@ -392,9 +304,9 @@ func TestX402V2TargetRoutesThroughRelay(t *testing.T) {
 	rc := engine.NewRunContext("r1", nil)
 	aw := models.AgentWallet{AgentNodeID: "a1", EncryptedMnemonic: "enc-mnemonic"}
 	signer := &mockSigner{txID: "unused-legacy-path"}
-	usdcSigner := &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0}
+	usdcSigner := &mockPaymentSigner{group: []string{"g0", "g1"}, idx: 0}
 
-	relayCfg := nodes.X402RelayConfig{USDCSigner: usdcSigner, PlatformSpendEncMnemonic: "platform-enc-mnemonic", ExpectedAssetID: uint64(10458941), RelayBaseURL: relay.URL, PerCallLedger: nodes.CallLedger(noopLedger())}
+	relayCfg := nodes.X402RelayConfig{Signer: usdcSigner, PlatformSpendEncKey: "platform-enc-mnemonic", ExpectedAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", RelayBaseURL: relay.URL, PerCallLedger: nodes.CallLedger(noopLedger())}
 	paymentResult, err := nodes.ExecuteTool402V2(context.Background(), node, rc, aw, signer, relayCfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -419,49 +331,6 @@ func TestX402V2TargetRoutesThroughRelay(t *testing.T) {
 
 // TestX402LegacyTargetBypassesRelay verifies the existing flat-quote dialect
 // (no accepts[]) still pays the target directly — unchanged behavior.
-func TestX402LegacyTargetBypassesRelay(t *testing.T) {
-	var relayHit bool
-	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		relayHit = true
-	}))
-	defer relay.Close()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if h := r.Header.Get("X-Payment-Txid"); h != "" {
-			w.Write([]byte(`{"ok":true}`))
-			return
-		}
-		w.Header().Set("X-Payment-Required", `{"price":"0.001","unit":"call","network":"algorand-testnet","recipient":"ALGO123"}`)
-		w.WriteHeader(http.StatusPaymentRequired)
-	}))
-	defer srv.Close()
-
-	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool402, Endpoint: srv.URL}
-	rc := engine.NewRunContext("r1", nil)
-	aw := models.AgentWallet{AgentNodeID: "a1", EncryptedMnemonic: "enc-mnemonic"}
-	signer := &mockSigner{txID: "TX-SIGNED-123"}
-	usdcSigner := &mockUSDCGroupSigner{}
-
-	relayCfg := nodes.X402RelayConfig{USDCSigner: usdcSigner, PlatformSpendEncMnemonic: "platform-enc-mnemonic", ExpectedAssetID: uint64(10458941), RelayBaseURL: relay.URL, PerCallLedger: nodes.CallLedger(noopLedger())}
-	paymentResult, err := nodes.ExecuteTool402V2(context.Background(), node, rc, aw, signer, relayCfg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if relayHit {
-		t.Fatal("legacy target must bypass the relay entirely")
-	}
-	if paymentResult.SettledUSDMicros != models.X402PlatformFeeUSDMicros {
-		t.Fatalf("want flat fee %d, got %d", models.X402PlatformFeeUSDMicros, paymentResult.SettledUSDMicros)
-	}
-	if paymentResult.DebitKind != models.DebitKindX402PlatformFee {
-		t.Fatalf("want debit kind %q, got %q", models.DebitKindX402PlatformFee, paymentResult.DebitKind)
-	}
-	m := paymentResult.Response.(map[string]any)
-	if m["txId"] != "TX-SIGNED-123" {
-		t.Fatalf("want legacy direct-pay path unchanged, got %v", m)
-	}
-}
-
 // TestX402V2TargetWithAmpersandInQueryString verifies that endpoint URLs
 // containing & (e.g. model=gpt4&format=json) are properly URL-encoded when
 // passed to the relay, so the relay's parsing of the target parameter receives
@@ -470,7 +339,7 @@ func TestX402V2TargetWithAmpersandInQueryString(t *testing.T) {
 	var capturedTargetParam string
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer target.Close()
 
@@ -482,7 +351,7 @@ func TestX402V2TargetWithAmpersandInQueryString(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer relay.Close()
 
@@ -492,9 +361,9 @@ func TestX402V2TargetWithAmpersandInQueryString(t *testing.T) {
 	rc := engine.NewRunContext("r1", nil)
 	aw := models.AgentWallet{AgentNodeID: "a1", EncryptedMnemonic: "enc-mnemonic"}
 	signer := &mockSigner{txID: "unused-legacy-path"}
-	usdcSigner := &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0}
+	usdcSigner := &mockPaymentSigner{group: []string{"g0", "g1"}, idx: 0}
 
-	relayCfg := nodes.X402RelayConfig{USDCSigner: usdcSigner, PlatformSpendEncMnemonic: "platform-enc-mnemonic", ExpectedAssetID: uint64(10458941), RelayBaseURL: relay.URL, PerCallLedger: nodes.CallLedger(noopLedger())}
+	relayCfg := nodes.X402RelayConfig{Signer: usdcSigner, PlatformSpendEncKey: "platform-enc-mnemonic", ExpectedAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", RelayBaseURL: relay.URL, PerCallLedger: nodes.CallLedger(noopLedger())}
 	paymentResult, err := nodes.ExecuteTool402V2(context.Background(), node, rc, aw, signer, relayCfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -517,7 +386,7 @@ func TestX402V2TargetWithAmpersandInQueryString(t *testing.T) {
 func TestX402V2RelayPreflightUsesRealAmount(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer target.Close()
 
@@ -530,14 +399,14 @@ func TestX402V2RelayPreflightUsesRealAmount(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer relay.Close()
 
 	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool402, Endpoint: target.URL}
 	rc := engine.NewRunContext("r1", nil)
 	aw := models.AgentWallet{}
-	usdcSigner := &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0}
+	usdcSigner := &mockPaymentSigner{group: []string{"g0", "g1"}, idx: 0}
 
 	// wantTotal is the real vendor amount (100000) plus the platform's flat
 	// markup -- every real x402 call reserves/commits vendor cost + markup
@@ -560,7 +429,7 @@ func TestX402V2RelayPreflightUsesRealAmount(t *testing.T) {
 
 	// maxAmountRequired (100000) plus the flat markup is under the ceiling
 	// this ledger.Reserve allows, so this call should succeed and pay.
-	relayCfg := nodes.X402RelayConfig{USDCSigner: usdcSigner, PlatformSpendEncMnemonic: "platform-enc-mnemonic", ExpectedAssetID: uint64(10458941), RelayBaseURL: relay.URL, PerCallLedger: nodes.CallLedger(ledger)}
+	relayCfg := nodes.X402RelayConfig{Signer: usdcSigner, PlatformSpendEncKey: "platform-enc-mnemonic", ExpectedAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", RelayBaseURL: relay.URL, PerCallLedger: nodes.CallLedger(ledger)}
 	_, err := nodes.ExecuteTool402V2(context.Background(), node, rc, aw, nil, relayCfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -586,7 +455,7 @@ func TestX402V2RelayPreflightUsesRealAmount(t *testing.T) {
 		Commit:  func(context.Context, string, int64, string) {},
 		Release: func(context.Context, int64) {},
 	}
-	strictRelayCfg := nodes.X402RelayConfig{USDCSigner: usdcSigner, PlatformSpendEncMnemonic: "platform-enc-mnemonic", ExpectedAssetID: uint64(10458941), RelayBaseURL: relay.URL, PerCallLedger: nodes.CallLedger(strictLedger)}
+	strictRelayCfg := nodes.X402RelayConfig{Signer: usdcSigner, PlatformSpendEncKey: "platform-enc-mnemonic", ExpectedAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", RelayBaseURL: relay.URL, PerCallLedger: nodes.CallLedger(strictLedger)}
 	_, err = nodes.ExecuteTool402V2(context.Background(), node, rc, aw, nil, strictRelayCfg)
 	if err == nil {
 		t.Fatal("want insufficient-credits error when real amount exceeds balance")
@@ -603,7 +472,7 @@ func TestX402V2RelayPreflightUsesRealAmount(t *testing.T) {
 func TestX402V2RelayRejectsPayment(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer target.Close()
 
@@ -615,7 +484,7 @@ func TestX402V2RelayRejectsPayment(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer relay.Close()
 
@@ -623,7 +492,7 @@ func TestX402V2RelayRejectsPayment(t *testing.T) {
 	rc := engine.NewRunContext("r1", nil)
 	aw := models.AgentWallet{AgentNodeID: "a1", EncryptedMnemonic: "enc-mnemonic"}
 	signer := &mockSigner{txID: "unused"}
-	usdcSigner := &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0}
+	usdcSigner := &mockPaymentSigner{group: []string{"g0", "g1"}, idx: 0}
 
 	var reserved, released bool
 	var committed bool
@@ -632,7 +501,7 @@ func TestX402V2RelayRejectsPayment(t *testing.T) {
 		Commit:  func(context.Context, string, int64, string) { committed = true },
 		Release: func(context.Context, int64) { released = true },
 	}
-	relayCfg := nodes.X402RelayConfig{USDCSigner: usdcSigner, PlatformSpendEncMnemonic: "platform-enc-mnemonic", ExpectedAssetID: uint64(10458941), RelayBaseURL: relay.URL, PerCallLedger: nodes.CallLedger(ledger)}
+	relayCfg := nodes.X402RelayConfig{Signer: usdcSigner, PlatformSpendEncKey: "platform-enc-mnemonic", ExpectedAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", RelayBaseURL: relay.URL, PerCallLedger: nodes.CallLedger(ledger)}
 	paymentResult, err := nodes.ExecuteTool402V2(context.Background(), node, rc, aw, signer, relayCfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -683,7 +552,7 @@ func TestX402V2RelayRejectsPayment(t *testing.T) {
 func TestX402V2RelayReportsFailureWhenTargetRejectsAfterInboundSettles(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer target.Close()
 
@@ -700,7 +569,7 @@ func TestX402V2RelayReportsFailureWhenTargetRejectsAfterInboundSettles(t *testin
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer relay.Close()
 
@@ -708,7 +577,7 @@ func TestX402V2RelayReportsFailureWhenTargetRejectsAfterInboundSettles(t *testin
 	rc := engine.NewRunContext("r1", nil)
 	aw := models.AgentWallet{AgentNodeID: "a1", EncryptedMnemonic: "enc-mnemonic"}
 	signer := &mockSigner{txID: "unused"}
-	usdcSigner := &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0}
+	usdcSigner := &mockPaymentSigner{group: []string{"g0", "g1"}, idx: 0}
 
 	var committed, released bool
 	ledger := nodes.PaymentLedger{
@@ -716,7 +585,7 @@ func TestX402V2RelayReportsFailureWhenTargetRejectsAfterInboundSettles(t *testin
 		Commit:  func(context.Context, string, int64, string) { committed = true },
 		Release: func(context.Context, int64) { released = true },
 	}
-	relayCfg := nodes.X402RelayConfig{USDCSigner: usdcSigner, PlatformSpendEncMnemonic: "platform-enc-mnemonic", ExpectedAssetID: uint64(10458941), RelayBaseURL: relay.URL, PerCallLedger: nodes.CallLedger(ledger)}
+	relayCfg := nodes.X402RelayConfig{Signer: usdcSigner, PlatformSpendEncKey: "platform-enc-mnemonic", ExpectedAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", RelayBaseURL: relay.URL, PerCallLedger: nodes.CallLedger(ledger)}
 	_, err := nodes.ExecuteTool402V2(context.Background(), node, rc, aw, signer, relayCfg)
 
 	if err == nil {
@@ -730,13 +599,9 @@ func TestX402V2RelayReportsFailureWhenTargetRejectsAfterInboundSettles(t *testin
 	}
 }
 
-type panickingUSDCGroupSigner struct{}
+type panickingPaymentSigner struct{}
 
-func (p *panickingUSDCGroupSigner) SignUSDCPaymentGroup(_ context.Context, _, _ string, _, _ uint64, _ string) ([]string, int, error) {
-	panic("simulated panic mid-payment")
-}
-
-func (p *panickingUSDCGroupSigner) SignUSDCPaymentSingle(_ context.Context, _, _ string, _, _ uint64) ([]string, int, error) {
+func (p *panickingPaymentSigner) SignTransferAuthorization(_ context.Context, _ string, r wallet.AuthorizationRequest) (x402.ExactEVMPayload, error) {
 	panic("simulated panic mid-payment")
 }
 
@@ -751,20 +616,20 @@ func (p *panickingUSDCGroupSigner) SignUSDCPaymentSingle(_ context.Context, _, _
 func TestX402V2RelayReleasesReservationOnPanic(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer target.Close()
 
 	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer relay.Close()
 
 	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool402, Endpoint: target.URL}
 	rc := engine.NewRunContext("r1", nil)
 	aw := models.AgentWallet{}
-	usdcSigner := &panickingUSDCGroupSigner{}
+	usdcSigner := &panickingPaymentSigner{}
 
 	var reserved, released, committed bool
 	ledger := nodes.PaymentLedger{
@@ -779,7 +644,7 @@ func TestX402V2RelayReleasesReservationOnPanic(t *testing.T) {
 				t.Fatal("want the panic to propagate out of ExecuteTool402V2, got none")
 			}
 		}()
-		relayCfg := nodes.X402RelayConfig{USDCSigner: usdcSigner, PlatformSpendEncMnemonic: "platform-enc-mnemonic", ExpectedAssetID: uint64(10458941), RelayBaseURL: relay.URL, PerCallLedger: nodes.CallLedger(ledger)}
+		relayCfg := nodes.X402RelayConfig{Signer: usdcSigner, PlatformSpendEncKey: "platform-enc-mnemonic", ExpectedAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", RelayBaseURL: relay.URL, PerCallLedger: nodes.CallLedger(ledger)}
 		nodes.ExecuteTool402V2(context.Background(), node, rc, aw, nil, relayCfg)
 		t.Fatal("unreachable: ExecuteTool402V2 should have panicked")
 	}()
@@ -823,14 +688,14 @@ func TestX402RunLevelCommitsNotReleasesOnTargetNetworkFailure(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer target.Close()
 
 	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool402, Endpoint: target.URL}
 	rc := engine.NewRunContext("r1", nil)
 	aw := models.AgentWallet{}
-	usdcSigner := &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0}
+	usdcSigner := &mockPaymentSigner{group: []string{"g0", "g1"}, idx: 0}
 
 	var reservedVendor, reservedMarkup int64
 	var released bool
@@ -870,10 +735,10 @@ func TestX402RunLevelCommitsNotReleasesOnTargetNetworkFailure(t *testing.T) {
 		Ledger:           nodes.RunLedger(vendorLedger),
 		MarkupLedger:     nodes.RunLedger(markupLedger),
 		Wallet2: nodes.Wallet2PayConfig{
-			USDCSigner:                usdcSigner,
-			PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
-			USDCAssetID:               uint64(10458941),
-			RelayNetwork:              "algorand:testnet",
+			Signer:               usdcSigner,
+			PlatformWalletEncKey: "platform-wallet-enc-mnemonic",
+			USDCAsset:            "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+			RelayNetwork:         "algorand:testnet",
 		},
 		RecordSettlement: func(_ context.Context, _ string, _ int64, _ bool) error {
 			recordSettlementCalled = true
@@ -920,7 +785,7 @@ func TestX402RunLevelCommitsNotReleasesOnTargetNetworkFailure(t *testing.T) {
 func TestX402RunLevelReserveFailureIsErrBalanceBlocked(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer target.Close()
 
@@ -963,14 +828,14 @@ func TestX402RunLevelCommitsNotReleasesOnRecordSettlementFailure(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer target.Close()
 
 	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool402, Endpoint: target.URL}
 	rc := engine.NewRunContext("r1", nil)
 	aw := models.AgentWallet{}
-	usdcSigner := &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0}
+	usdcSigner := &mockPaymentSigner{group: []string{"g0", "g1"}, idx: 0}
 
 	var released bool
 	// Separate commit trackers per pool -- see the identical rationale in
@@ -1006,10 +871,10 @@ func TestX402RunLevelCommitsNotReleasesOnRecordSettlementFailure(t *testing.T) {
 		Ledger:           nodes.RunLedger(vendorLedger),
 		MarkupLedger:     nodes.RunLedger(markupLedger),
 		Wallet2: nodes.Wallet2PayConfig{
-			USDCSigner:                usdcSigner,
-			PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
-			USDCAssetID:               uint64(10458941),
-			RelayNetwork:              "algorand:testnet",
+			Signer:               usdcSigner,
+			PlatformWalletEncKey: "platform-wallet-enc-mnemonic",
+			USDCAsset:            "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+			RelayNetwork:         "algorand:testnet",
 		},
 		RecordSettlement: func(context.Context, string, int64, bool) error {
 			return errors.New("db unavailable")
@@ -1052,14 +917,14 @@ func TestX402RunLevelVendorPoolBoundsRealSpendIndependentlyOfMarkupHeadroom(t *t
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&targetHits, 1)
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"250000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"250000"}]}`))
 	}))
 	defer target.Close()
 
 	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool402, Endpoint: target.URL}
 	rc := engine.NewRunContext("r1", nil)
 	aw := models.AgentWallet{}
-	usdcSigner := &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0}
+	usdcSigner := &mockPaymentSigner{group: []string{"g0", "g1"}, idx: 0}
 
 	// Minimal stand-ins for newRunLevelLedger's real semantics (reject if
 	// amount exceeds what remains, otherwise decrement) -- runner.go's own
@@ -1087,10 +952,10 @@ func TestX402RunLevelVendorPoolBoundsRealSpendIndependentlyOfMarkupHeadroom(t *t
 		Ledger:           nodes.RunLedger(vendorPool),
 		MarkupLedger:     nodes.RunLedger(markupPool),
 		Wallet2: nodes.Wallet2PayConfig{
-			USDCSigner:                usdcSigner,
-			PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
-			USDCAssetID:               uint64(10458941),
-			RelayNetwork:              "algorand:testnet",
+			Signer:               usdcSigner,
+			PlatformWalletEncKey: "platform-wallet-enc-mnemonic",
+			USDCAsset:            "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+			RelayNetwork:         "algorand:testnet",
 		},
 		RecordSettlement: func(context.Context, string, int64, bool) error { return nil },
 	}
@@ -1120,14 +985,14 @@ func TestX402RunLevelNilRecordSettlementDoesNotPanic(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer target.Close()
 
 	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool402, Endpoint: target.URL}
 	rc := engine.NewRunContext("r1", nil)
 	aw := models.AgentWallet{}
-	usdcSigner := &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0}
+	usdcSigner := &mockPaymentSigner{group: []string{"g0", "g1"}, idx: 0}
 
 	var committed bool
 	ledger := nodes.PaymentLedger{
@@ -1141,10 +1006,10 @@ func TestX402RunLevelNilRecordSettlementDoesNotPanic(t *testing.T) {
 		RunFundedToolIDs: map[string]bool{"x1": true},
 		Ledger:           nodes.RunLedger(ledger),
 		Wallet2: nodes.Wallet2PayConfig{
-			USDCSigner:                usdcSigner,
-			PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
-			USDCAssetID:               uint64(10458941),
-			RelayNetwork:              "algorand:testnet",
+			Signer:               usdcSigner,
+			PlatformWalletEncKey: "platform-wallet-enc-mnemonic",
+			USDCAsset:            "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+			RelayNetwork:         "algorand:testnet",
 		},
 		RecordSettlement: nil,
 	}
@@ -1180,20 +1045,20 @@ func TestX402RunFundedAgentWithUnfundedToolUsesPerCallPath(t *testing.T) {
 
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer target.Close()
 
 	node := models.WorkflowNode{ID: "unfunded-tool", Type: models.NodeTypeTool402, Endpoint: target.URL}
 	rc := engine.NewRunContext("r1", nil)
 	aw := models.AgentWallet{}
-	usdcSigner := &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0}
+	usdcSigner := &mockPaymentSigner{group: []string{"g0", "g1"}, idx: 0}
 
 	relayCfg := nodes.X402RelayConfig{
-		USDCSigner:               usdcSigner,
-		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
-		ExpectedAssetID:          uint64(10458941),
-		RelayBaseURL:             relay.URL,
+		Signer:              usdcSigner,
+		PlatformSpendEncKey: "platform-enc-mnemonic",
+		ExpectedAsset:       "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayBaseURL:        relay.URL,
 		// RunFundingID set (this agent's run WAS funded), but this specific
 		// tool's ID is absent from RunFundedToolIDs -- its probe failed
 		// during estimation, so reserveAndFundRun never folded it in.
@@ -1203,7 +1068,7 @@ func TestX402RunFundedAgentWithUnfundedToolUsesPerCallPath(t *testing.T) {
 	}
 
 	// The per-call relay path (executeTool402V2Relay) needs a configured
-	// USDCSigner/PlatformSpendEncMnemonic to ever dial relay.URL (it
+	// Signer/PlatformSpendEncKey to ever dial relay.URL (it
 	// degrades to a no-op error response otherwise) -- aw/signer being
 	// empty just means the unrelated legacy-dialect branch (never reached
 	// here, this is a v2 target) has nothing to pay with. The point of
@@ -1250,7 +1115,7 @@ func runFundedTargetServer(t *testing.T, body string) *httptest.Server {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 }
 
@@ -1270,17 +1135,17 @@ func TestX402RunLevelReportsRunFundingTxID(t *testing.T) {
 		RunFundingID:     "test-run-funding-1",
 		RunFundingTxID:   "FUNDINGTXID123",
 		RunFundedToolIDs: map[string]bool{"x1": true},
-		ExpectedAssetID:  uint64(10458941),
+		ExpectedAsset:    "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
 		Ledger: nodes.RunLedger(nodes.PaymentLedger{
 			Reserve: func(context.Context, int64) error { return nil },
 			Commit:  func(context.Context, string, int64, string) {},
 			Release: func(context.Context, int64) {},
 		}),
 		Wallet2: nodes.Wallet2PayConfig{
-			USDCSigner:                &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0},
-			PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
-			USDCAssetID:               uint64(10458941),
-			RelayNetwork:              "algorand:testnet",
+			Signer:               &mockPaymentSigner{group: []string{"g0", "g1"}, idx: 0},
+			PlatformWalletEncKey: "platform-wallet-enc-mnemonic",
+			USDCAsset:            "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+			RelayNetwork:         "algorand:testnet",
 		},
 		RecordSettlement: func(context.Context, string, int64, bool) error { return nil },
 	}
@@ -1292,7 +1157,7 @@ func TestX402RunLevelReportsRunFundingTxID(t *testing.T) {
 	if res.TxID != "FUNDINGTXID123" {
 		t.Fatalf("want the run funding tx id reported as this call's inbound leg, got %q", res.TxID)
 	}
-	wantURL := "https://lora.algokit.io/testnet/transaction/FUNDINGTXID123"
+	wantURL := "https://explorer.testnet.whitechain.io/tx/FUNDINGTXID123"
 	if res.ExplorerURL != wantURL {
 		t.Fatalf("want explorer URL %q, got %q", wantURL, res.ExplorerURL)
 	}
@@ -1326,17 +1191,17 @@ func TestX402RunLevelReportsTxIDForNonObjectResponse(t *testing.T) {
 		RunFundingID:     "test-run-funding-1",
 		RunFundingTxID:   "FUNDINGTXID456",
 		RunFundedToolIDs: map[string]bool{"x1": true},
-		ExpectedAssetID:  uint64(31566704), // mainnet USDC
+		ExpectedAsset:    "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", // mainnet USDC
 		Ledger: nodes.RunLedger(nodes.PaymentLedger{
 			Reserve: func(context.Context, int64) error { return nil },
 			Commit:  func(context.Context, string, int64, string) {},
 			Release: func(context.Context, int64) {},
 		}),
 		Wallet2: nodes.Wallet2PayConfig{
-			USDCSigner:                &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0},
-			PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
-			USDCAssetID:               uint64(10458941),
-			RelayNetwork:              "algorand:testnet",
+			Signer:               &mockPaymentSigner{group: []string{"g0", "g1"}, idx: 0},
+			PlatformWalletEncKey: "platform-wallet-enc-mnemonic",
+			USDCAsset:            "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+			RelayNetwork:         "algorand:testnet",
 		},
 		RecordSettlement: func(context.Context, string, int64, bool) error { return nil },
 	}
@@ -1348,8 +1213,8 @@ func TestX402RunLevelReportsTxIDForNonObjectResponse(t *testing.T) {
 	if res.TxID != "FUNDINGTXID456" {
 		t.Fatalf("want the run funding tx id reported even for a non-object response, got %q", res.TxID)
 	}
-	if res.ExplorerURL != "https://lora.algokit.io/mainnet/transaction/FUNDINGTXID456" {
-		t.Fatalf("want a mainnet explorer URL for the mainnet USDC asset id, got %q", res.ExplorerURL)
+	if res.ExplorerURL != "https://explorer.testnet.whitechain.io/tx/FUNDINGTXID456" {
+		t.Fatalf("want a Whitechain explorer URL, got %q", res.ExplorerURL)
 	}
 }
 

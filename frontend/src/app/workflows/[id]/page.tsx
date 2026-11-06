@@ -20,7 +20,7 @@ export default async function CanvasPageRoute({
 }) {
   const { id } = await params;
   // Suspense boundary: WorkflowRouteFromUrl calls useSearchParams(), and
-  // CanvasPage below it does too for the Bazaar `?add=` handoff -- Next 16
+  // hooks below may too -- Next 16
   // requires a boundary somewhere above those calls or `next build` fails.
   return (
     <Suspense fallback={null}>

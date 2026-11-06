@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/agentmesh/backend/internal/api/handlers"
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine/nodes"
+	"github.com/agentmesh/backend/internal/wallet"
 	"github.com/agentmesh/backend/internal/x402"
 )
 
@@ -43,10 +45,10 @@ func TestX402RelayNoPaymentMirrorsTargetPriceAsChallengeTag(t *testing.T) {
 			"x402Version": 2,
 			"accepts": []map[string]any{{
 				"scheme":            "exact",
-				"network":           "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=",
+				"network":           "eip155:1874",
 				"maxAmountRequired": "100000",
 				"payTo":             "TARGETADDR",
-				"asset":             "10458941",
+				"asset":             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
 			}},
 		})
 	}))
@@ -54,9 +56,8 @@ func TestX402RelayNoPaymentMirrorsTargetPriceAsChallengeTag(t *testing.T) {
 
 	d := &handlers.Deps{
 		PlatformWalletAddress: "PLATFORMADDR",
-		USDCAssetID:           10458941,
-		RelayNetwork:          "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=",
-		RelayFeePayer:         "FEEPAYERADDR",
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:          "eip155:1874",
 	}
 	req := httptest.NewRequest(http.MethodGet, "/x402/relay?target="+target.URL, nil)
 	w := httptest.NewRecorder()
@@ -74,8 +75,8 @@ func TestX402RelayNoPaymentMirrorsTargetPriceAsChallengeTag(t *testing.T) {
 		t.Fatalf("want 1 accepts entry, got %d", len(body.Accepts))
 	}
 	extra, _ := body.Accepts[0]["extra"].(map[string]any)
-	if extra["tag"] != "x402-global-challenge" {
-		t.Fatalf("want tag x402-global-challenge in extra, got %v", extra)
+	if extra["name"] != "Tether USD" || extra["version"] != "1" {
+		t.Fatalf("want the USDT EIP-712 domain (name Tether USD, version 1) in extra, got %v", extra)
 	}
 	if body.Accepts[0]["payTo"] != "PLATFORMADDR" {
 		t.Fatalf("want payTo=PLATFORMADDR (our own wallet, not the target's), got %v", body.Accepts[0]["payTo"])
@@ -96,9 +97,8 @@ func TestX402RelayNoPaymentMirrorsTargetPriceAsChallengeTag(t *testing.T) {
 func TestX402RelayWithNoTargetIssuesFixedSelfChallenge(t *testing.T) {
 	d := &handlers.Deps{
 		PlatformWalletAddress: "PLATFORMADDR",
-		USDCAssetID:           10458941,
-		RelayNetwork:          "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=",
-		RelayFeePayer:         "FEEPAYERADDR",
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:          "eip155:1874",
 		FrontendURL:           "https://api.example.test",
 	}
 	req := httptest.NewRequest(http.MethodGet, "/x402/relay", nil)
@@ -126,8 +126,8 @@ func TestX402RelayWithNoTargetIssuesFixedSelfChallenge(t *testing.T) {
 		t.Fatalf("want resource=BaseURL+real path (matches every actually-cataloged mainnet resource's own-domain convention), got %v", body.Accepts[0]["resource"])
 	}
 	extra, _ := body.Accepts[0]["extra"].(map[string]any)
-	if extra["tag"] != "x402-global-challenge" {
-		t.Fatalf("want tag x402-global-challenge in extra, got %v", extra)
+	if extra["name"] != "Tether USD" || extra["version"] != "1" {
+		t.Fatalf("want the USDT EIP-712 domain (name Tether USD, version 1) in extra, got %v", extra)
 	}
 	if w.Header().Get("Payment-Required") == "" {
 		t.Fatal("want a Payment-Required header, same as every other challenge this handler issues")
@@ -150,9 +150,8 @@ func TestX402RelayWithNoTargetIssuesFixedSelfChallenge(t *testing.T) {
 func TestX402RelayChallengeResourceIsTopLevelSpecShape(t *testing.T) {
 	d := &handlers.Deps{
 		PlatformWalletAddress: "PLATFORMADDR",
-		USDCAssetID:           10458941,
-		RelayNetwork:          "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=",
-		RelayFeePayer:         "FEEPAYERADDR",
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:          "eip155:1874",
 		FrontendURL:           "https://api.example.test",
 	}
 	req := httptest.NewRequest(http.MethodGet, "/x402/relay", nil)
@@ -193,9 +192,8 @@ func TestX402RelayChallengeResourceIsTopLevelSpecShape(t *testing.T) {
 func TestX402RelayBazaarExtensionIsSchemaValid(t *testing.T) {
 	d := &handlers.Deps{
 		PlatformWalletAddress: "PLATFORMADDR",
-		USDCAssetID:           10458941,
-		RelayNetwork:          "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=",
-		RelayFeePayer:         "FEEPAYERADDR",
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:          "eip155:1874",
 		FrontendURL:           "https://www.agent-mesh.app",
 	}
 	req := httptest.NewRequest(http.MethodGet, "/x402/relay", nil)
@@ -274,14 +272,13 @@ func TestX402RelayAcceptsPaymentSignatureHeader(t *testing.T) {
 	defer facilitator.Close()
 
 	d := &handlers.Deps{
-		Store:                     store,
-		PlatformWalletAddress:     "PLATFORMADDR",
-		PlatformWalletEncMnemonic: "enc-mnemonic",
-		FacilitatorClient:         x402.NewFacilitatorClient(facilitator.URL),
-		USDCAssetID:               10458941,
-		RelayNetwork:              "algorand:testnet",
-		RelayFeePayer:             "FEEPAYERADDR",
-		FrontendURL:               "https://www.agent-mesh.app",
+		Store:                 store,
+		PlatformWalletAddress: "PLATFORMADDR",
+		PlatformWalletEncKey:  "enc-mnemonic",
+		FacilitatorClient:     x402.NewFacilitatorClient(facilitator.URL),
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:          "algorand:testnet",
+		FrontendURL:           "https://www.agent-mesh.app",
 	}
 
 	payloadJSON, _ := json.Marshal(map[string]any{"x402Version": 2, "scheme": "exact", "network": "algorand:testnet"})
@@ -353,9 +350,8 @@ func TestX402RelaySelfSettleSetsResourceOnPayloadRegardlessOfCaller(t *testing.T
 	store := newTestStoreForHandlers(t) // TEST_DATABASE_URL-gated, see helper below
 	d := &handlers.Deps{
 		PlatformWalletAddress: "PLATFORMADDR",
-		USDCAssetID:           10458941,
-		RelayNetwork:          "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=",
-		RelayFeePayer:         "FEEPAYERADDR",
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:          "eip155:1874",
 		FrontendURL:           "https://api.example.test",
 		FacilitatorClient:     x402.NewFacilitatorClient(facilitator.URL),
 		Store:                 store,
@@ -363,7 +359,7 @@ func TestX402RelaySelfSettleSetsResourceOnPayloadRegardlessOfCaller(t *testing.T
 
 	// Deliberately the exact minimal shape tool402.go's engine self-call
 	// sent before its own matching fix -- no resource, no extensions.
-	minimalPayload := `{"x402Version":2,"scheme":"exact","network":"algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=","payload":{"paymentGroup":["AAAA"],"paymentIndex":0}}`
+	minimalPayload := `{"x402Version":2,"scheme":"exact","network":"eip155:1874","payload":{"paymentGroup":["AAAA"],"paymentIndex":0}}`
 	req := httptest.NewRequest(http.MethodGet, "/x402/relay", nil)
 	req.Header.Set("X-Payment", minimalPayload)
 	w := httptest.NewRecorder()
@@ -418,9 +414,8 @@ func TestX402RelaySelfSettleSendsSchemaValidV2Payload(t *testing.T) {
 	store := newTestStoreForHandlers(t)
 	d := &handlers.Deps{
 		PlatformWalletAddress: "PLATFORMADDR",
-		USDCAssetID:           10458941,
-		RelayNetwork:          "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=",
-		RelayFeePayer:         "FEEPAYERADDR",
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:          "eip155:1874",
 		FrontendURL:           "https://www.agent-mesh.app",
 		FacilitatorClient:     x402.NewFacilitatorClient(facilitator.URL),
 		Store:                 store,
@@ -428,7 +423,7 @@ func TestX402RelaySelfSettleSendsSchemaValidV2Payload(t *testing.T) {
 
 	// Same minimal caller payload as the sibling test above: no accepted, no
 	// resource, no extensions. The resource server must supply all of them.
-	minimalPayload := `{"x402Version":2,"scheme":"exact","network":"algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=","payload":{"paymentGroup":["AAAA"],"paymentIndex":0}}`
+	minimalPayload := `{"x402Version":2,"scheme":"exact","network":"eip155:1874","payload":{"paymentGroup":["AAAA"],"paymentIndex":0}}`
 	req := httptest.NewRequest(http.MethodGet, "/x402/relay", nil)
 	req.Header.Set("X-Payment", minimalPayload)
 	w := httptest.NewRecorder()
@@ -492,14 +487,13 @@ func TestX402RelaySelfSettleRecordsRealSettlement(t *testing.T) {
 	defer facilitator.Close()
 
 	d := &handlers.Deps{
-		Store:                     store,
-		PlatformWalletAddress:     "PLATFORMADDR",
-		PlatformWalletEncMnemonic: "enc-mnemonic",
-		FacilitatorClient:         x402.NewFacilitatorClient(facilitator.URL),
-		USDCAssetID:               10458941,
-		RelayNetwork:              "algorand:testnet",
-		RelayFeePayer:             "FEEPAYERADDR",
-		FrontendURL:               "https://api.example.test",
+		Store:                 store,
+		PlatformWalletAddress: "PLATFORMADDR",
+		PlatformWalletEncKey:  "enc-mnemonic",
+		FacilitatorClient:     x402.NewFacilitatorClient(facilitator.URL),
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:          "algorand:testnet",
+		FrontendURL:           "https://api.example.test",
 	}
 
 	payload, _ := json.Marshal(map[string]any{"x402Version": 2, "scheme": "exact", "network": "algorand:testnet"})
@@ -552,10 +546,10 @@ func TestX402RelayAcceptsTargetAmountFieldDialect(t *testing.T) {
 			"x402Version": 2,
 			"accepts": []map[string]any{{
 				"scheme":  "exact",
-				"network": "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=",
+				"network": "eip155:1874",
 				"amount":  "250000",
 				"payTo":   "TARGETADDR",
-				"asset":   "10458941",
+				"asset":   "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
 			}},
 		})
 	}))
@@ -563,9 +557,8 @@ func TestX402RelayAcceptsTargetAmountFieldDialect(t *testing.T) {
 
 	d := &handlers.Deps{
 		PlatformWalletAddress: "PLATFORMADDR",
-		USDCAssetID:           10458941,
-		RelayNetwork:          "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=",
-		RelayFeePayer:         "FEEPAYERADDR",
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:          "eip155:1874",
 	}
 	req := httptest.NewRequest(http.MethodGet, "/x402/relay?target="+target.URL, nil)
 	w := httptest.NewRecorder()
@@ -625,17 +618,17 @@ func newTestStoreForHandlers(t *testing.T) *db.Store {
 	return store
 }
 
-// signCall captures one invocation of fakeUSDCSigner.SignUSDCPaymentSingle
+// signCall captures one invocation of fakeSigner.SignUSDCPaymentSingle
 // (the outbound-to-third-party leg's signer), so tests can assert on exactly
 // what the relay actually signed and broadcast for the outbound
 // platform-wallet payment.
 type signCall struct {
 	payTo        string
-	assetID      uint64
+	assetID      string
 	amountMicros uint64
 }
 
-type fakeUSDCSigner struct {
+type fakeSigner struct {
 	group []string
 	idx   int
 	err   error
@@ -643,14 +636,12 @@ type fakeUSDCSigner struct {
 	calls []signCall
 }
 
-func (f *fakeUSDCSigner) SignUSDCPaymentGroup(_ context.Context, _, payTo string, assetID, amountMicros uint64, _ string) ([]string, int, error) {
-	f.calls = append(f.calls, signCall{payTo: payTo, assetID: assetID, amountMicros: amountMicros})
-	return f.group, f.idx, f.err
-}
-
-func (f *fakeUSDCSigner) SignUSDCPaymentSingle(_ context.Context, _, payTo string, assetID, amountMicros uint64) ([]string, int, error) {
-	f.calls = append(f.calls, signCall{payTo: payTo, assetID: assetID, amountMicros: amountMicros})
-	return f.group, f.idx, f.err
+func (f *fakeSigner) SignTransferAuthorization(_ context.Context, _ string, r wallet.AuthorizationRequest) (x402.ExactEVMPayload, error) {
+	f.calls = append(f.calls, signCall{payTo: r.PayTo, assetID: r.Asset, amountMicros: r.Amount})
+	if f.err != nil {
+		return x402.ExactEVMPayload{}, f.err
+	}
+	return x402.ExactEVMPayload{Signature: "0xfakesig", Authorization: x402.Authorization{From: "0x00000000000000000000000000000000000000f1", To: r.PayTo, Value: strconv.FormatUint(r.Amount, 10), ValidAfter: "0", ValidBefore: "9999999999", Nonce: "0x01"}}, nil
 }
 
 func TestX402RelayPaysTargetFromPlatformWalletAfterInboundSettles(t *testing.T) {
@@ -663,7 +654,7 @@ func TestX402RelayPaysTargetFromPlatformWalletAfterInboundSettles(t *testing.T) 
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
 		json.NewEncoder(w).Encode(map[string]any{
-			"accepts": []map[string]any{{"payTo": "TARGETADDR", "asset": "10458941", "maxAmountRequired": "50000"}},
+			"accepts": []map[string]any{{"payTo": "TARGETADDR", "asset": "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", "maxAmountRequired": "50000"}},
 		})
 	}))
 	defer target.Close()
@@ -699,14 +690,13 @@ func TestX402RelayPaysTargetFromPlatformWalletAfterInboundSettles(t *testing.T) 
 	defer facilitator.Close()
 
 	d := &handlers.Deps{
-		Store:                     store,
-		PlatformWalletAddress:     "PLATFORMADDR",
-		PlatformWalletEncMnemonic: "enc-mnemonic",
-		FacilitatorClient:         x402.NewFacilitatorClient(facilitator.URL),
-		USDCAssetID:               10458941,
-		RelayNetwork:              "algorand:testnet",
-		RelayFeePayer:             "FEEPAYERADDR",
-		USDCSigner:                &fakeUSDCSigner{group: []string{"g0", "g1"}, idx: 0},
+		Store:                 store,
+		PlatformWalletAddress: "PLATFORMADDR",
+		PlatformWalletEncKey:  "enc-mnemonic",
+		FacilitatorClient:     x402.NewFacilitatorClient(facilitator.URL),
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:          "algorand:testnet",
+		Signer:                &fakeSigner{group: []string{"g0", "g1"}, idx: 0},
 	}
 
 	payload, _ := json.Marshal(map[string]any{"x402Version": 2, "scheme": "exact", "network": "algorand:testnet"})
@@ -771,7 +761,7 @@ func TestX402RelayForwardsConfiguredTargetMethodAndBody(t *testing.T) {
 		gotChallengeBody = string(b)
 		w.WriteHeader(http.StatusPaymentRequired)
 		json.NewEncoder(w).Encode(map[string]any{
-			"accepts": []map[string]any{{"payTo": "TARGETADDR", "asset": "10458941", "maxAmountRequired": "50000"}},
+			"accepts": []map[string]any{{"payTo": "TARGETADDR", "asset": "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", "maxAmountRequired": "50000"}},
 		})
 	}))
 	defer target.Close()
@@ -789,14 +779,13 @@ func TestX402RelayForwardsConfiguredTargetMethodAndBody(t *testing.T) {
 	defer facilitator.Close()
 
 	d := &handlers.Deps{
-		Store:                     store,
-		PlatformWalletAddress:     "PLATFORMADDR",
-		PlatformWalletEncMnemonic: "enc-mnemonic",
-		FacilitatorClient:         x402.NewFacilitatorClient(facilitator.URL),
-		USDCAssetID:               10458941,
-		RelayNetwork:              "algorand:testnet",
-		RelayFeePayer:             "FEEPAYERADDR",
-		USDCSigner:                &fakeUSDCSigner{group: []string{"g0", "g1"}, idx: 0},
+		Store:                 store,
+		PlatformWalletAddress: "PLATFORMADDR",
+		PlatformWalletEncKey:  "enc-mnemonic",
+		FacilitatorClient:     x402.NewFacilitatorClient(facilitator.URL),
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:          "algorand:testnet",
+		Signer:                &fakeSigner{group: []string{"g0", "g1"}, idx: 0},
 	}
 
 	// Unauthenticated leg: relayInboundChallenge must also use the
@@ -867,14 +856,14 @@ func TestX402RelayUsesSingleQuoteForBothSettlementAndOutboundPayment(t *testing.
 		w.WriteHeader(http.StatusPaymentRequired)
 		if quoteFetches == 1 {
 			json.NewEncoder(w).Encode(map[string]any{
-				"accepts": []map[string]any{{"payTo": "TARGETADDR-CHEAP", "asset": "10458941", "maxAmountRequired": "50000"}},
+				"accepts": []map[string]any{{"payTo": "TARGETADDR-CHEAP", "asset": "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", "maxAmountRequired": "50000"}},
 			})
 			return
 		}
 		// A malicious target would only do this on a second, pay-time-only
 		// fetch that should never happen under the fix.
 		json.NewEncoder(w).Encode(map[string]any{
-			"accepts": []map[string]any{{"payTo": "ATTACKERADDR", "asset": "10458941", "maxAmountRequired": "999000000"}},
+			"accepts": []map[string]any{{"payTo": "ATTACKERADDR", "asset": "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", "maxAmountRequired": "999000000"}},
 		})
 	}))
 	defer target.Close()
@@ -893,16 +882,15 @@ func TestX402RelayUsesSingleQuoteForBothSettlementAndOutboundPayment(t *testing.
 	}))
 	defer facilitator.Close()
 
-	signer := &fakeUSDCSigner{group: []string{"g0", "g1"}, idx: 0}
+	signer := &fakeSigner{group: []string{"g0", "g1"}, idx: 0}
 	d := &handlers.Deps{
-		Store:                     store,
-		PlatformWalletAddress:     "PLATFORMADDR",
-		PlatformWalletEncMnemonic: "enc-mnemonic",
-		FacilitatorClient:         x402.NewFacilitatorClient(facilitator.URL),
-		USDCAssetID:               10458941,
-		RelayNetwork:              "algorand:testnet",
-		RelayFeePayer:             "FEEPAYERADDR",
-		USDCSigner:                signer,
+		Store:                 store,
+		PlatformWalletAddress: "PLATFORMADDR",
+		PlatformWalletEncKey:  "enc-mnemonic",
+		FacilitatorClient:     x402.NewFacilitatorClient(facilitator.URL),
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:          "algorand:testnet",
+		Signer:                signer,
 	}
 
 	payload, _ := json.Marshal(map[string]any{"x402Version": 2, "scheme": "exact", "network": "algorand:testnet"})
@@ -944,15 +932,15 @@ func TestX402RelayUsesSingleQuoteForBothSettlementAndOutboundPayment(t *testing.
 // gap where payTargetAndRespond blindly trusted quote.Asset (parsed straight
 // out of the target's own, caller-supplied, unauthenticated 402 response) as
 // the asset id to sign and broadcast the outbound platform-wallet payment in
-// — with no check that it matches d.USDCAssetID, the platform's own
+// — with no check that it matches d.USDCAsset, the platform's own
 // designated USDC asset id (already anchored and enforced on the inbound
 // settlement side via reqs.Asset in relaySettleAndForward). A malicious
 // target could consistently, in its single quote response, claim some other
 // asset id it controls (or one that doesn't exist/has no value) and the
 // relay would still sign and send a real payment in that asset.
 //
-// The fake target here claims asset "99999999" (not d.USDCAssetID,
-// 10458941) consistently on every unauthenticated fetch — so this is not the
+// The fake target here claims asset "99999999" (not d.USDCAsset,
+// "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7") consistently on every unauthenticated fetch — so this is not the
 // two-different-fetches fund-drain vector from the test above, just a single
 // quote that names the wrong asset throughout.
 //
@@ -995,16 +983,15 @@ func TestX402RelayRejectsOutboundPaymentInWrongAsset(t *testing.T) {
 	}))
 	defer facilitator.Close()
 
-	signer := &fakeUSDCSigner{group: []string{"g0", "g1"}, idx: 0}
+	signer := &fakeSigner{group: []string{"g0", "g1"}, idx: 0}
 	d := &handlers.Deps{
-		Store:                     store,
-		PlatformWalletAddress:     "PLATFORMADDR",
-		PlatformWalletEncMnemonic: "enc-mnemonic",
-		FacilitatorClient:         x402.NewFacilitatorClient(facilitator.URL),
-		USDCAssetID:               10458941, // does NOT match the target's claimed asset (99999999)
-		RelayNetwork:              "algorand:testnet",
-		RelayFeePayer:             "FEEPAYERADDR",
-		USDCSigner:                signer,
+		Store:                 store,
+		PlatformWalletAddress: "PLATFORMADDR",
+		PlatformWalletEncKey:  "enc-mnemonic",
+		FacilitatorClient:     x402.NewFacilitatorClient(facilitator.URL),
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", // does NOT match the target's claimed asset (99999999)
+		RelayNetwork:          "algorand:testnet",
+		Signer:                signer,
 	}
 
 	payload, _ := json.Marshal(map[string]any{"x402Version": 2, "scheme": "exact", "network": "algorand:testnet"})
@@ -1025,10 +1012,10 @@ func TestX402RelayRejectsOutboundPaymentInWrongAsset(t *testing.T) {
 		t.Fatalf("want the facilitator (verify/settle) to never be called when the target's quoted asset is rejected up front, got calls to %v", facilitatorHitPaths)
 	}
 	if len(signer.calls) != 0 {
-		t.Fatalf("want the USDC signer to never be called when the target's quoted asset does not match d.USDCAssetID, got %d call(s): %+v", len(signer.calls), signer.calls)
+		t.Fatalf("want the USDC signer to never be called when the target's quoted asset does not match d.USDCAsset, got %d call(s): %+v", len(signer.calls), signer.calls)
 	}
 	if targetGotPaidRequest {
-		t.Fatal("want the relay to never send a paid request to the target when the quoted asset does not match d.USDCAssetID")
+		t.Fatal("want the relay to never send a paid request to the target when the quoted asset does not match d.USDCAsset")
 	}
 
 	if _, err := store.GetX402RelaySettlementByInboundTx(context.Background(), inboundTxID); err == nil {
@@ -1054,7 +1041,7 @@ func TestX402RelayDoesNotBillWhenOutboundSigningFails(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
 		json.NewEncoder(w).Encode(map[string]any{
-			"accepts": []map[string]any{{"payTo": "TARGETADDR", "asset": "10458941", "maxAmountRequired": "50000"}},
+			"accepts": []map[string]any{{"payTo": "TARGETADDR", "asset": "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", "maxAmountRequired": "50000"}},
 		})
 	}))
 	defer target.Close()
@@ -1071,16 +1058,15 @@ func TestX402RelayDoesNotBillWhenOutboundSigningFails(t *testing.T) {
 	}))
 	defer facilitator.Close()
 
-	signer := &fakeUSDCSigner{err: fmt.Errorf("invalid receiver address")}
+	signer := &fakeSigner{err: fmt.Errorf("invalid receiver address")}
 	d := &handlers.Deps{
-		Store:                     store,
-		PlatformWalletAddress:     "PLATFORMADDR",
-		PlatformWalletEncMnemonic: "enc-mnemonic",
-		FacilitatorClient:         x402.NewFacilitatorClient(facilitator.URL),
-		USDCAssetID:               10458941,
-		RelayNetwork:              "algorand:testnet",
-		RelayFeePayer:             "FEEPAYERADDR",
-		USDCSigner:                signer,
+		Store:                 store,
+		PlatformWalletAddress: "PLATFORMADDR",
+		PlatformWalletEncKey:  "enc-mnemonic",
+		FacilitatorClient:     x402.NewFacilitatorClient(facilitator.URL),
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:          "algorand:testnet",
+		Signer:                signer,
 	}
 
 	payload, _ := json.Marshal(map[string]any{"x402Version": 2, "scheme": "exact", "network": "algorand:testnet"})
@@ -1125,7 +1111,7 @@ func TestX402RelayRecordsFailedWhenTargetRejectsOutboundPayment(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
 		json.NewEncoder(w).Encode(map[string]any{
-			"accepts": []map[string]any{{"payTo": "TARGETADDR", "asset": "10458941", "maxAmountRequired": "50000"}},
+			"accepts": []map[string]any{{"payTo": "TARGETADDR", "asset": "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", "maxAmountRequired": "50000"}},
 		})
 	}))
 	defer target.Close()
@@ -1143,14 +1129,13 @@ func TestX402RelayRecordsFailedWhenTargetRejectsOutboundPayment(t *testing.T) {
 	defer facilitator.Close()
 
 	d := &handlers.Deps{
-		Store:                     store,
-		PlatformWalletAddress:     "PLATFORMADDR",
-		PlatformWalletEncMnemonic: "enc-mnemonic",
-		FacilitatorClient:         x402.NewFacilitatorClient(facilitator.URL),
-		USDCAssetID:               10458941,
-		RelayNetwork:              "algorand:testnet",
-		RelayFeePayer:             "FEEPAYERADDR",
-		USDCSigner:                &fakeUSDCSigner{group: []string{"g0", "g1"}, idx: 0},
+		Store:                 store,
+		PlatformWalletAddress: "PLATFORMADDR",
+		PlatformWalletEncKey:  "enc-mnemonic",
+		FacilitatorClient:     x402.NewFacilitatorClient(facilitator.URL),
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:          "algorand:testnet",
+		Signer:                &fakeSigner{group: []string{"g0", "g1"}, idx: 0},
 	}
 
 	payload, _ := json.Marshal(map[string]any{"x402Version": 2, "scheme": "exact", "network": "algorand:testnet"})
@@ -1189,10 +1174,10 @@ func TestX402RelayForwardsTargetAuthHeader(t *testing.T) {
 			"x402Version": 2,
 			"accepts": []map[string]any{{
 				"scheme":            "exact",
-				"network":           "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=",
+				"network":           "eip155:1874",
 				"maxAmountRequired": "100000",
 				"payTo":             "TARGETADDR",
-				"asset":             "10458941",
+				"asset":             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
 			}},
 		})
 	}))
@@ -1200,9 +1185,8 @@ func TestX402RelayForwardsTargetAuthHeader(t *testing.T) {
 
 	d := &handlers.Deps{
 		PlatformWalletAddress: "PLATFORMADDR",
-		USDCAssetID:           10458941,
-		RelayNetwork:          "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=",
-		RelayFeePayer:         "FEEPAYERADDR",
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:          "eip155:1874",
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/x402/relay?target="+target.URL, nil)

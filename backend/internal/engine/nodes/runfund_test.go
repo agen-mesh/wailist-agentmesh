@@ -8,38 +8,35 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/agentmesh/backend/internal/engine/nodes"
+	"github.com/agentmesh/backend/internal/wallet"
 	"github.com/agentmesh/backend/internal/x402"
 )
 
-// fakeRunFundUSDCSigner is a minimal USDCGroupSigner double for
+// fakeRunFundSigner is a minimal PaymentSigner double for
 // FundRunReserve tests — it doesn't need to produce a real signed group,
 // just something FundRunReserve's payload can carry through to the fake
 // facilitator below.
-type fakeRunFundUSDCSigner struct {
+type fakeRunFundSigner struct {
 	group  []string
 	idx    int
 	err    error
 	called bool
+	last   wallet.AuthorizationRequest
 }
 
-func (f *fakeRunFundUSDCSigner) SignUSDCPaymentGroup(_ context.Context, _, _ string, _, _ uint64, _ string) ([]string, int, error) {
+func (f *fakeRunFundSigner) SignTransferAuthorization(_ context.Context, _ string, r wallet.AuthorizationRequest) (x402.ExactEVMPayload, error) {
 	f.called = true
+	f.last = r
 	if f.err != nil {
-		return nil, 0, f.err
+		return x402.ExactEVMPayload{}, f.err
 	}
-	return f.group, f.idx, nil
-}
-
-// SignUSDCPaymentSingle is never exercised by FundRunReserve (it always uses
-// the fee-pooled SignUSDCPaymentGroup) — this stub only satisfies the
-// interface.
-func (f *fakeRunFundUSDCSigner) SignUSDCPaymentSingle(_ context.Context, _, _ string, _, _ uint64) ([]string, int, error) {
-	return f.group, f.idx, f.err
+	return x402.ExactEVMPayload{Signature: "0xfakesig", Authorization: x402.Authorization{From: "0x00000000000000000000000000000000000000f1", To: r.PayTo, Value: strconv.FormatUint(r.Amount, 10), ValidAfter: "0", ValidBefore: "9999999999", Nonce: "0x01"}}, nil
 }
 
 func TestFundRunReserveNoopOnNonPositiveAmount(t *testing.T) {
@@ -49,16 +46,15 @@ func TestFundRunReserveNoopOnNonPositiveAmount(t *testing.T) {
 	}))
 	defer facilitator.Close()
 
-	signer := &fakeRunFundUSDCSigner{group: []string{"g0", "g1"}, idx: 0}
+	signer := &fakeRunFundSigner{group: []string{"g0", "g1"}, idx: 0}
 	cfg := nodes.RunPreFundConfig{
-		USDCSigner:               signer,
-		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
-		Facilitator:              x402.NewFacilitatorClient(facilitator.URL),
-		PlatformWalletAddress:    "PLATFORMADDR",
-		RelayNetwork:             "algorand:testnet",
-		RelayFeePayer:            "FEEPAYERADDR",
-		ExpectedAssetID:          10458941,
-		FrontendURL:              "https://example.test",
+		Signer:                signer,
+		PlatformSpendEncKey:   "platform-enc-mnemonic",
+		Facilitator:           x402.NewFacilitatorClient(facilitator.URL),
+		PlatformWalletAddress: "PLATFORMADDR",
+		RelayNetwork:          "algorand:testnet",
+		ExpectedAsset:         "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		FrontendURL:           "https://example.test",
 	}
 
 	for _, amount := range []int64{0, -1, -100} {
@@ -101,16 +97,15 @@ func TestFundRunReserveSuccess(t *testing.T) {
 	}))
 	defer facilitator.Close()
 
-	signer := &fakeRunFundUSDCSigner{group: []string{"g0", "g1"}, idx: 0}
+	signer := &fakeRunFundSigner{group: []string{"g0", "g1"}, idx: 0}
 	cfg := nodes.RunPreFundConfig{
-		USDCSigner:               signer,
-		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
-		Facilitator:              x402.NewFacilitatorClient(facilitator.URL),
-		PlatformWalletAddress:    "PLATFORMADDR",
-		RelayNetwork:             "algorand:testnet",
-		RelayFeePayer:            "FEEPAYERADDR",
-		ExpectedAssetID:          10458941,
-		FrontendURL:              "https://example.test",
+		Signer:                signer,
+		PlatformSpendEncKey:   "platform-enc-mnemonic",
+		Facilitator:           x402.NewFacilitatorClient(facilitator.URL),
+		PlatformWalletAddress: "PLATFORMADDR",
+		RelayNetwork:          "algorand:testnet",
+		ExpectedAsset:         "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		FrontendURL:           "https://example.test",
 	}
 
 	txID, err := nodes.FundRunReserve(context.Background(), cfg, "run-1", 500000)
@@ -127,14 +122,17 @@ func TestFundRunReserveSuccess(t *testing.T) {
 	if verifyReqs.PaymentRequirements.PayTo != "PLATFORMADDR" {
 		t.Fatalf("want verify PayTo=PLATFORMADDR (same payTo as every per-call relay settlement), got %q", verifyReqs.PaymentRequirements.PayTo)
 	}
-	if verifyReqs.PaymentRequirements.Extra["tag"] != "x402-global-challenge" {
-		t.Fatalf("want verify Extra.tag=x402-global-challenge, got %v", verifyReqs.PaymentRequirements.Extra["tag"])
+	if verifyReqs.PaymentRequirements.Extra["name"] != "Tether USD" || verifyReqs.PaymentRequirements.Extra["version"] != "1" {
+		t.Fatalf("want verify Extra to carry the USDT EIP-712 domain, got %v", verifyReqs.PaymentRequirements.Extra)
+	}
+	if signer.last.PayTo != "PLATFORMADDR" || signer.last.Amount != 500000 {
+		t.Fatalf("want Wallet 1 to sign 500000 to PLATFORMADDR, got %+v", signer.last)
 	}
 	if settleReqs.PaymentRequirements.PayTo != "PLATFORMADDR" {
 		t.Fatalf("want settle PayTo=PLATFORMADDR, got %q", settleReqs.PaymentRequirements.PayTo)
 	}
-	if settleReqs.PaymentRequirements.Extra["tag"] != "x402-global-challenge" {
-		t.Fatalf("want settle Extra.tag=x402-global-challenge, got %v", settleReqs.PaymentRequirements.Extra["tag"])
+	if settleReqs.PaymentRequirements.Extra["name"] != "Tether USD" {
+		t.Fatalf("want settle Extra to carry the USDT EIP-712 domain, got %v", settleReqs.PaymentRequirements.Extra)
 	}
 	// Resource is cfg.BaseURL + the real /x402/relay/run-funding path, not a
 	// per-run runId-specific URL -- matches every actually-cataloged real
@@ -156,16 +154,15 @@ func TestFundRunReserveVerifyInvalidSurfacesError(t *testing.T) {
 	}))
 	defer facilitator.Close()
 
-	signer := &fakeRunFundUSDCSigner{group: []string{"g0", "g1"}, idx: 0}
+	signer := &fakeRunFundSigner{group: []string{"g0", "g1"}, idx: 0}
 	cfg := nodes.RunPreFundConfig{
-		USDCSigner:               signer,
-		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
-		Facilitator:              x402.NewFacilitatorClient(facilitator.URL),
-		PlatformWalletAddress:    "PLATFORMADDR",
-		RelayNetwork:             "algorand:testnet",
-		RelayFeePayer:            "FEEPAYERADDR",
-		ExpectedAssetID:          10458941,
-		FrontendURL:              "https://example.test",
+		Signer:                signer,
+		PlatformSpendEncKey:   "platform-enc-mnemonic",
+		Facilitator:           x402.NewFacilitatorClient(facilitator.URL),
+		PlatformWalletAddress: "PLATFORMADDR",
+		RelayNetwork:          "algorand:testnet",
+		ExpectedAsset:         "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		FrontendURL:           "https://example.test",
 	}
 
 	txID, err := nodes.FundRunReserve(context.Background(), cfg, "run-1", 500000)
@@ -191,16 +188,15 @@ func TestFundRunReserveSettleFailureSurfacesError(t *testing.T) {
 	}))
 	defer facilitator.Close()
 
-	signer := &fakeRunFundUSDCSigner{group: []string{"g0", "g1"}, idx: 0}
+	signer := &fakeRunFundSigner{group: []string{"g0", "g1"}, idx: 0}
 	cfg := nodes.RunPreFundConfig{
-		USDCSigner:               signer,
-		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
-		Facilitator:              x402.NewFacilitatorClient(facilitator.URL),
-		PlatformWalletAddress:    "PLATFORMADDR",
-		RelayNetwork:             "algorand:testnet",
-		RelayFeePayer:            "FEEPAYERADDR",
-		ExpectedAssetID:          10458941,
-		FrontendURL:              "https://example.test",
+		Signer:                signer,
+		PlatformSpendEncKey:   "platform-enc-mnemonic",
+		Facilitator:           x402.NewFacilitatorClient(facilitator.URL),
+		PlatformWalletAddress: "PLATFORMADDR",
+		RelayNetwork:          "algorand:testnet",
+		ExpectedAsset:         "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		FrontendURL:           "https://example.test",
 	}
 
 	txID, err := nodes.FundRunReserve(context.Background(), cfg, "run-1", 500000)
@@ -229,16 +225,15 @@ func TestFundRunReserveSettleTransportErrorIsIndeterminate(t *testing.T) {
 	}))
 	defer facilitator.Close()
 
-	signer := &fakeRunFundUSDCSigner{group: []string{"g0", "g1"}, idx: 0}
+	signer := &fakeRunFundSigner{group: []string{"g0", "g1"}, idx: 0}
 	cfg := nodes.RunPreFundConfig{
-		USDCSigner:               signer,
-		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
-		Facilitator:              x402.NewFacilitatorClient(facilitator.URL),
-		PlatformWalletAddress:    "PLATFORMADDR",
-		RelayNetwork:             "algorand:testnet",
-		RelayFeePayer:            "FEEPAYERADDR",
-		ExpectedAssetID:          10458941,
-		FrontendURL:              "https://example.test",
+		Signer:                signer,
+		PlatformSpendEncKey:   "platform-enc-mnemonic",
+		Facilitator:           x402.NewFacilitatorClient(facilitator.URL),
+		PlatformWalletAddress: "PLATFORMADDR",
+		RelayNetwork:          "algorand:testnet",
+		ExpectedAsset:         "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		FrontendURL:           "https://example.test",
 	}
 
 	txID, err := nodes.FundRunReserve(context.Background(), cfg, "run-1", 500000)
@@ -277,16 +272,15 @@ func TestFundRunReserveRetriesDefinitiveSettleFailure(t *testing.T) {
 	}))
 	defer facilitator.Close()
 
-	signer := &fakeRunFundUSDCSigner{group: []string{"g0", "g1"}, idx: 0}
+	signer := &fakeRunFundSigner{group: []string{"g0", "g1"}, idx: 0}
 	cfg := nodes.RunPreFundConfig{
-		USDCSigner:               signer,
-		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
-		Facilitator:              x402.NewFacilitatorClient(facilitator.URL),
-		PlatformWalletAddress:    "PLATFORMADDR",
-		RelayNetwork:             "algorand:testnet",
-		RelayFeePayer:            "FEEPAYERADDR",
-		ExpectedAssetID:          10458941,
-		FrontendURL:              "https://example.test",
+		Signer:                signer,
+		PlatformSpendEncKey:   "platform-enc-mnemonic",
+		Facilitator:           x402.NewFacilitatorClient(facilitator.URL),
+		PlatformWalletAddress: "PLATFORMADDR",
+		RelayNetwork:          "algorand:testnet",
+		ExpectedAsset:         "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		FrontendURL:           "https://example.test",
 	}
 
 	txID, err := nodes.FundRunReserve(context.Background(), cfg, "run-1", 500000)
@@ -319,16 +313,15 @@ func TestFundRunReserveNeverRetriesIndeterminateSettle(t *testing.T) {
 	}))
 	defer facilitator.Close()
 
-	signer := &fakeRunFundUSDCSigner{group: []string{"g0", "g1"}, idx: 0}
+	signer := &fakeRunFundSigner{group: []string{"g0", "g1"}, idx: 0}
 	cfg := nodes.RunPreFundConfig{
-		USDCSigner:               signer,
-		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
-		Facilitator:              x402.NewFacilitatorClient(facilitator.URL),
-		PlatformWalletAddress:    "PLATFORMADDR",
-		RelayNetwork:             "algorand:testnet",
-		RelayFeePayer:            "FEEPAYERADDR",
-		ExpectedAssetID:          10458941,
-		FrontendURL:              "https://example.test",
+		Signer:                signer,
+		PlatformSpendEncKey:   "platform-enc-mnemonic",
+		Facilitator:           x402.NewFacilitatorClient(facilitator.URL),
+		PlatformWalletAddress: "PLATFORMADDR",
+		RelayNetwork:          "algorand:testnet",
+		ExpectedAsset:         "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		FrontendURL:           "https://example.test",
 	}
 
 	_, err := nodes.FundRunReserve(context.Background(), cfg, "run-1", 500000)
@@ -363,16 +356,15 @@ func TestFundRunReserveExhaustedRetriesPreserveEveryAttemptsError(t *testing.T) 
 	}))
 	defer facilitator.Close()
 
-	signer := &fakeRunFundUSDCSigner{group: []string{"g0", "g1"}, idx: 0}
+	signer := &fakeRunFundSigner{group: []string{"g0", "g1"}, idx: 0}
 	cfg := nodes.RunPreFundConfig{
-		USDCSigner:               signer,
-		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
-		Facilitator:              x402.NewFacilitatorClient(facilitator.URL),
-		PlatformWalletAddress:    "PLATFORMADDR",
-		RelayNetwork:             "algorand:testnet",
-		RelayFeePayer:            "FEEPAYERADDR",
-		ExpectedAssetID:          10458941,
-		FrontendURL:              "https://example.test",
+		Signer:                signer,
+		PlatformSpendEncKey:   "platform-enc-mnemonic",
+		Facilitator:           x402.NewFacilitatorClient(facilitator.URL),
+		PlatformWalletAddress: "PLATFORMADDR",
+		RelayNetwork:          "algorand:testnet",
+		ExpectedAsset:         "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		FrontendURL:           "https://example.test",
 	}
 
 	_, err := nodes.FundRunReserve(context.Background(), cfg, "run-1", 500000)
@@ -409,16 +401,15 @@ func TestFundRunReserveHonorsCancellationDuringVerify(t *testing.T) {
 	defer facilitator.Close()
 	defer close(unblockVerify)
 
-	signer := &fakeRunFundUSDCSigner{group: []string{"g0", "g1"}, idx: 0}
+	signer := &fakeRunFundSigner{group: []string{"g0", "g1"}, idx: 0}
 	cfg := nodes.RunPreFundConfig{
-		USDCSigner:               signer,
-		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
-		Facilitator:              x402.NewFacilitatorClient(facilitator.URL),
-		PlatformWalletAddress:    "PLATFORMADDR",
-		RelayNetwork:             "algorand:testnet",
-		RelayFeePayer:            "FEEPAYERADDR",
-		ExpectedAssetID:          10458941,
-		FrontendURL:              "https://example.test",
+		Signer:                signer,
+		PlatformSpendEncKey:   "platform-enc-mnemonic",
+		Facilitator:           x402.NewFacilitatorClient(facilitator.URL),
+		PlatformWalletAddress: "PLATFORMADDR",
+		RelayNetwork:          "algorand:testnet",
+		ExpectedAsset:         "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		FrontendURL:           "https://example.test",
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -459,17 +450,16 @@ func TestFundRunReserveSignBudgetBoundsAHungSign(t *testing.T) {
 	}))
 	defer facilitator.Close()
 
-	signer := &hangingUSDCSigner{unblock: make(chan struct{})}
+	signer := &hangingSigner{unblock: make(chan struct{})}
 	defer close(signer.unblock)
 	cfg := nodes.RunPreFundConfig{
-		USDCSigner:               signer,
-		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
-		Facilitator:              x402.NewFacilitatorClient(facilitator.URL),
-		PlatformWalletAddress:    "PLATFORMADDR",
-		RelayNetwork:             "algorand:testnet",
-		RelayFeePayer:            "FEEPAYERADDR",
-		ExpectedAssetID:          10458941,
-		FrontendURL:              "https://example.test",
+		Signer:                signer,
+		PlatformSpendEncKey:   "platform-enc-mnemonic",
+		Facilitator:           x402.NewFacilitatorClient(facilitator.URL),
+		PlatformWalletAddress: "PLATFORMADDR",
+		RelayNetwork:          "algorand:testnet",
+		ExpectedAsset:         "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		FrontendURL:           "https://example.test",
 	}
 
 	start := time.Now()
@@ -507,22 +497,18 @@ func TestFundRunReserveSignBudgetBoundsAHungSign(t *testing.T) {
 	}
 }
 
-// hangingUSDCSigner never returns from SignUSDCPaymentGroup until its ctx
+// hangingSigner never returns from SignUSDCPaymentGroup until its ctx
 // is done or the test closes unblock -- used to prove signCallBudget
 // actually bounds the call rather than being wired to a no-op timeout.
-type hangingUSDCSigner struct{ unblock chan struct{} }
+type hangingSigner struct{ unblock chan struct{} }
 
-func (s *hangingUSDCSigner) SignUSDCPaymentGroup(ctx context.Context, _, _ string, _, _ uint64, _ string) ([]string, int, error) {
+func (s *hangingSigner) SignTransferAuthorization(ctx context.Context, _ string, r wallet.AuthorizationRequest) (x402.ExactEVMPayload, error) {
 	select {
 	case <-ctx.Done():
-		return nil, 0, ctx.Err()
+		return x402.ExactEVMPayload{}, ctx.Err()
 	case <-s.unblock:
-		return nil, 0, errors.New("unblocked without a real result")
+		return x402.ExactEVMPayload{}, errors.New("unblocked without a real result")
 	}
-}
-
-func (s *hangingUSDCSigner) SignUSDCPaymentSingle(ctx context.Context, _, _ string, _, _ uint64) ([]string, int, error) {
-	return s.SignUSDCPaymentGroup(ctx, "", "", 0, 0, "")
 }
 
 // TestFundRunReserveDoesNotInterruptInFlightSettle guards the other half:
@@ -546,16 +532,15 @@ func TestFundRunReserveDoesNotInterruptInFlightSettle(t *testing.T) {
 	}))
 	defer facilitator.Close()
 
-	signer := &fakeRunFundUSDCSigner{group: []string{"g0", "g1"}, idx: 0}
+	signer := &fakeRunFundSigner{group: []string{"g0", "g1"}, idx: 0}
 	cfg := nodes.RunPreFundConfig{
-		USDCSigner:               signer,
-		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
-		Facilitator:              x402.NewFacilitatorClient(facilitator.URL),
-		PlatformWalletAddress:    "PLATFORMADDR",
-		RelayNetwork:             "algorand:testnet",
-		RelayFeePayer:            "FEEPAYERADDR",
-		ExpectedAssetID:          10458941,
-		FrontendURL:              "https://example.test",
+		Signer:                signer,
+		PlatformSpendEncKey:   "platform-enc-mnemonic",
+		Facilitator:           x402.NewFacilitatorClient(facilitator.URL),
+		PlatformWalletAddress: "PLATFORMADDR",
+		RelayNetwork:          "algorand:testnet",
+		ExpectedAsset:         "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		FrontendURL:           "https://example.test",
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

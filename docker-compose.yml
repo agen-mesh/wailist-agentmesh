@@ -29,11 +29,16 @@ services:
       BASE_URL: http://localhost:8080
       FRONTEND_URL: http://localhost:3000
       CORS_ORIGIN: http://localhost:3000
-      # Dev-only fixed secrets — never reuse in production.
+      # Dev-only fixed secret — never reuse in production.
       JWT_SECRET: 5a06faa3d53450f33cb2d4727f7c4bc4b030e0fdd9ddd8995ea0c8a797905a0a
-      ENCRYPTION_KEY: "00000000000000000000000000000000"
-      ALGOD_URL: https://testnet-api.algonode.cloud
-      ALGORAND_NETWORK: testnet
+      # Must be the key the wallet ciphertexts below were encrypted with.
+      # Compose reads it from the gitignored ./.env (a symlink to backend/.env).
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set in backend/.env}
+
+      # Whitechain testnet. Blank in .env still lands on these defaults.
+      FACILITATOR_URL: ${FACILITATOR_URL:-https://whitechain.007575.xyz}
+      WHITECHAIN_RPC_URL: ${WHITECHAIN_RPC_URL:-https://rpc.testnet.whitechain.io}
+      WHITECHAIN_EXPLORER_URL: ${WHITECHAIN_EXPLORER_URL:-https://explorer.testnet.whitechain.io}
 
       # Platform provider keys, taken from .env so the chat builder and any
       # platform-key agent work in local dev. Without a Gemini key the
@@ -42,11 +47,16 @@ services:
       PLATFORM_OPENAI_API_KEY: ${PLATFORM_OPENAI_API_KEY:-}
       PLATFORM_ANTHROPIC_API_KEY: ${PLATFORM_ANTHROPIC_API_KEY:-}
 
-      # Dev Algorand wallets (generated with walletgen -skip-opt-in, testnet only)
-      PLATFORM_WALLET_ADDRESS: XJAS6HBWDZB4JW3SQB7GBP7BY3C2I43SGL5WI2KCZHLIUFW5HO4FPCVAW4
-      PLATFORM_WALLET_ENC_MNEMONIC: "H5FK4E549nJY6jqwt7R60tXmEiTTC4ePh8/zreBlbwbhxbti7F9VlHqIQKMZMTqQrYQK9+wvG75g9rsT5rlWAGjdsfjG3pN/Of7SMcwqy1AnOb4koBmSN8kruBZX/zApzOs9LMKkgUJpcIwhdmT1xsT/i2YbuCpzDTeyfe+2NzOnODSlPHUN7gw0akRZHPdoLGkMLznrCEZ6gbl5sKEAvcJ68JwsBxGzO4FPjt8v2zXxZbE1kf0HIrUVrQ=="
-      PLATFORM_SPEND_WALLET_ADDRESS: JH3LVYHSRO6F2O3RMTVOZIPI5AV5UGJ4ZXQZRF7VKB3D34YEELSTB4GU3Y
-      PLATFORM_SPEND_WALLET_ENC_MNEMONIC: "R1lkI+IptsyATMt8uLZ0FpCdX+WN8nGWIaD8bVrRqMRb2FbIuIaSzR9GYvSaxAXHGVlE+wd1Nj7wDF7zIs1R4rXDNFzIFK1TXkxLg264pxSp/TY4afIMDWq2maZShoUh7rO1m/An7l/lvxLROo4+09N51up7FaEAuypXzRJG4ygWxLRhkpXnx41jrS4uQrEUlQrGBSVYF7BcQXLnCQeVAjnxUPsOrA9K2Thf8ru3Uod26zA="
+      # Whitechain wallets. Wallet 1 pays each run's pre-fund and the platform
+      # fee; Wallet 2 receives that and pays outbound x402 tools. Ciphertexts
+      # come from `go run ./cmd/walletgen -enc-key $ENCRYPTION_KEY -import -`.
+      # They are not hardcoded: the dev key that used to live here cannot
+      # decrypt them, and committing a ciphertext made with a published key
+      # would publish the private key.
+      PLATFORM_SPEND_WALLET_ADDRESS: ${PLATFORM_SPEND_WALLET_ADDRESS:?set in backend/.env}
+      PLATFORM_SPEND_WALLET_ENC_KEY: ${PLATFORM_SPEND_WALLET_ENC_KEY:?set in backend/.env}
+      PLATFORM_WALLET_ADDRESS: ${PLATFORM_WALLET_ADDRESS:?set in backend/.env}
+      PLATFORM_WALLET_ENC_KEY: ${PLATFORM_WALLET_ENC_KEY:?set in backend/.env}
 
       # Cashfree — replace with real keys from dashboard.cashfree.com
       # Set CASHFREE_SANDBOX=true while testing

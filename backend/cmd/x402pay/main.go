@@ -12,15 +12,13 @@
 // fee-pooled group signing, and the header encoding -- all of which already
 // exist here, in the exact form the relay itself uses.
 //
-// THIS SPENDS REAL MONEY. On mainnet the asset is real USDC and the transfer
-// is irreversible. Guards, in order:
+// This branch only supports Whitechain testnet USDT. Guards, in order:
 //
 //   - It refuses to pay without -confirm. Without it, the command probes the
 //     endpoint, prints the challenge and the exact amount it would send, and
 //     exits 0 without signing anything. Run it that way first, every time.
 //   - It refuses any quote above -max-micros (default $0.05).
-//   - It refuses any asset other than -asset-id, so a target quoting some
-//     other ASA can never be paid by accident.
+//   - It refuses any asset other than the allowlisted testnet USDT.
 //
 // Secrets are read from the environment, not flags: a flag value is visible
 // in `ps` output and lands in shell history. Set ENCRYPTION_KEY and
@@ -43,108 +41,78 @@ import (
 	"os"
 	"time"
 
+	"github.com/agentmesh/backend/internal/chain"
 	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/wallet"
-)
-
-// Mainnet/testnet constants, kept identical to cmd/server/main.go's own
-// defaults. relayNetwork is the CAIP-style genesis-hash identifier the x402
-// payload carries, which is a different string from the human network name
-// the wallet service takes -- both are derived from -network here so they
-// cannot disagree.
-const (
-	mainnetUSDCAssetID = 31566704
-	testnetUSDCAssetID = 10458941
-	mainnetRelayNet    = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="
-	testnetRelayNet    = "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI="
 )
 
 func main() {
 	log.SetFlags(0)
 
 	endpoint := flag.String("endpoint", "https://www.agent-mesh.app/api/x402/relay",
-		"x402 endpoint to pay. Defaults to the relay's own self-listing -- the bare route with no ?target=, which is the one that declares the relay itself as the catalog resource")
+		"x402 endpoint to pay. Defaults to the relay's own self-listing")
 	method := flag.String("method", "GET", "HTTP method for the paid request")
-	network := flag.String("network", "mainnet", "algorand network: mainnet or testnet")
-	assetID := flag.Uint64("asset-id", 0, "USDC ASA id to accept in the quote; defaults to the -network default")
-	maxMicros := flag.Int64("max-micros", 50000, "refuse to pay a quote above this many micro-USDC (50000 = $0.05)")
-	algodURL := flag.String("algod-url", "", "algod REST endpoint; defaults to the -network public node")
-	algodToken := flag.String("algod-token", "", "algod API token, if the endpoint requires one")
+	bodyFlag := flag.String("body", "", "raw JSON body for a non-GET request. Sent on both the 402 probe and the paid retry, so a body-priced quote matches what is paid")
+	maxMicros := flag.Int64("max-micros", 50000, "refuse to pay a quote above this many USDT base units (50000 = 0.05 USDT)")
+	rpcURL := flag.String("rpc", chain.DefaultRPCURL, "Whitechain RPC, used only for balance reads")
 	timeout := flag.Duration("timeout", 90*time.Second, "overall deadline for the probe and the paid call")
 	confirm := flag.Bool("confirm", false, "actually sign and send the payment. Without this the command only probes and reports what it would pay")
 	flag.Parse()
 
-	if *network != "mainnet" && *network != "testnet" {
-		log.Fatalf("-network must be mainnet or testnet, got %q", *network)
-	}
 	if *maxMicros <= 0 {
-		// PayTargetFromWallet2 treats MaxRelayOutboundUSDMicros <= 0 as "no
-		// cap" (that's the correct default for server-side relay config,
-		// where 0 means unconfigured). Here it would silently invert the
-		// documented guarantee that this command refuses any quote above
-		// -max-micros, so reject it outright instead of passing it through.
-		log.Fatalf("-max-micros must be a positive number of micro-USDC, got %d (0 or negative disables the spend cap entirely)", *maxMicros)
-	}
-	relayNetwork := testnetRelayNet
-	defaultAsset := uint64(testnetUSDCAssetID)
-	defaultAlgod := "https://testnet-api.algonode.cloud"
-	if *network == "mainnet" {
-		relayNetwork = mainnetRelayNet
-		defaultAsset = mainnetUSDCAssetID
-		defaultAlgod = "https://mainnet-api.algonode.cloud"
-	}
-	if *assetID == 0 {
-		*assetID = defaultAsset
-	}
-	if *algodURL == "" {
-		*algodURL = defaultAlgod
+		log.Fatalf("-max-micros must be positive, got %d", *maxMicros)
 	}
 
-	encKey := os.Getenv("ENCRYPTION_KEY")
-	// Credentials are needed only to sign. A dry run reads a public, unpaid
-	// 402 and reports it, so it deliberately works with no secrets in the
-	// environment at all -- that makes it usable as a plain challenge
-	// inspector, and means the common case of checking an endpoint never
-	// puts a mnemonic anywhere near the process.
-	//
-	// PLATFORM_SPEND_WALLET_ENC_MNEMONIC is Wallet 1, the account that
-	// already funds every relayed call, so paying our own relay from it is
-	// the same Wallet 1 -> Wallet 2 direction the engine's own self-settle
-	// paths use. X402PAY_ENC_MNEMONIC overrides it for paying from some
-	// other account.
-	encMnemonic := os.Getenv("X402PAY_ENC_MNEMONIC")
-	if encMnemonic == "" {
-		encMnemonic = os.Getenv("PLATFORM_SPEND_WALLET_ENC_MNEMONIC")
+	// The payer key comes from one of:
+	//   X402PAY_PRIVATE_KEY            raw 0x hex key (local testing only)
+	//   X402PAY_ENC_KEY                ENCRYPTION_KEY-encrypted key
+	//   PLATFORM_SPEND_WALLET_ENC_KEY  Wallet 1
+	encryptionKey := os.Getenv("ENCRYPTION_KEY")
+	payerEnc := os.Getenv("X402PAY_ENC_KEY")
+	if payerEnc == "" {
+		payerEnc = os.Getenv("PLATFORM_SPEND_WALLET_ENC_KEY")
 	}
-	if *confirm {
-		if encKey == "" {
-			log.Fatal("ENCRYPTION_KEY is not set -- it must match the ENCRYPTION_KEY the encrypted mnemonic was produced under, or the mnemonic will not decrypt")
+	if raw := os.Getenv("X402PAY_PRIVATE_KEY"); raw != "" {
+		// Encrypt the raw key under an ephemeral key so the normal signing
+		// path (which only takes encrypted keys) can be used unchanged.
+		encryptionKey = "x402pay-ephemeral-key-32-bytes!!"
+		var err error
+		if _, payerEnc, err = wallet.NewService(encryptionKey, *rpcURL).EncryptPrivateKey(raw); err != nil {
+			log.Fatalf("X402PAY_PRIVATE_KEY: %v", err)
 		}
-		if encMnemonic == "" {
-			log.Fatal("set X402PAY_ENC_MNEMONIC (or PLATFORM_SPEND_WALLET_ENC_MNEMONIC) to the payer's ENCRYPTION_KEY-encrypted mnemonic")
-		}
+	}
+	if *confirm && (encryptionKey == "" || payerEnc == "") {
+		log.Fatal("set X402PAY_PRIVATE_KEY, or ENCRYPTION_KEY plus X402PAY_ENC_KEY / PLATFORM_SPEND_WALLET_ENC_KEY")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
-	walletSvc := wallet.NewService(encKey, *algodURL, *algodToken, *network)
+	walletSvc := wallet.NewService(encryptionKey, *rpcURL)
+	if err := walletSvc.ValidateNetwork(ctx); err != nil {
+		log.Fatalf("testnet-only payments: %v", err)
+	}
 	payerAddr := "(not resolved -- dry run needs no credentials)"
-	if encKey != "" && encMnemonic != "" {
-		addr, err := walletSvc.AddressForEncMnemonic(encMnemonic)
+	if encryptionKey != "" && payerEnc != "" {
+		addr, err := walletSvc.AddressForEncKey(payerEnc)
 		if err != nil {
-			log.Fatalf("could not derive the payer address from the encrypted mnemonic: %v", err)
+			log.Fatalf("could not derive the payer address: %v", err)
 		}
 		payerAddr = addr
+		if bal, err := walletSvc.TokenBalance(ctx, addr); err == nil {
+			payerAddr += fmt.Sprintf("  (%s %s)", chain.FormatUSDT(int64(bal)), chain.TokenSymbol)
+		}
 	}
 
 	fmt.Printf("payer     : %s\n", payerAddr)
 	fmt.Printf("endpoint  : %s %s\n", *method, *endpoint)
-	fmt.Printf("network   : %s (asset %d)\n\n", *network, *assetID)
+	fmt.Printf("network   : %s (%s %s)\n\n", chain.Network, chain.TokenSymbol, chain.USDTAddress)
 
-	// Probe first, always -- this is an unpaid request, so it is free and
-	// safe to run regardless of -confirm.
-	isV2, quote, err := nodes.ProbeX402Quote(ctx, *endpoint, *method)
+	var probeBody []byte
+	if *bodyFlag != "" && *method != "GET" {
+		probeBody = []byte(*bodyFlag)
+	}
+	isV2, quote, err := nodes.ProbeX402QuoteWithBody(ctx, *endpoint, *method, probeBody, "application/json")
 	if err != nil {
 		log.Fatalf("could not read a 402 challenge from the endpoint: %v", err)
 	}
@@ -153,42 +121,37 @@ func main() {
 	}
 
 	fmt.Println("challenge:")
+	fmt.Printf("  network    : %v\n", quote.RawAccept["network"])
 	fmt.Printf("  payTo      : %s\n", quote.PayTo)
 	fmt.Printf("  asset      : %s\n", quote.Asset)
-	fmt.Printf("  amount     : %s micro-USDC\n", quote.MaxAmountRequired)
-	fmt.Printf("  feePayer   : %s\n", orNone(quote.FeePayer))
+	fmt.Printf("  amount     : %s base units\n", quote.MaxAmountRequired)
+	fmt.Printf("  extra      : %v\n", quote.RawAccept["extra"])
 	fmt.Printf("  bazaar     : %s\n", bazaarSummary(quote.RawChallenge))
 
 	if !*confirm {
 		fmt.Printf("\nDRY RUN -- nothing signed, nothing spent.\n")
-		fmt.Printf("Re-run with -confirm to send %s micro-USDC to %s.\n", quote.MaxAmountRequired, quote.PayTo)
+		fmt.Printf("Re-run with -confirm to send %s base units to %s.\n", quote.MaxAmountRequired, quote.PayTo)
 		return
 	}
 
 	cfg := nodes.Wallet2PayConfig{
-		USDCSigner:                walletSvc,
-		PlatformWalletEncMnemonic: encMnemonic,
-		USDCAssetID:               *assetID,
-		RelayNetwork:              relayNetwork,
-		// The hard spend ceiling. PayTargetFromWallet2 refuses any quote
-		// above this before it signs anything.
+		Signer:                    walletSvc,
+		PlatformWalletEncKey:      payerEnc,
+		USDCAsset:                 chain.USDTAddress,
+		RelayNetwork:              chain.Network,
 		MaxRelayOutboundUSDMicros: *maxMicros,
 	}
 
 	fmt.Printf("\npaying...\n")
-	result, err := nodes.PayTargetFromWallet2(ctx, cfg, *endpoint, *method, nil, quote)
+	result, err := nodes.PayTargetFromWallet2(ctx, cfg, *endpoint, *method, probeBody, quote)
 	if err != nil {
-		// result.Signed distinguishes the two failure modes that matter:
-		// money definitely never moved, versus a signed payment whose
-		// outcome this command could not read back. They call for opposite
-		// responses -- retry, versus check the chain before doing anything.
 		var payErr *nodes.Wallet2PayError
 		if errors.As(err, &payErr) {
 			err = fmt.Errorf("%s (status %d)", payErr.Msg, payErr.StatusCode)
 		}
 		if result.Signed {
 			log.Fatalf("PAYMENT WAS SIGNED but the call did not complete cleanly: %v\n"+
-				"Do NOT simply re-run this -- check %s on an explorer first, the transfer may already have landed.", err, payerAddr)
+				"Do NOT simply re-run this -- check %s first, the transfer may already have landed.", err, chain.AddressURL(payerAddr))
 		}
 		log.Fatalf("payment failed before anything was signed (no money moved): %v", err)
 	}
@@ -197,7 +160,7 @@ func main() {
 	fmt.Printf("settled   : %t\n", result.Settled)
 	fmt.Printf("status    : %d\n", result.StatusCode)
 	if result.OutboundTxID != "" {
-		fmt.Printf("txid      : %s\n", result.OutboundTxID)
+		fmt.Printf("tx        : %s\n", chain.TxURL(result.OutboundTxID))
 	}
 	if len(result.ResponseBody) > 0 {
 		fmt.Printf("response  : %s\n", truncate(string(result.ResponseBody), 600))
@@ -207,17 +170,6 @@ func main() {
 	}
 }
 
-func orNone(s string) string {
-	if s == "" {
-		return "(none -- self-funded single transaction)"
-	}
-	return s
-}
-
-// bazaarSummary reports whether the challenge carries a discovery declaration
-// and whether its two method halves agree, since a mismatch there is exactly
-// what makes a settlement fail to catalog while still reporting success --
-// worth seeing before spending, not after.
 func bazaarSummary(challenge map[string]any) string {
 	exts, _ := challenge["extensions"].(map[string]any)
 	bazaar, _ := exts["bazaar"].(map[string]any)

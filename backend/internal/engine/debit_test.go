@@ -867,7 +867,7 @@ func TestAgentAttachedRelayToolBillsOnInboundSettlementDespiteOutboundFailure(t 
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"250000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"250000"}]}`))
 	}))
 	defer target.Close()
 
@@ -1055,7 +1055,7 @@ func TestSequentialRelayToolCallsCannotOverspendPastBalance(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"250000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"250000"}]}`))
 	}))
 	defer target.Close()
 
@@ -1230,13 +1230,13 @@ func TestConcurrentTool402NodesCannotOverspend(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"10458941","maxAmountRequired":"400000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"400000"}]}`))
 	}))
 	defer relay.Close()
 
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"400000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"400000"}]}`))
 	}))
 	defer target.Close()
 
@@ -1369,7 +1369,7 @@ func TestAgentBranchingBetweenTwoPricedToolsDoesNotBlockMidRun(t *testing.T) {
 			amount = "400000" // estimate-time quote only; every later probe drifts down
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLAADDR","asset":"10458941","maxAmountRequired":"` + amount + `"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLAADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"` + amount + `"}]}`))
 	}))
 	defer toolA.Close()
 
@@ -1379,7 +1379,7 @@ func TestAgentBranchingBetweenTwoPricedToolsDoesNotBlockMidRun(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLBADDR","asset":"10458941","maxAmountRequired":"350000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLBADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"350000"}]}`))
 	}))
 	defer toolB.Close()
 
@@ -1544,7 +1544,7 @@ func TestExactBalanceRunLevelAttachedCallsNotBlockedByFloorGuard(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLAADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLAADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer toolA.Close()
 
@@ -1554,7 +1554,7 @@ func TestExactBalanceRunLevelAttachedCallsNotBlockedByFloorGuard(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLBADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLBADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer toolB.Close()
 
@@ -1705,7 +1705,7 @@ func TestAgentBranchingBetweenTwoPricedToolsBlocksUpfrontWhenBalanceInsufficient
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLAADDR","asset":"10458941","maxAmountRequired":"400000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLAADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"400000"}]}`))
 	}))
 	defer toolA.Close()
 
@@ -1716,7 +1716,7 @@ func TestAgentBranchingBetweenTwoPricedToolsBlocksUpfrontWhenBalanceInsufficient
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLBADDR","asset":"10458941","maxAmountRequired":"350000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLBADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"350000"}]}`))
 	}))
 	defer toolB.Close()
 
@@ -1843,7 +1843,7 @@ func TestRunLevelPathNeverCallsPublicRelayEndpoint(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"300000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"300000"}]}`))
 	}))
 	defer target.Close()
 
@@ -1974,7 +1974,7 @@ func TestRunFailsAndNeverCallsPublicRelayWhenRunFundingRecordFails(t *testing.T)
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"300000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"300000"}]}`))
 	}))
 	defer target.Close()
 
@@ -2090,20 +2090,20 @@ func TestRunFailsAndNeverCallsPublicRelayWhenRunFundingRecordFails(t *testing.T)
 // executeTool402V2Relay's existing "no platform spend wallet configured"
 // graceful-degradation guard. newTestRunner wires up exactly the real,
 // valid misconfiguration this guards against: a walletSvc (noopSigner)
-// whose dynamic type does not satisfy nodes.USDCGroupSigner, and an empty
-// platformSpendEncMnemonic. Without the guard, reserveAndFundRun's type
+// whose dynamic type does not satisfy nodes.PaymentSigner, and an empty
+// platformSpendEncKey. Without the guard, reserveAndFundRun's type
 // assertion yields a nil usdcSigner and a later call on it panics -- with
 // no recover() in the run goroutine, crashing the whole process (which,
 // for this test, would crash the whole `go test` run rather than just fail
 // this one test). The run must instead degrade gracefully to the same
 // behavior as an agent with no attached tool402 nodes at all.
 func TestAgentAttachedV2ToolDegradesGracefullyWhenPlatformSpendWalletNotConfigured(t *testing.T) {
-	runner, store := newTestRunner(t) // noopSigner + empty platformSpendEncMnemonic -- the exact misconfiguration this guards against
+	runner, store := newTestRunner(t) // noopSigner + empty platformSpendEncKey -- the exact misconfiguration this guards against
 	ctx := context.Background()
 
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"300000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"300000"}]}`))
 	}))
 	defer target.Close()
 
@@ -2170,50 +2170,29 @@ func TestAgentAttachedV2ToolDegradesGracefullyWhenPlatformSpendWalletNotConfigur
 	}
 }
 
-// TestLegacyToolAttachedAlongsideRunFundedV2ToolBillsIdenticallyToStandalone
-// is a regression test for a cross-task bug found in final branch review:
-// when an agent is run-funded (has at least one real v2 tool402 attached),
-// relayCfg.Ledger is swapped to the run-level in-memory pool sized only for
-// v2 quotes. A legacy-dialect tool402 node attached to that SAME agent must
-// still bill completely identically to how it would with no v2 tool
-// attached at all -- reserved/committed/released against the original
-// per-call DB-backed ledger, and still covered by executeFunctionCall's
-// pre-flight floor guard, never touching the v2 pool. Before the fix, the
-// legacy branch read relayCfg.Ledger directly (the pool once run-funded),
-// which could spuriously hard-block the legacy call on the pool's
-// V2-sized headroom, or wrongly commit the legacy fee against the pool
-// while leaving Wallet 2 with an uncorresponding surplus.
-func TestLegacyToolAttachedAlongsideRunFundedV2ToolBillsIdenticallyToStandalone(t *testing.T) {
+// Whitechain rejects legacy challenges; an existing agent wallet must not
+// enable a payment or leave its temporary fee reservation charged.
+func TestLegacyToolAlongsideRunFundedV2ToolIsRejectedWithoutCharge(t *testing.T) {
 	ctx := context.Background()
+	var v2PaidRequests, legacyPaidRequests atomic.Int32
+	var legacyRejected atomic.Bool
 
 	v2Target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Payment") != "" {
+			v2PaidRequests.Add(1)
 			w.Write([]byte(`{"data":"v2 result"}`))
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"300000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"300000"}]}`))
 	}))
 	defer v2Target.Close()
 
-	// legacyTarget answers a paid response once the request carries an
-	// X-Payment-Txid header, checked by KEY PRESENCE (not value) --
-	// mirroring tool402.go's own settlement check (`_, hasTx :=
-	// m["txId"]`), also key-presence-based. That match matters here: this
-	// agent's run is otherwise wired through newTestRunnerWithRunFunding's
-	// fakeRelaySigner, which embeds noopSigner, whose SignAndSendPayment
-	// returns an empty ("", nil) txID (it never touches a real chain) -- so
-	// req.Header.Set("X-Payment-Txid", "") still sets the key, just with an
-	// empty value, and Header.Get can't tell that apart from the key never
-	// having been set at all. A naive call-counter mock would also be wrong
-	// here: legacyTarget legitimately receives more than one unauthenticated
-	// probe before the real paid retry (reserveAndFundRun's own up-front
-	// price-probe loop, which walks every attached tool402 node including
-	// this legacy one, plus ExecuteTool402V2's own dispatch probe, plus
-	// ExecuteTool402's own initial GET) -- only the header actually
-	// distinguishes the real paid attempt from all of those.
+	// The old signer returns an empty txID, so header presence still counts.
 	legacyTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := r.Header["X-Payment-Txid"]; ok {
+		_, hasTx := r.Header["X-Payment-Txid"]
+		if hasTx || r.Header.Get("X-Payment") != "" || r.Header.Get("Payment-Signature") != "" {
+			legacyPaidRequests.Add(1)
 			w.Write([]byte(`{"ok":true}`))
 			return
 		}
@@ -2258,6 +2237,23 @@ func TestLegacyToolAttachedAlongsideRunFundedV2ToolBillsIdenticallyToStandalone(
 				}}},
 			})
 		default:
+			var body struct {
+				Messages []struct {
+					Role       string `json:"role"`
+					ToolCallID string `json:"tool_call_id"`
+					Content    string `json:"content"`
+				} `json:"messages"`
+			}
+			if decodeErr := json.NewDecoder(r.Body).Decode(&body); decodeErr != nil {
+				t.Errorf("decode LLM request: %v", decodeErr)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			for _, message := range body.Messages {
+				if message.Role == "tool" && message.ToolCallID == "call_legacy" && strings.Contains(message.Content, "legacy x402 challenge") {
+					legacyRejected.Store(true)
+				}
+			}
 			json.NewEncoder(w).Encode(map[string]any{
 				"choices": []map[string]any{{"message": map[string]any{"role": "assistant", "content": "done"}}},
 			})
@@ -2274,24 +2270,18 @@ func TestLegacyToolAttachedAlongsideRunFundedV2ToolBillsIdenticallyToStandalone(
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 4_500_000: enough to cover the agent's own flat fee,
-	// reserveAndFundRun's up-front v2 credit reservation (300000 real
-	// vendor cost + one flat platform markup for the funded v2 tool), AND
-	// the legacy tool's own real flat platform fee (models.X402PlatformFeeUSDMicros,
-	// billed separately against the live DB balance) -- this is exactly
-	// the assertion this test pins: the legacy call's floor guard and
-	// billing run against the live DB balance, unaffected by the run-level
-	// pool.
+	// Enough headroom to exercise the legacy reservation and its release.
 	fundUser(t, store, user.ID, 4_500_000)
 
-	// aw is required for the legacy dialect's direct-pay branch (it signs
-	// from the agent's own wallet, not Wallet 1/2) -- create and attach a
-	// real agent wallet.
 	wf, err := store.CreateWorkflow(ctx, "Legacy Plus V2 Combo Test", user.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { store.DeleteWorkflow(context.Background(), wf.ID) })
+	t.Cleanup(func() {
+		if deleteErr := store.DeleteWorkflow(context.Background(), wf.ID); deleteErr != nil {
+			t.Errorf("delete workflow: %v", deleteErr)
+		}
+	})
 
 	graph := models.WorkflowGraph{
 		Nodes: []models.WorkflowNode{
@@ -2310,7 +2300,10 @@ func TestLegacyToolAttachedAlongsideRunFundedV2ToolBillsIdenticallyToStandalone(
 			{ID: "e5", From: "x2", To: "a1", Kind: models.EdgeKindAttach, ToPort: "tools"},
 		},
 	}
-	wf, _ = store.UpdateWorkflow(ctx, wf.ID, wf.Name, graph)
+	wf, err = store.UpdateWorkflow(ctx, wf.ID, wf.Name, graph)
+	if err != nil {
+		t.Fatalf("save workflow: %v", err)
+	}
 
 	if err := store.InsertAgentWallet(ctx, models.AgentWallet{
 		WorkflowID:        wf.ID,
@@ -2335,31 +2328,32 @@ func TestLegacyToolAttachedAlongsideRunFundedV2ToolBillsIdenticallyToStandalone(
 		t.Fatalf("want success got %s", final.Status)
 	}
 
-	// Final balance: 4500000 - 300000 (v2 run-level pool, real settled
-	// amount) - v2's platform markup - legacy flat fee
-	// (models.X402PlatformFeeUSDMicros, a separate charge from the v2
-	// markup despite sharing the same debit kind). BYOK agent step is free
-	// (see debitAgentFee), so no separate agent-fee term. A wrong balance
-	// here would mean the legacy fee was billed against the wrong ledger
-	// (or not billed / double-billed), or the v2 markup was
-	// skipped/duplicated.
-	wantBalance := int64(4_500_000 - 300_000 - models.X402PlatformFeeUSDMicros - models.X402PlatformFeeUSDMicros)
+	if paid := v2PaidRequests.Load(); paid != 1 {
+		t.Errorf("want exactly one paid v2 request, got %d", paid)
+	}
+	if paid := legacyPaidRequests.Load(); paid != 0 {
+		t.Errorf("legacy endpoint must receive no payment, got %d paid requests", paid)
+	}
+	if !legacyRejected.Load() {
+		t.Error("want the legacy unsupported-challenge error returned to the agent")
+	}
+	wantBalance := int64(4_500_000 - 300_000 - models.X402PlatformFeeUSDMicros)
 	balance, err := store.GetCreditBalance(ctx, user.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if balance != wantBalance {
-		t.Fatalf("want final balance %d (4500000 - 300000 v2 - v2 markup - legacy fee), got %d -- legacy tool billing was not identical to the no-v2-attached case", wantBalance, balance)
+		t.Fatalf("want final balance %d (v2 cost and markup only), got %d", wantBalance, balance)
 	}
 
 	entries, err := store.ListDebitLedger(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var sawLegacyFee, sawV2Cost, sawV2Markup bool
+	var sawV2Cost, sawV2Markup bool
 	for _, e := range entries {
-		if e.NodeID == "x2" && e.Kind == models.DebitKindX402PlatformFee && e.AmountUSDMicros == models.X402PlatformFeeUSDMicros {
-			sawLegacyFee = true
+		if e.NodeID == "x2" {
+			t.Fatalf("rejected legacy tool must have no debit entries, got %+v", entries)
 		}
 		if e.NodeID == "x1" && e.Kind == models.DebitKindX402RelayCost && e.AmountUSDMicros == 300000 {
 			sawV2Cost = true
@@ -2367,9 +2361,6 @@ func TestLegacyToolAttachedAlongsideRunFundedV2ToolBillsIdenticallyToStandalone(
 		if e.NodeID == "x1" && e.Kind == models.DebitKindX402PlatformFee && e.AmountUSDMicros == models.X402PlatformFeeUSDMicros {
 			sawV2Markup = true
 		}
-	}
-	if !sawLegacyFee {
-		t.Fatalf("want a debit_ledger row for the legacy tool (x2) billed at the flat platform fee, got %+v", entries)
 	}
 	if !sawV2Cost {
 		t.Fatalf("want a debit_ledger row for the v2 tool (x1) billed at its real settled amount, got %+v", entries)
@@ -2385,14 +2376,6 @@ func TestLegacyToolAttachedAlongsideRunFundedV2ToolBillsIdenticallyToStandalone(
 	if len(fundings) != 1 {
 		t.Fatalf("want exactly 1 x402_run_fundings row (sized only for the v2 tool), got %d", len(fundings))
 	}
-	// 300000 (v2 tool's real quote) + 1500000 (one flat platform markup) --
-	// the run-level pre-fund now settles the FULL creditReserve on-chain,
-	// not just the real vendor cost, so the platform's own margin actually
-	// lands in Wallet 2 instead of being a pure ledger entry with no
-	// backing transfer (see reserveAndFundRun's creditReserve). The legacy
-	// tool's flat fee is still never folded in here -- it bills through its
-	// own separate LegacyLedger/per-call path, untouched by this run-level
-	// settlement.
 	if fundings[0].AmountAssetMicros != 1_800_000 {
 		t.Fatalf("want the run-level pre-fund sized at the v2 tool's 300000 quote plus one platform markup (never the legacy tool's flat fee), got %d", fundings[0].AmountAssetMicros)
 	}

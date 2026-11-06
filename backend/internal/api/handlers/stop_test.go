@@ -16,9 +16,8 @@ import (
 func TestStopWorkflowWrongUser(t *testing.T) {
 	d := testDeps(t)
 	d.Broker = sse.NewBroker()
-	d.Wallet = wallet.NewService("0123456789abcdef0123456789abcdef",
-		"https://testnet-api.algonode.cloud", "", "testnet")
-	d.Engine = engine.NewRunner(d.Store, d.Broker, d.Wallet, "http://localhost:8080", "", "", engine.X402Config{USDCAssetID: 10458941})
+	d.Wallet = wallet.NewService("0123456789abcdef0123456789abcdef", "")
+	d.Engine = engine.NewRunner(d.Store, d.Broker, d.Wallet, "http://localhost:8080", "", "", engine.X402Config{USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"})
 
 	ctx := context.Background()
 	wf, _ := d.Store.CreateWorkflow(ctx, "Stop Test", "owner-user")
@@ -41,9 +40,8 @@ func TestStopWorkflowWrongUser(t *testing.T) {
 func TestStopWorkflowNoActiveRun(t *testing.T) {
 	d := testDeps(t)
 	d.Broker = sse.NewBroker()
-	d.Wallet = wallet.NewService("0123456789abcdef0123456789abcdef",
-		"https://testnet-api.algonode.cloud", "", "testnet")
-	d.Engine = engine.NewRunner(d.Store, d.Broker, d.Wallet, "http://localhost:8080", "", "", engine.X402Config{USDCAssetID: 10458941})
+	d.Wallet = wallet.NewService("0123456789abcdef0123456789abcdef", "")
+	d.Engine = engine.NewRunner(d.Store, d.Broker, d.Wallet, "http://localhost:8080", "", "", engine.X402Config{USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"})
 
 	ctx := context.Background()
 	wf, _ := d.Store.CreateWorkflow(ctx, "Stop Idle Test", "dev")
@@ -64,9 +62,8 @@ func TestStopWorkflowNoActiveRun(t *testing.T) {
 func TestStopWorkflowNotFound(t *testing.T) {
 	d := testDeps(t)
 	d.Broker = sse.NewBroker()
-	d.Wallet = wallet.NewService("0123456789abcdef0123456789abcdef",
-		"https://testnet-api.algonode.cloud", "", "testnet")
-	d.Engine = engine.NewRunner(d.Store, d.Broker, d.Wallet, "http://localhost:8080", "", "", engine.X402Config{USDCAssetID: 10458941})
+	d.Wallet = wallet.NewService("0123456789abcdef0123456789abcdef", "")
+	d.Engine = engine.NewRunner(d.Store, d.Broker, d.Wallet, "http://localhost:8080", "", "", engine.X402Config{USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"})
 
 	req := httptest.NewRequest(http.MethodPost, "/workflows/does-not-exist/stop", nil)
 	req = req.WithContext(context.WithValue(req.Context(), handlers.CtxUserID, "dev"))
