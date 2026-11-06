@@ -13,22 +13,32 @@ const (
 	MaxSharesPerDay         = 200
 )
 
+// advisoryLockNamespaceArkivShare is the first key of a two-key advisory lock.
+// That space does not overlap the single-key locks used for OAuth refresh.
+const advisoryLockNamespaceArkivShare int32 = 7794095
+
 var (
 	ErrShareRate   = errors.New("share rate")
 	ErrShareBudget = errors.New("share budget")
+	ErrShareBusy   = errors.New("share busy")
 )
 
-// WithShareLock holds the share-wallet nonce lock until fn returns.
-// The lock is transaction-scoped so a transaction-mode pooler cannot
-// hand the same session lock to another client.
+// WithShareLock serializes share creates without pinning a pooler connection
+// per waiter. A miss returns ErrShareBusy so the caller rolls back at once.
+// The lock stays transaction-scoped: a session lock would not survive the
+// Supabase transaction pooler.
 func (s *Store) WithShareLock(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(7794095)`); err != nil {
+	var locked bool
+	if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1, $2)`, advisoryLockNamespaceArkivShare, int32(0)).Scan(&locked); err != nil {
 		return err
+	}
+	if !locked {
+		return ErrShareBusy
 	}
 	if err := fn(ctx, tx); err != nil {
 		return err

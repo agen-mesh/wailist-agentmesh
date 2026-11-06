@@ -104,6 +104,25 @@ it("posts the gzip when anyone with the link may read it", async () => {
   expect(vi.mocked(loadTemplateWorkflow)).not.toHaveBeenCalled();
 });
 
+it("shows the hourly limit instead of asking for another try that cannot succeed", async () => {
+  vi.mocked(createShare).mockRejectedValue(new Error("share_rate"));
+  render(<ShareModal workflowId="wf_1" onClose={() => {}} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Create link" }));
+  expect(
+    await screen.findByText(
+      "You have reached the hourly share limit. Nothing was copied. Try again later.",
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByText(unconfirmed)).toBeNull();
+});
+
+it("shows that sharing is off when the server refuses the key", async () => {
+  vi.mocked(createShare).mockRejectedValue(new Error("share_disabled"));
+  render(<ShareModal workflowId="wf_1" onClose={() => {}} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Create link" }));
+  expect(await screen.findByText("Sharing is off on this server. Nothing was copied.")).toBeTruthy();
+});
+
 it("shows the unconfirmed sentence and no link when the post fails", async () => {
   vi.mocked(createShare).mockRejectedValue(new Error("nope"));
   render(<ShareModal workflowId="wf_1" onClose={() => {}} />);

@@ -35,45 +35,67 @@ func TestAllowShareCapsTheUserAndTheDay(t *testing.T) {
 	}
 }
 
-func TestShareLockIsTransactionalAndExclusive(t *testing.T) {
+func TestShareLockDoesNotQueueWaiters(t *testing.T) {
 	src, err := os.ReadFile("arkiv_share_meter.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(src, []byte("pg_advisory_xact_lock(7794095)")) {
-		t.Fatal("lock SQL must be pg_advisory_xact_lock(7794095)")
+	if !bytes.Contains(src, []byte("pg_try_advisory_xact_lock($1, $2)")) {
+		t.Fatal("lock SQL must be the two-key try-lock")
 	}
-	if bytes.Contains(src, []byte("pg_advisory_lock(")) {
-		t.Fatal("session advisory lock breaks under the Supabase transaction pooler")
+	if bytes.Contains(src, []byte("pg_advisory_lock(")) || bytes.Contains(src, []byte("pg_advisory_xact_lock(")) {
+		t.Fatal("a blocking or session advisory lock pins a transaction-pooler connection per waiter")
 	}
 	store := testStore(t)
 	started := make(chan struct{})
 	release := make(chan struct{})
+	holdDone := make(chan error, 1)
 	go func() {
-		_ = store.WithShareLock(context.Background(), func(ctx context.Context, tx pgx.Tx) error {
+		holdDone <- store.WithShareLock(context.Background(), func(ctx context.Context, tx pgx.Tx) error {
 			close(started)
 			<-release
 			return nil
 		})
 	}()
 	<-started
-	secondEntered := make(chan struct{})
-	go func() {
-		_ = store.WithShareLock(context.Background(), func(ctx context.Context, tx pgx.Tx) error {
-			close(secondEntered)
-			return nil
-		})
-	}()
-	select {
-	case <-secondEntered:
-		t.Fatal("second create ran while the first lock was held")
-	case <-time.After(200 * time.Millisecond):
+	entered := false
+	err = store.WithShareLock(context.Background(), func(ctx context.Context, tx pgx.Tx) error {
+		entered = true
+		return nil
+	})
+	if entered || !errors.Is(err, db.ErrShareBusy) {
+		t.Fatalf("waiter entered=%v err=%v, want ErrShareBusy", entered, err)
 	}
 	close(release)
+	if err := <-holdDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WithShareLock(context.Background(), func(ctx context.Context, tx pgx.Tx) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("lock after release: %v", err)
+	}
+}
+
+func TestShareLockDoesNotWaitOnAnOAuthCredentialLock(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	release, err := store.LockOAuthCredentialForRefresh(ctx, "7794095")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release(ctx)
+	done := make(chan error, 1)
+	go func() {
+		done <- store.WithShareLock(ctx, func(ctx context.Context, tx pgx.Tx) error { return nil })
+	}()
 	select {
-	case <-secondEntered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("second create did not start after the first lock committed")
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("share lock waited on an unrelated OAuth credential lock")
 	}
 }
 

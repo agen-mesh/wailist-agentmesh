@@ -77,6 +77,10 @@ func (d *Deps) CreateShare(w http.ResponseWriter, r *http.Request) {
 			respond.Error(w, http.StatusTooManyRequests, "share_rate")
 		case errors.Is(err, db.ErrShareBudget):
 			respond.Error(w, http.StatusTooManyRequests, "share_budget")
+		case errors.Is(err, db.ErrShareBusy):
+			respond.Error(w, http.StatusServiceUnavailable, "share_busy")
+		case errors.Is(err, arkivshare.ErrDisabled):
+			respond.Error(w, http.StatusServiceUnavailable, "share_disabled")
 		default:
 			respond.Error(w, http.StatusBadGateway, "share_unconfirmed")
 		}

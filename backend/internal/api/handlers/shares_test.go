@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -42,6 +43,23 @@ func (s *stubWriter) CreateShare(context.Context, []byte) (string, error) {
 		return "", s.err
 	}
 	return s.key, nil
+}
+
+type blockingWriter struct {
+	once    sync.Once
+	started chan struct{}
+	release chan struct{}
+	key     string
+}
+
+func (b *blockingWriter) CreateShare(ctx context.Context, _ []byte) (string, error) {
+	b.once.Do(func() { close(b.started) })
+	select {
+	case <-b.release:
+		return b.key, nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 }
 
 func clearShareMeter(t *testing.T, d *handlers.Deps) {
@@ -137,6 +155,55 @@ func TestCreateShareDisabledWithoutAWriter(t *testing.T) {
 	d.CreateShare(rec, shareReq(bytes.NewReader([]byte{1})))
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "share_disabled") {
 		t.Fatalf("nil writer = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateShareDisabledWhenTheWriterRefusesTheKey(t *testing.T) {
+	d := testDeps(t)
+	clearShareMeter(t, d)
+	d.ShareWriter = &stubWriter{err: arkivshare.ErrDisabled}
+	rec := httptest.NewRecorder()
+	d.CreateShare(rec, shareReq(bytes.NewReader([]byte{1})))
+	if rec.Code != http.StatusServiceUnavailable || rec.Body.String() != "{\"error\":\"share_disabled\"}\n" {
+		t.Fatalf("disabled writer = %d %q", rec.Code, rec.Body.String())
+	}
+	n, err := d.Store.ShareMeterCount(context.Background())
+	if err != nil || n != 0 {
+		t.Fatalf("meter rows %d err %v, want 0", n, err)
+	}
+}
+
+func TestCreateShareBusyDoesNotWait(t *testing.T) {
+	d := testDeps(t)
+	clearShareMeter(t, d)
+	writer := &blockingWriter{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+		key:     validKey,
+	}
+	t.Cleanup(func() {
+		select {
+		case <-writer.release:
+		default:
+			close(writer.release)
+		}
+	})
+	d.ShareWriter = writer
+	firstDone := make(chan int, 1)
+	go func() {
+		rec := httptest.NewRecorder()
+		d.CreateShare(rec, shareReq(bytes.NewReader([]byte("graph"))))
+		firstDone <- rec.Code
+	}()
+	<-writer.started
+	rec := httptest.NewRecorder()
+	d.CreateShare(rec, shareReq(bytes.NewReader([]byte("graph"))))
+	if rec.Code != http.StatusServiceUnavailable || rec.Body.String() != "{\"error\":\"share_busy\"}\n" {
+		t.Fatalf("busy = %d %q", rec.Code, rec.Body.String())
+	}
+	close(writer.release)
+	if code := <-firstDone; code != http.StatusCreated {
+		t.Fatalf("holder = %d, want 201", code)
 	}
 }
 

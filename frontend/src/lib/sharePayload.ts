@@ -16,8 +16,6 @@ export class ShareTooLargeError extends Error {
   }
 }
 
-// Share copies omit canvas coordinates. The plan's tests pass nodes
-// without `x` and `y`, and those fields are not part of the shared graph.
 type ShareNode = Omit<WorkflowNode, "x" | "y"> & { x?: number; y?: number };
 
 export function stripShareGraph(input: {

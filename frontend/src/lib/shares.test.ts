@@ -1,8 +1,12 @@
 // @vitest-environment node
 import { afterEach, expect, it, vi } from "vitest";
 
+const nativeState = vi.hoisted(() => ({ current: false }));
+
 vi.mock("./nativeAuth", () => ({
-  IS_NATIVE: true,
+  get IS_NATIVE() {
+    return nativeState.current;
+  },
   authHeaders: () => ({}),
 }));
 
@@ -12,6 +16,7 @@ import { createShare, shareOrigin } from "./shares";
 const entityKey = "0x" + "ab".repeat(32);
 
 afterEach(() => {
+  nativeState.current = false;
   vi.unstubAllGlobals();
 });
 
@@ -32,6 +37,25 @@ it("posts the bytes as octet-stream and returns the key only for a Rabdi receipt
   expect(init.body).toBe(bytes);
 });
 
+it("does not post from a read-only client", async () => {
+  nativeState.current = true;
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  await expect(createShare(new Uint8Array([1]))).rejects.toThrow(
+    "Workflows can only be edited in the AgentMesh desktop app.",
+  );
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it("keeps a rate limit and a disabled share distinct from an unconfirmed write", async () => {
+  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ error: "share_rate" }), { status: 429 }));
+  vi.stubGlobal("fetch", fetchMock);
+  await expect(createShare(new Uint8Array([1]))).rejects.toThrow("share_rate");
+
+  fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: "share_disabled" }), { status: 503 }));
+  await expect(createShare(new Uint8Array([1]))).rejects.toThrow("share_disabled");
+});
+
 it("throws on 502 and does not return the key from the body", async () => {
   vi.stubGlobal(
     "fetch",
@@ -48,6 +72,7 @@ it("throws on 502 and does not return the key from the body", async () => {
 });
 
 it("uses the public web origin on the native shell", () => {
+  nativeState.current = true;
   vi.stubGlobal("window", { location: { origin: "capacitor://localhost" } });
   expect(shareOrigin()).toBe("https://www.agent-mesh.app");
 });

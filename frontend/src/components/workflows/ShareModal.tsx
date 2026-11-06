@@ -22,7 +22,24 @@ const publicCopy =
   "Public. Anyone who can query Arkiv can read this graph for 7 days, even without the link. Prompts are included.";
 const waiting = "Waiting for Arkiv to confirm the share.";
 const unconfirmed = "Share did not confirm. Nothing was copied. Try again.";
+const shareRate =
+  "You have reached the hourly share limit. Nothing was copied. Try again later.";
+const shareBudget =
+  "AgentMesh has reached today's share limit. Nothing was copied. Try again tomorrow.";
+const shareDisabled = "Sharing is off on this server. Nothing was copied.";
+const shareBusy = "Another share is being confirmed. Nothing was copied. Try again.";
 const tooLarge = new ShareTooLargeError().message;
+
+function shareFailure(err: unknown): string {
+  const code = err instanceof Error ? err.message : "";
+  if (code === "share_rate") return shareRate;
+  if (code === "share_budget") return shareBudget;
+  if (code === "share_disabled") return shareDisabled;
+  if (code === "share_busy") return shareBusy;
+  if (code === "share_too_large") return tooLarge;
+  if (code === "Workflows can only be edited in the AgentMesh desktop app.") return code;
+  return unconfirmed;
+}
 const entityKeyPattern = /^0x[0-9a-fA-F]{64}$/;
 
 const IconCopy = ({ size = 14 }: { size?: number }) => (
@@ -114,8 +131,10 @@ export function ShareModal({
         return;
       }
       setLink(shareURL(shareOrigin(), receipt.entityKey, fragment));
-    } catch {
-      setError(unconfirmed);
+    } catch (err) {
+      const message = shareFailure(err);
+      setError(message);
+      if (message === tooLarge) setTooBig(true);
     } finally {
       setPending(false);
     }

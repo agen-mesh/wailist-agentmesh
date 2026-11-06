@@ -1,6 +1,7 @@
 node_modules
-package.json
-package-lock.json
+# Root of this context only. A bare name also drops arkiv-writer/package.json.
+/package.json
+/package-lock.json
 server
 .env
 .env.*
