@@ -76,9 +76,9 @@ pull request #290.
 |---|---|
 | Arc profile values | Read live on 2026-11-07 from `rpc.testnet.arc.io` and `arc.007575.xyz`; the token's `DOMAIN_SEPARATOR()` matches the facilitator's `/assets`. Table in [README](README.md#live-verification) |
 | Payments on Arc Testnet | 2, both confirmed by `eth_getTransactionReceipt`: `0xe022ec29…80cf16` and `0xffef67af…ccc185` — status `0x1`, relayer-submitted, `AuthorizationUsed` + `Transfer` |
-| Go | `go build ./...` and `go test ./internal/chain/...` — see the pull request for the run and its output |
-| Frontend | `pnpm typecheck` clean after the chain-aware copy changes |
-| Console | `npm install && npm run build` from this repo's copy, plus the live settlements above |
+| Go | `go build ./...` clean; `go test ./...` passes every package, including `TestX402PaymentPathIsFrozen`, the digest test that pins the payment-path files — this work leaves all of them byte-identical |
+| Frontend | `pnpm typecheck` clean; `pnpm test` 1123 tests in 122 files, all passing |
+| Console | `npm install`, `npm run typecheck` and `npm run build` all clean from this repo's copy, plus the live settlements above |
 | Contract | Written and reviewed in Arc Studio, 94 Foundry tests **reported by Arc Studio** and not reproduced here (no Foundry on the machine this was assembled on) |
 
 **Not claimed:** no contract deployed; no mainnet; AgentMesh's production deployment still settles on
