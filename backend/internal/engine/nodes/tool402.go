@@ -317,6 +317,68 @@ func jsonStringEscape(s string) string {
 	return string(quoted[1 : len(quoted)-1])
 }
 
+// resolveParamTemplates expands {{ }} references (see resolveTemplate) in a
+// tool402 node's param values against the run, so a standalone paid step can
+// take e.g. its search query from the previous step. The caller's node is
+// not mutated.
+func resolveParamTemplates(node models.WorkflowNode, rc RunContexter) models.WorkflowNode {
+	if rc == nil {
+		return node
+	}
+	if len(node.ParamDefaults) > 0 {
+		out := make(map[string]string, len(node.ParamDefaults))
+		for k, v := range node.ParamDefaults {
+			out[k] = strings.TrimSpace(resolveTemplate(v, rc))
+		}
+		node.ParamDefaults = out
+	}
+	if len(node.CustomParams) > 0 {
+		cps := make([]models.CustomParam, len(node.CustomParams))
+		copy(cps, node.CustomParams)
+		for i := range cps {
+			if cps[i].Kind != "file" {
+				cps[i].Value = resolveTemplate(cps[i].Value, rc)
+			}
+		}
+		node.CustomParams = cps
+	}
+	return node
+}
+
+// missingRequiredParams lists the endpoint-declared required params that
+// have no value anywhere the request is built from: the node's param fields,
+// its custom params, or a query string already on the endpoint URL. JSON
+// body mode is the user's own body template, so it is not checked here.
+func missingRequiredParams(node models.WorkflowNode) []string {
+	if node.BodyMode == models.BodyModeJSON {
+		return nil
+	}
+	var inURL url.Values
+	if u, err := url.Parse(node.Endpoint); err == nil {
+		inURL = u.Query()
+	}
+	var missing []string
+	for _, p := range node.DiscoveredParams {
+		if !p.Required {
+			continue
+		}
+		if strings.TrimSpace(node.ParamDefaults[p.Name]) != "" || inURL.Get(p.Name) != "" {
+			continue
+		}
+		found := false
+		for _, c := range node.CustomParams {
+			if c.Name == p.Name && c.Value != "" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missing = append(missing, p.Name)
+		}
+	}
+	return missing
+}
+
 func buildTargetRequest(node models.WorkflowNode, method string) (models.WorkflowNode, []byte, string, error) {
 	// A hand-written JSON body replaces the field-derived request entirely:
 	// the fields are still configured (and a file param still uploaded), but
@@ -996,6 +1058,12 @@ func ExecuteTool402V2(ctx context.Context, node models.WorkflowNode, rc RunConte
 	// before the endpoint is probed or paid: a target that requires a param
 	// rejects the PAID retry with a validation error otherwise, having
 	// already taken the money.
+	node = resolveParamTemplates(node, rc)
+	if missing := missingRequiredParams(node); len(missing) > 0 {
+		// Refuse before the probe and before any reservation or signature:
+		// the endpoint would reject the call after we paid for it.
+		return Tool402PaymentResult{}, fmt.Errorf("x402: %s is required by this endpoint but has no value -- attach this tool to an agent so it fills the params, or set them on the node ({{ result }} takes the previous step's output); nothing was paid", strings.Join(missing, ", "))
+	}
 	node, paramBody, paramContentType, err := buildTargetRequest(node, method)
 	if err != nil {
 		// Before any probe or payment: a body we cannot build is a

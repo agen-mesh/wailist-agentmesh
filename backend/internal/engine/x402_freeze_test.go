@@ -153,7 +153,7 @@ import (
 // 2026-11-06: re-baselined for the Whitechain switch (EIP-3009 USDT via the
 // Whitechain facilitator replaces Algorand USDC groups; Tendril removed).
 var frozenX402Files = map[string]string{
-	"nodes/tool402.go":             "b6f59656150dbd6d99d907073e3ea324d02e41b5cc7f00cf1530b4864c9961b5",
+	"nodes/tool402.go":             "bcb176b16c14cc44a9402cc9be6b77b48f875fbee3bb24c461a4d4e4dc7f0cee",
 	"nodes/runfund.go":             "bc9b11f385f12a64ce687c3af491d96974dc884eefe585df8ab66c134c5d6d90",
 	"nodes/walletpay.go":           "11c9b8455e1ca010416f2e4a2089b41a3f8188613a7d5925ba4089d0ec2742c7",
 	"nodes/billing.go":             "d6bc9e5931816840d99678f9015f7b186ae3069d54e28605aa618c367bf5beb9",
