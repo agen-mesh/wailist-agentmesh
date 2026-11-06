@@ -615,6 +615,30 @@ func (r *Runner) settleRunTotal(ctx context.Context, wf models.Workflow, run mod
 	if _, err := r.store.RecordRunFunding(bctx, run.ID, txID, amount); err != nil {
 		criticalAlert(wf, run, "run total settled on-chain but RecordRunFunding failed", err, "txID", txID, "amount", amount)
 	}
+	nodeID := "__run_total_settlement__"
+	receipt := map[string]any{
+		"nodeId":           nodeID,
+		"nodeName":         "run total fees",
+		"txId":             txID,
+		"amount":           chain.FormatUSDT(amount),
+		"settledUsdMicros": amount,
+		"explorerURL":      chain.TxURL(txID),
+		"isFundingReceipt": true,
+	}
+	receiptTime := time.Now()
+	entry, insertErr := r.store.InsertRunLog(bctx, models.RunLog{
+		RunID: run.ID, StepIndex: len(wf.Nodes), NodeID: nodeID,
+		NodeType: models.NodeTypeTool402, Status: models.LogStatusSuccess, Output: receipt,
+	})
+	if insertErr != nil {
+		criticalAlert(wf, run, "persist run total receipt", insertErr, "txID", txID)
+	} else {
+		receiptTime = entry.Ts
+	}
+	r.broker.Publish(run.ID, models.LogEvent{
+		StepIndex: len(wf.Nodes), NodeID: nodeID, NodeType: models.NodeTypeTool402,
+		Status: models.LogStatusSuccess, Output: receipt, Ts: receiptTime,
+	})
 }
 
 type runFundResult struct {

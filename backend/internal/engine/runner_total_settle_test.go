@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agentmesh/backend/internal/chain"
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/models"
@@ -115,6 +116,34 @@ func TestRunTotalSettlesNonX402BillingAtEndOfRun(t *testing.T) {
 	if fundings[0].AmountAssetMicros != models.ByokFlatFeeUSDMicros {
 		t.Fatalf("want run-total settlement of %d, got %d", models.ByokFlatFeeUSDMicros, fundings[0].AmountAssetMicros)
 	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		logs, logsErr := store.GetRunLogs(ctx, run.ID)
+		if logsErr != nil {
+			t.Fatal(logsErr)
+		}
+		for _, entry := range logs {
+			if entry.NodeID != "__run_total_settlement__" || entry.Status != models.LogStatusSuccess {
+				continue
+			}
+			receipt, ok := entry.Output.(map[string]any)
+			if !ok {
+				t.Fatalf("unexpected settlement receipt: %#v", entry.Output)
+			}
+			if receipt["txId"] != fundings[0].InboundTxID || receipt["explorerURL"] != chain.TxURL(fundings[0].InboundTxID) {
+				t.Fatalf("receipt does not match settled funding: %#v", receipt)
+			}
+			if receipt["settledUsdMicros"] != float64(models.ByokFlatFeeUSDMicros) || receipt["isFundingReceipt"] != true {
+				t.Fatalf("incorrect fee receipt accounting: %#v", receipt)
+			}
+			if _, hasOutbound := receipt["outboundTxId"]; hasOutbound {
+				t.Fatalf("run total receipt invented an outbound leg: %#v", receipt)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("settled run total was not persisted as a console receipt")
 }
 
 // TestRunTotalSettlementExcludesToolAssetSpendAlreadySettledOnChain proves

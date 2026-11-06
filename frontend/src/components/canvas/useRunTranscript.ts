@@ -43,9 +43,7 @@ export interface X402Payment {
   outboundExplorerURL?: string;
   nodeName?: string;
   nodeId?: string;
-  // Set by the backend's prependRunFundingReceipt on the one synthetic row
-  // that reports a run-level pre-fund's up-front settlement -- bookkeeping,
-  // not a tool invocation. A per-call receipt never carries this.
+  // Do not count run funding and fee receipts as additional tool invocations.
   isFundingReceipt?: boolean;
 }
 

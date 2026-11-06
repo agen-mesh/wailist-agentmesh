@@ -555,29 +555,33 @@ function OutputCell({ output }: { output: unknown }) {
           </span>
           {payment.txId && payment.explorerURL && (
             <>
-              <span style={{ color: "var(--fg-dim)" }}>· in</span>
+              <span style={{ color: "var(--fg-dim)" }}>· Wallet 1 → Wallet 2</span>
               <a
                 href={payment.explorerURL}
+                title={payment.explorerURL}
+                aria-label={`Wallet 1 to Wallet 2 transaction ${payment.txId}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={txLinkStyle}
                 onClick={(e) => e.stopPropagation()}
               >
-                {payment.txId.slice(0, 8)}…
+                {payment.txId}
               </a>
             </>
           )}
           {payment.outboundTxId && payment.outboundExplorerURL && (
             <>
-              <span style={{ color: "var(--fg-dim)" }}>· out</span>
+              <span style={{ color: "var(--fg-dim)" }}>· Wallet 2 → x402</span>
               <a
                 href={payment.outboundExplorerURL}
+                title={payment.outboundExplorerURL}
+                aria-label={`Wallet 2 to x402 transaction ${payment.outboundTxId}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={txLinkStyle}
                 onClick={(e) => e.stopPropagation()}
               >
-                {payment.outboundTxId.slice(0, 8)}…
+                {payment.outboundTxId}
               </a>
             </>
           )}
@@ -643,7 +647,8 @@ const txLinkStyle: React.CSSProperties = {
   textDecoration: "underline",
   fontFamily: "var(--font-mono)",
   fontSize: "var(--t-0)",
-  whiteSpace: "nowrap",
+  maxWidth: "100%",
+  overflowWrap: "anywhere",
 };
 
 function nodeTypeColor(t: string): string {
