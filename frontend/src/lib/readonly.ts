@@ -74,6 +74,7 @@ export function can(capability: Capability, readOnly: boolean): boolean {
 // The rules deliberately mirror backend/internal/api/readonly.go one for one.
 const WRITE_RULES: ReadonlyArray<{ method: string; pattern: RegExp }> = [
   { method: "POST", pattern: /^\/workflows$/ },
+  { method: "POST", pattern: /^\/shares$/ },
   { method: "PUT", pattern: /^\/workflows\/[^/]+$/ },
   { method: "DELETE", pattern: /^\/workflows\/[^/]+$/ },
   { method: "POST", pattern: /^\/workflows\/[^/]+\/deploy$/ },

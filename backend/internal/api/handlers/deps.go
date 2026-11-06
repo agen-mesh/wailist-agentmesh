@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 
+	"github.com/agentmesh/backend/internal/arkivshare"
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine"
 	"github.com/agentmesh/backend/internal/models"
@@ -45,7 +46,8 @@ type USDCSigner interface {
 var _ USDCSigner = (*wallet.Service)(nil)
 
 type Deps struct {
-	Store *db.Store
+	Store       *db.Store
+	ShareWriter arkivshare.Writer
 	// WorkflowStatsLoader overrides the detail endpoint's stats read when set.
 	// Production uses Store; the seam lets handler tests exercise its failure
 	// response without damaging shared database tables.

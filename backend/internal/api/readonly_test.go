@@ -15,6 +15,7 @@ func TestBlocksWrite(t *testing.T) {
 	}{
 		// The five endpoints that change what a workflow is.
 		{"create", http.MethodPost, "/workflows", true},
+		{"arkiv share", http.MethodPost, "/shares", true},
 		{"update", http.MethodPut, "/workflows/wf_123", true},
 		{"delete", http.MethodDelete, "/workflows/wf_123", true},
 		{"deploy", http.MethodPost, "/workflows/wf_123/deploy", true},

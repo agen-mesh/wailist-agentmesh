@@ -68,6 +68,7 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Get("/workflows/{id}/estimate", d.EstimateWorkflowCost)
 		r.Put("/workflows/{id}", d.UpdateWorkflow)
 		r.Delete("/workflows/{id}", d.DeleteWorkflow)
+		r.Post("/shares", d.CreateShare)
 
 		r.Get("/workflows/{id}/chat", d.GetChatSession)
 		r.Put("/workflows/{id}/chat", d.SaveChatSession)

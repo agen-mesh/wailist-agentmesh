@@ -55,6 +55,7 @@ var readOnlyBlocked = []struct {
 	path   *regexp.Regexp
 }{
 	{http.MethodPost, regexp.MustCompile(`^/workflows$`)},
+	{http.MethodPost, regexp.MustCompile(`^/shares$`)},
 	{http.MethodPut, regexp.MustCompile(`^/workflows/[^/]+$`)},
 	{http.MethodDelete, regexp.MustCompile(`^/workflows/[^/]+$`)},
 	{http.MethodPost, regexp.MustCompile(`^/workflows/[^/]+/deploy$`)},
