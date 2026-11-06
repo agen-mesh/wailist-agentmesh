@@ -195,6 +195,9 @@ func buildFuncDecls(tools []models.WorkflowNode) []funcDecl {
 			if p.Default != "" {
 				prop["default"] = p.Default
 			}
+			if len(p.Enum) > 0 && pType == "string" {
+				prop["enum"] = p.Enum
+			}
 			properties[p.Name] = prop
 			if p.Required {
 				required = append(required, p.Name)

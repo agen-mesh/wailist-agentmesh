@@ -152,9 +152,8 @@ import (
 // Auto shares top-up/rent paths and reuses only owned leases within purchased and provider time limits.
 // 2026-11-06: re-baselined for the Whitechain switch (EIP-3009 USDT via the
 // Whitechain facilitator replaces Algorand USDC groups; Tendril removed).
-// Legacy challenges are rejected without signing or charging a payment.
 var frozenX402Files = map[string]string{
-	"nodes/tool402.go":             "1a20a68f08044a7aed8847ea4d930b9c7d98d63592e9c93527268a57f6508327",
+	"nodes/tool402.go":             "b6f59656150dbd6d99d907073e3ea324d02e41b5cc7f00cf1530b4864c9961b5",
 	"nodes/runfund.go":             "bc9b11f385f12a64ce687c3af491d96974dc884eefe585df8ab66c134c5d6d90",
 	"nodes/walletpay.go":           "11c9b8455e1ca010416f2e4a2089b41a3f8188613a7d5925ba4089d0ec2742c7",
 	"nodes/billing.go":             "d6bc9e5931816840d99678f9015f7b186ae3069d54e28605aa618c367bf5beb9",

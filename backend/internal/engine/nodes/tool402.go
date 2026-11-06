@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -212,48 +211,7 @@ func ParamsFromChallenge(challenge map[string]any) (params []models.ParamDef, me
 			continue
 		}
 
-		required := map[string]bool{}
-		if reqList, ok := spec["required"].([]any); ok {
-			for _, r := range reqList {
-				if name, ok := r.(string); ok {
-					required[name] = true
-				}
-			}
-		}
-
-		seen := map[string]bool{}
-		names := make([]string, 0, len(examples)+len(props))
-		for _, src := range []map[string]any{props, examples} {
-			for name := range src {
-				if !seen[name] {
-					seen[name] = true
-					names = append(names, name)
-				}
-			}
-		}
-		// Stable ordering: map iteration is randomized, and these render as
-		// an ordered list of form fields that must not reshuffle between
-		// two probes of the same endpoint.
-		sort.Strings(names)
-
-		for _, name := range names {
-			paramType := "string"
-			if p := mapAt(props, name); p != nil {
-				if t, ok := p["type"].(string); ok && t != "" {
-					paramType = t
-				}
-			}
-			desc := ""
-			if ex, ok := examples[name]; ok {
-				desc = fmt.Sprintf("example: %v", ex)
-			}
-			params = append(params, models.ParamDef{
-				Name:        name,
-				Type:        paramType,
-				Required:    required[name],
-				Description: desc,
-			})
-		}
+		params = models.ParamsFromSchema(spec, examples)
 
 		in = "body"
 		if key == "queryParams" {

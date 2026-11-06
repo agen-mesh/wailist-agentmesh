@@ -187,7 +187,7 @@ func x402NodeFromResource(r bazaar.Resource, id string, x, y float64, name strin
 	// every default empty, exactly as resourceToNode does.
 	defaults := make(map[string]string, len(r.Params))
 	for i, p := range r.Params {
-		params[i] = models.ParamDef{Name: p.Name, Type: p.Type, Required: p.Required, Description: p.Description}
+		params[i] = models.ParamDef{Name: p.Name, Type: p.Type, Required: p.Required, Description: p.Description, Enum: p.Enum}
 		defaults[p.Name] = ""
 	}
 	provider := x402DisplayName(r)

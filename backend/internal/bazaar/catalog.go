@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/agentmesh/backend/internal/chain"
+	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/netutil"
 )
 
@@ -40,10 +41,11 @@ const maxPages = 40
 
 // Param is one caller-supplied input a resource declares for itself.
 type Param struct {
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	Required    bool   `json:"required"`
-	Description string `json:"description"`
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
+	Required    bool     `json:"required"`
+	Description string   `json:"description"`
+	Enum        []string `json:"enum,omitempty"`
 }
 
 // Resource is one catalog entry, normalised. AmountMicros is integer atomic
@@ -88,6 +90,20 @@ type Resource struct {
 
 // rawResource mirrors the upstream JSON exactly. Kept separate from Resource
 // so the wire shape can drift without changing what the frontend sees.
+// discoverySchema is the JSON Schema half of an x402 v2 Bazaar extension:
+// schema.properties.input.properties.{queryParams|body} holds each input's
+// type, required list, description, enum and format rules.
+type discoverySchema struct {
+	Properties struct {
+		Input struct {
+			Properties struct {
+				QueryParams map[string]any `json:"queryParams"`
+				Body        map[string]any `json:"body"`
+			} `json:"properties"`
+		} `json:"input"`
+	} `json:"properties"`
+}
+
 type discoveryInfo struct {
 	Input struct {
 		Method      string         `json:"method"`
@@ -119,7 +135,8 @@ type rawResource struct {
 	// Extensions.Bazaar.Info is where x402 v2 catalogs put the same info.
 	Extensions struct {
 		Bazaar struct {
-			Info discoveryInfo `json:"info"`
+			Info   discoveryInfo   `json:"info"`
+			Schema discoverySchema `json:"schema"`
 		} `json:"bazaar"`
 	} `json:"extensions"`
 	SettleCount int    `json:"settleCount"`
@@ -278,28 +295,24 @@ func truncateRunes(s string, max int) string {
 // The catalog's values are EXAMPLES, not usable values (canix402 publishes the
 // Algorand zero address), so they land in Description and never in a default.
 func paramsFrom(raw rawResource) []Param {
-	src := raw.DiscoveryInfo.Input.QueryParams
-	if len(src) == 0 {
-		src = raw.DiscoveryInfo.Input.Body
+	examples := raw.DiscoveryInfo.Input.QueryParams
+	spec := raw.Extensions.Bazaar.Schema.Properties.Input.Properties.QueryParams
+	if len(examples) == 0 && len(spec) == 0 {
+		examples = raw.DiscoveryInfo.Input.Body
+		spec = raw.Extensions.Bazaar.Schema.Properties.Input.Properties.Body
 	}
-	if len(src) == 0 {
+	if len(examples) == 0 && len(spec) == 0 {
 		return nil
 	}
-	names := make([]string, 0, len(src))
-	for k := range src {
-		names = append(names, k)
-	}
-	// Map order is randomised; these render as an ordered form that must not
-	// reshuffle between two reads of the same entry.
-	sort.Strings(names)
-	out := make([]Param, 0, len(names))
-	for _, n := range names {
-		desc := truncateRunes(fmt.Sprintf("example: %v", src[n]), paramDescriptionMax)
+	defs := models.ParamsFromSchema(spec, examples)
+	out := make([]Param, 0, len(defs))
+	for _, d := range defs {
 		out = append(out, Param{
-			Name:        n,
-			Type:        "string",
-			Required:    false,
-			Description: desc,
+			Name:        d.Name,
+			Type:        d.Type,
+			Required:    d.Required,
+			Description: truncateRunes(d.Description, paramDescriptionMax),
+			Enum:        d.Enum,
 		})
 	}
 	return out

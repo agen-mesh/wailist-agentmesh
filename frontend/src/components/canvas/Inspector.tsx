@@ -1448,7 +1448,7 @@ function Tool402Inspector({
         endpoint: draft.trim(),
         price: quote.price ?? "?",
         unit: quote.unit ?? "call",
-        asset: quote.asset ?? "USDC",
+        asset: quote.asset ?? "USDT",
         provider: host,
         priceLive: true,
         description: node.description || quote.description || "",
