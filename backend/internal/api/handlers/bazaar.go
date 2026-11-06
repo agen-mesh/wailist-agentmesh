@@ -10,11 +10,12 @@ import (
 	"github.com/agentmesh/backend/internal/chain"
 )
 
-// defaultBazaarBaseURL is the Whitechain x402 facilitator, whose
-// /discovery/resources lists every Whitechain x402 tool it has settled. Used when Deps leaves
-// BazaarBaseURL empty, so a missing env var degrades to the real catalog
-// rather than to no catalog at all.
-const defaultBazaarBaseURL = chain.DefaultFacilitatorURL
+// defaultBazaarBaseURL is the active chain's x402 facilitator, whose
+// /discovery/resources lists every x402 tool it has settled on that chain.
+// Used when Deps leaves BazaarBaseURL empty, so a missing env var degrades to
+// the real catalog rather than to no catalog at all. A var, not a const: the
+// facilitator follows X402_CHAIN (see internal/chain).
+var defaultBazaarBaseURL = chain.DefaultFacilitatorURL
 
 // bazaarCacheTTL bounds how stale the mirrored catalog can be. The upstream
 // changes on the order of hours (entries are added when a merchant first

@@ -121,9 +121,11 @@ func (d *Deps) FundAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Agents no longer hold their own wallets, and Whitechain testnet has no
-	// programmatic dispenser: the platform wallets are funded by hand (WBT
-	// from the faucet, USDT from the token owner).
+	// Agents no longer hold their own wallets, and neither testnet has a
+	// programmatic dispenser: the platform wallets are funded by hand. On
+	// Whitechain that means WBT from the faucet and USDT from the token
+	// owner; on Arc, USDC from Circle's faucet and nothing else, because
+	// USDC is also the gas token there.
 	_ = agentID
-	respond.Error(w, http.StatusGone, "agent wallets are no longer funded individually; the platform wallets pay every x402 call on "+chain.Name+" (WBT faucet: https://faucet.testnet.whitechain.io)")
+	respond.Error(w, http.StatusGone, "agent wallets are no longer funded individually; the platform wallets pay every x402 call on "+chain.Name+" (faucet: "+chain.DefaultFaucetURL+")")
 }

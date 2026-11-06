@@ -56,7 +56,7 @@ func (s *Service) ValidateNetwork(ctx context.Context) error {
 		return fmt.Errorf("decode RPC chain ID: %w", err)
 	}
 	if id.Cmp(big.NewInt(chain.ChainID)) != 0 {
-		return fmt.Errorf("unsupported RPC chain ID %s: this branch only supports Whitechain testnet (%d)", id, chain.ChainID)
+		return fmt.Errorf("unsupported RPC chain ID %s: this build settles on %s only (%d)", id, chain.Name, chain.ChainID)
 	}
 	return nil
 }

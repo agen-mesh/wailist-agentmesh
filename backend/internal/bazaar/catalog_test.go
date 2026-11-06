@@ -12,8 +12,8 @@ import (
 
 // mainnet is the only kept network in these fixtures (the name is kept for
 // the fixtures' sake); every resource on it is flagged Testnet.
-const mainnet = WhitechainTestnet
-const testnet = WhitechainTestnet
+var mainnet = SettlementNetwork
+var testnet = SettlementNetwork
 
 // upstreamItem builds one raw catalog entry the way GoPlausible returns it.
 func upstreamItem(id, url, network string) map[string]any {

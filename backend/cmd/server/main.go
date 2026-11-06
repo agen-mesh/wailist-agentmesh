@@ -54,15 +54,20 @@ func main() {
 
 	broker := sse.NewBroker()
 
-	walletSvc := wallet.NewService(mustEnv("ENCRYPTION_KEY"), envOr("WHITECHAIN_RPC_URL", chain.DefaultRPCURL))
+	rpcURL := envOr("X402_RPC_URL", envOr("WHITECHAIN_RPC_URL", chain.DefaultRPCURL))
+	walletSvc := wallet.NewService(mustEnv("ENCRYPTION_KEY"), rpcURL)
 	networkCtx, cancelNetworkCheck := context.WithTimeout(ctx, 10*time.Second)
 	networkErr := walletSvc.ValidateNetwork(networkCtx)
 	cancelNetworkCheck()
 	if networkErr != nil {
 		log.Fatalf("testnet-only payments: %v", networkErr)
 	}
-	if explorerURL := strings.TrimRight(os.Getenv("WHITECHAIN_EXPLORER_URL"), "/"); explorerURL != "" && explorerURL != chain.DefaultExplorerURL {
-		log.Fatalf("WHITECHAIN_EXPLORER_URL must be %s on this testnet-only branch", chain.DefaultExplorerURL)
+	// X402_EXPLORER_URL (WHITECHAIN_EXPLORER_URL is the older name) may only
+	// repeat the active chain's own explorer: run receipts link to it, and a
+	// mismatched host points every receipt at a chain the payment is not on.
+	explorerOverride := strings.TrimRight(envOr("X402_EXPLORER_URL", os.Getenv("WHITECHAIN_EXPLORER_URL")), "/")
+	if explorerOverride != "" && explorerOverride != chain.DefaultExplorerURL {
+		log.Fatalf("X402_EXPLORER_URL must be %s on %s", chain.DefaultExplorerURL, chain.Name)
 	}
 
 	// Wallet 2: payTo on every 402 we issue, and the account that pays
@@ -143,6 +148,7 @@ func main() {
 	// Both optional; see backend/.env.example. Blank WEB_SEARCH_MODEL keeps
 	// grounded search on gemini-2.5-flash.
 	nodes.SetWebSearchModel(os.Getenv("WEB_SEARCH_MODEL"))
+	// The Whitechain read connectors stay on Whitechain whatever rail settles.
 	nodes.SetWhitechainExplorer(os.Getenv("WHITECHAIN_EXPLORER_URL"))
 	// Blank BUILDER_THINKING_BUDGET sends no thinking config, leaving builder
 	// thinking as it is today. Unlike envInt64Or, a value that does not parse
