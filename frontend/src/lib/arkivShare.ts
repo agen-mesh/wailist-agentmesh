@@ -37,6 +37,21 @@ function asBytes(value: unknown): Uint8Array | null {
   return null;
 }
 
+const addressPattern = /^0x[0-9a-fA-F]{40}$/;
+
+function expectedCreator(): string | null {
+  const raw = process.env.NEXT_PUBLIC_ARKIV_SHARE_ADDRESS ?? "";
+  if (!addressPattern.test(raw)) return null;
+  return raw.toLowerCase();
+}
+
+function creatorOf(entity: unknown): string | null {
+  if (!entity || typeof entity !== "object") return null;
+  const value = (entity as Record<string, unknown>).$creator;
+  if (typeof value !== "string" || !addressPattern.test(value)) return null;
+  return value.toLowerCase();
+}
+
 function payloadBytes(entity: unknown): Uint8Array | null {
   if (!entity || typeof entity !== "object") return null;
   const record = entity as Record<string, unknown>;
@@ -60,6 +75,8 @@ export async function readShareEntity(entityKey: string): Promise<Uint8Array> {
   });
   try {
     const entity = await client.getEntity(entityKey as `0x${string}`);
+    const want = expectedCreator();
+    if (!want || creatorOf(entity) !== want) throw new ShareGoneError();
     const bytes = payloadBytes(entity);
     if (!bytes) throw new ShareGoneError();
     return bytes;

@@ -74,8 +74,23 @@ it("shows a dead link without a save button", async () => {
   mocks.openSharedWorkflow.mockRejectedValue(new Error(gone));
   render(<ShareOpen entityKey={"0x" + "cd".repeat(32)} hash="" />);
   expect(await screen.findByText(gone)).toBeTruthy();
+  expect(
+    screen.queryByText("Signed by AgentMesh. This link does not prove which person shared it."),
+  ).toBeNull();
   expect(screen.queryByRole("button", { name: "Save to my workflows" })).toBeNull();
   expect(mocks.create).not.toHaveBeenCalled();
+});
+
+it("keeps save available after a failed save", async () => {
+  mocks.openSharedWorkflow.mockResolvedValue(graph);
+  mocks.loadTemplateWorkflow.mockRejectedValueOnce(new Error("sign in"));
+  render(<ShareOpen entityKey={"0x" + "ab".repeat(32)} hash="" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Save to my workflows" }));
+  expect(await screen.findByText("sign in")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Save to my workflows" })).toBeTruthy();
+  expect(
+    screen.getByText("Signed by AgentMesh. This link does not prove which person shared it."),
+  ).toBeTruthy();
 });
 
 it("emits no static paths for the web build", () => {

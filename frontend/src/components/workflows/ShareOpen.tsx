@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { openSharedWorkflow } from "@/lib/arkivShare";
 import { workflowHref } from "@/lib/routes";
+import { ShareKeyError } from "@/lib/shareCrypto";
 import { loadTemplateWorkflow } from "@/lib/templateWorkflow";
 import type { Workflow } from "@/lib/types";
 import type { WorkflowShareData } from "@/lib/workflowShare";
@@ -11,10 +12,12 @@ const authorship =
   "Signed by AgentMesh. This link does not prove which person shared it.";
 const death =
   "This link dies 7 days after it is confirmed. AgentMesh does not keep a copy. A retired Arkiv testnet kills the link too.";
+const keyError = new ShareKeyError().message;
 
 export function ShareOpen({ entityKey, hash }: { entityKey: string; hash: string }) {
   const [data, setData] = useState<WorkflowShareData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -35,6 +38,7 @@ export function ShareOpen({ entityKey, hash }: { entityKey: string; hash: string
   const save = async () => {
     if (!data || saving) return;
     setSaving(true);
+    setSaveError(null);
     try {
       const id = await loadTemplateWorkflow({
         id: entityKey,
@@ -44,16 +48,20 @@ export function ShareOpen({ entityKey, hash }: { entityKey: string; hash: string
       });
       window.location.href = workflowHref(id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "could not save");
+      setSaveError(err instanceof Error ? err.message : "could not save");
     } finally {
       setSaving(false);
     }
   };
 
+  const showAuthorship = data !== null || error === keyError;
+
   return (
     <main style={{ maxWidth: 640, margin: "0 auto", padding: 24, color: "var(--fg)" }}>
       <h1 style={{ fontSize: "var(--t-5)", margin: "0 0 8px" }}>{data?.name ?? "Shared workflow"}</h1>
-      <p style={{ margin: "0 0 8px", color: "var(--fg-muted)" }}>{authorship}</p>
+      {showAuthorship && (
+        <p style={{ margin: "0 0 8px", color: "var(--fg-muted)" }}>{authorship}</p>
+      )}
       <p style={{ margin: "0 0 16px", color: "var(--fg-muted)" }}>{death}</p>
       {data && (
         <p style={{ margin: "0 0 16px" }}>
@@ -62,7 +70,8 @@ export function ShareOpen({ entityKey, hash }: { entityKey: string; hash: string
         </p>
       )}
       {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
-      {data && !error && (
+      {saveError && <p style={{ color: "var(--danger)" }}>{saveError}</p>}
+      {data && (
         <button
           type="button"
           onClick={save}

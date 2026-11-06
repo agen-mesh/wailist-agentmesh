@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { prepareSharePayload } from "./sharePayload";
 import { openShare } from "./shareCrypto";
 
@@ -33,12 +33,14 @@ vi.mock("./shareCrypto", async (importOriginal) => {
 import { ShareGoneError, openSharedWorkflow } from "./arkivShare";
 
 const entityKey = "0x" + "ab".repeat(32);
+const signer = "0x1111111111111111111111111111111111111111";
 const gone =
   "This link has died. Shares last 7 days, and a retired Arkiv testnet deletes them. AgentMesh does not keep a copy.";
 
 let gzip: Uint8Array;
 
 beforeEach(async () => {
+  vi.stubEnv("NEXT_PUBLIC_ARKIV_SHARE_ADDRESS", signer);
   mocks.getEntity.mockReset();
   mocks.createPublicClient.mockReset();
   vi.mocked(openShare).mockReset();
@@ -51,12 +53,16 @@ beforeEach(async () => {
   gzip = prepared.bytes;
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 it("reads the payload attribute and does not pass the fragment", async () => {
   mocks.getEntity.mockImplementation(async (key: string) => {
     expect(key).toBe(entityKey);
     expect(key.includes("#")).toBe(false);
     expect(key.includes("KEYMATERIAL")).toBe(false);
-    return { attributes: { payload: { type: "bytes", value: gzip } } };
+    return { $creator: signer, attributes: { payload: { type: "bytes", value: gzip } } };
   });
   const data = await openSharedWorkflow(entityKey, "");
   expect(mocks.getEntity).toHaveBeenCalledOnce();
@@ -69,6 +75,7 @@ it("reads the payload attribute and does not pass the fragment", async () => {
 it("reads the SDK attribute map when the payload is hex", async () => {
   const hex = "0x" + Buffer.from(gzip).toString("hex");
   mocks.getEntity.mockResolvedValue({
+    $creator: signer.toUpperCase().replace("0X", "0x"),
     $attributes: { payload: { type: "bytes", value: hex } },
   });
   const data = await openSharedWorkflow(entityKey, "");
@@ -77,6 +84,7 @@ it("reads the SDK attribute map when the payload is hex", async () => {
 
 it("uses the fragment key only for decrypt", async () => {
   mocks.getEntity.mockResolvedValue({
+    $creator: signer,
     attributes: { payload: { type: "bytes", value: gzip } },
   });
   vi.mocked(openShare).mockResolvedValue(gzip);
@@ -90,12 +98,28 @@ it("throws ShareGoneError when the entity or the payload is missing", async () =
   await expect(openSharedWorkflow(entityKey, "")).rejects.toThrow(gone);
   await expect(openSharedWorkflow(entityKey, "")).rejects.toBeInstanceOf(ShareGoneError);
 
-  mocks.getEntity.mockResolvedValue({ attributes: {} });
+  mocks.getEntity.mockResolvedValue({ $creator: signer, attributes: {} });
   await expect(openSharedWorkflow(entityKey, "")).rejects.toThrow(gone);
+});
+
+it("rejects an entity that was not created by the share wallet", async () => {
+  mocks.getEntity.mockResolvedValue({
+    $creator: "0x2222222222222222222222222222222222222222",
+    attributes: { payload: { type: "bytes", value: gzip } },
+  });
+  await expect(openSharedWorkflow(entityKey, "")).rejects.toBeInstanceOf(ShareGoneError);
+
+  vi.stubEnv("NEXT_PUBLIC_ARKIV_SHARE_ADDRESS", "");
+  mocks.getEntity.mockResolvedValue({
+    $creator: signer,
+    attributes: { payload: { type: "bytes", value: gzip } },
+  });
+  await expect(openSharedWorkflow(entityKey, "")).rejects.toBeInstanceOf(ShareGoneError);
 });
 
 it("surfaces a bad fragment key and a public payload that is not gzip", async () => {
   mocks.getEntity.mockResolvedValue({
+    $creator: signer,
     attributes: { payload: { type: "bytes", value: gzip } },
   });
   await expect(openSharedWorkflow(entityKey, "#k=WRONG")).rejects.toThrow(
@@ -103,6 +127,7 @@ it("surfaces a bad fragment key and a public payload that is not gzip", async ()
   );
 
   mocks.getEntity.mockResolvedValue({
+    $creator: signer,
     attributes: { payload: { type: "bytes", value: new Uint8Array([1, 2, 3]) } },
   });
   await expect(openSharedWorkflow(entityKey, "")).rejects.toBeInstanceOf(ShareGoneError);
