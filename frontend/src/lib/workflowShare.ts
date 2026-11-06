@@ -75,9 +75,18 @@ async function gunzip(bytes: Uint8Array): Promise<Uint8Array> {
   // includes SharedArrayBuffer), but WritableStream<BufferSource>.write()
   // wants a concrete ArrayBuffer -- these bytes always come from
   // TextEncoder/atob, never a shared buffer, so the cast is safe.
-  void writer.write(bytes as BufferSource);
-  void writer.close();
-  return new Uint8Array(await new Response(stream.readable).arrayBuffer());
+  // Await the write with the read. A payload that is not gzip rejects here;
+  // discarding that rejection leaves an unhandled stream error.
+  const output = new Response(stream.readable).arrayBuffer();
+  try {
+    await writer.write(bytes as BufferSource);
+    await writer.close();
+  } catch (err) {
+    await writer.abort(err).catch(() => {});
+    await output.catch(() => {});
+    throw err;
+  }
+  return new Uint8Array(await output);
 }
 
 // String.fromCharCode(...bytes) blows the call stack on large arrays, so this
