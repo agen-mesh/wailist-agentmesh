@@ -625,7 +625,7 @@ function build(
         txId,
         amount: (s.paid / 1e6).toFixed(3),
         settledUsdMicros: s.paid,
-        explorerURL: `https://allo.info/tx/${txId}`,
+        explorerURL: `https://explorer.testnet.whitechain.io/tx/${txId}`,
       });
     }
     const log: RunLogRecord = {

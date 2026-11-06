@@ -867,7 +867,7 @@ func TestAgentAttachedRelayToolBillsOnInboundSettlementDespiteOutboundFailure(t 
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"250000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"250000"}]}`))
 	}))
 	defer target.Close()
 
@@ -1055,7 +1055,7 @@ func TestSequentialRelayToolCallsCannotOverspendPastBalance(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"250000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"250000"}]}`))
 	}))
 	defer target.Close()
 
@@ -1230,13 +1230,13 @@ func TestConcurrentTool402NodesCannotOverspend(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"10458941","maxAmountRequired":"400000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"400000"}]}`))
 	}))
 	defer relay.Close()
 
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"400000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"400000"}]}`))
 	}))
 	defer target.Close()
 
@@ -1369,7 +1369,7 @@ func TestAgentBranchingBetweenTwoPricedToolsDoesNotBlockMidRun(t *testing.T) {
 			amount = "400000" // estimate-time quote only; every later probe drifts down
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLAADDR","asset":"10458941","maxAmountRequired":"` + amount + `"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLAADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"` + amount + `"}]}`))
 	}))
 	defer toolA.Close()
 
@@ -1379,7 +1379,7 @@ func TestAgentBranchingBetweenTwoPricedToolsDoesNotBlockMidRun(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLBADDR","asset":"10458941","maxAmountRequired":"350000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLBADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"350000"}]}`))
 	}))
 	defer toolB.Close()
 
@@ -1544,7 +1544,7 @@ func TestExactBalanceRunLevelAttachedCallsNotBlockedByFloorGuard(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLAADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLAADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer toolA.Close()
 
@@ -1554,7 +1554,7 @@ func TestExactBalanceRunLevelAttachedCallsNotBlockedByFloorGuard(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLBADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLBADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer toolB.Close()
 
@@ -1705,7 +1705,7 @@ func TestAgentBranchingBetweenTwoPricedToolsBlocksUpfrontWhenBalanceInsufficient
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLAADDR","asset":"10458941","maxAmountRequired":"400000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLAADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"400000"}]}`))
 	}))
 	defer toolA.Close()
 
@@ -1716,7 +1716,7 @@ func TestAgentBranchingBetweenTwoPricedToolsBlocksUpfrontWhenBalanceInsufficient
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLBADDR","asset":"10458941","maxAmountRequired":"350000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TOOLBADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"350000"}]}`))
 	}))
 	defer toolB.Close()
 
@@ -1843,7 +1843,7 @@ func TestRunLevelPathNeverCallsPublicRelayEndpoint(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"300000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"300000"}]}`))
 	}))
 	defer target.Close()
 
@@ -1974,7 +1974,7 @@ func TestRunFailsAndNeverCallsPublicRelayWhenRunFundingRecordFails(t *testing.T)
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"300000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"300000"}]}`))
 	}))
 	defer target.Close()
 
@@ -2090,20 +2090,20 @@ func TestRunFailsAndNeverCallsPublicRelayWhenRunFundingRecordFails(t *testing.T)
 // executeTool402V2Relay's existing "no platform spend wallet configured"
 // graceful-degradation guard. newTestRunner wires up exactly the real,
 // valid misconfiguration this guards against: a walletSvc (noopSigner)
-// whose dynamic type does not satisfy nodes.USDCGroupSigner, and an empty
-// platformSpendEncMnemonic. Without the guard, reserveAndFundRun's type
+// whose dynamic type does not satisfy nodes.PaymentSigner, and an empty
+// platformSpendEncKey. Without the guard, reserveAndFundRun's type
 // assertion yields a nil usdcSigner and a later call on it panics -- with
 // no recover() in the run goroutine, crashing the whole process (which,
 // for this test, would crash the whole `go test` run rather than just fail
 // this one test). The run must instead degrade gracefully to the same
 // behavior as an agent with no attached tool402 nodes at all.
 func TestAgentAttachedV2ToolDegradesGracefullyWhenPlatformSpendWalletNotConfigured(t *testing.T) {
-	runner, store := newTestRunner(t) // noopSigner + empty platformSpendEncMnemonic -- the exact misconfiguration this guards against
+	runner, store := newTestRunner(t) // noopSigner + empty platformSpendEncKey -- the exact misconfiguration this guards against
 	ctx := context.Background()
 
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"300000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"300000"}]}`))
 	}))
 	defer target.Close()
 
@@ -2192,7 +2192,7 @@ func TestLegacyToolAttachedAlongsideRunFundedV2ToolBillsIdenticallyToStandalone(
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"300000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"300000"}]}`))
 	}))
 	defer v2Target.Close()
 

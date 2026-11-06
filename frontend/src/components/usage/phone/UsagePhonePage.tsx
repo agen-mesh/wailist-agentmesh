@@ -429,7 +429,7 @@ function UsageBody({
       )}
 
       <p className="bilp-note usgp-foot">
-        Settled on Algorand testnet. LLM prices (*) are estimated.
+        Settled on Whitechain testnet. LLM prices (*) are estimated.
       </p>
     </>
   );

@@ -103,7 +103,6 @@ frontend/next-env.d.ts
 /plans/
 
 # Local-only Docker overrides. Compose loads docker-compose.override.yml
-# automatically with no opt-in, so a committed one silently reconfigures every
-# other developer's `docker-compose up` -- in this repo's case onto Algorand
-# mainnet with the real platform wallets, where each call spends real money.
+# automatically with no opt-in, so a committed one would silently reconfigure
+# every other developer's `docker-compose up` onto this machine's .env.
 docker-compose.override.yml

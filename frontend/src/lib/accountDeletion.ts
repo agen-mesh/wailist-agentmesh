@@ -1,5 +1,3 @@
-import { refreshSessions } from "./helixbox";
-
 export function clearDeletedAccountStorage(): void {
   const exact = new Set([
     "agentmesh_checkout_phone",
@@ -9,9 +7,5 @@ export function clearDeletedAccountStorage(): void {
     exact.has(key) || key.startsWith("agentmesh_lastrun_") ||
     key.startsWith("agentmesh_settlements_") || key.startsWith("agentmesh_helixbox_sessions_"),
   );
-  try {
-    for (const key of keys) window.localStorage.removeItem(key);
-  } finally {
-    refreshSessions();
-  }
+  for (const key of keys) window.localStorage.removeItem(key);
 }

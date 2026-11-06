@@ -7,12 +7,15 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/agentmesh/backend/internal/engine/nodes"
+	"github.com/agentmesh/backend/internal/wallet"
+	"github.com/agentmesh/backend/internal/x402"
 )
 
-// fakeWallet2Signer is a minimal USDCGroupSigner double for
+// fakeWallet2Signer is a minimal PaymentSigner double for
 // PayTargetFromWallet2 tests -- records every call it received (which
 // method, and the feePayer arg for group calls) and returns a canned
 // group/error.
@@ -22,36 +25,24 @@ type fakeWallet2Signer struct {
 	err   error
 	calls int
 
-	groupCalls   int
-	singleCalls  int
-	lastFeePayer string
+	last wallet.AuthorizationRequest
 }
 
-func (f *fakeWallet2Signer) SignUSDCPaymentGroup(_ context.Context, _, _ string, _, _ uint64, feePayerAddr string) ([]string, int, error) {
+func (f *fakeWallet2Signer) SignTransferAuthorization(_ context.Context, _ string, r wallet.AuthorizationRequest) (x402.ExactEVMPayload, error) {
 	f.calls++
-	f.groupCalls++
-	f.lastFeePayer = feePayerAddr
+	f.last = r
 	if f.err != nil {
-		return nil, 0, f.err
+		return x402.ExactEVMPayload{}, f.err
 	}
-	return f.group, f.idx, nil
+	return x402.ExactEVMPayload{Signature: "0xfakesig", Authorization: x402.Authorization{From: "0x00000000000000000000000000000000000000f1", To: r.PayTo, Value: strconv.FormatUint(r.Amount, 10), ValidAfter: "0", ValidBefore: "9999999999", Nonce: "0x01"}}, nil
 }
 
-func (f *fakeWallet2Signer) SignUSDCPaymentSingle(_ context.Context, _, _ string, _, _ uint64) ([]string, int, error) {
-	f.calls++
-	f.singleCalls++
-	if f.err != nil {
-		return nil, 0, f.err
-	}
-	return f.group, f.idx, nil
-}
-
-func baseWallet2Cfg(signer nodes.USDCGroupSigner) nodes.Wallet2PayConfig {
+func baseWallet2Cfg(signer nodes.PaymentSigner) nodes.Wallet2PayConfig {
 	return nodes.Wallet2PayConfig{
-		USDCSigner:                signer,
-		PlatformWalletEncMnemonic: "enc-mnemonic",
-		USDCAssetID:               10458941,
-		RelayNetwork:              "algorand:testnet",
+		Signer:               signer,
+		PlatformWalletEncKey: "enc-mnemonic",
+		USDCAsset:            "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:         "algorand:testnet",
 	}
 }
 
@@ -85,7 +76,7 @@ func TestPayTargetFromWallet2RejectsOverCap(t *testing.T) {
 	cfg := baseWallet2Cfg(signer)
 	cfg.MaxRelayOutboundUSDMicros = 10000
 
-	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "10458941", MaxAmountRequired: "50000"}
+	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", MaxAmountRequired: "50000"}
 	result, err := nodes.PayTargetFromWallet2(context.Background(), cfg, "http://unused.example", "", nil, quote)
 
 	if err == nil {
@@ -110,7 +101,7 @@ func TestPayTargetFromWallet2SignFailureReturns500(t *testing.T) {
 	signer := &fakeWallet2Signer{err: errors.New("invalid receiver address")}
 	cfg := baseWallet2Cfg(signer)
 
-	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "10458941", MaxAmountRequired: "50000"}
+	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", MaxAmountRequired: "50000"}
 	result, err := nodes.PayTargetFromWallet2(context.Background(), cfg, "http://unused.example", "", nil, quote)
 
 	if err == nil {
@@ -146,7 +137,7 @@ func TestPayTargetFromWallet2TargetNetworkFailureStillSigned(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	target.Close() // closed before use -- guarantees a connection-refused error
 
-	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "10458941", MaxAmountRequired: "50000"}
+	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", MaxAmountRequired: "50000"}
 	result, err := nodes.PayTargetFromWallet2(context.Background(), cfg, target.URL, "", nil, quote)
 
 	if err == nil {
@@ -180,7 +171,7 @@ func TestPayTargetFromWallet2SuccessReturnsTargetResponse(t *testing.T) {
 	signer := &fakeWallet2Signer{group: []string{"g0", "g1"}, idx: 0}
 	cfg := baseWallet2Cfg(signer)
 
-	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "10458941", MaxAmountRequired: "50000"}
+	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", MaxAmountRequired: "50000"}
 	result, err := nodes.PayTargetFromWallet2(context.Background(), cfg, target.URL, "", nil, quote)
 
 	if err != nil {
@@ -222,7 +213,7 @@ func TestPayTargetFromWallet2ExtractsOutboundTxIDFromPaymentResponseHeader(t *te
 	signer := &fakeWallet2Signer{group: []string{"g0", "g1"}, idx: 0}
 	cfg := baseWallet2Cfg(signer)
 
-	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "10458941", MaxAmountRequired: "50000"}
+	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", MaxAmountRequired: "50000"}
 	result, err := nodes.PayTargetFromWallet2(context.Background(), cfg, target.URL, "", nil, quote)
 
 	if err != nil {
@@ -247,7 +238,7 @@ func TestPayTargetFromWallet2OutboundTxIDEmptyWhenTargetReturnsNone(t *testing.T
 	signer := &fakeWallet2Signer{group: []string{"g0", "g1"}, idx: 0}
 	cfg := baseWallet2Cfg(signer)
 
-	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "10458941", MaxAmountRequired: "50000"}
+	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", MaxAmountRequired: "50000"}
 	result, err := nodes.PayTargetFromWallet2(context.Background(), cfg, target.URL, "", nil, quote)
 
 	if err != nil {
@@ -267,66 +258,9 @@ func TestPayTargetFromWallet2OutboundTxIDEmptyWhenTargetReturnsNone(t *testing.T
 // recognize what it got, and kept re-402'ing a payment that had, in fact,
 // already left the wallet. quote.FeePayer must route to
 // SignUSDCPaymentGroup, with that exact address passed through.
-func TestPayTargetFromWallet2UsesGroupSignerWhenTargetNamesFeePayer(t *testing.T) {
-	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"pair":"goBTC/USDC"}`))
-	}))
-	defer target.Close()
-
-	signer := &fakeWallet2Signer{group: []string{"g0", "g1"}, idx: 1}
-	cfg := baseWallet2Cfg(signer)
-
-	quote := nodes.TargetQuote{
-		PayTo: "TARGETADDR", Asset: "10458941", MaxAmountRequired: "1000",
-		FeePayer: "ZMFK2OI7ZBD2U27ISERZC4S6LKM6WMFJPZQ4MYNJDZ2VNBNMBA67RA22AA",
-	}
-	result, err := nodes.PayTargetFromWallet2(context.Background(), cfg, target.URL, "", nil, quote)
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Settled {
-		t.Fatal("want Settled=true")
-	}
-	if signer.groupCalls != 1 {
-		t.Fatalf("want SignUSDCPaymentGroup called once, got %d", signer.groupCalls)
-	}
-	if signer.singleCalls != 0 {
-		t.Fatalf("want SignUSDCPaymentSingle never called, got %d", signer.singleCalls)
-	}
-	if signer.lastFeePayer != "ZMFK2OI7ZBD2U27ISERZC4S6LKM6WMFJPZQ4MYNJDZ2VNBNMBA67RA22AA" {
-		t.Fatalf("want the target's own feePayer passed through, got %q", signer.lastFeePayer)
-	}
-}
-
 // TestPayTargetFromWallet2UsesSingleSignerWhenTargetNamesNoFeePayer keeps
 // the pre-existing behavior for a target whose challenge omits
 // extra.feePayer entirely -- the plain, self-fee-paying "exact" scheme.
-func TestPayTargetFromWallet2UsesSingleSignerWhenTargetNamesNoFeePayer(t *testing.T) {
-	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"ok":true}`))
-	}))
-	defer target.Close()
-
-	signer := &fakeWallet2Signer{group: []string{"g0"}, idx: 0}
-	cfg := baseWallet2Cfg(signer)
-
-	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "10458941", MaxAmountRequired: "1000"}
-	_, err := nodes.PayTargetFromWallet2(context.Background(), cfg, target.URL, "", nil, quote)
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if signer.singleCalls != 1 {
-		t.Fatalf("want SignUSDCPaymentSingle called once, got %d", signer.singleCalls)
-	}
-	if signer.groupCalls != 0 {
-		t.Fatalf("want SignUSDCPaymentGroup never called, got %d", signer.groupCalls)
-	}
-}
-
 func TestPayTargetFromWallet2NonSuccessStatusNotSettled(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
@@ -337,7 +271,7 @@ func TestPayTargetFromWallet2NonSuccessStatusNotSettled(t *testing.T) {
 	signer := &fakeWallet2Signer{group: []string{"g0", "g1"}, idx: 0}
 	cfg := baseWallet2Cfg(signer)
 
-	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "10458941", MaxAmountRequired: "50000"}
+	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", MaxAmountRequired: "50000"}
 	result, err := nodes.PayTargetFromWallet2(context.Background(), cfg, target.URL, "", nil, quote)
 
 	// A non-2xx from the target is not itself a Wallet2PayError -- the paid
@@ -392,7 +326,7 @@ func TestPayTargetFromWallet2SendsConfiguredMethodAndBody(t *testing.T) {
 	signer := &fakeWallet2Signer{group: []string{"g0", "g1"}, idx: 0}
 	cfg := baseWallet2Cfg(signer)
 
-	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "10458941", MaxAmountRequired: "50000"}
+	quote := nodes.TargetQuote{PayTo: "TARGETADDR", Asset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", MaxAmountRequired: "50000"}
 	result, err := nodes.PayTargetFromWallet2(context.Background(), cfg, target.URL, http.MethodPost, []byte(wantBody), quote)
 
 	if err != nil {

@@ -22,9 +22,8 @@ import (
 func TestTriggerRun(t *testing.T) {
 	d := testDeps(t)
 	d.Broker = sse.NewBroker()
-	d.Wallet = wallet.NewService("0123456789abcdef0123456789abcdef",
-		"https://testnet-api.algonode.cloud", "", "testnet")
-	d.Engine = engine.NewRunner(d.Store, d.Broker, d.Wallet, "http://localhost:8080", "", "", engine.X402Config{USDCAssetID: 10458941})
+	d.Wallet = wallet.NewService("0123456789abcdef0123456789abcdef", "")
+	d.Engine = engine.NewRunner(d.Store, d.Broker, d.Wallet, "http://localhost:8080", "", "", engine.X402Config{USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"})
 
 	wf, _ := d.Store.CreateWorkflow(t.Context(), "Run Test", "dev")
 	t.Cleanup(func() { d.Store.DeleteWorkflow(context.Background(), wf.ID) })
@@ -54,9 +53,8 @@ func TestTriggerRun(t *testing.T) {
 func TestTriggerRunCooldownRetryAfterNeverUndershoots(t *testing.T) {
 	d := testDeps(t)
 	d.Broker = sse.NewBroker()
-	d.Wallet = wallet.NewService("0123456789abcdef0123456789abcdef",
-		"https://testnet-api.algonode.cloud", "", "testnet")
-	d.Engine = engine.NewRunner(d.Store, d.Broker, d.Wallet, "http://localhost:8080", "", "", engine.X402Config{USDCAssetID: 10458941})
+	d.Wallet = wallet.NewService("0123456789abcdef0123456789abcdef", "")
+	d.Engine = engine.NewRunner(d.Store, d.Broker, d.Wallet, "http://localhost:8080", "", "", engine.X402Config{USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"})
 
 	wf, _ := d.Store.CreateWorkflow(t.Context(), "Cooldown Retry-After Test", "dev")
 	t.Cleanup(func() { d.Store.DeleteWorkflow(context.Background(), wf.ID) })
@@ -108,8 +106,8 @@ func TestTriggerRunCooldownRetryAfterNeverUndershoots(t *testing.T) {
 func TestPublicTriggerRejectsNonWebhookTriggerEvenIfDeployed(t *testing.T) {
 	d := testDeps(t)
 	d.Broker = sse.NewBroker()
-	d.Wallet = wallet.NewService(testEncryptionKey, "https://testnet-api.algonode.cloud", "", "testnet")
-	d.Engine = engine.NewRunner(d.Store, d.Broker, d.Wallet, "http://localhost:8080", "", "", engine.X402Config{USDCAssetID: 10458941})
+	d.Wallet = wallet.NewService(testEncryptionKey, "")
+	d.Engine = engine.NewRunner(d.Store, d.Broker, d.Wallet, "http://localhost:8080", "", "", engine.X402Config{USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"})
 	d.BaseURL = "http://localhost:8080"
 
 	ctx := context.Background()
@@ -152,8 +150,8 @@ func TestPublicTriggerRejectsNonWebhookTriggerEvenIfDeployed(t *testing.T) {
 func TestPublicTriggerRequiresCorrectWebhookSecret(t *testing.T) {
 	d := testDeps(t)
 	d.Broker = sse.NewBroker()
-	d.Wallet = wallet.NewService(testEncryptionKey, "https://testnet-api.algonode.cloud", "", "testnet")
-	d.Engine = engine.NewRunner(d.Store, d.Broker, d.Wallet, "http://localhost:8080", "", "", engine.X402Config{USDCAssetID: 10458941})
+	d.Wallet = wallet.NewService(testEncryptionKey, "")
+	d.Engine = engine.NewRunner(d.Store, d.Broker, d.Wallet, "http://localhost:8080", "", "", engine.X402Config{USDCAsset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7"})
 	d.BaseURL = "http://localhost:8080"
 
 	ctx := context.Background()

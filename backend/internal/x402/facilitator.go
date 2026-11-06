@@ -4,11 +4,22 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 )
+
+// ErrFacilitatorOutOfGas is returned when the facilitator answers
+// 503 signer_balance_low: its relayer cannot pay WBT gas, so nothing settles
+// until it is refilled. Distinct from an invalid payment.
+var ErrFacilitatorOutOfGas = errors.New("facilitator relayer is out of gas (signer_balance_low)")
+
+// ErrFacilitatorRateLimited is returned when the facilitator still answers
+// 429 after one Retry-After wait.
+var ErrFacilitatorRateLimited = errors.New("facilitator rate limit exceeded")
 
 type FacilitatorClient struct {
 	baseURL string
@@ -22,16 +33,31 @@ func NewFacilitatorClient(baseURL string) *FacilitatorClient {
 	}
 }
 
-type PaymentGroup struct {
-	PaymentGroup []string `json:"paymentGroup"`
-	PaymentIndex int      `json:"paymentIndex"`
+// Authorization is the EIP-3009 TransferWithAuthorization message the payer
+// signs against the token's own EIP-712 domain. All numeric fields are
+// base-10 strings and nonce is 0x-prefixed 32-byte hex, matching the x402
+// "exact" EVM scheme wire format.
+type Authorization struct {
+	From        string `json:"from"`
+	To          string `json:"to"`
+	Value       string `json:"value"`
+	ValidAfter  string `json:"validAfter"`
+	ValidBefore string `json:"validBefore"`
+	Nonce       string `json:"nonce"`
+}
+
+// ExactEVMPayload is the `payload` of an x402 v2 "exact" payment on an EVM
+// network: a 65-byte secp256k1 signature over Authorization.
+type ExactEVMPayload struct {
+	Signature     string        `json:"signature"`
+	Authorization Authorization `json:"authorization"`
 }
 
 type PaymentPayload struct {
-	X402Version int          `json:"x402Version"`
-	Scheme      string       `json:"scheme"`
-	Network     string       `json:"network"`
-	Payload     PaymentGroup `json:"payload"`
+	X402Version int             `json:"x402Version"`
+	Scheme      string          `json:"scheme"`
+	Network     string          `json:"network"`
+	Payload     ExactEVMPayload `json:"payload"`
 	// Resource/Extensions carry the Bazaar-catalogable identity of what this
 	// payment is for. The facilitator's discovery extraction
 	// (extractDiscoveryInfo, @x402/extensions) reads these fields off the
@@ -109,7 +135,7 @@ func (r PaymentRequirements) AcceptedV2() *AcceptedV2 {
 type PaymentRequirements struct {
 	Scheme  string `json:"scheme"`
 	Network string `json:"network"`
-	// GoPlausible's facilitator reads this key as "amount", not the more
+	// The x402 v2 facilitator reads this key as "amount", not the more
 	// common x402 "maxAmountRequired" — sending the latter left their
 	// server reading undefined and crashing on BigInt(undefined)
 	// (confirmed live 2026-07-31 against /verify). Go field name kept as
@@ -190,19 +216,78 @@ func (c *FacilitatorClient) post(ctx context.Context, path string, payload Payme
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
-	if err != nil {
-		return err
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := c.client.Do(req)
+		if err != nil {
+			return err
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			resp.Body.Close()
+			if attempt > 0 {
+				return fmt.Errorf("facilitator %s: %w", path, ErrFacilitatorRateLimited)
+			}
+			wait := 2 * time.Second
+			if s, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && s > 0 && s <= 30 {
+				wait = time.Duration(s) * time.Second
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(wait):
+			}
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 500 {
+			errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			if bytes.Contains(errBody, []byte("signer_balance_low")) {
+				return fmt.Errorf("facilitator %s: %w", path, ErrFacilitatorOutOfGas)
+			}
+			return fmt.Errorf("facilitator %s: server error %d: %s", path, resp.StatusCode, errBody)
+		}
+		return json.NewDecoder(resp.Body).Decode(out)
 	}
-	req.Header.Set("Content-Type", "application/json")
+}
+
+// Supported is the facilitator's GET /supported body.
+type Supported struct {
+	Kinds []struct {
+		X402Version int    `json:"x402Version"`
+		Scheme      string `json:"scheme"`
+		Network     string `json:"network"`
+	} `json:"kinds"`
+	Extensions []string `json:"extensions"`
+}
+
+// Supports reports whether the facilitator advertises scheme on network.
+func (s Supported) Supports(scheme, network string) bool {
+	for _, k := range s.Kinds {
+		if k.Scheme == scheme && k.Network == network {
+			return true
+		}
+	}
+	return false
+}
+
+// Supported fetches GET /supported.
+func (c *FacilitatorClient) Supported(ctx context.Context) (Supported, error) {
+	var out Supported
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/supported", nil)
+	if err != nil {
+		return out, err
+	}
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return err
+		return out, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 500 {
-		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("facilitator %s: server error %d: %s", path, resp.StatusCode, errBody)
+	if resp.StatusCode != http.StatusOK {
+		return out, fmt.Errorf("facilitator /supported: status %d", resp.StatusCode)
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	return out, json.NewDecoder(resp.Body).Decode(&out)
 }

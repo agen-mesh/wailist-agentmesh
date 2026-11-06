@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"testing"
+
+	"github.com/agentmesh/backend/internal/x402"
 )
 
 func decodeSignatureHeader(t *testing.T, value string) map[string]any {
@@ -22,7 +24,7 @@ func decodeSignatureHeader(t *testing.T, value string) map[string]any {
 // challengeFixture is a target's own 402 challenge, as the probe captures it.
 func challengeFixture(network string) (accept, challenge map[string]any) {
 	accept = map[string]any{
-		"payTo": "TARGETADDR", "asset": "31566704", "amount": "100000",
+		"payTo": "TARGETADDR", "asset": "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", "amount": "100000",
 		"scheme": "exact", "network": network,
 	}
 	challenge = map[string]any{
@@ -42,10 +44,10 @@ func challengeFixture(network string) (accept, challenge map[string]any) {
 // SDK-based target can read it, the legacy one so anything already working
 // keeps working.
 func TestBuildPaymentHeadersSendsSpecHeader(t *testing.T) {
-	accept, challenge := challengeFixture("algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=")
-	quote := TargetQuote{PayTo: "TARGETADDR", Asset: "31566704", MaxAmountRequired: "100000", RawAccept: accept, RawChallenge: challenge}
+	accept, challenge := challengeFixture("eip155:1874")
+	quote := TargetQuote{PayTo: "TARGETADDR", Asset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", MaxAmountRequired: "100000", RawAccept: accept, RawChallenge: challenge}
 
-	headers := buildPaymentHeaders("https://api.scrape402.site/scrape", "algorand:mainnet", []string{"g0", "g1"}, 1, quote)
+	headers := buildPaymentHeaders("https://api.scrape402.site/scrape", "eip155:1874", x402.ExactEVMPayload{Signature: "0xsig"}, quote)
 
 	sig, has := headers["Payment-Signature"]
 	if !has {
@@ -62,8 +64,8 @@ func TestBuildPaymentHeadersSendsSpecHeader(t *testing.T) {
 	if !ok {
 		t.Fatalf("want a payload object, got %T", wrapper["payload"])
 	}
-	if payload["paymentIndex"] != float64(1) {
-		t.Fatalf("want paymentIndex=1 passed through, got %v", payload["paymentIndex"])
+	if payload["signature"] != "0xsig" {
+		t.Fatalf("want the EIP-3009 signature passed through, got %v", payload["signature"])
 	}
 
 	raw, has := headers["X-Payment"]
@@ -88,11 +90,11 @@ func TestBuildPaymentHeadersSendsSpecHeader(t *testing.T) {
 // user can paste any x402 URL into a node, and the payment path cannot have
 // been taught that merchant's name in advance.
 func TestBuildPaymentHeadersAreHostAgnostic(t *testing.T) {
-	accept, challenge := challengeFixture("algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=")
-	quote := TargetQuote{PayTo: "TARGETADDR", Asset: "31566704", MaxAmountRequired: "100000", RawAccept: accept, RawChallenge: challenge}
+	accept, challenge := challengeFixture("eip155:1874")
+	quote := TargetQuote{PayTo: "TARGETADDR", Asset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", MaxAmountRequired: "100000", RawAccept: accept, RawChallenge: challenge}
 
-	known := buildPaymentHeaders("https://canix402-api.compx.io/opportunities", "algorand:mainnet", []string{"g0", "g1"}, 1, quote)
-	stranger := buildPaymentHeaders("https://some-endpoint-nobody-has-seen.example/api", "algorand:mainnet", []string{"g0", "g1"}, 1, quote)
+	known := buildPaymentHeaders("https://canix402-api.compx.io/opportunities", "eip155:1874", x402.ExactEVMPayload{Signature: "0xsig"}, quote)
+	stranger := buildPaymentHeaders("https://some-endpoint-nobody-has-seen.example/api", "eip155:1874", x402.ExactEVMPayload{Signature: "0xsig"}, quote)
 
 	if len(known) != len(stranger) {
 		t.Fatalf("want the same header set for both, got %v vs %v", known, stranger)
@@ -110,9 +112,9 @@ func TestBuildPaymentHeadersAreHostAgnostic(t *testing.T) {
 // automatically instead of paying against a stale constant.
 func TestBuildPaymentHeadersEchoDeclaredNetwork(t *testing.T) {
 	accept, challenge := challengeFixture("algorand-mainnet") // a target's own short form
-	quote := TargetQuote{PayTo: "TARGETADDR", Asset: "31566704", MaxAmountRequired: "100000", RawAccept: accept, RawChallenge: challenge}
+	quote := TargetQuote{PayTo: "TARGETADDR", Asset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", MaxAmountRequired: "100000", RawAccept: accept, RawChallenge: challenge}
 
-	wrapper := decodeSignatureHeader(t, buildPaymentHeaders("https://example.test/resource", "algorand:mainnet", []string{"g0"}, 0, quote)["Payment-Signature"])
+	wrapper := decodeSignatureHeader(t, buildPaymentHeaders("https://example.test/resource", "eip155:1874", x402.ExactEVMPayload{Signature: "0xsig"}, quote)["Payment-Signature"])
 
 	if wrapper["network"] != "algorand-mainnet" {
 		t.Fatalf("want the target's own declared network echoed, got %v", wrapper["network"])
@@ -126,12 +128,12 @@ func TestBuildPaymentHeadersEchoDeclaredNetwork(t *testing.T) {
 // (not from a real probe) still produces a well-formed payload: the echoes
 // are simply absent rather than null, and the configured network is used.
 func TestBuildPaymentHeadersWithoutChallenge(t *testing.T) {
-	quote := TargetQuote{PayTo: "TARGETADDR", Asset: "31566704", MaxAmountRequired: "10000"}
+	quote := TargetQuote{PayTo: "TARGETADDR", Asset: "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", MaxAmountRequired: "10000"}
 
-	headers := buildPaymentHeaders("https://example.test/resource", "algorand:mainnet", []string{"g0", "g1"}, 1, quote)
+	headers := buildPaymentHeaders("https://example.test/resource", "eip155:1874", x402.ExactEVMPayload{Signature: "0xsig"}, quote)
 
 	wrapper := decodeSignatureHeader(t, headers["Payment-Signature"])
-	if wrapper["network"] != "algorand:mainnet" {
+	if wrapper["network"] != "eip155:1874" {
 		t.Fatalf("want the configured network when the quote declares none, got %v", wrapper["network"])
 	}
 	for _, field := range []string{"accepted", "paymentRequired", "resource", "extensions"} {

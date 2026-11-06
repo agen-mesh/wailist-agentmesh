@@ -69,7 +69,7 @@ func fakeFacilitatorServer(t *testing.T, settleCount *int32) (*httptest.Server, 
 func TestX402V2RelaySettlesPlatformFeeOnChain(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer target.Close()
 
@@ -80,7 +80,7 @@ func TestX402V2RelaySettlesPlatformFeeOnChain(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer relay.Close()
 
@@ -91,7 +91,7 @@ func TestX402V2RelaySettlesPlatformFeeOnChain(t *testing.T) {
 	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool402, Endpoint: target.URL}
 	rc := engine.NewRunContext("r1", nil)
 	aw := models.AgentWallet{}
-	usdcSigner := &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0}
+	usdcSigner := &mockPaymentSigner{group: []string{"g0", "g1"}, idx: 0}
 
 	var committedKinds []string
 	var committedAmounts []int64
@@ -105,16 +105,15 @@ func TestX402V2RelaySettlesPlatformFeeOnChain(t *testing.T) {
 	}
 
 	relayCfg := nodes.X402RelayConfig{
-		USDCSigner:               usdcSigner,
-		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
-		ExpectedAssetID:          uint64(10458941),
-		RelayBaseURL:             relay.URL,
-		Facilitator:              x402.NewFacilitatorClient(facilitator.URL),
-		PlatformWalletAddress:    "PLATFORMADDR",
-		RelayNetwork:             "algorand:testnet",
-		RelayFeePayer:            "FEEPAYERADDR",
-		FrontendURL:              "https://agentmesh.example",
-		PerCallLedger:            nodes.CallLedger(ledger),
+		Signer:                usdcSigner,
+		PlatformSpendEncKey:   "platform-enc-mnemonic",
+		ExpectedAsset:         "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayBaseURL:          relay.URL,
+		Facilitator:           x402.NewFacilitatorClient(facilitator.URL),
+		PlatformWalletAddress: "PLATFORMADDR",
+		RelayNetwork:          "algorand:testnet",
+		FrontendURL:           "https://agentmesh.example",
+		PerCallLedger:         nodes.CallLedger(ledger),
 	}
 
 	result, err := nodes.ExecuteTool402V2(context.Background(), node, rc, aw, nil, relayCfg)
@@ -163,7 +162,7 @@ func TestX402V2RelaySettlesPlatformFeeOnChain(t *testing.T) {
 func TestX402V2RelayFeeSettlementFailureDoesNotFailTheCall(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer target.Close()
 
@@ -174,7 +173,7 @@ func TestX402V2RelayFeeSettlementFailureDoesNotFailTheCall(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer relay.Close()
 
@@ -187,19 +186,18 @@ func TestX402V2RelayFeeSettlementFailureDoesNotFailTheCall(t *testing.T) {
 
 	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool402, Endpoint: target.URL}
 	rc := engine.NewRunContext("r1", nil)
-	usdcSigner := &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0}
+	usdcSigner := &mockPaymentSigner{group: []string{"g0", "g1"}, idx: 0}
 
 	relayCfg := nodes.X402RelayConfig{
-		USDCSigner:               usdcSigner,
-		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
-		ExpectedAssetID:          uint64(10458941),
-		RelayBaseURL:             relay.URL,
-		Facilitator:              x402.NewFacilitatorClient(brokenFacilitator.URL),
-		PlatformWalletAddress:    "PLATFORMADDR",
-		RelayNetwork:             "algorand:testnet",
-		RelayFeePayer:            "FEEPAYERADDR",
-		FrontendURL:              "https://agentmesh.example",
-		PerCallLedger:            nodes.CallLedger(noopLedger()),
+		Signer:                usdcSigner,
+		PlatformSpendEncKey:   "platform-enc-mnemonic",
+		ExpectedAsset:         "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayBaseURL:          relay.URL,
+		Facilitator:           x402.NewFacilitatorClient(brokenFacilitator.URL),
+		PlatformWalletAddress: "PLATFORMADDR",
+		RelayNetwork:          "algorand:testnet",
+		FrontendURL:           "https://agentmesh.example",
+		PerCallLedger:         nodes.CallLedger(noopLedger()),
 	}
 
 	result, err := nodes.ExecuteTool402V2(context.Background(), node, rc, models.AgentWallet{}, nil, relayCfg)
@@ -229,7 +227,7 @@ func TestX402RunLevelNeverSettlesPlatformFeeSeparately(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"100000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"100000"}]}`))
 	}))
 	defer target.Close()
 
@@ -239,7 +237,7 @@ func TestX402RunLevelNeverSettlesPlatformFeeSeparately(t *testing.T) {
 
 	node := models.WorkflowNode{ID: "x1", Type: models.NodeTypeTool402, Endpoint: target.URL}
 	rc := engine.NewRunContext("r1", nil)
-	usdcSigner := &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0}
+	usdcSigner := &mockPaymentSigner{group: []string{"g0", "g1"}, idx: 0}
 
 	relayCfg := nodes.X402RelayConfig{
 		RunFundingID:          "test-run-funding-no-separate-fee",
@@ -249,13 +247,12 @@ func TestX402RunLevelNeverSettlesPlatformFeeSeparately(t *testing.T) {
 		Facilitator:           x402.NewFacilitatorClient(facilitator.URL),
 		PlatformWalletAddress: "PLATFORMADDR",
 		RelayNetwork:          "algorand:testnet",
-		RelayFeePayer:         "FEEPAYERADDR",
 		FrontendURL:           "https://agentmesh.example",
 		Wallet2: nodes.Wallet2PayConfig{
-			USDCSigner:                usdcSigner,
-			PlatformWalletEncMnemonic: "platform-wallet-enc-mnemonic",
-			USDCAssetID:               uint64(10458941),
-			RelayNetwork:              "algorand:testnet",
+			Signer:               usdcSigner,
+			PlatformWalletEncKey: "platform-wallet-enc-mnemonic",
+			USDCAsset:            "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+			RelayNetwork:         "algorand:testnet",
 		},
 	}
 

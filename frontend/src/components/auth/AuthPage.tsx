@@ -514,7 +514,7 @@ function AuthVisual() {
     {
       kicker: "x402 tool",
       name: "AlpacaQuote",
-      sub: "0.001 ALGO / quote",
+      sub: "0.01 USDT / quote",
       tone: "magenta",
       delay: "0.15s",
     },

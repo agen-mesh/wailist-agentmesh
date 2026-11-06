@@ -23,3 +23,14 @@ type RunContexter interface {
 // added here — not in tendril.go — so the frozen file's bytes never change.
 // Nil is correct: emptyRunContext has no addressable upstream outputs.
 func (emptyRunContext) OutputOrder() []string { return nil }
+
+// emptyRunContext satisfies RunContexter for synthesized nodes whose bodies
+// are fully specified and must never pick up the run's trigger message.
+type emptyRunContext struct{}
+
+func (emptyRunContext) Message() string             { return "" }
+func (emptyRunContext) LastOutput() any             { return nil }
+func (emptyRunContext) UserInput() string           { return "" }
+func (emptyRunContext) ToolOutputs() map[string]any { return nil }
+func (emptyRunContext) Set(string, any)             {}
+func (emptyRunContext) Get(string) (any, bool)      { return nil, false }

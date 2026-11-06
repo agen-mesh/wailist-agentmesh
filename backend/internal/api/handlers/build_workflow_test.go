@@ -403,8 +403,8 @@ func TestBuildWorkflowSearchesTheBazaarAndSavesTheX402Node(t *testing.T) {
 				"method":      "GET",
 				"description": "Live stock index quotes",
 				"accepts": []any{map[string]any{
-					"network": "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=",
-					"amount":  "5000", "asset": "31566704", "payTo": "P",
+					"network": "eip155:1874",
+					"amount":  "5000", "asset": "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", "payTo": "P",
 				}},
 				"settleCount": 12,
 			})
@@ -417,7 +417,7 @@ func TestBuildWorkflowSearchesTheBazaarAndSavesTheX402Node(t *testing.T) {
 	// keeps public https hosts, so the entry cannot point at a test server;
 	// stand the probe in for a live endpoint still charging the catalog price.
 	nodes.SetX402ProbeForTest(func(string) (int, int64, string, error) {
-		return http.StatusPaymentRequired, 5000, "31566704", nil
+		return http.StatusPaymentRequired, 5000, "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7", nil
 	})
 	defer nodes.SetX402ProbeForTest(nil)
 

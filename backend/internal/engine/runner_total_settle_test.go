@@ -133,7 +133,7 @@ func TestRunTotalSettlementExcludesToolAssetSpendAlreadySettledOnChain(t *testin
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"250000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"250000"}]}`))
 	}))
 	defer target.Close()
 

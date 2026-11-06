@@ -8,11 +8,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/agentmesh/backend/internal/api/handlers"
 	"github.com/agentmesh/backend/internal/db"
+	"github.com/agentmesh/backend/internal/wallet"
 	"github.com/agentmesh/backend/internal/x402"
 )
 
@@ -41,7 +43,7 @@ func TestOrchestratorRoundTripBothLegsSettle(t *testing.T) {
 	defer store.Close()
 
 	// Fake downstream target: unauthenticated GET gets a 402 quoting the
-	// platform's real USDC asset id (10458941) so the relay's asset-id safety
+	// platform's real USDC asset id ("0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7") so the relay's asset-id safety
 	// check in payTargetAndRespond passes; an authenticated GET (X-Payment
 	// set) returns the real paid payload the whole test is proving comes back
 	// to the caller. relaySettleAndForward re-fetches this 402 quote (it isn't
@@ -54,7 +56,7 @@ func TestOrchestratorRoundTripBothLegsSettle(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"75000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"75000"}]}`))
 	}))
 	defer target.Close()
 
@@ -79,14 +81,13 @@ func TestOrchestratorRoundTripBothLegsSettle(t *testing.T) {
 	defer facilitator.Close()
 
 	d := &handlers.Deps{
-		Store:                     store,
-		PlatformWalletAddress:     "PLATFORMADDR",
-		PlatformWalletEncMnemonic: "enc-mnemonic",
-		FacilitatorClient:         x402.NewFacilitatorClient(facilitator.URL),
-		USDCAssetID:               10458941,
-		RelayNetwork:              "algorand:testnet",
-		RelayFeePayer:             "FEEPAYERADDR",
-		USDCSigner:                &fakeUSDCSignerForIntegration{},
+		Store:                 store,
+		PlatformWalletAddress: "PLATFORMADDR",
+		PlatformWalletEncKey:  "enc-mnemonic",
+		FacilitatorClient:     x402.NewFacilitatorClient(facilitator.URL),
+		USDCAsset:             "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayNetwork:          "algorand:testnet",
+		Signer:                &fakeSignerForIntegration{},
 	}
 
 	// The relay handler itself, served over real HTTP — the "agent" below
@@ -145,7 +146,7 @@ func TestOrchestratorRoundTripBothLegsSettle(t *testing.T) {
 
 	// Exactly 2 facilitator calls for the inbound leg: /verify then /settle.
 	// The outbound leg to the target never touches FacilitatorClient (the
-	// relay signs and sends that payment directly via USDCSigner), so this
+	// relay signs and sends that payment directly via Signer), so this
 	// also proves no extra/duplicate facilitator round trips happened.
 	want := []string{"/verify", "/settle"}
 	if !reflect.DeepEqual(facilitatorCalls, want) {
@@ -169,17 +170,13 @@ func TestOrchestratorRoundTripBothLegsSettle(t *testing.T) {
 	}
 }
 
-// fakeUSDCSignerForIntegration is a minimal stand-in for the real
+// fakeSignerForIntegration is a minimal stand-in for the real
 // wallet.Service-backed signer, matching the established fake pattern in
-// backend/internal/api/handlers/x402relay_test.go's fakeUSDCSigner: this
+// backend/internal/api/handlers/x402relay_test.go's fakeSigner: this
 // test proves the relay's HTTP orchestration end-to-end, not real Algorand
 // transaction signing, so it returns a fixed fake payment group.
-type fakeUSDCSignerForIntegration struct{}
+type fakeSignerForIntegration struct{}
 
-func (f *fakeUSDCSignerForIntegration) SignUSDCPaymentGroup(_ context.Context, _, _ string, _, _ uint64, _ string) ([]string, int, error) {
-	return []string{"g0", "g1"}, 0, nil
-}
-
-func (f *fakeUSDCSignerForIntegration) SignUSDCPaymentSingle(_ context.Context, _, _ string, _, _ uint64) ([]string, int, error) {
-	return []string{"g0"}, 0, nil
+func (f *fakeSignerForIntegration) SignTransferAuthorization(_ context.Context, _ string, r wallet.AuthorizationRequest) (x402.ExactEVMPayload, error) {
+	return x402.ExactEVMPayload{Signature: "0xfakesig", Authorization: x402.Authorization{From: "0x00000000000000000000000000000000000000f1", To: r.PayTo, Value: strconv.FormatUint(r.Amount, 10), ValidAfter: "0", ValidBefore: "9999999999", Nonce: "0x01"}}, nil
 }

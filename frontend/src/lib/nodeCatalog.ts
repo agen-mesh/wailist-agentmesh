@@ -25,7 +25,6 @@ import {
   ACTION_TEMPLATES,
   GOOGLE_TEMPLATES,
   STATE_TEMPLATES,
-  TENDRIL_TEMPLATES,
   END_TEMPLATES,
 } from "./data";
 import {
@@ -204,12 +203,12 @@ const EMAIL_FIELDS: CatalogField[] = [
 
 // Action notes, keyed by template.
 const ACTION_NOTES: Record<string, string> = {
-  algorand_account:
-    "Current state only: balance and ASA holdings for one address. It cannot answer transaction history: use algorand_transactions for that, never a paid x402 endpoint. algo is an exact decimal string in whole ALGO (quote it as-is) and algoMicro is the raw integer in microalgos; minBalance and minBalanceMicro are the same pair. Each holding's amount is already decimal-adjusted (a string such as \"1.5\" with its unitName): quote it as-is. amountBaseUnits is the raw integer in base units and must never be reported as a token amount. A holding with no amount could not be looked up; unresolvedAssets counts those. To describe an asset this account does NOT hold, use algorand_asset.",
-  algorand_transactions:
-    "Recent transaction history for one address, newest first, read from an Algorand indexer. This is the node for \"what did this address do\"; algorand_account cannot answer it. Each row carries type (pay, axfer, appl, ...), direction (out if this address sent it, in if it received it, other otherwise), sender, receiver, round, time as an RFC3339 string, and an amount. A pay row has algo (an exact decimal string in whole ALGO, quote it as-is) and algoMicro (the raw integer). An axfer row has amount (already decimal-adjusted, quote it as-is), amountBaseUnits (the raw integer, never report this as a token amount), assetId and unitName. A row with no amount could not have its asset looked up; unresolvedAssets counts those. Set algoTxLimit for how many (10 by default, 50 at most). algoTxType narrows to one type and must be the chain's own code -- pay, axfer, appl, acfg, afrz, keyreg, stpf or hb (a payment is \"pay\", not \"payment\") -- or blank for every type; anything else fails the step. The output's type field says which filter was applied.",
-  algorand_asset:
-    "Describes one ASA by id: name, unitName, decimals, total supply, creator and the manager/reserve/freeze/clawback addresses. algoAssetId is the asset's NUMBER, never its ticker -- 31566704 is USDC. Use this for \"what is this token\" about an asset nobody in the workflow holds; algorand_account only describes assets the account being read already holds. total is an exact decimal string and totalBaseUnits is the raw integer.",
+  whitechain_account:
+    "Current state only, on Whitechain testnet (eip155:1874): the native WBT balance and every ERC-20 the address holds. It cannot answer transfer history: use whitechain_transactions for that, never a paid x402 endpoint. wbt is an exact decimal string in whole WBT (quote it as-is) and wbtWei the raw integer; usdt is the USDT balance as a decimal string. Each tokens[] row has amount (already decimal-adjusted, quote it as-is) and amountBaseUnits (the raw integer, never report it as a token amount). wcAddress must be a 0x address.",
+  whitechain_transactions:
+    "Recent ERC-20 token transfers for one Whitechain testnet address, newest first, read from the Whitechain explorer. This is the node for \"what did this address send or receive\"; whitechain_account cannot answer it. Each transfers[] row has hash, block, time (RFC3339), method (transferWithAuthorization for an x402 payment), direction (out if this address sent it, in if it received it), from, to, token, symbol, amount (already decimal-adjusted, quote it as-is), amountBaseUnits and explorerUrl. wcTxLimit sets how many (10 by default, 50 at most); wcToken narrows to one token contract.",
+  whitechain_token:
+    "Describes one ERC-20 on Whitechain testnet by contract address: name, symbol, decimals, total supply, holder count and whether it is the USDT that AgentMesh pays x402 calls in (x402Payable). wcToken is the 0x contract address, never a ticker; blank describes USDT (0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7). total is an exact decimal string and totalBaseUnits the raw integer.",
   // A live build turned the user's "myrad" into "myriad" and then "myria" --
   // two other coins -- by web-searching for the id. CoinGecko's own search
   // resolves "myrad" to exactly one coin.
@@ -281,9 +280,9 @@ const READ_TEMPLATES = new Set<string>([
   "action/telegram_get_updates",
   "action/calendly",
   "action/openweathermap",
-  "action/algorand_account",
-  "action/algorand_transactions",
-  "action/algorand_asset",
+  "action/whitechain_account",
+  "action/whitechain_transactions",
+  "action/whitechain_token",
   "action/rss",
   "action/hackernews",
   "action/coingecko",
@@ -421,29 +420,6 @@ export function buildNodeCatalog(): NodeCatalog {
               ? [{ key: "stateValue", where: "field" as const, label: "Amount", hint: "defaults to 1" }]
               : []),
         ],
-      })),
-    },
-    {
-      type: "tendril",
-      desc: "Rented Tendril compute: buy credit, rent a machine, run code on it, release it.",
-      templates: TENDRIL_TEMPLATES.map((t) => ({
-        id: t.id,
-        name: t.name,
-        desc: t.desc,
-        kind: kindOf("tendril", t.id),
-        presets: { tendrilAction: t.action, tendrilHours: "1", tendrilAmount: t.action === "auto" ? "" : "10" },
-        fields:
-          t.action === "auto"
-            ? [{ key: "tendrilAmount", where: "field" as const, label: "Budget (USD, optional)", placeholder: "1" }]
-            : t.action === "topup"
-            ? [
-                { key: "tendrilAmount", where: "field" as const, label: "Amount (USD)", placeholder: "10" },
-                { key: "tendrilMinBalance", where: "field" as const, label: "Only if credit below (USD)", hint: "blank tops up on every run" },
-                { key: "tendrilCoverHours", where: "field" as const, label: "Cover rent of (hours)", hint: "buys only the shortfall for the next rent, at least Amount; overrides Only if credit below" },
-              ]
-            : t.action === "rent"
-              ? [{ key: "tendrilHours", where: "field" as const, label: "Hours", placeholder: "1" }]
-              : [],
       })),
     },
     {

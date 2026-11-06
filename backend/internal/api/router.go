@@ -111,7 +111,6 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Post("/runs/{runId}/resume", d.ResumeRun)
 
 		r.Post("/tools/x402/quote", d.X402Quote)
-		r.Get("/bazaar/resources", d.BazaarResources)
 
 		r.Post("/payments/cashfree/order", d.CreateCashfreeOrder)
 		r.Post("/payments/cashfree/verify", d.VerifyCashfreePayment)
@@ -129,28 +128,6 @@ func NewRouter(d *handlers.Deps) http.Handler {
 		r.Get("/usage/by-workflow", d.UsageByWorkflow)
 		r.Get("/usage/by-endpoint", d.UsageByEndpoint)
 		r.Get("/usage/settlements", d.UsageSettlements)
-
-		r.Get("/tendril/machines", d.TendrilMachines)
-		r.Get("/tendril/credits", d.TendrilCredits)
-		r.Get("/tendril/console", d.TendrilConsoleWorkflow)
-		r.Get("/tendril/console/exists", d.TendrilConsoleWorkflowExists)
-		r.Post("/tendril/topup", d.TendrilConsoleTopup)
-		r.Post("/tendril/rent", d.TendrilConsoleRent)
-		r.Post("/tendril/run", d.TendrilConsoleRun)
-		r.Get("/prism/endpoints", d.PrismEndpoints)
-		r.Get("/prism/console", d.PrismConsoleWorkflow)
-		r.Get("/prism/console/exists", d.PrismConsoleWorkflowExists)
-		r.Post("/prism/run", d.PrismConsoleRun)
-		r.Post("/prism/repo/files", d.PrismRepoFiles)
-		r.Post("/prism/repo/review", d.PrismRepoReview)
-		r.Get("/helixbox/endpoints", d.HelixboxEndpoints)
-		r.Get("/helixbox/console", d.HelixboxConsoleWorkflow)
-		r.Get("/helixbox/console/exists", d.HelixboxConsoleWorkflowExists)
-		r.Post("/helixbox/run", d.HelixboxConsoleRun)
-		r.Get("/leases", d.ListLeases)
-		r.Post("/leases/{id}/release", d.ReleaseLease)
-		r.Get("/leases/{id}/key", d.DownloadLeaseKey)
-		r.Get("/leases/{id}/terminal", d.LeaseTerminal)
 
 		// Connects an external account (Gmail/Sheets/Calendar/Drive today) a
 		// workflow node calls on this user's behalf -- distinct from

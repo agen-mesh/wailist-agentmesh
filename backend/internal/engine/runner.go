@@ -15,27 +15,26 @@ import (
 	"time"
 
 	"github.com/agentmesh/backend/internal/alert"
+	"github.com/agentmesh/backend/internal/chain"
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/models"
 	"github.com/agentmesh/backend/internal/push"
 	"github.com/agentmesh/backend/internal/sse"
-	"github.com/agentmesh/backend/internal/tendril"
 	"github.com/agentmesh/backend/internal/x402"
 )
 
 // X402Config bundles the platform-wallet/facilitator identity engine.Runner
 // needs for run-level pre-funding (Task 5) — grouped into one struct rather
 // than appended as more same-typed positional NewRunner params, so a future
-// caller can't silently swap e.g. RelayNetwork and RelayFeePayer (both
+// caller can't silently swap e.g. RelayNetwork and FrontendURL (both
 // strings) without the compiler catching it.
 type X402Config struct {
-	PlatformWalletEncMnemonic string
-	USDCAssetID               uint64
+	PlatformWalletEncKey      string
+	USDCAsset                 string
 	FacilitatorClient         *x402.FacilitatorClient
 	PlatformWalletAddress     string
 	RelayNetwork              string
-	RelayFeePayer             string
 	MaxRelayOutboundUSDMicros int64
 	// FrontendURL is our own branded origin, used (with the /api proxy
 	// path) as the run-funding settlement's declared resource -- see
@@ -45,19 +44,17 @@ type X402Config struct {
 }
 
 type Runner struct {
-	store                    *db.Store
-	broker                   *sse.Broker
-	walletSvc                nodes.WalletSigner
-	registry                 *runRegistry
-	relayBaseURL             string
-	platformSpendEncMnemonic string
-	encryptionKey            string
-	x402                     X402Config
-	platformKeys             map[string]string
-	tendrilClient            *tendril.Client
-	tendrilSession           *tendril.Session
-	googleClientID           string
-	googleClientSecret       string
+	store               *db.Store
+	broker              *sse.Broker
+	walletSvc           nodes.WalletSigner
+	registry            *runRegistry
+	relayBaseURL        string
+	platformSpendEncKey string
+	encryptionKey       string
+	x402                X402Config
+	platformKeys        map[string]string
+	googleClientID      string
+	googleClientSecret  string
 	// runBilling accumulates each run's non-tool402 billable total (run.ID
 	// -> *int64, in USD micros) so it can be settled as one lump-sum x402
 	// payment at the end of Run -- see addRunBilling and settleRunTotal.
@@ -71,19 +68,19 @@ func NewRunner(
 	broker *sse.Broker,
 	walletSvc nodes.WalletSigner,
 	relayBaseURL string,
-	platformSpendEncMnemonic string,
+	platformSpendEncKey string,
 	encryptionKey string,
 	x402Cfg X402Config,
 ) *Runner {
 	return &Runner{
-		store:                    store,
-		broker:                   broker,
-		walletSvc:                walletSvc,
-		registry:                 newRunRegistry(),
-		relayBaseURL:             relayBaseURL,
-		platformSpendEncMnemonic: platformSpendEncMnemonic,
-		encryptionKey:            encryptionKey,
-		x402:                     x402Cfg,
+		store:               store,
+		broker:              broker,
+		walletSvc:           walletSvc,
+		registry:            newRunRegistry(),
+		relayBaseURL:        relayBaseURL,
+		platformSpendEncKey: platformSpendEncKey,
+		encryptionKey:       encryptionKey,
+		x402:                x402Cfg,
 	}
 }
 
@@ -95,14 +92,6 @@ func NewRunner(
 func (r *Runner) SetPlatformKeys(keys map[string]string) {
 	r.platformKeys = keys
 	nodes.SetPlatformKeys(keys)
-}
-
-// SetTendril supplies the Tendril registry client and the Wallet 2 session
-// that reads the shared credit pool. Left nil when TENDRIL_REGISTRY_URL is
-// unset, in which case tendril nodes fail closed.
-func (r *Runner) SetTendril(client *tendril.Client, session *tendril.Session) {
-	r.tendrilClient = client
-	r.tendrilSession = session
 }
 
 // SetGoogleOAuth supplies the same GOOGLE_CLIENT_ID/SECRET already used for
@@ -567,25 +556,24 @@ func (r *Runner) newRecordSettlement(wf models.Workflow, run models.Run, funding
 // sum) need to do it. Shared so the two call sites can't drift on the
 // four-condition check a real settlement depends on. ok is false when any
 // piece is missing -- no platform spend wallet configured, r.walletSvc's
-// dynamic type not satisfying USDCGroupSigner (a real, valid configuration:
+// dynamic type not satisfying PaymentSigner (a real, valid configuration:
 // e.g. a noopSigner test double, or a WalletSigner-only production wiring),
 // no facilitator client, or no platform wallet address -- in which case
 // callers should degrade to a no-op rather than attempt a settlement that
 // can't succeed.
-func (r *Runner) selfSettleConfig() (cfg nodes.RunPreFundConfig, usdcSigner nodes.USDCGroupSigner, ok bool) {
-	usdcSigner, _ = r.walletSvc.(nodes.USDCGroupSigner)
-	if r.platformSpendEncMnemonic == "" || usdcSigner == nil || r.x402.FacilitatorClient == nil || r.x402.PlatformWalletAddress == "" {
+func (r *Runner) selfSettleConfig() (cfg nodes.RunPreFundConfig, usdcSigner nodes.PaymentSigner, ok bool) {
+	usdcSigner, _ = r.walletSvc.(nodes.PaymentSigner)
+	if r.platformSpendEncKey == "" || usdcSigner == nil || r.x402.FacilitatorClient == nil || r.x402.PlatformWalletAddress == "" {
 		return nodes.RunPreFundConfig{}, nil, false
 	}
 	return nodes.RunPreFundConfig{
-		USDCSigner:               usdcSigner,
-		PlatformSpendEncMnemonic: r.platformSpendEncMnemonic,
-		Facilitator:              r.x402.FacilitatorClient,
-		PlatformWalletAddress:    r.x402.PlatformWalletAddress,
-		RelayNetwork:             r.x402.RelayNetwork,
-		RelayFeePayer:            r.x402.RelayFeePayer,
-		ExpectedAssetID:          r.x402.USDCAssetID,
-		FrontendURL:              r.x402.FrontendURL,
+		Signer:                usdcSigner,
+		PlatformSpendEncKey:   r.platformSpendEncKey,
+		Facilitator:           r.x402.FacilitatorClient,
+		PlatformWalletAddress: r.x402.PlatformWalletAddress,
+		RelayNetwork:          r.x402.RelayNetwork,
+		ExpectedAsset:         r.x402.USDCAsset,
+		FrontendURL:           r.x402.FrontendURL,
 	}, usdcSigner, true
 }
 
@@ -726,7 +714,7 @@ func (r *Runner) reserveAndFundRun(ctx context.Context, wf models.Workflow, run 
 	// tools attached needs no wallet at all — that path must keep probing
 	// regardless of wallet config, exactly as it always has) but,
 	// critically, before ReserveCredits — r.walletSvc's dynamic type not
-	// satisfying USDCGroupSigner (a real, valid configuration: e.g. a
+	// satisfying PaymentSigner (a real, valid configuration: e.g. a
 	// noopSigner test double, or a WalletSigner-only production wiring)
 	// makes the type assertion below yield a nil usdcSigner, and calling a
 	// method on it later would panic with no recover() in the run
@@ -863,7 +851,7 @@ func (r *Runner) reserveAndFundRun(ctx context.Context, wf models.Workflow, run 
 // follow, so a consumer counting "how many tools ran" must skip this row
 // specifically rather than deduplicating by tx id (that would collapse the
 // real, distinct calls that share its tx id down to one).
-func prependRunFundingReceipt(result map[string]any, rf runFundResult, node models.WorkflowNode, usdcAssetID uint64) {
+func prependRunFundingReceipt(result map[string]any, rf runFundResult, node models.WorkflowNode, usdcAsset string) {
 	if rf.FundingTxID == "" {
 		return
 	}
@@ -874,7 +862,7 @@ func prependRunFundingReceipt(result map[string]any, rf runFundResult, node mode
 		"debitKind":        models.DebitKindX402RelayCost,
 		"txId":             rf.FundingTxID,
 		"amount":           fmt.Sprintf("%.6f", float64(rf.FundedUSDMicros)/1e6),
-		"explorerURL":      nodes.ExplorerURLForAsset(usdcAssetID, rf.FundingTxID),
+		"explorerURL":      nodes.ExplorerURLForAsset(usdcAsset, rf.FundingTxID),
 		"isFundingReceipt": true,
 	}
 	// []map[string]any is the concrete type Run()'s publish loop asserts on;
@@ -1118,8 +1106,6 @@ func (r *Runner) Run(ctx context.Context, wf models.Workflow, run models.Run, ge
 		r.runBilling.Delete(run.ID)
 	}()
 
-	defer r.releaseRunLeases(ctx, wf, run)
-
 	go alert.Notify(context.Background(), alert.ChannelWorkflows, fmt.Sprintf("workflow %q run %s started", wf.Name, run.ID))
 
 	r.execute(ctx, wf, run, nil)
@@ -1213,13 +1199,6 @@ func (r *Runner) Resume(ctx context.Context, wf models.Workflow, run models.Run,
 	// MarkRunRunning claim before this goroutine was ever spawned -- that
 	// claim is Resume's actual admission gate (see StartResume's doc
 	// comment for why it has to happen there and not here).
-
-	if err := reopenReleasedRentsWith(ctx, wf, run.ID, states, r.store); err != nil {
-		log.Printf("resume: checking run %s's Tendril leases failed: %v", run.ID, err)
-		r.finishRun(wf, run, models.RunStatusFailed)
-		return
-	}
-	defer r.releaseRunLeases(ctx, wf, run)
 
 	go alert.Notify(context.Background(), alert.ChannelWorkflows, fmt.Sprintf("workflow %q run %s resumed", wf.Name, run.ID))
 
@@ -1703,22 +1682,21 @@ func (r *Runner) executeNode(
 		defer rf.Cleanup(ctx)
 
 		// r.walletSvc's dynamic type (*wallet.Service) also satisfies
-		// USDCGroupSigner (same nil-safe assertion as the NodeTypeTool402
+		// PaymentSigner (same nil-safe assertion as the NodeTypeTool402
 		// case below) — an agent-attached tool402 call routes through the
 		// same relay/Wallet 1 path as a standalone one.
-		usdcSigner, _ := r.walletSvc.(nodes.USDCGroupSigner)
+		usdcSigner, _ := r.walletSvc.(nodes.PaymentSigner)
 		relayCfg := nodes.X402RelayConfig{
-			USDCSigner:               usdcSigner,
-			PlatformSpendEncMnemonic: r.platformSpendEncMnemonic,
-			ExpectedAssetID:          r.x402.USDCAssetID,
-			RelayBaseURL:             r.relayBaseURL,
-			Facilitator:              r.x402.FacilitatorClient,
-			PlatformWalletAddress:    r.x402.PlatformWalletAddress,
-			RelayNetwork:             r.x402.RelayNetwork,
-			RelayFeePayer:            r.x402.RelayFeePayer,
-			FrontendURL:              r.x402.FrontendURL,
-			Ledger:                   nodes.RunLedger(rf.Ledger),
-			MarkupLedger:             nodes.RunLedger(rf.MarkupLedger),
+			Signer:                usdcSigner,
+			PlatformSpendEncKey:   r.platformSpendEncKey,
+			ExpectedAsset:         r.x402.USDCAsset,
+			RelayBaseURL:          r.relayBaseURL,
+			Facilitator:           r.x402.FacilitatorClient,
+			PlatformWalletAddress: r.x402.PlatformWalletAddress,
+			RelayNetwork:          r.x402.RelayNetwork,
+			FrontendURL:           r.x402.FrontendURL,
+			Ledger:                nodes.RunLedger(rf.Ledger),
+			MarkupLedger:          nodes.RunLedger(rf.MarkupLedger),
 			// PerCallLedger backs any v2 dispatch not covered by this run's
 			// funding -- either the whole agent has no run-level pre-fund
 			// (rf.Ledger degrades to r.newPaymentLedger itself in that case,
@@ -1737,9 +1715,9 @@ func (r *Runner) executeNode(
 			RunFundingTxID:   rf.FundingTxID,
 			RunFundedToolIDs: rf.FundedToolIDs,
 			Wallet2: nodes.Wallet2PayConfig{
-				USDCSigner:                usdcSigner,
-				PlatformWalletEncMnemonic: r.x402.PlatformWalletEncMnemonic,
-				USDCAssetID:               r.x402.USDCAssetID,
+				Signer:                    usdcSigner,
+				PlatformWalletEncKey:      r.x402.PlatformWalletEncKey,
+				USDCAsset:                 r.x402.USDCAsset,
 				RelayNetwork:              r.x402.RelayNetwork,
 				MaxRelayOutboundUSDMicros: r.x402.MaxRelayOutboundUSDMicros,
 			},
@@ -1800,7 +1778,7 @@ func (r *Runner) executeNode(
 			// billed here or anywhere below. reserveAndFundRun already
 			// reserved the full amount against the user's balance before this
 			// agent ran, and rf.Cleanup releases whatever went unspent.
-			prependRunFundingReceipt(m, rf, node, r.x402.USDCAssetID)
+			prependRunFundingReceipt(m, rf, node, r.x402.USDCAsset)
 		} else if rf.FundingTxID != "" {
 			// A run-funded agent whose own result is not a map has no
 			// x402Payments field to attach to (it never actually paid for a
@@ -1836,10 +1814,10 @@ func (r *Runner) executeNode(
 			}
 		}
 		// r.walletSvc's dynamic type (*wallet.Service) also satisfies
-		// USDCGroupSigner (Task 3); the assertion is nil-safe if a test double
+		// PaymentSigner (Task 3); the assertion is nil-safe if a test double
 		// only implements WalletSigner, and ExecuteTool402V2 falls back to a
 		// graceful "no wallet configured" result rather than paying via relay.
-		usdcSigner, _ := r.walletSvc.(nodes.USDCGroupSigner)
+		usdcSigner, _ := r.walletSvc.(nodes.PaymentSigner)
 		// Cheap, conservative guard before any network call to node.Endpoint —
 		// see the matching comment in provider.go's executeFunctionCall. The
 		// real, exact-amount reservation happens inside ExecuteTool402V2 via
@@ -1856,17 +1834,16 @@ func (r *Runner) executeNode(
 		// legacy-dialect/v2-dialect split ExecuteTool402V2 already makes.
 		standaloneLedger := r.newPaymentLedger(wf, run)
 		relayCfg := nodes.X402RelayConfig{
-			USDCSigner:               usdcSigner,
-			PlatformSpendEncMnemonic: r.platformSpendEncMnemonic,
-			ExpectedAssetID:          r.x402.USDCAssetID,
-			RelayBaseURL:             r.relayBaseURL,
-			Facilitator:              r.x402.FacilitatorClient,
-			PlatformWalletAddress:    r.x402.PlatformWalletAddress,
-			RelayNetwork:             r.x402.RelayNetwork,
-			RelayFeePayer:            r.x402.RelayFeePayer,
-			FrontendURL:              r.x402.FrontendURL,
-			PerCallLedger:            nodes.CallLedger(standaloneLedger),
-			LegacyLedger:             nodes.CallLedger(standaloneLedger),
+			Signer:                usdcSigner,
+			PlatformSpendEncKey:   r.platformSpendEncKey,
+			ExpectedAsset:         r.x402.USDCAsset,
+			RelayBaseURL:          r.relayBaseURL,
+			Facilitator:           r.x402.FacilitatorClient,
+			PlatformWalletAddress: r.x402.PlatformWalletAddress,
+			RelayNetwork:          r.x402.RelayNetwork,
+			FrontendURL:           r.x402.FrontendURL,
+			PerCallLedger:         nodes.CallLedger(standaloneLedger),
+			LegacyLedger:          nodes.CallLedger(standaloneLedger),
 		}
 		paymentResult, err := nodes.ExecuteTool402V2(ctx, node, rc, aw, r.walletSvc, relayCfg)
 		if err != nil {
@@ -1876,39 +1853,7 @@ func (r *Runner) executeNode(
 		// the moment the payment settled — see newPaymentLedger.
 		return paymentResult.Response, nil
 	case models.NodeTypeTendril:
-		if r.tendrilClient == nil || r.tendrilSession == nil {
-			return nil, fmt.Errorf("tendril: TENDRIL_REGISTRY_URL is not configured on this server")
-		}
-		// Same conservative pre-flight as tool402: one cheap balance check
-		// before any network call that could spend money.
-		if err := r.preflightCheck(ctx, wf, models.X402PlatformFeeUSDMicros); err != nil {
-			return nil, err
-		}
-		usdcSigner, _ := r.walletSvc.(nodes.USDCGroupSigner)
-		ledger := r.newPaymentLedger(wf, run)
-		return nodes.ExecuteTendril(ctx, node, rc, nodes.TendrilConfig{
-			Client:     r.tendrilClient,
-			Session:    r.tendrilSession,
-			Store:      r.store,
-			EncryptKey: r.encryptionKey,
-			UserID:     wf.UserID,
-			WorkflowID: wf.ID,
-			RunID:      run.ID,
-			Relay: nodes.X402RelayConfig{
-				USDCSigner:               usdcSigner,
-				PlatformSpendEncMnemonic: r.platformSpendEncMnemonic,
-				ExpectedAssetID:          r.x402.USDCAssetID,
-				RelayBaseURL:             r.relayBaseURL,
-				Facilitator:              r.x402.FacilitatorClient,
-				PlatformWalletAddress:    r.x402.PlatformWalletAddress,
-				RelayNetwork:             r.x402.RelayNetwork,
-				RelayFeePayer:            r.x402.RelayFeePayer,
-				FrontendURL:              r.x402.FrontendURL,
-				Ledger:                   nodes.RunLedger(ledger),
-				LegacyLedger:             nodes.CallLedger(ledger),
-				PerCallLedger:            nodes.CallLedger(ledger),
-			},
-		})
+		return nil, fmt.Errorf("tendril: Tendril runs on Algorand and is not available on %s", chain.Name)
 	case models.NodeTypeAction:
 		// Fee reserved before the connector call -- see withReservedFlatFee.
 		// A skip comes back as an error there, so its reservation is released

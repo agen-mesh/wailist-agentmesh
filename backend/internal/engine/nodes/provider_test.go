@@ -259,7 +259,7 @@ func TestExecuteAgentAttachedFlatFeeCallsCannotOverspendPastBalance(t *testing.T
 func TestExecuteAgentAttachedTool402RoutesThroughRelay(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"10458941","maxAmountRequired":"250000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"TARGETADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"250000"}]}`))
 	}))
 	defer target.Close()
 
@@ -270,7 +270,7 @@ func TestExecuteAgentAttachedTool402RoutesThroughRelay(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusPaymentRequired)
-		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"10458941","maxAmountRequired":"250000"}]}`))
+		w.Write([]byte(`{"accepts":[{"scheme":"exact","payTo":"PLATFORMADDR","asset":"0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7","maxAmountRequired":"250000"}]}`))
 	}))
 	defer relay.Close()
 
@@ -310,11 +310,11 @@ func TestExecuteAgentAttachedTool402RoutesThroughRelay(t *testing.T) {
 	aw := models.AgentWallet{EncryptedMnemonic: "enc-mnemonic"}
 	checkBalance := func(context.Context, int64) error { return nil }
 	relayCfg := nodes.X402RelayConfig{
-		USDCSigner:               &mockUSDCGroupSigner{group: []string{"g0", "g1"}, idx: 0},
-		PlatformSpendEncMnemonic: "platform-enc-mnemonic",
-		ExpectedAssetID:          10458941,
-		RelayBaseURL:             relay.URL,
-		PerCallLedger:            nodes.CallLedger(noopLedger()),
+		Signer:              &mockPaymentSigner{group: []string{"g0", "g1"}, idx: 0},
+		PlatformSpendEncKey: "platform-enc-mnemonic",
+		ExpectedAsset:       "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7",
+		RelayBaseURL:        relay.URL,
+		PerCallLedger:       nodes.CallLedger(noopLedger()),
 	}
 
 	result, err := nodes.ExecuteAgent(context.Background(), node, attach, aw, nil, rc, checkBalance, nil, relayCfg)

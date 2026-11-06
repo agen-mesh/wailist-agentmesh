@@ -150,15 +150,16 @@ import (
 // mistake here. The only caller that sets it is handlers.PrismRepoReview, which
 // is responsible for exactly one Commit + SettlePlatformFee covering the run.
 // Auto shares top-up/rent paths and reuses only owned leases within purchased and provider time limits.
+// 2026-11-06: re-baselined for the Whitechain switch (EIP-3009 USDT via the
+// Whitechain facilitator replaces Algorand USDC groups; Tendril removed).
 var frozenX402Files = map[string]string{
-	"nodes/tool402.go":             "4bbf33a779b3f9bc4002c90d56fd01cfefa11de71ce7de02181ce88d50fed16c",
-	"nodes/runfund.go":             "792e2a3c96465545119cebfcb744d487b79b27e5df7b9842ec643a98dce7b782",
-	"nodes/walletpay.go":           "98bb3f7d0cb167f8a50d050e04720738c63c68b9fd570758fa5b9604338a4e37",
-	"nodes/tendril.go":             "8fc0d50791c97048e0a640f42238ca9f82251a3aafc6bdb697bec478cd924364",
+	"nodes/tool402.go":             "f582353fd45003ea3bcb6bb75a02f57a181e2ff675098042d5624cef9dbdc4af",
+	"nodes/runfund.go":             "bc9b11f385f12a64ce687c3af491d96974dc884eefe585df8ab66c134c5d6d90",
+	"nodes/walletpay.go":           "11c9b8455e1ca010416f2e4a2089b41a3f8188613a7d5925ba4089d0ec2742c7",
 	"nodes/billing.go":             "d6bc9e5931816840d99678f9015f7b186ae3069d54e28605aa618c367bf5beb9",
 	"nodes/tier.go":                "5718a3538e042c9d7f90b37f38b47d893644d6093f560d103ea9036c90ddc90b",
-	"../api/handlers/x402relay.go": "eacd56896816a213dd5658aa536c704db22362a5d787113cbf269d7fe7c1d858",
-	"../x402/facilitator.go":       "976d118ae200994728f96733dceca79bc90fcc2cc99e859c47d710477f9480ca",
+	"../api/handlers/x402relay.go": "130a4e9971b1303a546c74fceb30e1282ed7581baddefef19ac07605a528e51b",
+	"../x402/facilitator.go":       "af5f69364c3b9d3ab9fd760b951d7ce038ca937f7b0f66f76357e06179672055",
 }
 
 func TestX402PaymentPathIsFrozen(t *testing.T) {

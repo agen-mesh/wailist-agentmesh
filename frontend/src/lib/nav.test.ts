@@ -45,13 +45,11 @@ describe("the handheld tabs", () => {
 });
 
 describe("desktop-only routes", () => {
-  it("marks the Bazaar, and nothing else, as desktop only", () => {
-    expect(
-      APP_NAV_ITEMS.filter((i) => i.desktopOnly).map((i) => i.label),
-    ).toEqual(["Bazaar"]);
+  it("marks no route as desktop only now the Bazaar is gone", () => {
+    expect(APP_NAV_ITEMS.filter((i) => i.desktopOnly)).toEqual([]);
   });
 
-  it("still offers the Bazaar on a desktop", () => {
-    expect(APP_NAV_ITEMS.map((i) => i.label)).toContain("Bazaar");
+  it("no longer offers the Bazaar anywhere", () => {
+    expect(APP_NAV_ITEMS.map((i) => i.label)).not.toContain("Bazaar");
   });
 });

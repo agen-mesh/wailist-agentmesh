@@ -23,9 +23,8 @@ export type NavItem = {
   match?: (pathname: string) => boolean;
 
   /**
-   * Hidden from the top bar's menu on a handheld. The Bazaar is a browsing
-   * and shopping surface for building workflows, which happens on a
-   * computer. Desktop navigation is unaffected.
+   * Hidden from the top bar's menu on a handheld. Desktop navigation is
+   * unaffected.
    */
   desktopOnly?: boolean;
 };
@@ -33,7 +32,6 @@ export type NavItem = {
 /** Primary routes for the authed application shell. */
 export const APP_NAV_ITEMS: readonly NavItem[] = [
   { label: "Workflows", href: "/workflows" },
-  { label: "Bazaar", href: "/bazaar", desktopOnly: true },
   { label: "Usage", href: "/usage" },
   { label: "Credits", href: "/billing" },
 ];

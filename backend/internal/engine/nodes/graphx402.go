@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/agentmesh/backend/internal/bazaar"
+	"github.com/agentmesh/backend/internal/chain"
 	"github.com/agentmesh/backend/internal/models"
 )
 
@@ -104,9 +105,9 @@ func (x *x402Session) search(ctx context.Context, args map[string]any) (string, 
 	hits := bazaar.SearchAt(items, query, x402SearchLimit, now)
 	results := make([]result, 0, len(hits))
 	for _, r := range hits {
-		network := "algorand mainnet"
+		network := r.Network
 		if r.Testnet {
-			network = "algorand testnet"
+			network = chain.Name
 		}
 		example := r.OutputExample
 		if len(example) > 300 {

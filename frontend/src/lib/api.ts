@@ -975,7 +975,7 @@ export const runs = {
             amount: "0.065",
             settledUsdMicros: 65000,
             nodeName: "x402 Weather",
-            explorerURL: `https://allo.info/tx/${mockTxId}`,
+            explorerURL: `https://explorer.testnet.whitechain.io/tx/${mockTxId}`,
             response: {
               location: "San Francisco, CA",
               tempC: 14.2,
@@ -1139,7 +1139,7 @@ export const tools = {
     return {
       price: "0.002",
       unit: "call",
-      network: "algorand-testnet",
+      network: "eip155:1874",
       recipient: "",
     };
   },

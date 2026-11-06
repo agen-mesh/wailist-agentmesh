@@ -1,167 +1,16 @@
 package bazaar
 
 import (
-	"net/http"
 	"net/url"
 	"strings"
-
-	"github.com/agentmesh/backend/internal/helixbox"
-	"github.com/agentmesh/backend/internal/prism"
 )
 
-// Curated is AgentMesh's own registry of officially-supported x402 providers.
-//
-// It is deliberately NOT derived from the GoPlausible catalog. Verified live
-// 2026-08-03: of the launch providers, only CANIX402 appeared in
-// /discovery/resources at all (14 entries) — Tendril and Prism returned zero
-// matches across all 779 entries despite Tendril sitting at rank 4 on the
-// challenge leaderboard. A "supported" list built by filtering catalog data
-// would silently omit both.
-//
-// # What being curated means, as of 2026-09-05
-//
-// An entry here is a partner with a dedicated console page (see
-// Resource.Console). That is now the definition of the supported tier, not a
-// coincidence of which entries happen to have hand-authored params:
-// TestEveryCuratedEntryIsConsoleBacked enforces it.
-//
-// The three members are Tendril, Prism and HelixBox. CANIX402 was removed from
-// the tier on 2026-09-05 — it has no console, and a badge promising more than
-// an endpoint URL was more than we were actually delivering for it. Removing it
-// from this registry does NOT remove it from the Bazaar: its 14 real catalog
-// entries flow through Merge untouched and stay browsable as community
-// listings, which TestCanixIsNotCuratedButSurvivesMerge pins.
-//
-// # HelixBox's entries
-//
-// Added 2026-09-08, all three probed live the same day (internal/helixbox
-// records the method). They are the first curated partner whose endpoints take
-// no input whatsoever — their own 402 challenge declares an empty request body
-// — so they carry no Params for a much simpler reason than Prism's, and what
-// they return is a session credential rather than an answer. That is what earns
-// them a console: a credential that scrolls past in a run log is a credential
-// the buyer has lost.
-//
-// # Prism's entries, and why they took until now
-//
-// This comment used to explain why Prism was absent, on two grounds. One is
-// resolved and one is not:
-//
-//  1. RESOLVED — "no verified static payTo/amount". All four Prism endpoints
-//     were probed live on 2026-09-05 and their challenges agreed exactly with
-//     Prism's written spec. internal/prism holds the results and is the single
-//     source of truth for them; the entries below are derived from it rather
-//     than retyped, so the price a Bazaar card quotes is literally the value
-//     the console charges. Guessing a payment address remains the hazard it
-//     always was — see that package's doc comment.
-//
-//  2. STILL TRUE — "not expressible as labelled params". Prism's real body
-//     needs a nested files array carrying base64 file content alongside a text
-//     field (see TestBuildTargetRequestJSONBodyModeProducesPrismShape), while
-//     Param and the frontend's discoveredParams pipeline only ever render a
-//     flat list of plain-text inputs. There is still no file kind in either.
-//
-// The console is what resolves (2): it renders a purpose-built form per
-// endpoint and builds the CustomParams and BodyTemplate server-side. So Prism
-// is listed here with Params deliberately EMPTY and Console set — the entry
-// advertises and prices the endpoints, and the console is where they are
-// actually called. Exposing a file-taking endpoint as a plain canvas node
-// still needs a file kind in discoveredParams first, which is a model change
-// and not a registry addition.
+// Curated is AgentMesh's own registry of officially-supported x402
+// providers. On Whitechain there are no partner consoles yet, so it is empty
+// and every entry comes from the facilitator's live discovery catalog via
+// Merge. Add an entry here only for a provider with a dedicated console.
 func Curated() []Resource {
-	out := []Resource{
-		{
-			ID:          "curated:tendril-run",
-			URL:         "https://tendrilregister.007575.xyz/x402/run",
-			Method:      http.MethodPost,
-			Provider:    "Tendril",
-			Host:        "tendrilregister.007575.xyz",
-			Description: "Run a Python script on rented compute and get its stdout back. No lease needed — Tendril picks the machine, runs the job in a throwaway sandbox, and destroys it. Requires a positive Tendril credit balance on the paying wallet.",
-			Network:     AlgorandMainnet,
-			Asset:       "31566704",
-			PayTo:       "ZIK7QQE7ZX446TW3PN7PQ5UDZNTY7JI5RYNTIU3LPEYBOSTVWI6PTNSWKI",
-			// Per-job price from the live 402 quote. Execution time is billed
-			// separately from a Tendril-side credit balance keyed to the
-			// paying wallet address.
-			AmountMicros: 1_500_000,
-			Supported:    true,
-			Console:      "tendril",
-			Params: []Param{{
-				Name:        "payload",
-				Type:        "string",
-				Required:    true,
-				Description: "Python source to execute. Its stdout is returned as `result`.",
-			}},
-		},
-	}
-	out = append(out, prismCurated()...)
-	return append(out, helixboxCurated()...)
-}
-
-// prismCurated derives Prism's catalog entries from internal/prism, the same
-// table the console builds and pays its real requests from. Derived, never
-// retyped: a copy could drift, and a drifted price means the Bazaar quotes one
-// number while the user is charged another.
-func prismCurated() []Resource {
-	eps := prism.Endpoints()
-	out := make([]Resource, 0, len(eps))
-	for _, e := range eps {
-		out = append(out, Resource{
-			ID:           "curated:prism-" + e.ID,
-			URL:          e.URL(),
-			Method:       e.Method,
-			Provider:     prism.Provider,
-			Host:         prism.Host,
-			Description:  e.Description,
-			Network:      prism.Network,
-			Asset:        prism.AssetID,
-			PayTo:        prism.PayTo,
-			AmountMicros: e.AmountMicros,
-			Supported:    true,
-			Console:      prism.ConsoleKey,
-			// Deliberately empty, and explicitly []Param{} rather than the nil
-			// zero value — nil marshals as JSON null and crashes the frontend
-			// grid. Empty is also the honest answer: Prism's inputs are not
-			// expressible as flat params, which is why it has a console at
-			// all. The console reads prism.Endpoints().Fields instead.
-			Params: []Param{},
-		})
-	}
-	return out
-}
-
-// helixboxCurated derives HelixBox's catalog entries from internal/helixbox,
-// the same table the console builds and pays its real requests from. Derived,
-// never retyped, for the reason prismCurated spells out: a copy drifts, and a
-// drifted price means the Bazaar quotes one number while the user is charged
-// another.
-func helixboxCurated() []Resource {
-	eps := helixbox.Endpoints()
-	out := make([]Resource, 0, len(eps))
-	for _, e := range eps {
-		out = append(out, Resource{
-			ID:           "curated:helixbox-" + e.ID,
-			URL:          e.URL(),
-			Method:       e.Method,
-			Provider:     helixbox.Provider,
-			Host:         helixbox.Host,
-			Description:  e.Description,
-			Network:      helixbox.Network,
-			Asset:        helixbox.AssetID,
-			PayTo:        helixbox.PayTo,
-			AmountMicros: e.AmountMicros,
-			Supported:    true,
-			Console:      helixbox.ConsoleKey,
-			// Empty for a different reason than Prism's, and a simpler one:
-			// HelixBox's endpoints take no input at all. Their own 402
-			// challenge declares the request body as {} with an empty schema,
-			// so there is no param to list. Explicitly []Param{} rather than
-			// the nil zero value, which marshals as JSON null and crashes the
-			// frontend grid.
-			Params: []Param{},
-		})
-	}
-	return out
+	return []Resource{}
 }
 
 // normalizeURLForMatch makes two URLs comparable for Merge's purposes: it
@@ -271,7 +120,7 @@ func Merge(catalog []Resource) []Resource {
 				// list on testnet would merge out priced and payable on
 				// mainnet while ResourceCard/EndpointRow still render a
 				// "testnet" pill over it.
-				r.Testnet = r.Network == AlgorandTestnet
+				r.Testnet = r.Network == WhitechainTestnet
 			}
 			// A hand-authored description and param set are strictly better
 			// than the publisher's own, which is why the entry is curated.
