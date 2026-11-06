@@ -8,7 +8,15 @@ landed on Algorand. This folder is the **Arc rail**: the same x402 nanopayment f
 settled in USDC on [Arc](https://docs.arc.io) — Circle's stablecoin-native L1 — plus an
 escrow contract that gives every workflow run a verifiable onchain receipt.
 
-Built with **Arc Studio**.
+Built with **Arc Studio** — project: https://studio.arc.io/app/11ddfe5a-fa3b-4239-bf10-dd8bca5c40df
+
+| | |
+|---|---|
+| Contract | [`contracts/AgentRunEscrow.sol`](contracts/AgentRunEscrow.sol), 387 lines |
+| Tests | 94 Foundry tests across 7 suites, **94 passing / 0 failing** |
+| Review | Arc Studio contract review, clean after two rounds; Slither run |
+| Chain | Arc Testnet, chain `5042002` |
+| Fills | `ARC_ESCROW` — the `Config.Escrow` slot in `backend/internal/arc/service.go` |
 
 ---
 
@@ -153,3 +161,41 @@ it. This contract is what goes there.
 
 Network: chain id `5042002`, RPC `https://rpc.testnet.arc.io`, explorer
 `https://explorer.testnet.arc.io`, faucet [faucet.circle.com](https://faucet.circle.com).
+
+---
+
+## What the review actually checked
+
+The contract went through Arc Studio's review twice. Round one produced findings and a
+fix; round two came back clean. Verified independently against the spec it was written
+to, rather than taken on the review's word:
+
+| Requirement | How it holds |
+|---|---|
+| Budget can never be overspent, fees included | `spent + amount + fee > budget` reverts `BudgetExceeded`. The batch path validates every item and stores the final `spent` **before** any transfer, so a late item that would breach the cap rolls back the whole batch rather than leaving earlier ones settled. |
+| Settler cannot grief the run owner | `settleCall` reverts `RunExpired` once past the deadline, so the settler cannot race a reclamation. `closeRun` is reachable by the run's own agent at any time and needs no cooperation from the settler. |
+| Reentrancy | `nonReentrant` on every state-changing external, state written before token calls, `SafeERC20` throughout. Tested against a token with a transfer hook and a reentrant actor. |
+| A blocklisted payee cannot wedge a run | Arc reverts value transfers to blocklisted addresses. A failed payee transfer reverts that one settlement and restores `spent`; the run stays open and closable. |
+| Tokens that lie | `SafeERC20` catches a silent-`false` transfer; `_checkFunding` compares the balance delta against the stated budget, so a fee-on-transfer token is rejected at funding instead of under-funding the run. Both have dedicated mocks. |
+| Unbounded loops | `settleCallBatch` capped at 50 items. |
+| Ownership cannot be orphaned | `Ownable2Step`, and `renounceOwnership` is explicitly disabled (`RenounceOwnershipDisabled`). |
+
+Two hardenings the review added beyond the original spec:
+
+- **`runId` is namespaced to its agent.** A run id must be `agent address (20 bytes) ‖
+  12-byte backend tag`, enforced by `_recordRun`. Without this, anyone could open a run
+  under an id the backend intended to use later and squat it.
+- **`feeBps` is snapshotted per run.** Each run stores the fee rate in force when it was
+  opened, so an owner changing the platform rate cannot retroactively reprice runs that
+  are already open and partially settled.
+
+### Known trade-offs, stated rather than hidden
+
+- The run's agent can call `closeRun` at any time, not only after the deadline. For
+  AgentMesh this is correct — the agent *is* the platform's own spend wallet, so it is
+  withdrawing its own unspent funds. In a general third-party marketplace the same
+  freedom would let a payer close ahead of a settlement for work already delivered;
+  that deployment would want closure gated on the deadline.
+- If the run's own agent address is blocklisted, `closeRun` reverts and the remaining
+  budget stays in the contract. Unavoidable given Arc's transfer rules, and preferable
+  to silently burning the refund.

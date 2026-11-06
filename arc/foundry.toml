@@ -1,0 +1,20 @@
+# Mirrors the Arc Studio sandbox profile the contract was reviewed and tested
+# under, so `forge test` here reproduces the same 94-test run rather than
+# silently compiling under a different solc or EVM version.
+[profile.default]
+src = "contracts"
+test = "contracts/test"
+out = "contracts/out"
+libs = ["lib"]
+cache_path = "contracts/cache"
+solc_version = "0.8.28"
+auto_detect_solc = false
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+
+remappings = ["@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/"]
+
+[rpc_endpoints]
+arc_testnet = "https://rpc.testnet.arc.io"
+arc_mainnet = "https://rpc.mainnet.arc.io"
