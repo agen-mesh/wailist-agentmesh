@@ -1,0 +1,41 @@
+{
+  "name": "agentmesh-arc-rail-console",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.62.7",
+    "@web3icons/react": "^4.0.0",
+    "clsx": "^2.1.1",
+    "connectkit": "^1.9.2",
+    "framer-motion": "^11.15.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "sonner": "^1.7.1",
+    "tailwind-merge": "^2.6.0",
+    "viem": "2.57.5",
+    "wagmi": "^2.19.5"
+  },
+  "overrides": {
+    "viem": "2.57.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "~7.0.2",
+    "vite": "^6.0.5",
+    "vite-plugin-node-polyfills": "^0.24.0"
+  }
+}
