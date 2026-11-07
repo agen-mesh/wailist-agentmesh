@@ -932,12 +932,10 @@ func TestX402RelayUsesSingleQuoteForBothSettlementAndOutboundPayment(t *testing.
 // gap where payTargetAndRespond blindly trusted quote.Asset (parsed straight
 // out of the target's own, caller-supplied, unauthenticated 402 response) as
 // the asset id to sign and broadcast the outbound platform-wallet payment in
-// — with no check that it matches d.USDCAsset, the platform's own
-// designated USDC asset id (already anchored and enforced on the inbound
-// settlement side via reqs.Asset in relaySettleAndForward). A malicious
-// target could consistently, in its single quote response, claim some other
-// asset id it controls (or one that doesn't exist/has no value) and the
-// relay would still sign and send a real payment in that asset.
+// — with no check that the asset is a rail Wallet 2 can actually sign.
+// Inbound settlement stays on d.USDCAsset. The outbound leg may be either
+// known rail (Arc USDC or Whitechain USDT), because the target's 402 names
+// the chain. Any other asset is still refused.
 //
 // The fake target here claims asset "99999999" (not d.USDCAsset,
 // "0xcedfB56113143d55b2358b8CFbB0dEB5Ad2f55a7") consistently on every unauthenticated fetch — so this is not the

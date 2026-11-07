@@ -1,6 +1,9 @@
-// Package chain holds the single source of truth for the blockchain AgentMesh
-// settles x402 payments on. There are two rails, and exactly one is active per
-// process:
+// Package chain holds the single source of truth for the blockchains AgentMesh
+// settles x402 payments on. X402_CHAIN picks the rail this process charges on
+// (the 402s we issue, and Wallet 1 to Wallet 2). An outbound payment to
+// someone else's endpoint follows that endpoint's own 402 instead, so one
+// workflow can pay Arc USDC from one node and Whitechain USDT from another.
+// The same key holds both. Nothing converts one token into the other.
 //
 //	X402_CHAIN unset | "whitechain"  ->  Whitechain Testnet, USDT  (the default)
 //	X402_CHAIN=arc                   ->  Arc Testnet, USDC
@@ -119,6 +122,42 @@ func Use(id string) {
 	default:
 		panic("chain: unknown X402_CHAIN " + id + " (want " + Whitechain.ID + " or " + Arc.ID + ")")
 	}
+}
+
+// ByNetwork returns the rail whose CAIP-2 id is network.
+func ByNetwork(network string) (Profile, bool) {
+	for _, p := range []Profile{Whitechain, Arc} {
+		if p.Network == network {
+			return p, true
+		}
+	}
+	return Profile{}, false
+}
+
+// ProfileForAsset returns the rail whose token is asset.
+func ProfileForAsset(asset string) (Profile, bool) {
+	for _, p := range []Profile{Whitechain, Arc} {
+		if p.IsToken(asset) {
+			return p, true
+		}
+	}
+	return Profile{}, false
+}
+
+// RailFor is the rail an outbound x402 payment must be signed on.
+// network is the 402 accept's CAIP-2 id. An empty network selects whichever
+// known rail owns asset, so a quote that omits network still pays. A named
+// network must be one of ours, and asset must be that rail's own token.
+// A false result means "do not sign".
+func RailFor(network, asset string) (Profile, bool) {
+	if network != "" {
+		p, ok := ByNetwork(network)
+		if !ok || !p.IsToken(asset) {
+			return Profile{}, false
+		}
+		return p, true
+	}
+	return ProfileForAsset(asset)
 }
 
 func apply(p Profile) {

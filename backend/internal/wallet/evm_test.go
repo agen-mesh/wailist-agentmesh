@@ -130,6 +130,43 @@ func TestServiceSignTransferAuthorization(t *testing.T) {
 	}
 }
 
+func TestServiceSignsWhicheverRailTheAssetBelongsTo(t *testing.T) {
+	t.Cleanup(func() { chain.Use("") })
+	svc := wallet.NewService(testEncKey, "")
+	addr, enc, err := svc.GenerateWallet()
+	if err != nil {
+		t.Fatal(err)
+	}
+	payTo := "0x26b70253fee141dee4ece1e5efbe2cf70eae26fc"
+
+	chain.Use("")
+	arcSig, err := svc.SignTransferAuthorization(context.Background(), enc, wallet.AuthorizationRequest{
+		Asset: chain.Arc.TokenAddress, PayTo: payTo, Amount: 10000, Extra: chain.Arc.Extra(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	arcDomain := wallet.Domain{Name: chain.Arc.TokenName, Version: chain.Arc.TokenVersion, ChainID: chain.Arc.ChainID, VerifyingContract: chain.Arc.TokenAddress}
+	if got, err := wallet.RecoverAuthorizationSigner(arcDomain, arcSig.Authorization, arcSig.Signature); err != nil || got != addr {
+		t.Fatalf("arc signature recovered %s (%v), want %s", got, err, addr)
+	}
+	whiteDomain := wallet.Domain{Name: chain.Whitechain.TokenName, Version: chain.Whitechain.TokenVersion, ChainID: chain.Whitechain.ChainID, VerifyingContract: chain.Whitechain.TokenAddress}
+	if got, _ := wallet.RecoverAuthorizationSigner(whiteDomain, arcSig.Authorization, arcSig.Signature); got == addr {
+		t.Fatal("an Arc USDC authorization also verified under the Whitechain domain")
+	}
+
+	chain.Use("arc")
+	whiteSig, err := svc.SignTransferAuthorization(context.Background(), enc, wallet.AuthorizationRequest{
+		Asset: chain.Whitechain.TokenAddress, PayTo: payTo, Amount: 10000, Extra: chain.Whitechain.Extra(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := wallet.RecoverAuthorizationSigner(whiteDomain, whiteSig.Authorization, whiteSig.Signature); err != nil || got != addr {
+		t.Fatalf("whitechain signature recovered %s (%v), want %s", got, err, addr)
+	}
+}
+
 func TestServiceRefusesOtherAssets(t *testing.T) {
 	svc := wallet.NewService(testEncKey, "")
 	_, enc, _ := svc.GenerateWallet()

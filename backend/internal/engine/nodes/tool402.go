@@ -91,11 +91,24 @@ func QuoteX402(ctx context.Context, rawURL string) (map[string]any, error) {
 		}
 	}
 	if err == nil && isV2 {
+		quoteNetwork := ""
+		if quote.RawAccept != nil {
+			quoteNetwork, _ = quote.RawAccept["network"].(string)
+		}
+		// Preview the rail Wallet 2 will actually sign. chain.Network is only
+		// the process rail, which is a different chain when this node pays
+		// the other token.
+		network := chain.Network
+		if p, ok := chain.RailFor(quoteNetwork, quote.Asset); ok {
+			network = p.Network
+		} else if quoteNetwork != "" {
+			network = quoteNetwork
+		}
 		out := map[string]any{
 			"price":     strconv.FormatFloat(float64(quote.MaxAmountRequired)/1e6, 'f', -1, 64),
 			"unit":      "call",
 			"asset":     assetSymbol(quote.Asset),
-			"network":   chain.Network,
+			"network":   network,
 			"recipient": quote.PayTo,
 		}
 		// What the target says it needs from a caller, straight out of its
@@ -145,10 +158,12 @@ func (e *ErrNoPaymentChallenge) Error() string {
 // USDCAsset depending on environment; this package only needs them for
 // display, not for signing, so they're kept as local literals rather than
 // threading a shared constant through).
-// assetSymbol names an x402 asset for display.
+// assetSymbol names an x402 asset for display. Either known rail's token
+// gets its symbol; the process rail is not consulted, because a Whitechain
+// process still pays Arc USDC when that is the asset the endpoint quoted.
 func assetSymbol(asset string) string {
-	if chain.IsUSDT(asset) {
-		return chain.TokenSymbol
+	if p, ok := chain.ProfileForAsset(asset); ok {
+		return p.TokenSymbol
 	}
 	if asset == "" {
 		return chain.NativeSymbol
@@ -1572,7 +1587,11 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 		// the payment worked regardless), so this is additive/best-effort.
 		if outboundTxID := payResp.Header.Get("X-Outbound-Settlement-TxId"); outboundTxID != "" {
 			out.OutboundTxID = outboundTxID
-			out.OutboundExplorerURL = ExplorerURLForAsset(expectedAsset, outboundTxID)
+			outboundAsset := payResp.Header.Get("X-Outbound-Asset")
+			if outboundAsset == "" {
+				outboundAsset = expectedAsset
+			}
+			out.OutboundExplorerURL = ExplorerURLForAsset(outboundAsset, outboundTxID)
 			if m, ok := out.Response.(map[string]any); ok {
 				m["outboundTxId"] = outboundTxID
 				m["outboundExplorerURL"] = out.OutboundExplorerURL
@@ -1602,9 +1621,14 @@ func executeTool402V2Relay(ctx context.Context, node models.WorkflowNode, cfg X4
 	return out, nil
 }
 
-// ExplorerURLForAsset links a settlement hash on the Whitechain explorer.
-// The asset is accepted for call-site symmetry; there is one chain.
-func ExplorerURLForAsset(_ string, txID string) string { return chain.TxURL(txID) }
+// ExplorerURLForAsset links a settlement hash on the explorer of the rail
+// that owns asset. An asset we do not pay falls back to the process rail.
+func ExplorerURLForAsset(asset, txID string) string {
+	if p, ok := chain.ProfileForAsset(asset); ok {
+		return p.TxURL(txID)
+	}
+	return chain.TxURL(txID)
+}
 
 // acceptValidFor turns an accepts entry's maxTimeoutSeconds into the
 // authorization's validity window, defaulting to 5 minutes.
@@ -1793,7 +1817,7 @@ func executeTool402RunLevel(ctx context.Context, node models.WorkflowNode, cfg X
 	// output rather than only the DB audit trail.
 	if result.OutboundTxID != "" {
 		out.OutboundTxID = result.OutboundTxID
-		out.OutboundExplorerURL = ExplorerURLForAsset(cfg.ExpectedAsset, result.OutboundTxID)
+		out.OutboundExplorerURL = ExplorerURLForAsset(quote.Asset, result.OutboundTxID)
 	}
 	// Merged into the response body too (best-effort, only possible when
 	// the target answered with a JSON object) so a STANDALONE tool402 node,

@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/agentmesh/backend/internal/chain"
 	"github.com/agentmesh/backend/internal/engine"
 	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/models"
@@ -73,6 +74,27 @@ func TestX402ParseQuote(t *testing.T) {
 	}
 	if price["price"] != "0.001" {
 		t.Fatalf("want price 0.001 got %v", price["price"])
+	}
+}
+
+func TestQuoteX402LabelsTheQuotedRail(t *testing.T) {
+	chain.Use("")
+	t.Cleanup(func() { chain.Use("") })
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPaymentRequired)
+		fmt.Fprintf(w, `{"accepts":[{"scheme":"exact","network":%q,"payTo":"0x26b70253fee141dee4ece1e5efbe2cf70eae26fc","asset":%q,"maxAmountRequired":"10000","extra":{"name":"USDC","version":"2"}}]}`, chain.Arc.Network, chain.Arc.TokenAddress)
+	}))
+	defer srv.Close()
+
+	price, err := nodes.QuoteX402(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if price["network"] != chain.Arc.Network {
+		t.Fatalf("network %v, want %s while the process rail is %s", price["network"], chain.Arc.Network, chain.Network)
+	}
+	if price["asset"] != chain.Arc.TokenSymbol {
+		t.Fatalf("asset %v, want %s", price["asset"], chain.Arc.TokenSymbol)
 	}
 }
 

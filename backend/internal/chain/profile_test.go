@@ -166,6 +166,30 @@ func TestDotEnvTypoPanicsTheWayMainDoes(t *testing.T) {
 	chain.Use(os.Getenv("X402_CHAIN"))
 }
 
+func TestRailForFollowsTheQuote(t *testing.T) {
+	arc, ok := chain.RailFor(chain.Arc.Network, chain.Arc.TokenAddress)
+	if !ok || arc.ID != chain.Arc.ID {
+		t.Fatalf("arc quote resolved to %+v ok=%v", arc, ok)
+	}
+	wc, ok := chain.RailFor(chain.Whitechain.Network, chain.Whitechain.TokenAddress)
+	if !ok || wc.ID != chain.Whitechain.ID {
+		t.Fatalf("whitechain quote resolved to %+v ok=%v", wc, ok)
+	}
+	// A quote that names the asset and omits the network still pays.
+	if p, ok := chain.RailFor("", chain.Arc.TokenAddress); !ok || p.ID != chain.Arc.ID {
+		t.Fatalf("asset-only arc quote resolved to %+v ok=%v", p, ok)
+	}
+	if _, ok := chain.RailFor(chain.Arc.Network, chain.Whitechain.TokenAddress); ok {
+		t.Fatal("arc network accepted whitechain's token")
+	}
+	if _, ok := chain.RailFor("eip155:1", chain.Arc.TokenAddress); ok {
+		t.Fatal("mainnet network accepted")
+	}
+	if _, ok := chain.RailFor("", "0x5Eb541ba8A2DD841aF7864c3389162a23ddA8401"); ok {
+		t.Fatal("unknown token accepted")
+	}
+}
+
 func TestFormatToken(t *testing.T) {
 	for in, want := range map[int64]string{0: "0.000000", 10000: "0.010000", 1_500_000: "1.500000", -10000: "-0.010000"} {
 		if got := chain.FormatToken(in); got != want {

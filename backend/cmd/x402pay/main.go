@@ -12,13 +12,15 @@
 // fee-pooled group signing, and the header encoding -- all of which already
 // exist here, in the exact form the relay itself uses.
 //
-// This branch only supports Whitechain testnet USDT. Guards, in order:
+// It pays whichever known rail the endpoint's own 402 names: Arc Testnet
+// USDC or Whitechain Testnet USDT. X402_CHAIN does not choose that. Guards,
+// in order:
 //
 //   - It refuses to pay without -confirm. Without it, the command probes the
 //     endpoint, prints the challenge and the exact amount it would send, and
 //     exits 0 without signing anything. Run it that way first, every time.
 //   - It refuses any quote above -max-micros (default $0.05).
-//   - It refuses any asset other than the allowlisted testnet USDT.
+//   - It refuses any asset other than those two tokens.
 //
 // Secrets are read from the environment, not flags: a flag value is visible
 // in `ps` output and lands in shell history. Set ENCRYPTION_KEY and
@@ -53,8 +55,8 @@ func main() {
 		"x402 endpoint to pay. Defaults to the relay's own self-listing")
 	method := flag.String("method", "GET", "HTTP method for the paid request")
 	bodyFlag := flag.String("body", "", "raw JSON body for a non-GET request. Sent on both the 402 probe and the paid retry, so a body-priced quote matches what is paid")
-	maxMicros := flag.Int64("max-micros", 50000, "refuse to pay a quote above this many USDT base units (50000 = 0.05 USDT)")
-	rpcURL := flag.String("rpc", chain.DefaultRPCURL, "Whitechain RPC, used only for balance reads")
+	maxMicros := flag.Int64("max-micros", 50000, "refuse to pay a quote above this many token base units (50000 = 0.05)")
+	rpcURL := flag.String("rpc", chain.DefaultRPCURL, "process-rail RPC, used only for balance reads")
 	timeout := flag.Duration("timeout", 90*time.Second, "overall deadline for the probe and the paid call")
 	confirm := flag.Bool("confirm", false, "actually sign and send the payment. Without this the command only probes and reports what it would pay")
 	flag.Parse()
@@ -93,11 +95,13 @@ func main() {
 		log.Fatalf("testnet-only payments: %v", err)
 	}
 	payerAddr := "(not resolved -- dry run needs no credentials)"
+	payerAccount := ""
 	if encryptionKey != "" && payerEnc != "" {
 		addr, err := walletSvc.AddressForEncKey(payerEnc)
 		if err != nil {
 			log.Fatalf("could not derive the payer address: %v", err)
 		}
+		payerAccount = addr
 		payerAddr = addr
 		if bal, err := walletSvc.TokenBalance(ctx, addr); err == nil {
 			payerAddr += fmt.Sprintf("  (%s %s)", chain.FormatUSDT(int64(bal)), chain.TokenSymbol)
@@ -106,7 +110,6 @@ func main() {
 
 	fmt.Printf("payer     : %s\n", payerAddr)
 	fmt.Printf("endpoint  : %s %s\n", *method, *endpoint)
-	fmt.Printf("network   : %s (%s %s)\n\n", chain.Network, chain.TokenSymbol, chain.USDTAddress)
 
 	var probeBody []byte
 	if *bodyFlag != "" && *method != "GET" {
@@ -119,6 +122,18 @@ func main() {
 	if !isV2 {
 		log.Fatal("endpoint did not answer with an x402 v2 challenge -- refusing to pay a dialect this command cannot verify")
 	}
+
+	quoteNetwork := ""
+	if quote.RawAccept != nil {
+		quoteNetwork, _ = quote.RawAccept["network"].(string)
+	}
+	network, symbol, asset := chain.Network, chain.TokenSymbol, chain.USDTAddress
+	if p, ok := chain.RailFor(quoteNetwork, quote.Asset); ok {
+		network, symbol, asset = p.Network, p.TokenSymbol, p.TokenAddress
+	} else if quoteNetwork != "" {
+		network, symbol, asset = quoteNetwork, quote.Asset, quote.Asset
+	}
+	fmt.Printf("network   : %s (%s %s)\n\n", network, symbol, asset)
 
 	fmt.Println("challenge:")
 	fmt.Printf("  network    : %v\n", quote.RawAccept["network"])
@@ -150,8 +165,12 @@ func main() {
 			err = fmt.Errorf("%s (status %d)", payErr.Msg, payErr.StatusCode)
 		}
 		if result.Signed {
+			check := chain.AddressURL(payerAccount)
+			if p, ok := chain.ProfileForAsset(quote.Asset); ok {
+				check = p.AddressURL(payerAccount)
+			}
 			log.Fatalf("PAYMENT WAS SIGNED but the call did not complete cleanly: %v\n"+
-				"Do NOT simply re-run this -- check %s first, the transfer may already have landed.", err, chain.AddressURL(payerAddr))
+				"Do NOT simply re-run this -- check %s first, the transfer may already have landed.", err, check)
 		}
 		log.Fatalf("payment failed before anything was signed (no money moved): %v", err)
 	}
@@ -160,7 +179,7 @@ func main() {
 	fmt.Printf("settled   : %t\n", result.Settled)
 	fmt.Printf("status    : %d\n", result.StatusCode)
 	if result.OutboundTxID != "" {
-		fmt.Printf("tx        : %s\n", chain.TxURL(result.OutboundTxID))
+		fmt.Printf("tx        : %s\n", nodes.ExplorerURLForAsset(quote.Asset, result.OutboundTxID))
 	}
 	if len(result.ResponseBody) > 0 {
 		fmt.Printf("response  : %s\n", truncate(string(result.ResponseBody), 600))

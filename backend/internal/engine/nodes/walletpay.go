@@ -125,8 +125,22 @@ func PayTargetFromWallet2(ctx context.Context, cfg Wallet2PayConfig, target, met
 		return Wallet2PayResult{}, &Wallet2PayError{StatusCode: http.StatusBadGateway, Msg: "target quote had an unparseable asset or amount"}
 	}
 
-	if !chain.SameAddress(quote.Asset, cfg.USDCAsset) {
-		log.Printf("wallet2 pay asset mismatch: quote.Asset=%q want=%s", quote.Asset, cfg.USDCAsset)
+	quoteNetwork := ""
+	if quote.RawAccept != nil {
+		quoteNetwork, _ = quote.RawAccept["network"].(string)
+	}
+	// The endpoint's 402 picks the rail. X402_CHAIN does not. Arc USDC and
+	// Whitechain USDT are both payable from this wallet; any other network
+	// or token is refused before a signature exists.
+	rail, ok := chain.RailFor(quoteNetwork, quote.Asset)
+	if !ok {
+		if quoteNetwork != "" {
+			if _, known := chain.ByNetwork(quoteNetwork); !known {
+				log.Printf("wallet2 pay unsupported network: %q asset=%q", quoteNetwork, quote.Asset)
+				return Wallet2PayResult{}, &Wallet2PayError{StatusCode: http.StatusBadGateway, Msg: "target quoted unsupported network " + quoteNetwork}
+			}
+		}
+		log.Printf("wallet2 pay asset mismatch: quote.Asset=%q network=%q", quote.Asset, quoteNetwork)
 		return Wallet2PayResult{}, &Wallet2PayError{StatusCode: http.StatusBadGateway, Msg: "target quoted an unexpected asset"}
 	}
 	if cfg.MaxRelayOutboundUSDMicros > 0 && amount > uint64(cfg.MaxRelayOutboundUSDMicros) {
@@ -153,9 +167,6 @@ func PayTargetFromWallet2(ctx context.Context, cfg Wallet2PayConfig, target, met
 	// already left the wallet.
 	var extra map[string]any
 	if quote.RawAccept != nil {
-		if n, ok := quote.RawAccept["network"].(string); ok && n != "" && n != chain.Network {
-			return Wallet2PayResult{}, &Wallet2PayError{StatusCode: http.StatusBadGateway, Msg: "target quoted unsupported network " + n + ", want " + chain.Network}
-		}
 		extra, _ = quote.RawAccept["extra"].(map[string]any)
 	}
 	validFor := time.Duration(0)
@@ -169,7 +180,10 @@ func PayTargetFromWallet2(ctx context.Context, cfg Wallet2PayConfig, target, met
 		return Wallet2PayResult{}, &Wallet2PayError{StatusCode: http.StatusInternalServerError, Msg: "failed to sign outbound payment: " + err.Error()}
 	}
 
-	paymentHeaders := buildPaymentHeaders(target, cfg.RelayNetwork, signed, quote)
+	// rail.Network is the chain the signature was bound to. cfg.RelayNetwork
+	// is the process rail, and using it when the accept omitted network
+	// submits that signature under the other CAIP-2 id.
+	paymentHeaders := buildPaymentHeaders(target, rail.Network, signed, quote)
 	if method == "" {
 		method = http.MethodGet
 	}
