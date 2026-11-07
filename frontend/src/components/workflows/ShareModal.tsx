@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { ExternalLink } from "@/components/ExternalLink";
 import { IconClose } from "@/components/ui";
 import { useModalDismissal } from "@/hooks/useModalDismissal";
 import { workflows as workflowsApi } from "@/lib/api";
@@ -334,10 +335,8 @@ export function ShareModal({
               {link}
             </p>
             {txHash && (
-              <a
+              <ExternalLink
                 href={`https://rabdi.explorer.arkiv.network/tx/${txHash}`}
-                target="_blank"
-                rel="noopener noreferrer"
                 style={{
                   display: "inline-flex",
                   margin: "0 0 12px",
@@ -347,7 +346,7 @@ export function ShareModal({
                 }}
               >
                 View on Rabdi
-              </a>
+              </ExternalLink>
             )}
             <button
               type="button"
