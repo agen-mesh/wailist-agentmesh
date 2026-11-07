@@ -2,6 +2,7 @@ import type { DeadLetterRun, RunDetail, RunLogRecord } from "./api";
 import { WORKFLOWS } from "./data";
 import type { RunPage, RunStatus, RunSummary, UpcomingRun } from "./types";
 import { fixtureNode } from "./workflowFixtures";
+import { txURL } from "./chain";
 
 // Run history for mock mode (NEXT_PUBLIC_API_URL unset).
 //
@@ -625,7 +626,7 @@ function build(
         txId,
         amount: (s.paid / 1e6).toFixed(3),
         settledUsdMicros: s.paid,
-        explorerURL: `https://explorer.testnet.whitechain.io/tx/${txId}`,
+        explorerURL: txURL(txId),
       });
     }
     const log: RunLogRecord = {

@@ -9,6 +9,7 @@ import { useCredits } from "@/lib/credits/store";
 import { creditsForTopup, maxTopupINR, MAX_TOPUP_USD } from "@/lib/credits/fx";
 import { credits as creditsApi, workflows as workflowsApi } from "@/lib/api";
 import { totalSpend, totalSpendKnown } from "@/lib/workflowMeta";
+import { CHAIN } from "@/lib/chain";
 import { useReadOnly } from "@/hooks/useReadOnly";
 import { usePaymentProviders } from "@/components/checkout/usePaymentProviders";
 import { BillingPhonePage } from "@/components/billing/phone/BillingPhonePage";
@@ -20,7 +21,7 @@ const LOW_BALANCE_USD = 5;
 
 const HOW_IT_WORKS = [
   "Credits are spent as your agents call paid tools, x402 endpoints, and LLM providers.",
-  "Blockchain payments use Whitechain testnet only. Workflow usage still consumes credits.",
+  `Blockchain payments use ${CHAIN.name} only. Workflow usage still consumes credits.`,
   "Every purchase generates a printable receipt for your records.",
 ];
 

@@ -25,9 +25,14 @@ import (
 	"github.com/agentmesh/backend/internal/netutil"
 )
 
-// WhitechainTestnet is the only network the catalog keeps: the one our
-// wallets can sign for and our facilitator settles.
-const WhitechainTestnet = chain.Network
+// SettlementNetwork is the only network the catalog keeps: the one our
+// wallets can sign for and our facilitator settles. It follows X402_CHAIN,
+// so under the arc profile the mirrored catalog is Arc's.
+//
+// A function, not a copy taken at init. Package init runs before
+// godotenv.Load, so a copied chain.Network stays on Whitechain when
+// X402_CHAIN is set only in backend/.env.
+func SettlementNetwork() string { return chain.Network }
 
 // pageLimit is the upstream's max page size. Paging stops on the first short
 // page rather than trusting pagination.total, which a mid-crawl catalog can
@@ -244,7 +249,7 @@ func normalise(raw rawResource) (Resource, bool) {
 		Description:  truncateRunes(raw.Description, resourceDescriptionMax),
 		MerchantID:   raw.MerchantID,
 		Network:      a.Network,
-		Testnet:      a.Network == WhitechainTestnet,
+		Testnet:      a.Network == SettlementNetwork(),
 		AmountMicros: amount,
 		Asset:        a.Asset,
 		PayTo:        a.PayTo,
@@ -321,7 +326,7 @@ func paramsFrom(raw rawResource) []Param {
 // keepResource reports whether a catalog entry is one we could actually pay
 // and reach: Whitechain testnet, over https, at a public hostname.
 func keepResource(u *url.URL, network string) bool {
-	if network != WhitechainTestnet {
+	if network != SettlementNetwork() {
 		return false
 	}
 	if u == nil || u.Scheme != "https" {

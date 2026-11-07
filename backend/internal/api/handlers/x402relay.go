@@ -696,8 +696,16 @@ func (d *Deps) relaySettleAndForward(w http.ResponseWriter, r *http.Request, tar
 	// and only discovering this in payTargetAndRespond would already have
 	// set X-Inbound-Settled, billing the caller in full for a call that was
 	// never going to reach the target.
-	if !chain.SameAddress(quote.Asset, d.USDCAsset) {
-		log.Printf("x402 relay asset mismatch: quote.Asset=%q want=%s", quote.Asset, d.USDCAsset)
+	quoteNetwork := ""
+	if quote.RawAccept != nil {
+		if n, ok := quote.RawAccept["network"].(string); ok {
+			quoteNetwork = n
+		}
+	}
+	// Inbound settlement below stays on d.USDCAsset. This check is only
+	// whether Wallet 2 can pay the target on the chain that target named.
+	if _, ok := chain.RailFor(quoteNetwork, quote.Asset); !ok {
+		log.Printf("x402 relay asset mismatch: quote.Asset=%q network=%q", quote.Asset, quoteNetwork)
 		respond.Error(w, http.StatusBadGateway, "target quoted an unexpected asset")
 		return
 	}
@@ -859,6 +867,9 @@ func (d *Deps) payTargetAndRespond(w http.ResponseWriter, r *http.Request, targe
 	// workflow's console log show the full real payment chain: caller ->
 	// Wallet 2 (X-Settlement-TxId) and Wallet 2 -> target
 	// (X-Outbound-Settlement-TxId).
+	if quote.Asset != "" {
+		w.Header().Set("X-Outbound-Asset", quote.Asset)
+	}
 	if result.OutboundTxID != "" {
 		w.Header().Set("X-Outbound-Settlement-TxId", result.OutboundTxID)
 	}

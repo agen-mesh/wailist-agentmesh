@@ -35,10 +35,15 @@ services:
       # Compose reads it from the gitignored ./.env (a symlink to backend/.env).
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set in backend/.env}
 
-      # Whitechain testnet. Blank in .env still lands on these defaults.
-      FACILITATOR_URL: ${FACILITATOR_URL:-https://whitechain.007575.xyz}
-      WHITECHAIN_RPC_URL: ${WHITECHAIN_RPC_URL:-https://rpc.testnet.whitechain.io}
-      WHITECHAIN_EXPLORER_URL: ${WHITECHAIN_EXPLORER_URL:-https://explorer.testnet.whitechain.io}
+      # Which rail settles x402: blank/whitechain -> Whitechain testnet (USDT),
+      # arc -> Arc Testnet (USDC). The three URLs below are blank on purpose —
+      # internal/chain already holds the right defaults for whichever rail is
+      # selected, and pinning one chain's RPC here while X402_CHAIN names the
+      # other is how you get a startup that validates against the wrong chain.
+      X402_CHAIN: ${X402_CHAIN:-}
+      FACILITATOR_URL: ${FACILITATOR_URL:-}
+      X402_RPC_URL: ${X402_RPC_URL:-}
+      X402_EXPLORER_URL: ${X402_EXPLORER_URL:-}
 
       # Platform provider keys, taken from .env so the chat builder and any
       # platform-key agent work in local dev. Without a Gemini key the

@@ -56,7 +56,7 @@ func (s *Service) ValidateNetwork(ctx context.Context) error {
 		return fmt.Errorf("decode RPC chain ID: %w", err)
 	}
 	if id.Cmp(big.NewInt(chain.ChainID)) != 0 {
-		return fmt.Errorf("unsupported RPC chain ID %s: this branch only supports Whitechain testnet (%d)", id, chain.ChainID)
+		return fmt.Errorf("unsupported RPC chain ID %s: this build settles on %s only (%d)", id, chain.Name, chain.ChainID)
 	}
 	return nil
 }
@@ -117,8 +117,9 @@ func (s *Service) AddressForEncKey(encKey string) (string, error) {
 
 // AuthorizationRequest is what a caller wants paid.
 type AuthorizationRequest struct {
-	// Asset is the token (EIP-712 verifyingContract). Must be the allowlisted
-	// USDT on chain.ChainID.
+	// Asset is the token (EIP-712 verifyingContract). It must be the token of
+	// a rail we can sign: Whitechain USDT or Arc USDC. The chain id comes
+	// from that token, not from whichever rail X402_CHAIN selected.
 	Asset string
 	PayTo string
 	// Amount in token base units (6 decimals).
@@ -133,8 +134,9 @@ type AuthorizationRequest struct {
 // SignTransferAuthorization signs an EIP-3009 TransferWithAuthorization
 // from the key in encKey and returns the x402 exact-EVM payload.
 func (s *Service) SignTransferAuthorization(_ context.Context, encKey string, r AuthorizationRequest) (x402.ExactEVMPayload, error) {
-	if !chain.IsUSDT(r.Asset) {
-		return x402.ExactEVMPayload{}, fmt.Errorf("refusing to sign for asset %q: only %s %s on %s is supported", r.Asset, chain.TokenSymbol, chain.USDTAddress, chain.Network)
+	rail, ok := chain.ProfileForAsset(r.Asset)
+	if !ok {
+		return x402.ExactEVMPayload{}, fmt.Errorf("refusing to sign for asset %q: only %s %s on %s or %s %s on %s is supported", r.Asset, chain.Whitechain.TokenSymbol, chain.Whitechain.TokenAddress, chain.Whitechain.Network, chain.Arc.TokenSymbol, chain.Arc.TokenAddress, chain.Arc.Network)
 	}
 	if !chain.IsAddress(r.PayTo) {
 		return x402.ExactEVMPayload{}, fmt.Errorf("invalid payTo address %q", r.PayTo)
@@ -154,7 +156,7 @@ func (s *Service) SignTransferAuthorization(_ context.Context, encKey string, r 
 	if _, err := rand.Read(nonce); err != nil {
 		return x402.ExactEVMPayload{}, fmt.Errorf("generate nonce: %w", err)
 	}
-	name, version := chain.TokenName, chain.TokenVersion
+	name, version := rail.TokenName, rail.TokenVersion
 	if r.Extra != nil {
 		n, _ := r.Extra["name"].(string)
 		v, _ := r.Extra["version"].(string)
@@ -170,7 +172,7 @@ func (s *Service) SignTransferAuthorization(_ context.Context, encKey string, r 
 		ValidBefore: fmt.Sprint(time.Now().Add(validFor).Unix()),
 		Nonce:       hexutil.Encode(nonce),
 	}
-	sig, err := SignAuthorization(pk, Domain{Name: name, Version: version, ChainID: chain.ChainID, VerifyingContract: r.Asset}, auth)
+	sig, err := SignAuthorization(pk, Domain{Name: name, Version: version, ChainID: rail.ChainID, VerifyingContract: rail.TokenAddress}, auth)
 	if err != nil {
 		return x402.ExactEVMPayload{}, err
 	}

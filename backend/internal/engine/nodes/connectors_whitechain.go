@@ -22,7 +22,7 @@ import (
 //	whitechain_transactions  recent token transfers for one address
 //	whitechain_token         metadata for one ERC-20 contract
 
-var whitechainExplorerAPI = chain.DefaultExplorerURL + "/api/v2"
+var whitechainExplorerAPI = chain.Whitechain.ExplorerURL + "/api/v2"
 
 // SetWhitechainExplorer points the connectors at a Blockscout instance
 // (WHITECHAIN_EXPLORER_URL). Empty keeps the default.
@@ -141,8 +141,8 @@ func fetchWhitechainAccount(ctx context.Context, node models.WorkflowNode, rc Ru
 			row["decimals"] = d
 			row["amount"] = formatBaseUnits(h.Value, d)
 		}
-		if chain.IsUSDT(h.Token.AddressHash) {
-			usdt = formatBaseUnits(h.Value, chain.TokenDecimals)
+		if chain.Whitechain.IsToken(h.Token.AddressHash) {
+			usdt = formatBaseUnits(h.Value, chain.Whitechain.TokenDecimals)
 		}
 		tokens = append(tokens, row)
 	}
@@ -150,14 +150,14 @@ func fetchWhitechainAccount(ctx context.Context, node models.WorkflowNode, rc Ru
 		acct.CoinBalance = "0"
 	}
 	return map[string]any{
-		"network":     chain.Network,
+		"network":     chain.Whitechain.Network,
 		"address":     acct.Hash,
 		"isContract":  acct.IsContract,
-		"wbt":         formatBaseUnits(acct.CoinBalance, chain.NativeDecimals),
+		"wbt":         formatBaseUnits(acct.CoinBalance, chain.Whitechain.NativeDecimals),
 		"wbtWei":      acct.CoinBalance,
 		"usdt":        usdt,
 		"tokens":      tokens,
-		"explorerUrl": chain.AddressURL(acct.Hash),
+		"explorerUrl": chain.Whitechain.AddressURL(acct.Hash),
 	}, nil
 }
 
@@ -229,7 +229,7 @@ func fetchWhitechainTransactions(ctx context.Context, node models.WorkflowNode, 
 			"token":           it.Token.AddressHash,
 			"symbol":          it.Token.Symbol,
 			"amountBaseUnits": it.Total.Value,
-			"explorerUrl":     chain.TxURL(it.Hash),
+			"explorerUrl":     chain.Whitechain.TxURL(it.Hash),
 		}
 		if d, ok := it.Token.decimals(); ok {
 			row["amount"] = formatBaseUnits(it.Total.Value, d)
@@ -237,7 +237,7 @@ func fetchWhitechainTransactions(ctx context.Context, node models.WorkflowNode, 
 		rows = append(rows, row)
 	}
 	return map[string]any{
-		"network":   chain.Network,
+		"network":   chain.Whitechain.Network,
 		"address":   addr,
 		"transfers": rows,
 		"count":     len(rows),
@@ -247,7 +247,7 @@ func fetchWhitechainTransactions(ctx context.Context, node models.WorkflowNode, 
 func fetchWhitechainToken(ctx context.Context, node models.WorkflowNode, rc RunContexter) (any, error) {
 	token := strings.TrimSpace(resolveTemplate(configVal(node, "wcToken", ""), rc))
 	if token == "" {
-		token = chain.USDTAddress
+		token = chain.Whitechain.TokenAddress
 	}
 	if !chain.IsAddress(token) {
 		return nil, fmt.Errorf("whitechain: wcToken %q is not a token contract address", token)
@@ -257,15 +257,15 @@ func fetchWhitechainToken(ctx context.Context, node models.WorkflowNode, rc RunC
 		return nil, err
 	}
 	out := map[string]any{
-		"network":        chain.Network,
+		"network":        chain.Whitechain.Network,
 		"token":          t.AddressHash,
 		"name":           t.Name,
 		"symbol":         t.Symbol,
 		"type":           t.Type,
 		"holders":        t.Holders,
 		"totalBaseUnits": t.TotalSupply,
-		"x402Payable":    chain.IsUSDT(t.AddressHash),
-		"explorerUrl":    chain.DefaultExplorerURL + "/token/" + t.AddressHash,
+		"x402Payable":    chain.Whitechain.IsToken(t.AddressHash),
+		"explorerUrl":    chain.Whitechain.ExplorerURL + "/token/" + t.AddressHash,
 	}
 	if d, ok := t.decimals(); ok {
 		out["decimals"] = d

@@ -3,6 +3,7 @@ package nodes_test
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/agentmesh/backend/internal/chain"
 	"github.com/agentmesh/backend/internal/engine/nodes"
 	"github.com/agentmesh/backend/internal/wallet"
 	"github.com/agentmesh/backend/internal/x402"
@@ -68,6 +70,63 @@ func TestPayTargetFromWallet2RejectsUnexpectedAsset(t *testing.T) {
 	}
 	if signer.calls != 0 {
 		t.Fatalf("want signer never called, got %d calls", signer.calls)
+	}
+}
+
+func TestPayTargetFromWallet2PaysTheRailNamedByTheQuote(t *testing.T) {
+	nodes.SetURLValidatorForTest(func(string) error { return nil })
+	t.Cleanup(func() { nodes.SetURLValidatorForTest(nil) })
+
+	for _, omitNetwork := range []bool{false, true} {
+		t.Run(map[bool]string{false: "network set", true: "network omitted"}[omitNetwork], func(t *testing.T) {
+			var header string
+			target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				header = r.Header.Get("Payment-Signature")
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{"ok":true}`))
+			}))
+			defer target.Close()
+
+			signer := &fakeWallet2Signer{}
+			cfg := baseWallet2Cfg(signer)
+			accept := map[string]any{
+				"asset": chain.Arc.TokenAddress,
+				"extra": chain.Arc.Extra(),
+			}
+			if !omitNetwork {
+				accept["network"] = chain.Arc.Network
+			}
+			quote := nodes.TargetQuote{
+				PayTo:             "0x26b70253fee141dee4ece1e5efbe2cf70eae26fc",
+				Asset:             chain.Arc.TokenAddress,
+				MaxAmountRequired: "10000",
+				RawAccept:         accept,
+			}
+			result, err := nodes.PayTargetFromWallet2(context.Background(), cfg, target.URL, "", nil, quote)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.Settled || signer.calls != 1 {
+				t.Fatalf("settled=%v calls=%d", result.Settled, signer.calls)
+			}
+			if !chain.SameAddress(signer.last.Asset, chain.Arc.TokenAddress) {
+				t.Fatalf("signed asset %s", signer.last.Asset)
+			}
+			if signer.last.Extra["name"] != "USDC" || signer.last.Extra["version"] != "2" {
+				t.Fatalf("extra = %v", signer.last.Extra)
+			}
+			raw, err := base64.StdEncoding.DecodeString(header)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(raw, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload["network"] != chain.Arc.Network {
+				t.Fatalf("payment network %v, want %s (process relay is %s)", payload["network"], chain.Arc.Network, cfg.RelayNetwork)
+			}
+		})
 	}
 }
 

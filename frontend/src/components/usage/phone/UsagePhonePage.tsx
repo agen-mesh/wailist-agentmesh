@@ -6,6 +6,7 @@ import { PullToRefresh } from "@/components/PullToRefresh";
 import { ExternalLink } from "@/components/ExternalLink";
 import { workflowHref } from "@/lib/routes";
 import { scopedWorkflowLabel } from "@/lib/usageScope";
+import { CHAIN } from "@/lib/chain";
 import { useCredits } from "@/lib/credits/store";
 import { LOW_BALANCE_THRESHOLD_USD } from "@/lib/credits/fx";
 import type { UsageCategory, UsagePayload, UsageRange } from "@/lib/types";
@@ -429,7 +430,7 @@ function UsageBody({
       )}
 
       <p className="bilp-note usgp-foot">
-        Settled on Whitechain testnet. LLM prices (*) are estimated.
+        Settled on {CHAIN.name}. LLM prices (*) are estimated.
       </p>
     </>
   );

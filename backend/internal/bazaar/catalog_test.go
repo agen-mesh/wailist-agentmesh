@@ -8,12 +8,27 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/agentmesh/backend/internal/chain"
 )
 
 // mainnet is the only kept network in these fixtures (the name is kept for
 // the fixtures' sake); every resource on it is flagged Testnet.
-const mainnet = WhitechainTestnet
-const testnet = WhitechainTestnet
+// Read at call time so the fixture matches SettlementNetwork after Use.
+func mainnet() string { return SettlementNetwork() }
+
+func testnet() string { return SettlementNetwork() }
+
+func TestSettlementNetworkFollowsActiveProfile(t *testing.T) {
+	t.Cleanup(func() { chain.Use("") })
+	if SettlementNetwork() != chain.Whitechain.Network {
+		t.Fatalf("default settlement network = %s", SettlementNetwork())
+	}
+	chain.Use("arc")
+	if SettlementNetwork() != chain.Arc.Network {
+		t.Fatalf("arc settlement network = %s, want %s", SettlementNetwork(), chain.Arc.Network)
+	}
+}
 
 // upstreamItem builds one raw catalog entry the way GoPlausible returns it.
 func upstreamItem(id, url, network string) map[string]any {
@@ -58,13 +73,13 @@ func fakeUpstream(t *testing.T, items []map[string]any) *httptest.Server {
 
 func TestFetchAllKeepsOnlyPublicWhitechainResources(t *testing.T) {
 	srv := fakeUpstream(t, []map[string]any{
-		upstreamItem("keep-main", "https://good.example/api", mainnet),
-		upstreamItem("keep-test", "https://also.example/api", testnet),
+		upstreamItem("keep-main", "https://good.example/api", mainnet()),
+		upstreamItem("keep-test", "https://also.example/api", testnet()),
 		upstreamItem("drop-evm", "https://evm.example/api", "eip155:8453"),
 		upstreamItem("drop-algorand", "https://algo.example/api", "algorand:mainnet"),
-		upstreamItem("drop-local", "http://localhost:3000/api", mainnet),
-		upstreamItem("drop-private", "https://192.168.1.4/api", mainnet),
-		upstreamItem("drop-plain", "http://plain.example/api", mainnet),
+		upstreamItem("drop-local", "http://localhost:3000/api", mainnet()),
+		upstreamItem("drop-private", "https://192.168.1.4/api", mainnet()),
+		upstreamItem("drop-plain", "http://plain.example/api", mainnet()),
 	})
 	defer srv.Close()
 
@@ -89,7 +104,7 @@ func TestFetchAllKeepsOnlyPublicWhitechainResources(t *testing.T) {
 
 func TestFetchAllNormalisesFields(t *testing.T) {
 	srv := fakeUpstream(t, []map[string]any{
-		upstreamItem("r1", "https://good.example/api", mainnet),
+		upstreamItem("r1", "https://good.example/api", mainnet()),
 	})
 	defer srv.Close()
 
@@ -118,7 +133,7 @@ func TestFetchAllNormalisesFields(t *testing.T) {
 }
 
 func TestParamsFromCapsDescriptionLength(t *testing.T) {
-	raw := upstreamItem("big-example", "https://big.example/api", mainnet)
+	raw := upstreamItem("big-example", "https://big.example/api", mainnet())
 	raw["discoveryInfo"] = map[string]any{
 		"input": map[string]any{
 			"method":      "GET",
@@ -142,7 +157,7 @@ func TestParamsFromCapsDescriptionLength(t *testing.T) {
 }
 
 func TestNormaliseCapsResourceDescriptionLength(t *testing.T) {
-	raw := upstreamItem("big-desc", "https://big.example/api", mainnet)
+	raw := upstreamItem("big-desc", "https://big.example/api", mainnet())
 	raw["description"] = strings.Repeat("x", 5000)
 	srv := fakeUpstream(t, []map[string]any{raw})
 	defer srv.Close()
@@ -161,7 +176,7 @@ func TestFetchAllPagesUntilShortPage(t *testing.T) {
 	// stopping after the first response.
 	all := make([]map[string]any, 0, 250)
 	for i := 0; i < 250; i++ {
-		all = append(all, upstreamItem(fmt.Sprintf("r%d", i), fmt.Sprintf("https://h%d.example/api", i), mainnet))
+		all = append(all, upstreamItem(fmt.Sprintf("r%d", i), fmt.Sprintf("https://h%d.example/api", i), mainnet()))
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		off := 0
@@ -188,7 +203,7 @@ func TestFetchAllPagesUntilShortPage(t *testing.T) {
 }
 
 func TestNormaliseNeverProducesNilParams(t *testing.T) {
-	raw := upstreamItem("no-params", "https://noparams.example/api", mainnet)
+	raw := upstreamItem("no-params", "https://noparams.example/api", mainnet())
 	delete(raw, "discoveryInfo") // no declared inputs at all
 	srv := fakeUpstream(t, []map[string]any{raw})
 	defer srv.Close()
@@ -224,8 +239,8 @@ func TestFetchAllUpstreamErrorIsReturned(t *testing.T) {
 // it once added -- a confusing dead end.
 func TestFetchAllDropsCGNATResource(t *testing.T) {
 	srv := fakeUpstream(t, []map[string]any{
-		upstreamItem("keep-main", "https://good.example/api", mainnet),
-		upstreamItem("drop-cgnat", "https://100.64.0.5/api", mainnet),
+		upstreamItem("keep-main", "https://good.example/api", mainnet()),
+		upstreamItem("drop-cgnat", "https://100.64.0.5/api", mainnet()),
 	})
 	defer srv.Close()
 
@@ -246,8 +261,8 @@ func TestFetchAllDropsCGNATResource(t *testing.T) {
 // despite being exactly as unreachable as its IPv4 counterpart 0.0.0.0.
 func TestFetchAllDropsIPv6Unspecified(t *testing.T) {
 	srv := fakeUpstream(t, []map[string]any{
-		upstreamItem("keep-main", "https://good.example/api", mainnet),
-		upstreamItem("drop-unspecified", "https://[::]/api", mainnet),
+		upstreamItem("keep-main", "https://good.example/api", mainnet()),
+		upstreamItem("drop-unspecified", "https://[::]/api", mainnet()),
 	})
 	defer srv.Close()
 

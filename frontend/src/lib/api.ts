@@ -23,6 +23,7 @@ import {
 } from "./runFixtures";
 import { fixtureWorkflow } from "./workflowFixtures";
 import { assertWritable } from "./readonly";
+import { CHAIN, txURL } from "./chain";
 import { IS_NATIVE, authHeaders } from "./nativeAuth";
 import type { PaymentMethod } from "@/components/checkout/types";
 import type { RunCosts } from "./runCosts";
@@ -975,7 +976,7 @@ export const runs = {
             amount: "0.065",
             settledUsdMicros: 65000,
             nodeName: "x402 Weather",
-            explorerURL: `https://explorer.testnet.whitechain.io/tx/${mockTxId}`,
+            explorerURL: txURL(mockTxId),
             response: {
               location: "San Francisco, CA",
               tempC: 14.2,
@@ -1139,7 +1140,7 @@ export const tools = {
     return {
       price: "0.002",
       unit: "call",
-      network: "eip155:1874",
+      network: CHAIN.network,
       recipient: "",
     };
   },

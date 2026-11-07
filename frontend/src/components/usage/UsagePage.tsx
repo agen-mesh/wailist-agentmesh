@@ -8,6 +8,7 @@ import { Topbar } from "@/components/Topbar";
 import { workflowHref } from "@/lib/routes";
 import { usage as usageApi } from "@/lib/api";
 import { scopedWorkflowLabel } from "@/lib/usageScope";
+import { CHAIN } from "@/lib/chain";
 import {
   UsageRange,
   UsagePayload,
@@ -759,7 +760,7 @@ function UsageBody({
         </Card>
       </div>
 
-      {/* ⑤ Recent settlements -- on-chain, in USDT */}
+      {/* ⑤ Recent settlements -- on-chain, in the settlement token */}
       <Card style={{ marginBottom: 16 }}>
         <CardHead
           title="Recent settlements"
@@ -849,7 +850,7 @@ function UsageBody({
                 </span>
                 <span style={{ color: "var(--fg)", textAlign: "right" }}>
                   {s.amountAlgo.toFixed(6)}{" "}
-                  <span style={{ color: "var(--fg-dim)" }}>USDT</span>
+                  <span style={{ color: "var(--fg-dim)" }}>{CHAIN.token}</span>
                 </span>
                 <span style={{ color: "var(--fg-dim)", textAlign: "right" }}>
                   {relTime(s.ts)}
@@ -900,7 +901,7 @@ function UsageBody({
           letterSpacing: "0.02em",
         }}
       >
-        settled on Whitechain testnet · figures update ~every run · LLM prices (*)
+        settled on {CHAIN.name} · figures update ~every run · LLM prices (*)
         estimated from provider list rates at ~3:1 in:out tokens
       </p>
     </div>

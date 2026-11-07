@@ -10,6 +10,7 @@ import {
   UsagePoint,
   WorkflowSpend,
 } from "./types";
+import { CHAIN } from "./chain";
 
 export const NODE_TYPES: Record<string, NodeTypeMeta> = {
   trigger: { w: 200, h: 60, ports: ["out"] },
@@ -1165,10 +1166,12 @@ export const TENDRIL_WORKFLOW: Workflow = {
 };
 
 // WHITECHAIN_WORKFLOW is what the Workflows page's "Run demo workflow" button
-// creates: one free on-chain read and one paid x402 call, both on Whitechain
-// testnet. The research agent pays tinyx402's search endpoint 0.01 USDT per
-// call through the platform wallets (EIP-3009, settled by the Whitechain
-// facilitator), so the run shows a real explorer link.
+// creates: one free Whitechain on-chain read and one paid x402 call. The
+// research agent pays tinyx402's search endpoint 0.01 of the settlement token
+// per call through the platform wallets (EIP-3009, settled by the facilitator),
+// so the run shows a real explorer link. The paid endpoint follows the rail
+// the backend settles on (NEXT_PUBLIC_X402_CHAIN, see lib/chain.ts): tinyx402
+// is per chain now and each path quotes only its own asset.
 export const WHITECHAIN_WORKFLOW: Workflow = {
   id: "wf-whitechain",
   name: "Demo: Whitechain Wallet Brief",
@@ -1218,8 +1221,8 @@ export const WHITECHAIN_WORKFLOW: Workflow = {
       x: 820,
       y: 460,
       name: "Web Search (x402)",
-      description: "Structured web search results, paid per call in USDT on Whitechain testnet.",
-      endpoint: "https://tinyx402.007575.xyz/api/v1/search",
+      description: `Structured web search results, paid per call in ${CHAIN.token} on ${CHAIN.name}.`,
+      endpoint: CHAIN.demoSearchEndpoint,
       method: "GET",
       provider: "tinyx402.007575.xyz",
       price: "0.01",
