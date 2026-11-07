@@ -115,9 +115,10 @@ it("posts the gzip when anyone with the link may read it", async () => {
   expect(vi.mocked(sealShare)).not.toHaveBeenCalled();
   expect(vi.mocked(createShare)).toHaveBeenCalledWith(Uint8Array.of(1, 2, 3));
   expect(vi.mocked(loadTemplateWorkflow)).not.toHaveBeenCalled();
-  expect(screen.getByRole("link", { name: txHash }).getAttribute("href")).toBe(
+  expect(screen.getByRole("link", { name: "View on Rabdi" }).getAttribute("href")).toBe(
     `https://rabdi.explorer.arkiv.network/tx/${txHash}`,
   );
+  expect(screen.queryByText(txHash)).toBeNull();
   expect(screen.getByRole("link", { name: "Post" })).toBeTruthy();
   expect(screen.getByRole("link", { name: "Email" })).toBeTruthy();
 });

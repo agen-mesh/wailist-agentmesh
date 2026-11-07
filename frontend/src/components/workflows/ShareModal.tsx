@@ -334,22 +334,20 @@ export function ShareModal({
               {link}
             </p>
             {txHash && (
-              <p style={{ margin: "0 0 12px", fontSize: "var(--t-2)", color: "var(--fg-muted)" }}>
-                Rabdi transaction{" "}
-                <a
-                  href={`https://rabdi.explorer.arkiv.network/tx/${txHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    color: "var(--fg)",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "var(--t-1)",
-                    wordBreak: "break-all",
-                  }}
-                >
-                  {txHash}
-                </a>
-              </p>
+              <a
+                href={`https://rabdi.explorer.arkiv.network/tx/${txHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "inline-flex",
+                  margin: "0 0 12px",
+                  color: "var(--accent)",
+                  fontSize: "var(--t-3)",
+                  fontWeight: 600,
+                }}
+              >
+                View on Rabdi
+              </a>
             )}
             <button
               type="button"
