@@ -20,6 +20,10 @@ The sections under this one describe AgentMesh as it existed before this hackath
 
 **During.** On 2026-11-06, [22550811](https://github.com/agen-mesh/wailist-agentmesh/commit/22550811) settled workflow payments in Whitechain testnet USDT. On 2026-11-07 the branch gained Arkiv workflow shares ([5aad0ba2](https://github.com/agen-mesh/wailist-agentmesh/commit/5aad0ba2)), the Arc Testnet USDC rail ([943a668c](https://github.com/agen-mesh/wailist-agentmesh/commit/943a668c)), and per-call payment on whichever of those two rails the endpoint's 402 names ([ef590e0f](https://github.com/agen-mesh/wailist-agentmesh/commit/ef590e0f)).
 
+**Demo.** https://youtu.be/AP9LJaXOqtg
+
+**License.** [MIT](LICENSE).
+
 **AI.** AI coding assistants, including Grok, were used to edit the Arc rail, the dual-rail payment path, and these notes. The commits above name the people who reviewed and landed them.
 
 ### Whitechain
@@ -49,7 +53,7 @@ flowchart LR
   fac --> arc[Arc Testnet 5042002 USDC]
 ```
 
-The demo video is not recorded yet. Judges asked for 2 to 4 minutes showing each party.
+Demo video, same one as above: https://youtu.be/AP9LJaXOqtg
 
 ### Arkiv
 
