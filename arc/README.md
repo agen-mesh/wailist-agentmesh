@@ -218,8 +218,18 @@ namespaced run ids, a `CallSettled` receipt per call. It was written and reviewe
 two rounds with 7 Foundry suites (94 tests, **Arc Studio's run, not reproduced here** — this machine
 has no Foundry) and Slither.
 
-It is **not deployed and not wired into anything.** The rail above needs no contract: x402 `exact`
-settles against USDC's own EIP-3009 interface. The escrow buys things that bare per-call transfers
+It is **deployed on Arc Testnet but not wired into anything.** The rail above needs no contract:
+x402 `exact` settles against USDC's own EIP-3009 interface. The deployment was verified directly
+against `rpc.testnet.arc.io`:
+
+| | |
+|---|---|
+| Address | [`0xb6F60f98aA3b36FbFf1f061d2f9C069Bd5Cb5748`](https://explorer.testnet.arc.io/address/0xb6F60f98aA3b36FbFf1f061d2f9C069Bd5Cb5748) — 7,108 bytes of code |
+| Deploy | `0x04e8ef64…85bd4`, block 71064852, succeeded |
+| Exercised | `openRun 0x8c1a2510…b5b2e5` → `settleCall 0xd9104d3d…71aec0` → `closeRun 0x81a708dd…e970a4b`, all succeeded |
+| `settleCall` receipt | 0.02 USDC to the payee and 0.0002 (1% at the deployed 100 bps) to the fee recipient, plus one `CallSettled` log with 2 indexed and 4 data words — matching `CallSettled(bytes32,address,uint256,uint256,bytes32,uint256)` |
+
+That it runs on chain does not make it part of this submission's path; nothing in the rail calls it. The escrow buys things that bare per-call transfers
 cannot — an onchain spend ceiling per run, a queryable receipt trail, atomic fee splitting — and is
 kept here as the reviewed next step, not as part of this submission's working path.
 See [`contracts/README.md`](contracts/README.md).
@@ -236,3 +246,34 @@ See [`contracts/README.md`](contracts/README.md).
 
 Network: chain id `5042002`, RPC `https://rpc.testnet.arc.io`, explorer
 `https://explorer.testnet.arc.io`, faucet [faucet.circle.com](https://faucet.circle.com).
+
+## EIP-3009 on Arc's USDC, from the implementation
+
+The rail depends on Arc's USDC actually implementing EIP-3009 rather than only looking like it
+does. `0x3600…0000` is a proxy; its implementation is
+[`0xC6AD664ac6679F4Ce74e10E91449C93Ec1ae3cA6`](https://explorer.testnet.arc.io/address/0xC6AD664ac6679F4Ce74e10E91449C93Ec1ae3cA6)
+— 23,659 bytes, verified ABI, exposing:
+
+- `transferWithAuthorization` in **both** overloads — `(address,address,uint256,uint256,uint256,bytes32,bytes)` and the split `(…,uint8,bytes32,bytes32)` form
+- `receiveWithAuthorization`, `cancelAuthorization`, `authorizationState`, `permit`
+
+Permit2 is deployed on Arc and is what Circle's own `upto` scheme uses, but settling `upto` needs an
+API key, so `exact` over EIP-3009 is the keyless path.
+
+### A second facilitator, also verified
+
+The rail above runs through `https://arc.007575.xyz`. Circle's hosted facilitator
+(`https://api.circle.com/v1/facilitator/x402/{supported,verify,settle,status}`) also supports
+`eip155:5042002` for `exact`, and authenticates keylessly with a seller proof — an EIP-712 signature
+from the payout key. Two settlements through it were verified on chain:
+[`0x2b116cfd…0fc3e`](https://explorer.testnet.arc.io/tx/0x2b116cfdc2f2f93106ae702a11a3e1b320fcacab529408cd751f95857a70fc3e)
+(block 71115740) and
+[`0xe5839ba9…c0cfe`](https://explorer.testnet.arc.io/tx/0xe5839ba9eb0f7b575ce7a26472946a827f28b51ddbfeb35d7f049d603c1c0cfe)
+(block 71116070), each moving `20000` base units via selector `0xcf092995`.
+
+Each settlement emits **two** `Transfer` logs for one movement — `20000000000000000` from the system
+emitter `0xffff…fffe` at 18 decimals, and `20000` from the ERC-20 at 6 — which is Arc's two
+interfaces over one balance, visible on chain. It is also why nothing here reads a native balance.
+
+Its one catch: settles count against Circle's keyless trial allowance per payout address, and
+`/settle` returns `403 registration_required` once it is spent.
