@@ -67,8 +67,8 @@ it("shows the graph and saves only when asked", async () => {
   mocks.openSharedWorkflow.mockResolvedValue(graph);
   render(<ShareOpen entityKey={"0x" + "ab".repeat(32)} hash="" />);
   expect(await screen.findByText("Resume")).toBeTruthy();
-  expect(screen.getByText("1 nodes")).toBeTruthy();
-  expect(screen.getByText("1 edges")).toBeTruthy();
+  expect(screen.getByText("1 node")).toBeTruthy();
+  expect(screen.getByText("1 edge")).toBeTruthy();
   expect(
     screen.getByText("Signed by AgentMesh. This link does not prove which person shared it."),
   ).toBeTruthy();

@@ -18,6 +18,7 @@ import (
 )
 
 var validKey = "0x" + strings.Repeat("ab", 32)
+var validTx = "0x" + strings.Repeat("cd", 32)
 
 type failOnRead struct {
 	read bool
@@ -32,16 +33,21 @@ func (f *failOnRead) Close() error { return nil }
 
 type stubWriter struct {
 	key   string
+	tx    string
 	err   error
 	calls int
 }
 
-func (s *stubWriter) CreateShare(context.Context, []byte) (string, error) {
+func (s *stubWriter) CreateShare(context.Context, []byte) (arkivshare.Receipt, error) {
 	s.calls++
 	if s.err != nil {
-		return "", s.err
+		return arkivshare.Receipt{}, s.err
 	}
-	return s.key, nil
+	tx := s.tx
+	if tx == "" {
+		tx = validTx
+	}
+	return arkivshare.Receipt{EntityKey: s.key, TxHash: tx}, nil
 }
 
 type blockingWriter struct {
@@ -50,13 +56,13 @@ type blockingWriter struct {
 	key     string
 }
 
-func (b *blockingWriter) CreateShare(ctx context.Context, _ []byte) (string, error) {
+func (b *blockingWriter) CreateShare(ctx context.Context, _ []byte) (arkivshare.Receipt, error) {
 	b.entered <- struct{}{}
 	select {
 	case <-b.release:
-		return b.key, nil
+		return arkivshare.Receipt{EntityKey: b.key, TxHash: validTx}, nil
 	case <-ctx.Done():
-		return "", ctx.Err()
+		return arkivshare.Receipt{}, ctx.Err()
 	}
 }
 
@@ -251,7 +257,7 @@ func TestCreateShareReturnsTheReceiptAndCapsTheHour(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	d.CreateShare(rec, shareReq(bytes.NewReader([]byte("graph"))))
-	want := `{"entityKey":"` + validKey + `","chainId":7794095}` + "\n"
+	want := `{"entityKey":"` + validKey + `","chainId":7794095,"txHash":"` + validTx + `"}` + "\n"
 	if rec.Code != http.StatusCreated || rec.Body.String() != want {
 		t.Fatalf("success = %d %q", rec.Code, rec.Body.String())
 	}
@@ -267,6 +273,17 @@ func TestCreateShareReturnsTheReceiptAndCapsTheHour(t *testing.T) {
 	d.CreateShare(rec, shareReq(bytes.NewReader([]byte("graph"))))
 	if rec.Code != http.StatusTooManyRequests || rec.Body.String() != "{\"error\":\"share_rate\"}\n" {
 		t.Fatalf("11th = %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateShareRejectsABadTransactionHash(t *testing.T) {
+	d := testDeps(t)
+	clearShareMeter(t, d)
+	d.ShareWriter = &stubWriter{key: validKey, tx: "not-a-tx"}
+	rec := httptest.NewRecorder()
+	d.CreateShare(rec, shareReq(bytes.NewReader([]byte("graph"))))
+	if rec.Code != http.StatusBadGateway || strings.Contains(rec.Body.String(), validKey) {
+		t.Fatalf("bad tx = %d %s", rec.Code, rec.Body.String())
 	}
 }
 

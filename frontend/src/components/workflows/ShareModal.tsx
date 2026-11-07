@@ -80,6 +80,7 @@ export function ShareModal({
   const [isPublic, setIsPublic] = useState(false);
   const [pending, setPending] = useState(false);
   const [link, setLink] = useState<string | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [publication, setPublication] = useState<{ urls: string[]; emails: string[] }>({
     urls: [],
@@ -135,10 +136,15 @@ export function ShareModal({
         fragment = sealed.key;
       }
       const receipt = await createShare(payload);
-      if (receipt.chainId !== shareChainID || !entityKeyPattern.test(receipt.entityKey)) {
+      if (
+        receipt.chainId !== shareChainID ||
+        !entityKeyPattern.test(receipt.entityKey) ||
+        !entityKeyPattern.test(receipt.txHash)
+      ) {
         setError(unconfirmed);
         return;
       }
+      setTxHash(receipt.txHash);
       setLink(shareURL(shareOrigin(), receipt.entityKey, fragment));
     } catch (err) {
       const message = shareFailure(err);
@@ -327,6 +333,24 @@ export function ShareModal({
             >
               {link}
             </p>
+            {txHash && (
+              <p style={{ margin: "0 0 12px", fontSize: "var(--t-2)", color: "var(--fg-muted)" }}>
+                Rabdi transaction{" "}
+                <a
+                  href={`https://rabdi.explorer.arkiv.network/tx/${txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    color: "var(--fg)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "var(--t-1)",
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {txHash}
+                </a>
+              </p>
+            )}
             <button
               type="button"
               onClick={handleCopy}

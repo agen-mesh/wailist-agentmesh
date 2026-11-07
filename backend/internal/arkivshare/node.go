@@ -33,7 +33,7 @@ func childEnv() []string {
 	}
 }
 
-func (w nodeWriter) CreateShare(ctx context.Context, payload []byte) (string, error) {
+func (w nodeWriter) CreateShare(ctx context.Context, payload []byte) (Receipt, error) {
 	cmd := exec.CommandContext(ctx, w.scriptPath)
 	cmd.Env = childEnv()
 	cmd.Stdin = bytes.NewReader(payload)
@@ -42,17 +42,19 @@ func (w nodeWriter) CreateShare(ctx context.Context, payload []byte) (string, er
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if strings.TrimSpace(stderr.String()) == "share_disabled" {
-		return "", ErrDisabled
+		return Receipt{}, ErrDisabled
 	}
 	if err != nil {
-		return "", fmt.Errorf("%w", ErrUnconfirmed)
+		return Receipt{}, fmt.Errorf("%w", ErrUnconfirmed)
 	}
 	var out struct {
 		EntityKey string `json:"entityKey"`
 		TxHash    string `json:"txHash"`
 	}
-	if json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &out) != nil || !nodeEntityKey.MatchString(out.EntityKey) {
-		return "", fmt.Errorf("%w", ErrUnconfirmed)
+	if json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &out) != nil ||
+		!nodeEntityKey.MatchString(out.EntityKey) ||
+		!nodeEntityKey.MatchString(out.TxHash) {
+		return Receipt{}, fmt.Errorf("%w", ErrUnconfirmed)
 	}
-	return out.EntityKey, nil
+	return Receipt{EntityKey: out.EntityKey, TxHash: out.TxHash}, nil
 }

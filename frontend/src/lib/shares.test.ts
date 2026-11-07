@@ -14,20 +14,21 @@ import { BASE } from "./api";
 import { createShare, shareOrigin } from "./shares";
 
 const entityKey = "0x" + "ab".repeat(32);
+const txHash = "0x" + "cd".repeat(32);
 
 afterEach(() => {
   nativeState.current = false;
   vi.unstubAllGlobals();
 });
 
-it("posts the bytes as octet-stream and returns the key only for a Rabdi receipt", async () => {
+it("posts the bytes as octet-stream and returns the key and transaction for a Rabdi receipt", async () => {
   const bytes = new Uint8Array([1, 2, 3]);
   const fetchMock = vi.fn(async () =>
-    new Response(JSON.stringify({ entityKey, chainId: 7794095 }), { status: 201 }),
+    new Response(JSON.stringify({ entityKey, chainId: 7794095, txHash }), { status: 201 }),
   );
   vi.stubGlobal("fetch", fetchMock);
 
-  await expect(createShare(bytes)).resolves.toEqual({ entityKey, chainId: 7794095 });
+  await expect(createShare(bytes)).resolves.toEqual({ entityKey, chainId: 7794095, txHash });
 
   expect(fetchMock).toHaveBeenCalledTimes(1);
   const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
@@ -54,6 +55,14 @@ it("keeps a rate limit and a disabled share distinct from an unconfirmed write",
 
   fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: "share_disabled" }), { status: 503 }));
   await expect(createShare(new Uint8Array([1]))).rejects.toThrow("share_disabled");
+});
+
+it("rejects a Rabdi receipt that has no transaction hash", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({ entityKey, chainId: 7794095 }), { status: 201 })),
+  );
+  await expect(createShare(new Uint8Array([1]))).rejects.toThrow("share_unconfirmed");
 });
 
 it("throws on 502 and does not return the key from the body", async () => {

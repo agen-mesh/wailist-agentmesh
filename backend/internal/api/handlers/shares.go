@@ -26,6 +26,7 @@ var entityKeyPattern = regexp.MustCompile(`^0x[0-9a-fA-F]{64}$`)
 type shareReceipt struct {
 	EntityKey string `json:"entityKey"`
 	ChainID   int    `json:"chainId"`
+	TxHash    string `json:"txHash"`
 }
 
 func (d *Deps) CreateShare(w http.ResponseWriter, r *http.Request) {
@@ -69,16 +70,20 @@ func (d *Deps) CreateShare(w http.ResponseWriter, r *http.Request) {
 	}
 	writeCtx, cancel := context.WithTimeout(r.Context(), shareWriteLimit)
 	defer cancel()
-	entityKey, err := d.ShareWriter.CreateShare(writeCtx, body)
+	receipt, err := d.ShareWriter.CreateShare(writeCtx, body)
 	if err != nil {
 		writeShareError(w, err)
 		return
 	}
-	if !entityKeyPattern.MatchString(entityKey) {
+	if !entityKeyPattern.MatchString(receipt.EntityKey) || !entityKeyPattern.MatchString(receipt.TxHash) {
 		writeShareError(w, arkivshare.ErrUnconfirmed)
 		return
 	}
-	respond.JSON(w, http.StatusCreated, shareReceipt{EntityKey: entityKey, ChainID: arkivshare.ChainID})
+	respond.JSON(w, http.StatusCreated, shareReceipt{
+		EntityKey: receipt.EntityKey,
+		ChainID:   arkivshare.ChainID,
+		TxHash:    receipt.TxHash,
+	})
 }
 
 func writeShareError(w http.ResponseWriter, err error) {

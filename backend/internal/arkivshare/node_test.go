@@ -28,9 +28,9 @@ func TestNodeWriterPassesPayloadOnStdinOnly(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://leak")
 	t.Setenv("JWT_SECRET", "jwt-leak")
 	w := arkivshare.NewNodeWriter(script)
-	key, err := w.CreateShare(context.Background(), []byte("graph"))
-	if err != nil || key != "0x"+strings.Repeat("ab", 32) {
-		t.Fatalf("key %s err %v", key, err)
+	receipt, err := w.CreateShare(context.Background(), []byte("graph"))
+	if err != nil || receipt.EntityKey != "0x"+strings.Repeat("ab", 32) || receipt.TxHash != "0x"+strings.Repeat("cd", 32) {
+		t.Fatalf("receipt %+v err %v", receipt, err)
 	}
 	got, _ := os.ReadFile(capture)
 	if string(got) != "graph" {
@@ -50,6 +50,20 @@ func TestNodeWriterPassesPayloadOnStdinOnly(t *testing.T) {
 	}
 	if strings.Contains(text, "DATABASE_URL") || strings.Contains(text, "JWT_SECRET") || strings.Contains(text, "postgres://leak") {
 		t.Fatalf("writer env inherited a server secret:\n%s", text)
+	}
+}
+
+func TestNodeWriterRejectsAReceiptWithoutATransactionHash(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "writer.sh")
+	body := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' '{\"entityKey\":\"0x%s\"}'\n", strings.Repeat("ab", 32))
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w := arkivshare.NewNodeWriter(script)
+	_, err := w.CreateShare(context.Background(), []byte("graph"))
+	if !errors.Is(err, arkivshare.ErrUnconfirmed) {
+		t.Fatalf("err = %v, want ErrUnconfirmed", err)
 	}
 }
 

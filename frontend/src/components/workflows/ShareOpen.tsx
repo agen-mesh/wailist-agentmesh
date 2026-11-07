@@ -10,6 +10,7 @@ import { stripShareGraph } from "@/lib/sharePayload";
 import { loadTemplateWorkflow } from "@/lib/templateWorkflow";
 import type { Workflow } from "@/lib/types";
 import type { WorkflowShareData } from "@/lib/workflowShare";
+import styles from "./ShareOpen.module.css";
 
 const authorship =
   "Signed by AgentMesh. This link does not prove which person shared it.";
@@ -20,6 +21,30 @@ const computerOnly = "Open this link on a computer to save it.";
 
 function shareKeyName(entityKey: string): string {
   return `arkiv-share-k:${entityKey}`;
+}
+
+function countLabel(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function textField(node: object, key: string): string {
+  const value = (node as Record<string, unknown>)[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function describeNode(node: unknown): { title: string; type: string } {
+  if (!node || typeof node !== "object") return { title: "Untitled step", type: "" };
+  const name = textField(node, "name") || textField(node, "label");
+  const type = textField(node, "type");
+  return { title: name || type || "Untitled step", type: name && type ? type : "" };
+}
+
+function nodeKey(node: unknown, index: number): string {
+  if (node && typeof node === "object") {
+    const id = textField(node, "id");
+    if (id) return id;
+  }
+  return String(index);
 }
 
 export function rememberShareKey(entityKey: string, hash: string) {
@@ -87,52 +112,63 @@ export function ShareOpen({ entityKey, hash }: { entityKey: string; hash: string
   const showSignIn = data !== null && !readOnly && !authLoading && !signedIn;
   const signInHref = `/signin?next=${encodeURIComponent(`/s/${entityKey}`)}`;
 
+  const title = data?.name?.trim() || "Shared workflow";
+
   return (
-    <main style={{ maxWidth: 640, margin: "0 auto", padding: 24, color: "var(--fg)" }}>
-      <h1 style={{ fontSize: "var(--t-5)", margin: "0 0 8px" }}>{data?.name ?? "Shared workflow"}</h1>
-      {showAuthorship && (
-        <p style={{ margin: "0 0 8px", color: "var(--fg-muted)" }}>{authorship}</p>
-      )}
-      <p style={{ margin: "0 0 16px", color: "var(--fg-muted)" }}>{death}</p>
+    <main className={styles.page}>
+      <h1 className={styles.title}>{title}</h1>
+      {!data && !error && <p className={styles.status}>Opening this share.</p>}
       {data && (
-        <p style={{ margin: "0 0 16px" }}>
-          <span>{data.nodes.length} nodes</span>
-          <span>{data.edges.length} edges</span>
+        <>
+          <div className={styles.counts}>
+            <p className={styles.count}>{countLabel(data.nodes.length, "node", "nodes")}</p>
+            <p className={styles.count}>{countLabel(data.edges.length, "edge", "edges")}</p>
+          </div>
+          {data.nodes.length > 0 && (
+            <ol className={styles.steps}>
+              {data.nodes.map((node, index) => {
+                const step = describeNode(node);
+                return (
+                  <li key={nodeKey(node, index)} className={styles.step}>
+                    <span className={styles.mark} aria-hidden="true" />
+                    <span className={styles.stepBody}>
+                      <span className={styles.stepTitle}>{step.title}</span>
+                      {step.type && <span className={styles.stepType}>{step.type}</span>}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </>
+      )}
+      {error && (
+        <p className={styles.error} role="alert">
+          {error}
         </p>
       )}
-      {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
-      {saveError && <p style={{ color: "var(--danger)" }}>{saveError}</p>}
-      {data && readOnly && (
-        <p style={{ margin: "0 0 16px", color: "var(--fg-muted)" }}>{computerOnly}</p>
+      {saveError && (
+        <p className={styles.error} role="alert">
+          {saveError}
+        </p>
       )}
-      {showSignIn && (
-        <a
-          href={signInHref}
-          onClick={() => rememberShareKey(entityKey, hash)}
-          style={{ color: "var(--accent)", fontWeight: 600 }}
-        >
-          Sign in to save
-        </a>
+      {data && readOnly && <p className={styles.note}>{computerOnly}</p>}
+      {(showSignIn || showSave) && (
+        <div className={styles.actions}>
+          {showSignIn && (
+            <a className={styles.action} href={signInHref} onClick={() => rememberShareKey(entityKey, hash)}>
+              Sign in to save
+            </a>
+          )}
+          {showSave && (
+            <button className={styles.action} type="button" onClick={save} disabled={saving}>
+              Save to my workflows
+            </button>
+          )}
+        </div>
       )}
-      {showSave && (
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving}
-          style={{
-            height: 38,
-            padding: "0 16px",
-            borderRadius: "var(--r-2)",
-            border: "1px solid var(--accent-line)",
-            background: "var(--accent)",
-            color: "var(--accent-fg)",
-            fontWeight: 600,
-            cursor: saving ? "default" : "pointer",
-          }}
-        >
-          Save to my workflows
-        </button>
-      )}
+      {showAuthorship && <p className={styles.note}>{authorship}</p>}
+      {showAuthorship && <p className={styles.note}>{death}</p>}
     </main>
   );
 }

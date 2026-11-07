@@ -1,0 +1,167 @@
+.page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 48px 24px 120px;
+  color: var(--fg);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--t-7);
+  font-weight: 560;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+.status {
+  margin: 16px 0 0;
+  color: var(--fg-muted);
+  font-size: var(--t-3);
+}
+
+.counts {
+  display: flex;
+  gap: 8px;
+  margin: 20px 0 0;
+}
+
+.count {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--bg-elev-1);
+  color: var(--fg);
+  font-size: var(--t-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.steps {
+  list-style: none;
+  margin: 28px 0 0;
+  padding: 0;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  column-gap: 12px;
+  min-height: 36px;
+}
+
+.mark {
+  position: relative;
+}
+
+.mark::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+  transform: translateX(-50%);
+}
+
+.step:first-child .mark::before {
+  top: 14px;
+}
+
+.step:last-child .mark::before {
+  bottom: calc(100% - 14px);
+}
+
+.mark::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 11px;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--fg);
+  border-radius: 50%;
+  background: var(--bg);
+  transform: translateX(-50%);
+}
+
+.stepBody {
+  min-width: 0;
+  padding-bottom: 14px;
+}
+
+.stepTitle {
+  display: block;
+  overflow: hidden;
+  font-size: var(--t-4);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stepType {
+  display: block;
+  margin-top: 2px;
+  color: var(--fg-dim);
+  font-size: var(--t-2);
+}
+
+.actions {
+  display: flex;
+  margin-top: 8px;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-2);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: var(--t-3);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.action:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 3px;
+}
+
+.action:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.note {
+  max-width: 62ch;
+  margin: 14px 0 0;
+  color: var(--fg-muted);
+  font-size: var(--t-2);
+  line-height: 1.5;
+}
+
+.error {
+  margin: 20px 0 0;
+  color: var(--danger);
+  font-size: var(--t-3);
+  line-height: 1.5;
+}
+
+@media (max-width: 600px) {
+  .page {
+    padding: 28px 16px 128px;
+  }
+
+  .title {
+    font-size: var(--t-6);
+  }
+
+  .action {
+    width: 100%;
+  }
+}
