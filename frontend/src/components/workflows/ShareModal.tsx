@@ -3,31 +3,52 @@ import { useEffect, useState } from "react";
 import { IconClose } from "@/components/ui";
 import { useModalDismissal } from "@/hooks/useModalDismissal";
 import { workflows as workflowsApi } from "@/lib/api";
-import { encodeWorkflowShare } from "@/lib/workflowShare";
+import { sealShare } from "@/lib/shareCrypto";
+import {
+  maxShareBytes,
+  prepareSharePayload,
+  publishedShareFields,
+  ShareTooLargeError,
+  shareURL,
+} from "@/lib/sharePayload";
+import { useReadOnly } from "@/hooks/useReadOnly";
+import { createShare, shareChainID, shareOrigin } from "@/lib/shares";
 
-// mailto: URLs get truncated by a lot of mail clients/OSes past roughly
-// 2000 total characters, so the code only goes in the email body when it's
-// short enough to survive that -- otherwise the body just points back at
-// the code already sitting in the user's clipboard from "Copy code".
-const MAILTO_SAFE_CODE_LENGTH = 1200;
+const authorship =
+  "Signed by AgentMesh. This link does not prove which person shared it.";
+const death =
+  "This link dies 7 days after it is confirmed. AgentMesh does not keep a copy. A retired Arkiv testnet kills the link too.";
+const privateCopy =
+  "Private. The decryption key stays in the link after # and is not sent to AgentMesh or Arkiv.";
+const publicCopy =
+  "Public. Anyone who can query Arkiv can read this graph for 7 days, even without the link. Prompts are included.";
+const waiting = "Waiting for Arkiv to confirm the share.";
+const unconfirmed = "Share did not confirm. Nothing was copied. Try again.";
+const shareRate =
+  "You have reached the hourly share limit. Nothing was copied. Try again later.";
+const shareBudget =
+  "AgentMesh has reached today's share limit. Nothing was copied. Try again tomorrow.";
+const shareDisabled = "Sharing is off on this server. Nothing was copied.";
+const shareBusy = "Another share is being confirmed. Nothing was copied. Try again.";
+const tooLarge = new ShareTooLargeError().message;
+const desktopOnly = "Workflows can only be edited in the AgentMesh desktop app.";
+
+function shareFailure(err: unknown): string {
+  const code = err instanceof Error ? err.message : "";
+  if (code === "share_rate") return shareRate;
+  if (code === "share_budget") return shareBudget;
+  if (code === "share_disabled") return shareDisabled;
+  if (code === "share_busy") return shareBusy;
+  if (code === "share_too_large") return tooLarge;
+  if (code === "Workflows can only be edited in the AgentMesh desktop app.") return code;
+  return unconfirmed;
+}
+const entityKeyPattern = /^0x[0-9a-fA-F]{64}$/;
 
 const IconCopy = ({ size = 14 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
-    <rect
-      x="5.5"
-      y="5.5"
-      width="8"
-      height="8"
-      rx="1.5"
-      stroke="currentColor"
-      strokeWidth="1.3"
-    />
-    <path
-      d="M2.5 10.5v-7A1 1 0 0 1 3.5 2.5h7"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-    />
+    <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M2.5 10.5v-7A1 1 0 0 1 3.5 2.5h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
   </svg>
 );
 
@@ -39,34 +60,11 @@ const IconX = ({ size = 14 }: { size?: number }) => (
 
 const IconMail = ({ size = 14 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
-    <rect
-      x="1.5"
-      y="3.5"
-      width="13"
-      height="9"
-      rx="1.5"
-      stroke="currentColor"
-      strokeWidth="1.3"
-    />
-    <path
-      d="M2 4.5 8 9l6-4.5"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
+    <rect x="1.5" y="3.5" width="13" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M2 4.5 8 9l6-4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  return `${(n / 1024).toFixed(1)} KB`;
-}
-
-// Mounted only while open (the parent renders it conditionally on
-// shareWorkflowId, the same pattern AddToWorkflowDialog uses) -- so a fresh
-// mount per share is the reset, and the fetch-then-encode effect never needs
-// to synchronously setState before the async work starts.
 export function ShareModal({
   workflowId,
   onClose,
@@ -75,13 +73,19 @@ export function ShareModal({
   onClose: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
-  const [prepared, setPrepared] = useState<{ name: string; code: string } | null>(
-    null,
-  );
+  const [name, setName] = useState("");
+  const [bytes, setBytes] = useState<Uint8Array | null>(null);
+  const [ready, setReady] = useState(false);
+  const [tooBig, setTooBig] = useState(false);
+  const [isPublic, setIsPublic] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [link, setLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const loading = !prepared && !error;
-  const name = prepared?.name ?? "";
-  const code = prepared?.code ?? "";
+  const [publication, setPublication] = useState<{ urls: string[]; emails: string[] }>({
+    urls: [],
+    emails: [],
+  });
+  const readOnly = useReadOnly();
 
   useModalDismissal(onClose);
 
@@ -90,17 +94,22 @@ export function ShareModal({
     (async () => {
       try {
         const wf = await workflowsApi.get(workflowId);
-        const encoded = await encodeWorkflowShare({
+        const prepared = await prepareSharePayload({
           name: wf.name,
           nodes: wf.nodes,
           edges: wf.edges,
         });
-        if (!cancelled) setPrepared({ name: wf.name, code: encoded });
+        if (cancelled) return;
+        setName(wf.name);
+        setBytes(prepared.bytes);
+        setPublication(publishedShareFields(prepared.data));
       } catch (e) {
-        if (!cancelled)
-          setError(
-            e instanceof Error ? e.message : "could not prepare share code",
-          );
+        if (cancelled) return;
+        const message = e instanceof Error ? e.message : "could not prepare share";
+        setError(message);
+        if (message === tooLarge) setTooBig(true);
+      } finally {
+        if (!cancelled) setReady(true);
       }
     })();
     return () => {
@@ -108,23 +117,58 @@ export function ShareModal({
     };
   }, [workflowId]);
 
-  const handleCopy = async () => {
+  const handleCreate = async () => {
+    if (!bytes || pending || tooBig || link) return;
+    setError(null);
+    setPending(true);
     try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setError("clipboard write was blocked -- select the code and copy it manually");
+      let payload = bytes;
+      let fragment: string | null = null;
+      if (!isPublic) {
+        const sealed = await sealShare(bytes);
+        if (sealed.ciphertext.byteLength > maxShareBytes) {
+          setError(tooLarge);
+          setTooBig(true);
+          return;
+        }
+        payload = sealed.ciphertext;
+        fragment = sealed.key;
+      }
+      const receipt = await createShare(payload);
+      if (receipt.chainId !== shareChainID || !entityKeyPattern.test(receipt.entityKey)) {
+        setError(unconfirmed);
+        return;
+      }
+      setLink(shareURL(shareOrigin(), receipt.entityKey, fragment));
+    } catch (err) {
+      const message = shareFailure(err);
+      setError(message);
+      if (message === tooLarge) setTooBig(true);
+    } finally {
+      setPending(false);
     }
   };
 
+  const handleCopy = async () => {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError("clipboard write was blocked -- select the link and copy it manually");
+    }
+  };
+
+  const privateLink = Boolean(link?.includes("#k="));
+  const published = [...publication.urls, ...publication.emails];
   const caption = `Check out "${name}" -- a workflow I built with AgentMesh`;
-  const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(caption)}`;
-  const emailBody =
-    code.length > 0 && code.length <= MAILTO_SAFE_CODE_LENGTH
-      ? `${caption}\n\nPaste this into Import on the Workflows page:\n\n${code}`
-      : `${caption}\n\nI copied the workflow code to my clipboard -- ask me for it, then paste it into Import on the Workflows page.`;
-  const mailUrl = `mailto:?subject=${encodeURIComponent(caption)}&body=${encodeURIComponent(emailBody)}`;
+  const tweetUrl = link
+    ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(`${caption} ${link}`)}`
+    : "";
+  const mailUrl = link
+    ? `mailto:?subject=${encodeURIComponent(caption)}&body=${encodeURIComponent(`${caption}\n\n${link}`)}`
+    : "";
 
   return (
     <div
@@ -203,44 +247,86 @@ export function ShareModal({
           </button>
         </div>
 
-        {loading && (
-          <div style={{ padding: "24px 0", textAlign: "center", fontSize: "var(--t-2)", color: "var(--fg-dim)" }}>
-            Preparing share code…
-          </div>
+        <p style={{ margin: "0 0 8px", fontSize: "var(--t-2)", color: "var(--fg-muted)" }}>{authorship}</p>
+        <p style={{ margin: "0 0 14px", fontSize: "var(--t-2)", color: "var(--fg-muted)" }}>{death}</p>
+
+        {bytes && (
+          <label style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 10, fontSize: "var(--t-2)" }}>
+            <input
+              type="checkbox"
+              checked={isPublic}
+              onChange={(e) => setIsPublic(e.target.checked)}
+              disabled={pending || Boolean(link)}
+            />
+            Anyone with the link can read this
+          </label>
         )}
 
-        {!loading && error && (
-          <div style={{ fontSize: "var(--t-2)", color: "var(--danger)", padding: "8px 0" }}>
-            {error}
-          </div>
+        {bytes && (
+          <p style={{ margin: "0 0 14px", fontSize: "var(--t-2)", color: "var(--fg-muted)" }}>
+            {isPublic ? publicCopy : privateCopy}
+          </p>
         )}
 
-        {!loading && !error && code && (
+        {isPublic && published.length > 0 && (
+          <p style={{ margin: "0 0 14px", fontSize: "var(--t-2)", color: "var(--fg)" }}>
+            This public share will publish {published.join(", ")}.
+          </p>
+        )}
+
+        {readOnly && (
+          <p style={{ margin: "0 0 14px", fontSize: "var(--t-2)", color: "var(--fg-muted)" }}>{desktopOnly}</p>
+        )}
+
+        {pending && (
+          <p style={{ margin: "0 0 14px", fontSize: "var(--t-2)", color: "var(--fg-dim)" }}>{waiting}</p>
+        )}
+
+        {error && (
+          <div style={{ fontSize: "var(--t-2)", color: "var(--danger)", padding: "0 0 12px" }}>{error}</div>
+        )}
+
+        {ready && !readOnly && (
+          <button
+            type="button"
+            onClick={handleCreate}
+            disabled={!bytes || tooBig || pending || Boolean(link)}
+            style={{
+              width: "100%",
+              height: 38,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "var(--s-2)",
+              borderRadius: "var(--r-2)",
+              border: "1px solid var(--accent-line)",
+              background: "var(--accent)",
+              color: "var(--accent-fg)",
+              fontSize: "var(--t-3)",
+              fontWeight: 600,
+              cursor: !bytes || tooBig || pending || link ? "default" : "pointer",
+              marginBottom: 14,
+              opacity: !bytes || tooBig || pending || link ? 0.6 : 1,
+            }}
+          >
+            Create link
+          </button>
+        )}
+
+        {link && (
           <>
-            <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)", marginBottom: 6 }}>
-              Code ({formatBytes(code.length)}) -- API keys are never included, so
-              re-enter them after importing.
-            </div>
-            <textarea
-              readOnly
-              value={code}
-              onFocus={(e) => e.currentTarget.select()}
+            <p
               style={{
-                width: "100%",
-                height: 88,
-                resize: "none",
+                margin: "0 0 12px",
                 fontFamily: "var(--font-mono)",
                 fontSize: "var(--t-1)",
                 lineHeight: 1.5,
-                padding: 10,
-                background: "var(--bg-elev-2)",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--r-2)",
-                color: "var(--fg-muted)",
-                marginBottom: 12,
                 wordBreak: "break-all",
+                color: "var(--fg)",
               }}
-            />
+            >
+              {link}
+            </p>
             <button
               type="button"
               onClick={handleCopy}
@@ -261,20 +347,9 @@ export function ShareModal({
                 marginBottom: 14,
               }}
             >
-              <IconCopy size={13} /> {copied ? "Copied!" : "Copy code"}
+              <IconCopy size={13} /> {copied ? "Copied!" : "Copy link"}
             </button>
-
-            <div
-              style={{
-                height: 1,
-                background: "var(--border)",
-                margin: "0 0 14px",
-              }}
-            />
-
-            <div style={{ fontSize: "var(--t-1)", color: "var(--fg-dim)", marginBottom: 8 }}>
-              Or tell someone about it
-            </div>
+            {!privateLink && (
             <div style={{ display: "flex", gap: "var(--s-3)" }}>
               <a
                 href={tweetUrl}
@@ -294,7 +369,6 @@ export function ShareModal({
                   fontSize: "var(--t-2)",
                   fontWeight: 500,
                   textDecoration: "none",
-                  cursor: "pointer",
                 }}
               >
                 <IconX size={12} /> Post
@@ -315,12 +389,12 @@ export function ShareModal({
                   fontSize: "var(--t-2)",
                   fontWeight: 500,
                   textDecoration: "none",
-                  cursor: "pointer",
                 }}
               >
                 <IconMail size={13} /> Email
               </a>
             </div>
+            )}
           </>
         )}
       </div>

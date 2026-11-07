@@ -15,11 +15,28 @@ export interface WorkflowShareData {
   edges: unknown[];
 }
 
+// A 128 KB gzip of zeros expands far past anything a workflow graph is.
+// Stop reading once the uncompressed bytes pass this cap.
+export const maxUncompressedShareBytes = 4 * 1024 * 1024;
+
+export class ShareExpandError extends Error {
+  constructor() {
+    super("This share is too large to open.");
+    this.name = "ShareExpandError";
+  }
+}
+
+export async function gzipWorkflowShare(
+  payload: WorkflowShareData,
+): Promise<Uint8Array> {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  return gzip(bytes);
+}
+
 export async function encodeWorkflowShare(
   payload: WorkflowShareData,
 ): Promise<string> {
-  const bytes = new TextEncoder().encode(JSON.stringify(payload));
-  const compressed = await gzip(bytes);
+  const compressed = await gzipWorkflowShare(payload);
   return bytesToBase64(compressed);
 }
 
@@ -65,13 +82,52 @@ async function gunzip(bytes: Uint8Array): Promise<Uint8Array> {
   }
   const stream = new DecompressionStream("gzip");
   const writer = stream.writable.getWriter();
+  const reader = stream.readable.getReader();
   // TS's DOM lib types Uint8Array's backing buffer as ArrayBufferLike (which
   // includes SharedArrayBuffer), but WritableStream<BufferSource>.write()
   // wants a concrete ArrayBuffer -- these bytes always come from
   // TextEncoder/atob, never a shared buffer, so the cast is safe.
-  void writer.write(bytes as BufferSource);
-  void writer.close();
-  return new Uint8Array(await new Response(stream.readable).arrayBuffer());
+  // Read while the write runs. A payload that is not gzip rejects here;
+  // discarding that rejection leaves an unhandled stream error.
+  let expandError: ShareExpandError | null = null;
+  const readAll = (async () => {
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxUncompressedShareBytes) {
+        expandError = new ShareExpandError();
+        await reader.cancel().catch(() => {});
+        throw expandError;
+      }
+      chunks.push(value);
+    }
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      out.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return out;
+  })();
+  try {
+    await writer.write(bytes as BufferSource);
+    await writer.close();
+  } catch (err) {
+    await writer.abort(err).catch(() => {});
+    await reader.cancel().catch(() => {});
+    await readAll.catch(() => {});
+    if (expandError) throw expandError;
+    throw err;
+  }
+  try {
+    return await readAll;
+  } catch (err) {
+    if (expandError) throw expandError;
+    throw err;
+  }
 }
 
 // String.fromCharCode(...bytes) blows the call stack on large arrays, so this

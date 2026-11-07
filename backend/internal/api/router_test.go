@@ -65,6 +65,10 @@ func TestTrailingSlashNeverReachesTheAuthedGroup(t *testing.T) {
 			"route matched, so the group's auth middleware ran and rejected it"},
 		{"item with slash", http.MethodPut, "/workflows/wf_1/", http.StatusNotFound,
 			"no route matched, so no group middleware ran at all"},
+		{"share matches", http.MethodPost, "/shares", http.StatusUnauthorized,
+			"route matched, so the group's auth middleware ran and rejected it"},
+		{"share with slash", http.MethodPost, "/shares/", http.StatusNotFound,
+			"no route matched, so no group middleware ran at all"},
 	}
 
 	for _, tc := range cases {

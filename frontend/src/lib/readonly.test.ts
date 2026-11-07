@@ -141,6 +141,11 @@ describe("isWriteBlocked", () => {
     expect(isWriteBlocked("GET", "/tendril/console", VIEWER)).toBe(true);
   });
 
+  it("blocks a viewer from creating an Arkiv share", () => {
+    expect(isWriteBlocked("POST", "/shares", VIEWER)).toBe(true);
+    expect(isWriteBlocked("POST", "/shares", EDITOR)).toBe(false);
+  });
+
   it("blocks nothing for an editor", () => {
     expect(isWriteBlocked("POST", "/workflows", EDITOR)).toBe(false);
     expect(isWriteBlocked("DELETE", "/workflows/wf_123", EDITOR)).toBe(false);

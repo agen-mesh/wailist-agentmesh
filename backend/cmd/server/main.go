@@ -13,6 +13,7 @@ import (
 
 	"github.com/agentmesh/backend/internal/api"
 	"github.com/agentmesh/backend/internal/api/handlers"
+	"github.com/agentmesh/backend/internal/arkivshare"
 	"github.com/agentmesh/backend/internal/chain"
 	"github.com/agentmesh/backend/internal/db"
 	"github.com/agentmesh/backend/internal/engine"
@@ -235,6 +236,18 @@ func main() {
 		GitLabClientSecret:          os.Getenv("GITLAB_CLIENT_SECRET"),
 		TodoistClientID:             os.Getenv("TODOIST_CLIENT_ID"),
 		TodoistClientSecret:         os.Getenv("TODOIST_CLIENT_SECRET"),
+	}
+
+	if os.Getenv("ARKIV_SHARE_PRIVATE_KEY") != "" {
+		script := os.Getenv("ARKIV_SHARE_WRITER")
+		if script == "" {
+			script = "/app/arkiv-writer/write-share.mjs"
+		}
+		if _, err := os.Stat(script); err != nil {
+			log.Printf("arkiv share writer missing at %s: %v", script, err)
+		} else {
+			deps.ShareWriter = arkivshare.NewNodeWriter(script)
+		}
 	}
 
 	// Keeps the Bazaar catalog cache refreshed ahead of its own TTL, so a
