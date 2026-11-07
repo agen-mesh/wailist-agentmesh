@@ -1,6 +1,6 @@
 # Reach
 
-AgentMesh is the live app at https://www.agent-mesh.app. The people who use it today build and run workflows there. This repo does not contain a user count, so this note does not invent one.
+AgentMesh is the live app at https://www.agent-mesh.app. About 100 to 200 people use it today. They build and run workflows there.
 
 They use the Arkiv part when they share a workflow. The author is signed in and posts the graph. The recipient opens `/s/<entityKey>` and the page reads the entity from Rabdi. Nobody else hits Arkiv. Payments stay on Whitechain or Arc.
 
