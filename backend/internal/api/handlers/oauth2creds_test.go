@@ -379,3 +379,29 @@ func TestOAuth2CredDelete_DeniesOtherUser(t *testing.T) {
 		t.Error("want the owner's credential untouched")
 	}
 }
+
+func TestOAuth2CredListAllProvidersIsOwnedAndMasked(t *testing.T) {
+	d := oauth2Deps(t)
+	owner := deletionUser(t, d, "")
+	other := deletionUser(t, d, "")
+	for _, fixture := range []struct{ owner, provider, label string }{{owner.ID, "google", "first"}, {owner.ID, "second-provider", "second"}, {other.ID, "google", "other"}} {
+		if _, err := d.Store.InsertOAuthCredential(t.Context(), models.OAuthCredential{UserID: fixture.owner, Provider: fixture.provider, AccountLabel: fixture.label, AccessTokenEnc: "private-access-ciphertext", RefreshTokenEnc: "private-refresh-ciphertext"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := httptest.NewRecorder()
+	d.OAuth2CredList(rec, withUser(httptest.NewRequest(http.MethodGet, "/oauth2/credentials", nil), owner.ID))
+	body := rec.Body.String()
+	var got []models.OAuthCredential
+	if err := json.Unmarshal([]byte(body), &got); err != nil || rec.Code != 200 || len(got) != 2 {
+		t.Fatalf("all providers: %d %s %v", rec.Code, body, err)
+	}
+	for _, credential := range got {
+		if credential.UserID != owner.ID {
+			t.Fatal("other owner credential returned")
+		}
+	}
+	if strings.Contains(body, "ciphertext") || strings.Contains(body, "TokenEnc") {
+		t.Fatal("stored token returned")
+	}
+}

@@ -285,10 +285,6 @@ func randomLabelSuffix() string {
 func (d *Deps) OAuth2CredList(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(CtxUserID).(string)
 	provider := r.URL.Query().Get("provider")
-	if provider == "" {
-		respond.Error(w, http.StatusBadRequest, "provider query param required")
-		return
-	}
 	creds, err := d.Store.ListOAuthCredentials(r.Context(), userID, provider)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, err.Error())
