@@ -286,7 +286,7 @@ func (d *Deps) LocationPing(w http.ResponseWriter, r *http.Request) {
 	// starts below -- a cooldown or an already-running workflow can still
 	// no-op that separately, and the user still crossed the line either way.
 	go push.NotifyGeofenceCrossing(context.Background(), d.Store, wf.UserID, wf.ID, wf.Name, direction)
-	runID, err := d.startGeofenceRun(r, wf, direction, *body.Lat, *body.Lng, fixAt)
+	runID, err := d.startGeofenceRun(r, wf, direction, fixAt)
 	if err != nil {
 		var cooldownErr *db.ErrRunOnCooldown
 		if errors.As(err, &cooldownErr) {
@@ -315,7 +315,7 @@ func (d *Deps) LocationPing(w http.ResponseWriter, r *http.Request) {
 // startGeofenceRun creates and starts the run for a crossing. Returns an empty
 // id (and no error) when a run is already in flight for this workflow.
 func (d *Deps) startGeofenceRun(
-	r *http.Request, wf models.Workflow, direction string, lat, lng float64, fixAt time.Time,
+	r *http.Request, wf models.Workflow, direction string, fixAt time.Time,
 ) (string, error) {
 	ctx := r.Context()
 
@@ -330,7 +330,7 @@ func (d *Deps) startGeofenceRun(
 
 	input, err := json.Marshal(map[string]any{
 		"trigger": "geofence", "direction": direction,
-		"lat": lat, "lng": lng, "recordedAt": fixAt,
+		"recordedAt": fixAt,
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshal geofence run input: %w", err)

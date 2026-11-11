@@ -11,7 +11,7 @@ android {
     namespace "ai.agentmesh.app"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "ai.agentmesh.app"
+        applicationId "com.agentmesh.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // Supplied by android.yml from the release tag; the defaults below

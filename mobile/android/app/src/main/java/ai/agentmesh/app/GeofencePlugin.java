@@ -21,8 +21,6 @@ import com.getcapacitor.annotation.PermissionCallback;
 import com.google.android.gms.location.GeofencingClient;
 import com.google.android.gms.location.LocationServices;
 
-import java.util.Collections;
-
 /**
  * Geofencing on Android's own GeofencingClient.
  *
@@ -145,6 +143,7 @@ public class GeofencePlugin extends Plugin {
 
     @PluginMethod
     public void addGeofence(PluginCall call) {
+        long generation = GeofenceRegistrar.generation();
         String id = call.getString("id");
         Double lat = call.getDouble("lat");
         Double lng = call.getDouble("lng");
@@ -161,7 +160,7 @@ public class GeofencePlugin extends Plugin {
 
         // Shared with BootReceiver so a boot-time re-registration builds the
         // exact same request this live call does.
-        GeofenceRegistrar.register(getContext(), client, id, lat, lng, radius, (success, error) -> {
+        GeofenceRegistrar.register(getContext(), client, generation, id, lat, lng, radius, (success, error) -> {
             if (!success) {
                 call.reject("could not register the geofence: " + error);
                 return;
@@ -177,38 +176,28 @@ public class GeofencePlugin extends Plugin {
 
     @PluginMethod
     public void removeGeofence(PluginCall call) {
+        long generation = GeofenceRegistrar.generation();
         String id = call.getString("id");
         if (id == null) {
             call.reject("id is required");
             return;
         }
-        client.removeGeofences(Collections.singletonList(id))
-                .addOnSuccessListener(unused -> {
-                    GeofenceStore.remove(getContext(), id);
-                    call.resolve();
-                })
-                .addOnFailureListener(e -> call.reject("could not remove the geofence: " + e.getMessage()));
+        GeofenceRegistrar.unregister(client, generation, id, (success, error) -> {
+            if (!success) {
+                call.reject("could not remove the geofence: " + error);
+                return;
+            }
+            GeofenceStore.remove(getContext(), id);
+            call.resolve();
+        });
     }
 
     @PluginMethod
     public void clearAccountData(PluginCall call) {
-        synchronized (GeofenceReceiver.LOCK) {
-            boolean fencesCleared = GeofenceStore.clear(getContext());
-            boolean queueCleared = getContext()
-                    .getSharedPreferences(GeofenceReceiver.PREFS, Context.MODE_PRIVATE)
-                    .edit().remove(GeofenceReceiver.QUEUE_KEY).remove("agentmesh.geofence.queue").commit();
-            if (!fencesCleared || !queueCleared) {
-                call.reject("could not clear stored location data");
-                return;
-            }
-        }
-        try {
-            client.removeGeofences(GeofenceRegistrar.transitionIntent(getContext()))
-                    .addOnSuccessListener(unused -> call.resolve())
-                    .addOnFailureListener(e -> call.reject("could not remove account geofences", e));
-        } catch (SecurityException e) {
-            call.reject("could not remove account geofences", e);
-        }
+        GeofenceRegistrar.clearAccountData(getContext(), client, (success, error) -> {
+            if (success) call.resolve();
+            else call.reject(error);
+        });
     }
 
     /**

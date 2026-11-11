@@ -51,6 +51,34 @@ describe("listenForBack", () => {
     expect(back).not.toHaveBeenCalled();
   });
 
+  it("closes a modal history entry when native history reports no previous page", async () => {
+    vi.spyOn(window.history, "state", "get").mockReturnValue({ __amSheet: true });
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    const { listenForBack } = await import("./back");
+    await listenForBack();
+
+    const handler = app.handlers[0];
+    if (!handler) throw new Error("Back listener was not registered");
+    handler({ canGoBack: false });
+
+    expect(back).toHaveBeenCalledTimes(1);
+    expect(app.minimizeApp).not.toHaveBeenCalled();
+  });
+
+  it("minimizes after the modal history entry has been removed", async () => {
+    vi.spyOn(window.history, "state", "get").mockReturnValue({ __amSheet: false });
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    const { listenForBack } = await import("./back");
+    await listenForBack();
+
+    const handler = app.handlers[0];
+    if (!handler) throw new Error("Back listener was not registered");
+    handler({ canGoBack: false });
+
+    expect(back).not.toHaveBeenCalled();
+    expect(app.minimizeApp).toHaveBeenCalledTimes(1);
+  });
+
   it("attaches one listener however often it is called", async () => {
     const { listenForBack } = await import("./back");
     await listenForBack();

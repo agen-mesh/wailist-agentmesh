@@ -8,7 +8,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 // android/app/src/main/java/ai/agentmesh/app: the OS watches the boundary and
 // wakes us on a crossing, which no web page can do.
 const config: CapacitorConfig = {
-  appId: "ai.agentmesh.app",
+  appId: "com.agentmesh.app",
   appName: "AgentMesh",
   webDir: "www",
 

@@ -32,9 +32,14 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
-const scheme = readFileSync("../mobile/capacitor.config.ts", "utf8").match(
-  /appId:\s*"([^"]+)"/,
-)![1];
+// The scheme Android actually routes on: custom_url_scheme, which the
+// intent-filter in AndroidManifest.xml reads. Not capacitor.config.ts's appId
+// -- the Play package is com.agentmesh.app while the scheme stays
+// ai.agentmesh.app to match the backend's redirect.
+const scheme = readFileSync(
+  "../mobile/android/app/src/main/res/values/strings.xml",
+  "utf8",
+).match(/<string name="custom_url_scheme">([^<]+)<\/string>/)![1];
 const callback = `${scheme}://auth?code=launch-code`;
 const key = "agentmesh.oauth.verifier";
 

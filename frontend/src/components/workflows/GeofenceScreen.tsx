@@ -5,6 +5,7 @@ import { workflows } from "@/lib/api";
 import { IS_NATIVE } from "@/lib/nativeAuth";
 import { can } from "@/lib/readonly";
 import { useReadOnly } from "@/hooks/useReadOnly";
+import { useModalDismissal } from "@/hooks/useModalDismissal";
 import {
   MAX_RADIUS_M,
   MIN_RADIUS_M,
@@ -52,6 +53,14 @@ type Status =
 // permission refusal must not read as a save that failed.
 type PermissionState = "denied" | "denied-permanently";
 
+type DisclosureCopy = {
+  title: string;
+  body: string;
+  grant: string;
+  decline: string;
+  intent: "locate" | "arm";
+};
+
 // Long enough to get a real fix rather than the last cached one, short enough
 // that a phone indoors with no sky in view gives up and says so.
 const FIX_TIMEOUT_MS = 15_000;
@@ -72,6 +81,21 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
   // answer, so there is nothing honest to show before it has run once.
   const [deviceArmed, setDeviceArmed] = useState<boolean | null>(null);
   const [permission, setPermission] = useState<PermissionState | null>(null);
+  // The prominent disclosure, when it is up. Play's background-location policy
+  // requires it on screen BEFORE Android's permission dialog, and the review
+  // video has to show it, so the dialog is only ever reached through it.
+  const [disclosure, setDisclosure] = useState<DisclosureCopy | null>(null);
+  const disclosureRef = useRef<HTMLDialogElement>(null);
+  const closeDisclosure = useCallback(() => setDisclosure(null), []);
+  useModalDismissal(closeDisclosure, disclosure !== null);
+
+  useEffect(() => {
+    const dialog = disclosureRef.current;
+    if (!dialog || !disclosure) return;
+    dialog.showModal();
+    dialog.querySelector("h2")?.focus();
+    return () => dialog.close();
+  }, [disclosure]);
 
   // The zone as the server currently has it, or null if there is none. All
   // three fields move together -- a partly configured zone means nothing.
@@ -122,7 +146,15 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
     };
   }, []);
 
-  const locate = useCallback(() => {
+  // Native only: the copy lives beside requestBackgroundLocation in
+  // native/permissions, which a browser build must not pull in.
+  const openDisclosure = useCallback(async (intent: "locate" | "arm" = "arm") => {
+    if (!IS_NATIVE) return;
+    const perms = await import("@/native/permissions");
+    if (liveRef.current) setDisclosure({ ...perms.DISCLOSURE, intent });
+  }, []);
+
+  const locateCurrent = useCallback(() => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       setStatus({
         kind: "error",
@@ -158,6 +190,11 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
       { enableHighAccuracy: true, timeout: FIX_TIMEOUT_MS, maximumAge: 0 },
     );
   }, []);
+
+  const locate = useCallback(() => {
+    if (IS_NATIVE) void openDisclosure("locate");
+    else locateCurrent();
+  }, [locateCurrent, openDisclosure]);
 
   const radiusCheck = checkRadius(radiusM);
 
@@ -202,10 +239,14 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
         // app, so that is the common case for a first save). Discarding it
         // would report success on a trigger that will never fire.
         const { shell } = await import("@/native");
+        if (!liveRef.current) return;
         const armed = await shell.setGeofence(workflowId, fence);
         if (!liveRef.current) return;
         setDeviceArmed(armed);
         if (armed) setPermission(null);
+        // A first save on a phone that has not granted background location
+        // is the moment to explain and ask -- not a notice to go find.
+        else if (permission !== "denied-permanently") void openDisclosure();
       } else {
         await workflows.setGeofence(workflowId, fence);
       }
@@ -236,7 +277,7 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
         message: err instanceof Error ? err.message : "could not save the zone",
       });
     }
-  }, [accuracyM, here, radiusM, workflowId]);
+  }, [accuracyM, here, openDisclosure, permission, radiusM, workflowId]);
 
   // Asks for background location and, if granted, re-arms the OS watch for
   // the zone the server already has. The server write from the save above
@@ -247,13 +288,27 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
   // and calls a plugin that only exists inside the Capacitor shell.
   const requestAccess = useCallback(async () => {
     if (!IS_NATIVE) return;
-    const perms = await import("@/native/permissions");
     if (permission === "denied-permanently") {
       // Android will not show the system dialog again after an outright
       // refusal -- Settings is the only way back.
+      const perms = await import("@/native/permissions");
       await perms.openSettings();
       return;
     }
+    await openDisclosure();
+  }, [openDisclosure, permission]);
+
+  // Only reachable from the disclosure's grant button: this is what puts
+  // Android's dialog on screen.
+  const grantAccess = useCallback(async () => {
+    if (!IS_NATIVE || !disclosure) return;
+    setDisclosure(null);
+    if (disclosure.intent === "locate") {
+      locateCurrent();
+      return;
+    }
+    const perms = await import("@/native/permissions");
+    if (!liveRef.current) return;
     const result = await perms.requestBackgroundLocation();
     if (!liveRef.current) return;
     if (result !== "granted") {
@@ -263,13 +318,14 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
     setPermission(null);
     if (!saved) return;
     const { shell } = await import("@/native");
+    if (!liveRef.current) return;
     const armed = await shell.setGeofence(workflowId, {
       lat: saved.centre.lat,
       lng: saved.centre.lng,
       radiusM: saved.radiusM,
     });
     if (liveRef.current) setDeviceArmed(armed);
-  }, [permission, saved, workflowId]);
+  }, [disclosure, locateCurrent, saved, workflowId]);
 
   const clear = useCallback(async () => {
     setStatus({ kind: "clearing" });
@@ -494,7 +550,43 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
           not have. deviceArmed is only ever false here on native -- the web
           branch of save() never touches it, so it stays at its initial
           null. */}
-      {status.kind === "saved" && deviceArmed === false && (
+      {disclosure && (
+        <dialog
+          ref={disclosureRef}
+          aria-modal="true"
+          aria-labelledby="geofence-disclosure-title"
+          onCancel={closeDisclosure}
+          className="geofence-disclosure"
+          style={disclosurePanel}
+        >
+          <style>{`.geofence-disclosure::backdrop { background: rgba(8,7,12,0.72); }`}</style>
+          <h2 id="geofence-disclosure-title" tabIndex={-1} style={disclosureTitle}>
+            {disclosure.title}
+          </h2>
+          {disclosure.body.split("\n\n").map((para, i) => (
+            <p key={i} style={{ ...copy, marginTop: i === 0 ? 0 : 10 }}>
+              {para}
+            </p>
+          ))}
+          <div style={actionRow}>
+            <button
+              type="button"
+              onClick={grantAccess}
+              style={{ ...primaryBtn, ...touchTarget }}
+            >
+              {disclosure.grant}
+            </button>
+            <button
+              type="button"
+              onClick={closeDisclosure}
+              style={{ ...ghostBtn, ...touchTarget }}
+            >
+              {disclosure.decline}
+            </button>
+          </div>
+        </dialog>
+      )}
+      {status.kind === "saved" && deviceArmed === false && !disclosure && (
         <Notice tone="danger">
           Zone saved, but this phone is not watching it yet.{" "}
           {permission === "denied-permanently"
@@ -567,6 +659,25 @@ export function GeofenceScreen({ workflowId }: { workflowId: string }) {
 }
 
 // -- Local presentation -----------------------------------------------------
+
+const disclosureTitle: React.CSSProperties = {
+  font: "600 17px/1.3 var(--font-sans)",
+  color: "var(--fg)",
+  margin: "0 0 10px",
+};
+
+const disclosurePanel: React.CSSProperties = {
+  width: "calc(100% - 32px)",
+  maxWidth: 540,
+  maxHeight: "calc(100dvh - 32px)",
+  overflowY: "auto",
+  margin: "auto",
+  padding: 16,
+  border: "1px solid var(--border-strong)",
+  borderRadius: "var(--r-3)",
+  background: "var(--bg-elev-1)",
+  color: "var(--fg)",
+};
 
 const title: React.CSSProperties = {
   font: "600 20px/1.3 var(--font-sans)",
