@@ -200,6 +200,50 @@ func TestDebitCreditsForPlatformLLMInsufficientBalance(t *testing.T) {
 	}
 }
 
+// A platform-key agent's fee is reserved before its LLM turn (#29) and only
+// committed once the turn is known to be owed. The commit writes the same
+// usage columns a direct debit does, and leaves the already-decremented
+// balance alone.
+func TestCommitReservedPlatformLLMDebitWritesUsageColumnsWithoutTouchingBalance(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	userID, workflowID, runID := setupDebitTestFixtures(t, store, 100000) // 10 cents
+
+	if err := store.ReserveCredits(ctx, userID, 30000); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CommitReservedPlatformLLMDebit(ctx, userID, 30000, workflowID, runID, "agent1", "gpt-4.1", 120, 45); err != nil {
+		t.Fatal(err)
+	}
+
+	balance, err := store.GetCreditBalance(ctx, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 70000 {
+		t.Fatalf("balance = %d, want 70000 (reserved once, commit must not decrement again)", balance)
+	}
+
+	entries, err := store.ListDebitLedger(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	e := entries[0]
+	if e.Kind != models.DebitKindPlatformKeyLLMFee || e.AmountUSDMicros != 30000 {
+		t.Fatalf("entry = kind %q amount %d, want %q 30000", e.Kind, e.AmountUSDMicros, models.DebitKindPlatformKeyLLMFee)
+	}
+	if e.Model == nil || *e.Model != "gpt-4.1" {
+		t.Fatalf("model = %v, want gpt-4.1", e.Model)
+	}
+	if e.TokensIn == nil || *e.TokensIn != 120 || e.TokensOut == nil || *e.TokensOut != 45 {
+		t.Fatalf("usage = tokensIn=%v tokensOut=%v, want 120/45", e.TokensIn, e.TokensOut)
+	}
+}
+
 // A build's test run charges its platform-key agent calls with no run to
 // point at (migration 000037 makes run_id nullable for this kind only). The
 // debit must still be the same atomic check-and-decrement as any other.

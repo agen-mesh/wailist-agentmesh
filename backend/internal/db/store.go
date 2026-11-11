@@ -1811,6 +1811,18 @@ func (s *Store) CommitReservedDebit(ctx context.Context, userID string, amountUS
 	return err
 }
 
+// The amount must already be reserved; recording usage must not debit it twice.
+func (s *Store) CommitReservedPlatformLLMDebit(ctx context.Context, userID string, amountUSDMicros int64, workflowID, runID, nodeID, model string, tokensIn, tokensOut int) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO debit_ledger (user_id, workflow_id, run_id, node_id, kind, amount_usd_micros, model, tokens_in, tokens_out)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, userID, workflowID, runID, nodeID, models.DebitKindPlatformKeyLLMFee, amountUSDMicros, model, tokensIn, tokensOut)
+	if err != nil {
+		return fmt.Errorf("record reserved agent fee: %w", err)
+	}
+	return nil
+}
+
 // ReleaseReservedCredits credits back a ReserveCredits reservation that
 // never became a real charge (the payment attempt failed, or was never
 // confirmed settled, before any money moved). No debit_ledger row: nothing
@@ -2384,7 +2396,7 @@ func (s *Store) GetOAuthCredential(ctx context.Context, id string) (models.OAuth
 func (s *Store) ListOAuthCredentials(ctx context.Context, userID, provider string) ([]models.OAuthCredential, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+oauthCredentialCols+` FROM oauth_credentials
-		 WHERE user_id = $1 AND provider = $2 ORDER BY created_at DESC`, userID, provider)
+		 WHERE user_id = $1 AND ($2 = '' OR provider = $2) ORDER BY created_at DESC`, userID, provider)
 	if err != nil {
 		return nil, err
 	}

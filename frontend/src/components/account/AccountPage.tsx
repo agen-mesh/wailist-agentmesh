@@ -68,7 +68,7 @@ export function AccountPage() {
 
           <ul style={list}>
             <li>
-              <Link href="/settings" className="account-row" style={row}>
+              <Link href="/settings#delete-title" className="account-row" style={row}>
                 <span>Delete account</span>
                 <Chevron />
               </Link>

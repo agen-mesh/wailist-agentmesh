@@ -2,7 +2,7 @@
 import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { type NavItem, groupNavItems, isNavItemActive } from "@/lib/nav";
 import { useScrollLock } from "@/hooks/useScrollLock";
-import { useCloseOnBack } from "@/hooks/useCloseOnBack";
+import { useSheetHistory } from "@/hooks/useCloseOnBack";
 
 interface AppNavProps {
   items: readonly NavItem[];
@@ -12,7 +12,7 @@ interface AppNavProps {
   actions?: React.ReactNode;
   /** Current pathname, for active state. Landing pages can pass "". */
   pathname: string;
-  onSelect: (item: NavItem) => void;
+  onSelect: (item: NavItem, options?: { replace: boolean }) => void;
   /** Renders the inline links; lets each surface keep its own link styling. */
   renderInlineLink: (args: {
     item: NavItem;
@@ -73,10 +73,7 @@ export function AppNav({
   const sheetRef = useRef<HTMLDivElement>(null);
 
   useScrollLock(open, scrollContainer);
-  // Back closes the sheet rather than leaving the page under it. Every path
-  // that closes the sheet sets `open` to false, and the hook removes its
-  // history entry when that happens, so its return value is not needed.
-  useCloseOnBack(() => setOpen(false), open);
+  const { close, consumeHistoryEntry } = useSheetHistory(() => setOpen(false), open);
 
   // Escape closes and returns focus to the trigger, per the disclosure pattern.
   useEffect(() => {
@@ -141,8 +138,14 @@ export function AppNav({
   }, []);
 
   const select = (item: NavItem) => {
-    setOpen(false);
-    onSelect(item);
+    if (item.href && item.href !== pathname) {
+      const replace = consumeHistoryEntry();
+      setOpen(false);
+      onSelect(item, { replace });
+      return;
+    }
+    close();
+    if (!item.href) onSelect(item);
   };
 
   return (

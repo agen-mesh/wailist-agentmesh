@@ -7,7 +7,6 @@ import { ExternalLink } from "@/components/ExternalLink";
 import { workflowHref } from "@/lib/routes";
 import { scopedWorkflowLabel } from "@/lib/usageScope";
 import { useCredits } from "@/lib/credits/store";
-import { LOW_BALANCE_THRESHOLD_USD } from "@/lib/credits/fx";
 import type { UsageCategory, UsagePayload, UsageRange } from "@/lib/types";
 import { AreaChart } from "../AreaChart";
 import { Donut } from "../Donut";
@@ -54,13 +53,13 @@ export function UsagePhonePage(p: UsagePhoneProps) {
   const [allEndpoints, setAllEndpoints] = useState(false);
   // What is left sits beside what was spent. The store keeps a copy across
   // routes that goes stale as runs spend, so it is re-read on arrival.
-  const { balanceUSD, balanceKnown, refreshBalance } = useCredits();
+  const { balanceUSD, balanceKnown, refreshBalance, lowBalanceThresholdUSD } = useCredits();
   useEffect(() => {
     void refreshBalance();
   }, [refreshBalance]);
   const creditState = !balanceKnown
     ? "unknown"
-    : balanceUSD < LOW_BALANCE_THRESHOLD_USD
+    : balanceUSD < lowBalanceThresholdUSD
       ? "low"
       : "ok";
 
